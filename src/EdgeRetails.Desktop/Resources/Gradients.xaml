@@ -1,0 +1,141 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Strong semantic gradients. These are intentionally visible, but kept restrained enough for a desktop POS. -->
+    <LinearGradientBrush x:Key="Gradient.Brand.Primary" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#8C7BFF" />
+        <GradientStop Offset="0.52" Color="#6C5CFF" />
+        <GradientStop Offset="1" Color="#5142DE" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Brand.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#9B8DFF" />
+        <GradientStop Offset="0.52" Color="#796BFF" />
+        <GradientStop Offset="1" Color="#6254EF" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Brand.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#6758EE" />
+        <GradientStop Offset="0.58" Color="#5546E8" />
+        <GradientStop Offset="1" Color="#4537CA" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Success" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#2DD4BF" />
+        <GradientStop Offset="0.52" Color="#18B987" />
+        <GradientStop Offset="1" Color="#0F9F76" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Info" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#60A5FA" />
+        <GradientStop Offset="0.52" Color="#3B82F6" />
+        <GradientStop Offset="1" Color="#2563EB" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Payment" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#22D3EE" />
+        <GradientStop Offset="0.52" Color="#14B8A6" />
+        <GradientStop Offset="1" Color="#0F9F8F" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Warning" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#FBBF24" />
+        <GradientStop Offset="0.52" Color="#F59E0B" />
+        <GradientStop Offset="1" Color="#D97706" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Expense" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#FB923C" />
+        <GradientStop Offset="0.5" Color="#F97316" />
+        <GradientStop Offset="1" Color="#EA580C" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Success.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#43E0C9" />
+        <GradientStop Offset="1" Color="#13AD80" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Success.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#17B99E" />
+        <GradientStop Offset="1" Color="#0B8563" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Info.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#75B4FF" />
+        <GradientStop Offset="1" Color="#3274F2" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Info.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#3F86EE" />
+        <GradientStop Offset="1" Color="#1F55CB" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Payment.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#3BDDF0" />
+        <GradientStop Offset="1" Color="#16AE9E" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Payment.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#16B8CD" />
+        <GradientStop Offset="1" Color="#0B8276" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Warning.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#FFD04B" />
+        <GradientStop Offset="1" Color="#E58A08" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Warning.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#E9A313" />
+        <GradientStop Offset="1" Color="#B95B05" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Expense.Hover" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#FFA363" />
+        <GradientStop Offset="1" Color="#F16111" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Expense.Pressed" StartPoint="0,0" EndPoint="1,0.85">
+        <GradientStop Offset="0" Color="#EB7627" />
+        <GradientStop Offset="1" Color="#C94708" />
+    </LinearGradientBrush>
+    <!-- Fallback surface gradients. Light/Dark theme dictionaries override these keys at runtime. -->
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Header" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="1" Color="#EEF3FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Active" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#F0ECFF" />
+        <GradientStop Offset="1" Color="#E8F0FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Footer" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="1" Color="#F6F7FB" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Surface.Card" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="0.55" Color="#FAFBFF" />
+        <GradientStop Offset="1" Color="#F4F7FC" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Kpi.Brand" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E8E7FF" />
+        <GradientStop Offset="1" Color="#F7F8FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Success" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E2FAF4" />
+        <GradientStop Offset="1" Color="#F7FFFC" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Info" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E6F1FF" />
+        <GradientStop Offset="1" Color="#F8FBFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Payment" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E3FAFC" />
+        <GradientStop Offset="1" Color="#F7FFFD" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Warning" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFF1CF" />
+        <GradientStop Offset="1" Color="#FFFAEF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Thaka" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#EFE8FF" />
+        <GradientStop Offset="1" Color="#FAF8FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Expense" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFE7D5" />
+        <GradientStop Offset="1" Color="#FFF8F2" />
+    </LinearGradientBrush>
+</ResourceDictionary>

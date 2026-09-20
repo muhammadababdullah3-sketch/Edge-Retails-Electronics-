@@ -1,0 +1,345 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.Sprint1VerificationView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Focusable="False">
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="24,20,24,32">
+                <TextBlock Text="Sprint 1 Component Verification"
+                           Style="{StaticResource Text.PageTitle}" />
+                <TextBlock Margin="0,5.25,0,21"
+                           Text="This page renders the shared Sprint 1 UI resources so they can be checked in the real WPF application."
+                           Style="{StaticResource Text.Secondary}"
+                           TextWrapping="Wrap" />
+
+                <Border Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Actions and theme"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <WrapPanel Margin="0,14,0,0">
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Light Theme"
+                                    Command="{Binding ApplyLightThemeCommand}"
+                                    Style="{StaticResource Button.Neutral}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Dark Theme"
+                                    Command="{Binding ApplyDarkThemeCommand}"
+                                    Style="{StaticResource Button.Neutral}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Open Modal"
+                                    Command="{Binding ShowModalCommand}"
+                                    Style="{StaticResource Button.Primary}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Open Drawer"
+                                    Command="{Binding ShowDrawerCommand}"
+                                    Style="{StaticResource Button.Info.Compact}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Show Toast"
+                                    Command="{Binding ShowToastCommand}"
+                                    Style="{StaticResource Button.Payment.Compact}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Buttons"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <WrapPanel Margin="0,14,0,0">
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Primary"
+                                    Style="{StaticResource Button.Primary}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Neutral"
+                                    Style="{StaticResource Button.Neutral}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Add Material"
+                                    Style="{StaticResource Button.Info.Compact}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Record Payment"
+                                    Style="{StaticResource Button.Payment.Compact}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Final Settlement"
+                                    Style="{StaticResource Button.Warning.Compact}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Expense"
+                                    Style="{StaticResource Button.Expense}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Complete Sale"
+                                    Style="{StaticResource Button.Success.PrimaryAction}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Save Purchase"
+                                    Style="{StaticResource Button.Info.PrimaryAction}" />
+                            <Button Margin="0,0,18,10.5"
+                                    Content="Text Action"
+                                    Style="{StaticResource Button.Text.Primary}" />
+                            <Button Margin="0,0,18,10.5"
+                                    Content="Neutral Text"
+                                    Style="{StaticResource Button.Text.Neutral}" />
+                            <Button Margin="0,0,10.5,10.5"
+                                    Content="Disabled"
+                                    IsEnabled="False"
+                                    Style="{StaticResource Button.Primary}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Gradient library"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <WrapPanel Margin="0,14,0,0">
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Brand.Primary}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Brand Primary" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Brand.Hover}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Brand Hover" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Brand.Pressed}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Brand Pressed" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Success}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Success" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Info}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Info" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Payment}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Payment" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Warning}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Warning" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{StaticResource Gradient.Expense}" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Expense" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Sidebar.Header}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Sidebar Header" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Sidebar.Active}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Sidebar Active" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Sidebar.Footer}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Sidebar Footer" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Surface.Card}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="Surface Card" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Brand}" BorderBrush="{StaticResource Brush.Brand.Primary}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Brand" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Success}" BorderBrush="{StaticResource Brush.Function.Success}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Success" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Info}" BorderBrush="{StaticResource Brush.Function.Info}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Info" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Payment}" BorderBrush="{StaticResource Brush.Function.Payment}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Payment" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Warning}" BorderBrush="{StaticResource Brush.Function.Warning}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Warning" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Thaka}" BorderBrush="{StaticResource Brush.Thaka}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Thaka" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                            <StackPanel Width="170" Margin="0,0,12,12">
+                                <Border Height="44" Background="{DynamicResource Gradient.Kpi.Expense}" BorderBrush="{StaticResource Brush.Function.Expense}" BorderThickness="1" CornerRadius="8" />
+                                <TextBlock Margin="0,5,0,0" Text="KPI Expense" Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Inputs"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="21" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Standard input" Style="{StaticResource Text.Caption}" />
+                                <TextBox Margin="0,5.25,0,14"
+                                         Text="Sample product"
+                                         Style="{StaticResource Input.TextBox}" />
+                                <TextBlock Text="Compact input" Style="{StaticResource Text.Caption}" />
+                                <TextBox Margin="0,5.25,0,14"
+                                         Text="Compact value"
+                                         Style="{StaticResource Input.TextBox.Compact}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Category ComboBox" Style="{StaticResource Text.Caption}" />
+                                <ComboBox Margin="0,5.25,0,14"
+                                          ItemsSource="{Binding Categories}"
+                                          SelectedItem="{Binding SelectedCategory}"
+                                          Style="{StaticResource Input.ComboBox}" />
+                                <TextBlock Text="SearchBox" Style="{StaticResource Text.Caption}" />
+                                <controls:SearchBox Margin="0,5.25,0,0"
+                                                    Text="{Binding SearchText, Mode=TwoWay}"
+                                                    Placeholder="Search products..." />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Cards and KPI components"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <UniformGrid Margin="0,14,0,0" Columns="4">
+                            <controls:KpiCard Margin="0,0,10.5,10.5" Title="Today Sales" Value="Rs. 184,500" Tone="Brand" IconGeometry="{StaticResource Icon.Nav.Dashboard}" />
+                            <controls:KpiCard Margin="0,0,10.5,10.5" Title="Today Profit" Value="Rs. 28,900" Tone="Success" IconGeometry="{StaticResource Icon.Nav.Reports}" />
+                            <controls:KpiCard Margin="0,0,10.5,10.5" Title="Purchases" Value="Rs. 76,400" Tone="Info" IconGeometry="{StaticResource Icon.Nav.Purchases}" />
+                            <controls:KpiCard Margin="0,0,0,10.5" Title="Payments" Value="Rs. 31,500" Tone="Payment" IconGeometry="{StaticResource Icon.Nav.Customers}" />
+                            <controls:KpiCard Margin="0,0,10.5,0" Title="Low Stock" Value="12" Tone="Warning" IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                            <controls:KpiCard Margin="0,0,10.5,0" Title="Expenses" Value="Rs. 8,250" Tone="Expense" IconGeometry="{StaticResource Icon.Nav.Expenses}" />
+                            <controls:KpiCard Margin="0,0,10.5,0" Title="Active Thakas" Value="7" Tone="Thaka" IconGeometry="{StaticResource Icon.Nav.ThakaProjects}" />
+                            <controls:KpiCard Title="Neutral KPI" Value="24" Tone="Neutral" IconGeometry="{StaticResource Icon.Nav.Settings}" />
+                        </UniformGrid>
+
+                        <Grid Margin="0,21,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" MinHeight="92" Style="{StaticResource Card.Default}">
+                                <StackPanel>
+                                    <TextBlock Text="Default Card" Style="{StaticResource Text.Control}" />
+                                    <TextBlock Margin="0,5,0,0" Text="Flat surface with border." Style="{StaticResource Text.Secondary}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" MinHeight="92" Style="{StaticResource Card.Textured}">
+                                <StackPanel>
+                                    <TextBlock Text="Textured Card" Style="{StaticResource Text.Control}" />
+                                    <TextBlock Margin="0,5,0,0" Text="Subtle gradient surface." Style="{StaticResource Text.Secondary}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="4" MinHeight="92" Style="{StaticResource Card.Raised}">
+                                <StackPanel>
+                                    <TextBlock Text="Raised Card" Style="{StaticResource Text.Control}" />
+                                    <TextBlock Margin="0,5,0,0" Text="Border with restrained elevation." Style="{StaticResource Text.Secondary}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Badges and tabs"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <WrapPanel Margin="0,14,0,0">
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Neutral" Tone="Neutral" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Brand" Tone="Brand" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Active" Tone="Success" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Low Stock" Tone="Warning" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Info" Tone="Info" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Danger" Tone="Danger" />
+                            <controls:StatusBadge Margin="0,0,10.5,10.5" Text="Thaka" Tone="Thaka" />
+                        </WrapPanel>
+
+                        <TabControl Margin="0,10.5,0,0"
+                                    Height="118"
+                                    Style="{StaticResource Tabs.Control}">
+                            <TabItem Header="Overview" Style="{StaticResource Tabs.Item}">
+                                <Border Margin="0,10.5,0,0" Style="{StaticResource Card.Textured}">
+                                    <TextBlock Text="Selected tab content." Style="{StaticResource Text.Secondary}" />
+                                </Border>
+                            </TabItem>
+                            <TabItem Header="Stock Movement" Style="{StaticResource Tabs.Item}">
+                                <Border Margin="0,10.5,0,0" Style="{StaticResource Card.Textured}">
+                                    <TextBlock Text="Second tab content." Style="{StaticResource Text.Secondary}" />
+                                </Border>
+                            </TabItem>
+                        </TabControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="DataGrid"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <DataGrid Margin="0,14,0,0"
+                                  Height="235"
+                                  ItemsSource="{Binding SampleRows}"
+                                  Style="{StaticResource Table.DataGrid}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Product" Binding="{Binding Product}" ElementStyle="{StaticResource Table.TextCell}" Width="2*" />
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" ElementStyle="{StaticResource Table.TextCell}" Width="*" />
+                                <DataGridTextColumn Header="Stock" Binding="{Binding Stock}" ElementStyle="{StaticResource Table.TextCell}" Width="90" />
+                                <DataGridTextColumn Header="Price" Binding="{Binding Price}" ElementStyle="{StaticResource Table.TextCell}" Width="120" />
+                                <DataGridTemplateColumn Header="Status" Width="130">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <controls:StatusBadge Text="{Binding Status}" Tone="{Binding StatusTone}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Margin="0,21,0,0"
+                        Style="{StaticResource Card.Default}">
+                    <StackPanel>
+                        <TextBlock Text="Empty and loading states"
+                                   Style="{StaticResource Text.SectionTitle}" />
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0"
+                                    Height="170"
+                                    Style="{StaticResource Card.Textured}">
+                                <controls:EmptyState Title="No products found"
+                                                     Message="Try changing the search or filter."
+                                                     IconGeometry="{StaticResource Icon.Search}" />
+                            </Border>
+                            <Border Grid.Column="2"
+                                    Height="170"
+                                    Style="{StaticResource Card.Textured}">
+                                <controls:LoadingState Message="Loading Sprint 1 components..." />
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

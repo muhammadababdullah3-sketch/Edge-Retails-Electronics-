@@ -1,0 +1,41 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.ShellView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Focusable="False">
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <controls:AppSidebar Grid.Column="0" />
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="{StaticResource Dimension.TopBar.GridLength}" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <controls:AppTopBar Grid.Row="0" />
+
+                <ContentControl Grid.Row="1"
+                                Content="{Binding CurrentPage}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                KeyboardNavigation.TabNavigation="Cycle" />
+            </Grid>
+        </Grid>
+
+        <controls:DrawerHost Panel.ZIndex="20"
+                             DataContext="{Binding DrawerService}" />
+
+        <controls:ModalHost Panel.ZIndex="30"
+                            DataContext="{Binding DialogService}" />
+
+        <controls:ToastHost Panel.ZIndex="40"
+                            DataContext="{Binding ToastService}" />
+    </Grid>
+</UserControl>

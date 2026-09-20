@@ -1,0 +1,39 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <sys:Double x:Key="Space.1.75">1.75</sys:Double>
+    <sys:Double x:Key="Space.3.5">3.5</sys:Double>
+    <sys:Double x:Key="Space.5.25">5.25</sys:Double>
+    <sys:Double x:Key="Space.7">7</sys:Double>
+    <sys:Double x:Key="Space.8.75">8.75</sys:Double>
+    <sys:Double x:Key="Space.10.5">10.5</sys:Double>
+    <sys:Double x:Key="Space.14">14</sys:Double>
+    <sys:Double x:Key="Space.17.5">17.5</sys:Double>
+    <sys:Double x:Key="Space.21">21</sys:Double>
+    <sys:Double x:Key="Space.24">24</sys:Double>
+    <sys:Double x:Key="Space.28">28</sys:Double>
+
+    <sys:Double x:Key="Dimension.Sidebar.Expanded">232</sys:Double>
+    <sys:Double x:Key="Dimension.Sidebar.Collapsed">72</sys:Double>
+    <sys:Double x:Key="Dimension.TopBar.Height">56</sys:Double>
+    <GridLength x:Key="Dimension.TopBar.GridLength">56</GridLength>
+    <sys:Double x:Key="Dimension.Control.Standard">35</sys:Double>
+    <sys:Double x:Key="Dimension.Control.Compact">28</sys:Double>
+    <sys:Double x:Key="Dimension.Button.CompactAction">31.5</sys:Double>
+    <sys:Double x:Key="Dimension.Button.Standard">35</sys:Double>
+    <sys:Double x:Key="Dimension.Button.PrimaryAction">46</sys:Double>
+    <sys:Double x:Key="Dimension.Button.PrimaryPurchaseAction">48</sys:Double>
+    <sys:Double x:Key="Dimension.Search.Large">44</sys:Double>
+    <sys:Double x:Key="Dimension.Table.Header">35</sys:Double>
+    <sys:Double x:Key="Dimension.Table.Row">38.5</sys:Double>
+    <sys:Double x:Key="Dimension.Drawer.Width">480</sys:Double>
+
+    <Thickness x:Key="Padding.Control.Standard">14,0</Thickness>
+    <Thickness x:Key="Padding.Input.Standard">10.5,0</Thickness>
+    <Thickness x:Key="Padding.Sidebar.Navigation">10.5</Thickness>
+    <Thickness x:Key="Padding.TopBar">21,0</Thickness>
+    <Thickness x:Key="Padding.Card.Standard">14</Thickness>
+    <Thickness x:Key="Padding.Page.Standard">24,20</Thickness>
+</ResourceDictionary>

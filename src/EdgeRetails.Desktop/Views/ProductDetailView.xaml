@@ -1,0 +1,87 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.ProductDetailView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="1320">
+            <Grid Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="‹ Inventory" Command="{Binding BackCommand}" Style="{StaticResource Button.Text.Primary}" Margin="0,0,12,0" />
+                    <TextBlock Text="/" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,0,12,0" />
+                    <TextBlock Text="{Binding Product.Name}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Stock Adjustment" Command="{Binding StockAdjustmentCommand}" Style="{StaticResource Button.Text.Primary}" Margin="0,0,12,0" />
+                    <Button Content="Edit Product" Command="{Binding EditProductCommand}" Style="{StaticResource Button.Primary}" />
+                </StackPanel>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <TextBlock Text="{Binding Product.Brand}" Margin="0,0,18,0" />
+                <TextBlock Text="{Binding SkuDisplay}" Margin="0,0,18,0" />
+                <TextBlock Text="{Binding CategoryDisplay}" Margin="0,0,18,0" />
+                <TextBlock Text="{Binding UnitDisplay}" Margin="0,0,18,0" />
+                <TextBlock Text="{Binding ModelDisplay}" />
+            </StackPanel>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <controls:KpiCard Grid.Column="0" Height="98" Title="Current Stock" Value="{Binding StockDisplay}" Tone="Brand" IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                <controls:KpiCard Grid.Column="2" Height="98" Title="Purchase Cost" Value="{Binding CostDisplay}" Tone="Info" IconGeometry="{StaticResource Icon.Nav.Purchases}" />
+                <controls:KpiCard Grid.Column="4" Height="98" Title="Sale Price" Value="{Binding PriceDisplay}" Tone="Success" IconGeometry="{StaticResource Icon.Nav.NewSale}" />
+            </Grid>
+            <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                <Grid>
+                    <TextBlock Text="{Binding MinimumStockDisplay, StringFormat=Minimum Stock: {0}}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Overview" Command="{Binding SelectTabCommand}" CommandParameter="Overview" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                        <Button Content="Stock Movement" Command="{Binding SelectTabCommand}" CommandParameter="StockMovement" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                        <Button Content="Purchases" Command="{Binding SelectTabCommand}" CommandParameter="Purchases" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                        <Button Content="Sales" Command="{Binding SelectTabCommand}" CommandParameter="Sales" Style="{StaticResource Button.Neutral}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource Card.Default}">
+                <Grid MinHeight="360">
+                    <StackPanel Visibility="{Binding IsOverview, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Operational Profile" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" />
+                        <TextBlock Text="Current stock is calculated from controlled inventory movements and cannot be edited directly." TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Movements}" Style="{StaticResource Table.DataGrid}" IsReadOnly="True" BorderThickness="0"
+                              Visibility="{Binding IsMovements, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="DATE" Binding="{Binding TimeDisplay}" Width="150" />
+                            <DataGridTextColumn Header="TYPE" Binding="{Binding TypeDisplay}" Width="150" />
+                            <DataGridTextColumn Header="REFERENCE" Binding="{Binding Reference}" Width="*" />
+                            <DataGridTextColumn Header="QTY" Binding="{Binding QuantityDisplay}" Width="100" />
+                            <DataGridTextColumn Header="BEFORE" Binding="{Binding BeforeQuantity}" Width="100" />
+                            <DataGridTextColumn Header="AFTER" Binding="{Binding AfterQuantity}" Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <DataGrid ItemsSource="{Binding Purchases}" Style="{StaticResource Table.DataGrid}" IsReadOnly="True" BorderThickness="0"
+                              Visibility="{Binding IsPurchases, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="140" />
+                            <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
+                            <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="*" />
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <DataGrid ItemsSource="{Binding Sales}"
+                              Style="{StaticResource Table.DataGrid}"
+                              IsReadOnly="True"
+                              BorderThickness="0"
+                              Visibility="{Binding IsSales, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="130" />
+                            <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
+                            <DataGridTextColumn Header="CUSTOMER" Binding="{Binding CustomerName}" Width="2*" />
+                            <DataGridTextColumn Header="QTY" Binding="{Binding QuantityDisplay}" Width="90" />
+                            <DataGridTextColumn Header="UNIT PRICE" Binding="{Binding UnitPriceDisplay}" Width="130" />
+                            <DataGridTextColumn Header="LINE TOTAL" Binding="{Binding LineTotalDisplay}" Width="140" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

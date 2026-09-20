@@ -1,0 +1,141 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.Dialogs.PurchaseReturnDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="980"
+    MaxHeight="680">
+    <Border Background="{DynamicResource Brush.Surface.Raised}"
+            BorderBrush="{DynamicResource Brush.Border.Default}"
+            BorderThickness="1"
+            CornerRadius="12"
+            Effect="{StaticResource Shadow.Card}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0"
+                    Padding="21,14"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="0,0,0,1">
+                <Grid>
+                    <StackPanel>
+                        <TextBlock Text="Purchase Return"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding HeaderDisplay}"
+                                   Margin="0,3,0,0"
+                                   FontSize="13"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding MetaDisplay}"
+                                   FontSize="11.5"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+                    <Button Content="✕"
+                            Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top" />
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="1"
+                          Padding="21"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border BorderBrush="{DynamicResource Brush.Border.Default}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Margin="0,0,0,16">
+                        <DataGrid ItemsSource="{Binding Lines}"
+                                  Style="{StaticResource Table.DataGrid}"
+                                  BorderThickness="0"
+                                  CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="PRODUCT" Width="2.2*">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding ProductName}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding ProductMeta}"
+                                                           FontSize="11"
+                                                           Foreground="{DynamicResource Brush.Text.Muted}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="PURCHASED" Binding="{Binding Purchased}" Width="90" IsReadOnly="True" />
+                                <DataGridTextColumn Header="USED" Binding="{Binding Used}" Width="80" IsReadOnly="True" />
+                                <DataGridTextColumn Header="RETURNED" Binding="{Binding Returned}" Width="90" IsReadOnly="True" />
+                                <DataGridTextColumn Header="ELIGIBLE" Binding="{Binding Eligible}" Width="85" IsReadOnly="True" />
+                                <DataGridTextColumn Header="RETURN QTY"
+                                                    Binding="{Binding ReturnQuantity, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                    Width="100" />
+                                <DataGridTextColumn Header="VALUE" Binding="{Binding ReturnValueDisplay}" Width="120" IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Reason"
+                                       Margin="0,0,0,5"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Secondary}" />
+                            <TextBox Text="{Binding Reason, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="35"
+                                     Padding="10,6" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Note"
+                                       Margin="0,0,0,5"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Secondary}" />
+                            <TextBox Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="35"
+                                     Padding="10,6" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2"
+                    Padding="21,14"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <StackPanel Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="Return Value: "
+                                   FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
+                        <TextBlock Text="{Binding ReturnTotalDisplay}"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <Button Content="Cancel"
+                                Command="{Binding CancelCommand}"
+                                Style="{StaticResource Button.Neutral}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Process Return"
+                                Command="{Binding ConfirmCommand}"
+                                Style="{StaticResource Button.Warning.Compact}"
+                                Height="38"
+                                Padding="18,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

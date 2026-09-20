@@ -1,0 +1,31 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.CustomerDetailView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{DynamicResource Brush.Surface.Raised}">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Border Padding="21,14" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Customer information" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Brush.Text.Muted}" />
+                </StackPanel>
+                <Button Content="✕" Command="{Binding CloseCommand}" Style="{StaticResource Button.Text.Neutral}" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+        <ScrollViewer Grid.Row="1" Padding="21,16">
+            <StackPanel>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Phone" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.Phone}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Address" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.Address}" Margin="126,0,0,0" TextWrapping="Wrap" FontWeight="SemiBold"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Active Thaka" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.ActiveThaka}" Margin="126,0,0,0" FontWeight="SemiBold" Foreground="{StaticResource Brush.Brand.Primary}"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Local Sales" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.LocalSalesDisplay}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
+                <Grid Margin="0,0,0,18"><TextBlock Text="Last Sale" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.LastSaleDisplay}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
+                <TextBlock Text="Notes" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Muted}" />
+                <TextBlock Text="{Binding NotesDisplay}" Margin="0,5,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Primary}"/>
+            </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="2" Padding="16" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,1,0,0">
+            <Button Content="Edit Customer" Command="{Binding EditCommand}" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch"/>
+        </Border>
+    </Grid>
+</UserControl>

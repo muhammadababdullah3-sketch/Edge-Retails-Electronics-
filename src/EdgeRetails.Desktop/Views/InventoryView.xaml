@@ -1,0 +1,122 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.InventoryView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <Grid>
+        <ContentControl Content="{Binding CurrentProductDetail}"
+                        Visibility="{Binding IsDetailViewActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+        <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="{Binding IsDetailViewActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+            <StackPanel MaxWidth="1320">
+                <Grid Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Inventory" FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="24" FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Stock control and movement audit"
+                                   Margin="0,3,0,0" FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Stock Adjustment" Command="{Binding StockAdjustmentCommand}"
+                                Style="{StaticResource Button.Neutral}" Margin="0,0,8,0" />
+                        <Button Content="+ Add Product" Command="{Binding AddProductCommand}"
+                                Style="{StaticResource Button.Primary}" />
+                    </StackPanel>
+                </Grid>
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" /><ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" /><ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:KpiCard Grid.Column="0" Height="98" Title="Total Products"
+                                      Value="{Binding TotalProductsDisplay}" Tone="Brand"
+                                      IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                    <controls:KpiCard Grid.Column="2" Height="98" Title="Low Stock"
+                                      Value="{Binding LowStockDisplay}" Tone="Warning"
+                                      IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                    <controls:KpiCard Grid.Column="4" Height="98" Title="Out of Stock"
+                                      Value="{Binding OutOfStockDisplay}" Tone="Expense"
+                                      IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                </Grid>
+                <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="320" /><ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <controls:SearchBox Grid.Column="0" Height="36"
+                                Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                Placeholder="Search product, model, SKU or barcode..." />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="All Stock" Command="{Binding SelectTabCommand}"
+                                        CommandParameter="AllStock" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                                <Button Content="Low Stock" Command="{Binding SelectTabCommand}"
+                                        CommandParameter="LowStock" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                                <Button Content="Out of Stock" Command="{Binding SelectTabCommand}"
+                                        CommandParameter="OutOfStock" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                                <Button Content="Stock Movements" Command="{Binding SelectTabCommand}"
+                                        CommandParameter="Movements" Style="{StaticResource Button.Neutral}" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox Width="190" Height="35" ItemsSource="{Binding Categories}"
+                                      SelectedItem="{Binding SelectedCategory}" Margin="0,0,8,0" />
+                            <ComboBox Width="190" Height="35" ItemsSource="{Binding Brands}"
+                                      SelectedItem="{Binding SelectedBrand}" Margin="0,0,8,0" />
+                            <ComboBox Width="190" Height="35" ItemsSource="{Binding StockStatuses}"
+                                      SelectedItem="{Binding SelectedStockStatus}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <Border Background="{DynamicResource Brush.Surface.Default}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}">
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding FilteredProducts}"
+                                  SelectedItem="{Binding SelectedProduct, Mode=TwoWay}"
+                                  Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
+                                  BorderThickness="0" MinHeight="380"
+                                  Visibility="{Binding IsStockListTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="PRODUCT" Binding="{Binding Name}" Width="2*" />
+                                <DataGridTextColumn Header="BRAND" Binding="{Binding Brand}" Width="1.3*" />
+                                <DataGridTextColumn Header="STOCK" Binding="{Binding StockDisplay}" Width="150" />
+                                <DataGridTextColumn Header="MIN STOCK" Binding="{Binding MinimumStockDisplay}" Width="120" />
+                                <DataGridTextColumn Header="COST" Binding="{Binding CostDisplay}" Width="130" />
+                                <DataGridTextColumn Header="SALE PRICE" Binding="{Binding PriceDisplay}" Width="140" />
+                                <DataGridTemplateColumn Header="ACTION" Width="100">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                                    Command="{Binding DataContext.OpenProductCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid ItemsSource="{Binding FilteredMovements}"
+                                  Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
+                                  BorderThickness="0" MinHeight="380"
+                                  Visibility="{Binding IsMovementsTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="TIME" Binding="{Binding TimeDisplay}" Width="160" />
+                                <DataGridTextColumn Header="PRODUCT" Binding="{Binding ProductName}" Width="2*" />
+                                <DataGridTextColumn Header="TYPE" Binding="{Binding TypeDisplay}" Width="160" />
+                                <DataGridTextColumn Header="QTY" Binding="{Binding QuantityDisplay}" Width="100" />
+                                <DataGridTextColumn Header="BEFORE" Binding="{Binding BeforeQuantity}" Width="100" />
+                                <DataGridTextColumn Header="AFTER" Binding="{Binding AfterQuantity}" Width="100" />
+                                <DataGridTextColumn Header="REFERENCE" Binding="{Binding Reference}" Width="150" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

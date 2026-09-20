@@ -1,0 +1,90 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.PurchaseHistoryView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <Grid>
+        <ContentControl Content="{Binding CurrentNewPurchase}"
+                        Visibility="{Binding IsNewPurchaseActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+        <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="{Binding IsNewPurchaseActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+            <StackPanel MaxWidth="1320">
+                <Grid Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Purchase History" FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="24" FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Track supplier purchases, receiving and returns"
+                                   Margin="0,3,0,0" FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+                    <Button Content="+ New Purchase" Command="{Binding NewPurchaseCommand}"
+                            Style="{StaticResource Button.Primary}" Height="38"
+                            Padding="18,0" HorizontalAlignment="Right" />
+                </Grid>                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:KpiCard Grid.Column="0" Height="98"
+                                      Title="Purchases" Value="{Binding PurchasesCountDisplay}"
+                                      Tone="Brand" IconGeometry="{StaticResource Icon.Nav.Purchases}" />
+                    <controls:KpiCard Grid.Column="2" Height="98"
+                                      Title="Total Purchases" Value="{Binding TotalPurchasesDisplay}"
+                                      Tone="Info" IconGeometry="{StaticResource Icon.Nav.Inventory}" />
+                </Grid>
+                <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="300" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="200" />
+                        </Grid.ColumnDefinitions>
+                        <controls:SearchBox Grid.Column="0" Height="36"
+                            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Placeholder="Search invoice or supplier..." />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="Today" Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="Today" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                            <Button Content="This Week" Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="ThisWeek" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                            <Button Content="This Month" Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="ThisMonth" Style="{StaticResource Button.Neutral}" />
+                        </StackPanel>                        <ComboBox Grid.Column="4" ItemsSource="{Binding Suppliers}"
+                                  SelectedItem="{Binding SelectedSupplier, Mode=TwoWay}"
+                                  Height="35" VerticalContentAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Background="{DynamicResource Brush.Surface.Default}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1" CornerRadius="{StaticResource Radius.Card}">
+                    <DataGrid ItemsSource="{Binding FilteredPurchases}"
+                              Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
+                              BorderThickness="0" MinHeight="360">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="120" />
+                            <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
+                            <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="2*" />
+                            <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="160" />
+                            <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="100" />
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
+                            <DataGridTemplateColumn Header="ACTION" Width="120">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                                Command="{Binding DataContext.ViewPurchaseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

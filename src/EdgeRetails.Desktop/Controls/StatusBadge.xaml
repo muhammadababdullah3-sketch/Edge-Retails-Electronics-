@@ -1,0 +1,70 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Controls.StatusBadge"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Focusable="False">
+    <Border>
+        <Border.Style>
+            <Style TargetType="Border" BasedOn="{StaticResource Badge.Container}">
+                <Setter Property="Background" Value="{DynamicResource Brush.Badge.Neutral.Background}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Neutral.Border}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Brand}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Brand.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Brand.Border}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Thaka}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Brand.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Brand.Border}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Success}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Success.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Success.Border}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Warning}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Warning.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Warning.Border}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Info}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Info.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Info.Border}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Danger}">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Danger.Border}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+
+        <TextBlock Text="{Binding Text, ElementName=Root}">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource Badge.Text}">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Neutral.Text}" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Brand}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Brand.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Thaka}">
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Thaka}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Success}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Success.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Warning}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Warning.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Info}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Info.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:BadgeTone.Danger}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Danger.Text}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+    </Border>
+</UserControl>

@@ -1,0 +1,28 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.Sprint1OverlayPreviewView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    MinWidth="360"
+    MaxWidth="440"
+    Focusable="False">
+    <Border Margin="24"
+            Padding="24"
+            Background="{DynamicResource Brush.Surface.Raised}"
+            BorderBrush="{DynamicResource Brush.Border.Default}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource Radius.Large}"
+            Effect="{StaticResource Shadow.Modal}">
+        <StackPanel>
+            <TextBlock Text="{Binding Title}"
+                       Style="{StaticResource Text.SectionTitle}" />
+            <TextBlock Margin="0,10.5,0,21"
+                       Text="{Binding Message}"
+                       Style="{StaticResource Text.Secondary}"
+                       TextWrapping="Wrap" />
+            <Button Content="Close"
+                    HorizontalAlignment="Right"
+                    Command="{Binding CloseCommand}"
+                    Style="{StaticResource Button.Neutral}" />
+        </StackPanel>
+    </Border>
+</UserControl>

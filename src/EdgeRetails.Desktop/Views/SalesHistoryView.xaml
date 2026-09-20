@@ -1,0 +1,417 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.SalesHistoryView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    xmlns:views="clr-namespace:EdgeRetails.Desktop.Views"
+    xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=viewModels:SalesHistoryViewModel}"
+    Focusable="False">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- Date Filter Pill Button Style Template -->
+        <Style x:Key="Button.FilterPill" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Background" Value="{DynamicResource Brush.Surface.Default}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="PillBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="17"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="PillBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <!-- 1. Detail View Switch: When an invoice is opened, show SaleDetailView -->
+        <ContentControl Content="{Binding CurrentSaleDetail}">
+            <ContentControl.Style>
+                <Style TargetType="ContentControl">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsDetailViewActive}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ContentControl.Style>
+            <ContentControl.ContentTemplate>
+                <DataTemplate DataType="{x:Type viewModels:SaleDetailViewModel}">
+                    <views:SaleDetailView />
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+
+        <!-- 2. Master Sales History View: Shown when no invoice detail is active -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Focusable="False"
+                      Padding="20">
+            <ScrollViewer.Style>
+                <Style TargetType="ScrollViewer">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsDetailViewActive}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ScrollViewer.Style>
+
+            <StackPanel MaxWidth="1320" HorizontalAlignment="Stretch">
+
+                <!-- 2.1 Page Header Banner -->
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Title & Cashier Context -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Sales History"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Margin="0,3,0,0"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Muted}">
+                            <Run Text="Cashier: " />
+                            <Run Text="{Binding CashierContext, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                            <Run Text=" · View and manage recorded customer transactions &amp; returns" />
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- + New Sale Primary CTA -->
+                    <Button Grid.Column="1"
+                            Content="+ New Sale"
+                            Command="{Binding NewSaleCommand}"
+                            Style="{StaticResource Button.Primary}"
+                            Height="38"
+                            Padding="18,0"
+                            VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- 2.2 4 KPI Summary Cards Row (Height 98px, Gap 14px) -->
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Card 1: Sales Count -->
+                    <controls:KpiCard Grid.Column="0"
+                                      Height="98"
+                                      Title="Sales Count"
+                                      Value="{Binding SalesCountDisplay}"
+                                      Tone="Brand"
+                                      IconGeometry="{StaticResource Icon.Nav.NewSale}"
+                                      ToolTip="{Binding SalesCountSubtitle}" />
+
+                    <!-- Card 2: Total Sales -->
+                    <controls:KpiCard Grid.Column="2"
+                                      Height="98"
+                                      Title="Total Sales"
+                                      Value="{Binding TotalSalesDisplay}"
+                                      Tone="Success"
+                                      IconGeometry="{StaticResource Icon.Nav.Purchases}"
+                                      ToolTip="{Binding TotalSalesSubtitle}" />
+
+                    <!-- Card 3: Returns -->
+                    <controls:KpiCard Grid.Column="4"
+                                      Height="98"
+                                      Title="Returns"
+                                      Value="{Binding ReturnsDisplay}"
+                                      Tone="Warning"
+                                      IconGeometry="{StaticResource Icon.Nav.SalesHistory}"
+                                      ToolTip="{Binding ReturnsSubtitle}" />
+
+                    <!-- Card 4: Net Sales -->
+                    <controls:KpiCard Grid.Column="6"
+                                      Height="98"
+                                      Title="Net Sales"
+                                      Value="{Binding NetSalesDisplay}"
+                                      Tone="Payment"
+                                      IconGeometry="{StaticResource Icon.Nav.Reports}"
+                                      ToolTip="{Binding NetSalesSubtitle}" />
+                </Grid>
+
+                <!-- 2.3 Search & Date Filter Pill Toolbar -->
+                <Border Margin="0,0,0,14"
+                        Padding="14,10"
+                        Background="{DynamicResource Brush.Surface.Default}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}"
+                        Effect="{StaticResource Shadow.Surface}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Left: Search Box -->
+                        <controls:SearchBox Grid.Column="0"
+                                            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            Placeholder="Search invoice or customer..."
+                                            Height="36"
+                                            MinWidth="300" />
+
+                        <!-- Right: Date Filter Pill Buttons -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Today Pill -->
+                            <Button Content="Today"
+                                    Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="Today">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsTodaySelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <!-- Yesterday Pill -->
+                            <Button Content="Yesterday"
+                                    Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="Yesterday">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsYesterdaySelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <!-- This Week Pill -->
+                            <Button Content="This Week"
+                                    Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="ThisWeek">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsThisWeekSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <!-- This Month Pill -->
+                            <Button Content="This Month"
+                                    Command="{Binding SelectPeriodCommand}"
+                                    CommandParameter="ThisMonth"
+                                    Margin="0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsThisMonthSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 2.4 Read-Only Transactions DataGrid Card -->
+                <Border BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}"
+                        Background="{DynamicResource Brush.Surface.Default}"
+                        Effect="{StaticResource Shadow.Surface}">
+                    <Grid>
+                        <!-- Transactions DataGrid (Rule 4: IsReadOnly="True") -->
+                        <DataGrid ItemsSource="{Binding FilteredSales}"
+                                  SelectedItem="{Binding SelectedSale, Mode=TwoWay}"
+                                  Style="{StaticResource Table.DataGrid}"
+                                  IsReadOnly="True"
+                                  BorderThickness="0"
+                                  MinHeight="280">
+                            <DataGrid.Columns>
+                                <!-- Invoice # -->
+                                <DataGridTextColumn Header="INVOICE #"
+                                                    Binding="{Binding InvoiceDisplay}"
+                                                    Width="110">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+                                            <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+                                            <Setter Property="FontSize" Value="13.5" />
+                                            <Setter Property="FontWeight" Value="Bold" />
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Brand.Primary}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Date & Time -->
+                                <DataGridTextColumn Header="DATE &amp; TIME"
+                                                    Binding="{Binding DateTimeDisplay}"
+                                                    Width="2*">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+                                            <Setter Property="FontSize" Value="13" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Customer -->
+                                <DataGridTemplateColumn Header="CUSTOMER" Width="2.2*">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding CustomerDisplay}"
+                                                       Style="{StaticResource Table.TextCell}"
+                                                       FontWeight="SemiBold"
+                                                       FontSize="13" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Items Count -->
+                                <DataGridTextColumn Header="ITEMS"
+                                                    Binding="{Binding ItemsCountDisplay}"
+                                                    Width="1.1*">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+                                            <Setter Property="FontSize" Value="13" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Muted}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Payment Method -->
+                                <DataGridTextColumn Header="PAYMENT"
+                                                    Binding="{Binding PaymentMethod}"
+                                                    Width="1.3*">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+                                            <Setter Property="FontSize" Value="13" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Total Amount -->
+                                <DataGridTextColumn Header="TOTAL AMOUNT"
+                                                    Binding="{Binding TotalAmountDisplay}"
+                                                    Width="1.5*">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+                                            <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+                                            <Setter Property="FontSize" Value="13.5" />
+                                            <Setter Property="FontWeight" Value="Bold" />
+                                            <Setter Property="HorizontalAlignment" Value="Right" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Status Badge (PAID / PARTIAL / REFUNDED) -->
+                                <DataGridTemplateColumn Header="STATUS" Width="130">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <controls:StatusBadge Text="{Binding Status}"
+                                                                  Tone="{Binding StatusTone}"
+                                                                  HorizontalAlignment="Center" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Action (View Invoice) -->
+                                <DataGridTemplateColumn Header="ACTION" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="View Invoice"
+                                                    Style="{StaticResource Button.Neutral}"
+                                                    Height="28"
+                                                    Padding="10,0"
+                                                    FontSize="12"
+                                                    FontWeight="SemiBold"
+                                                    Command="{Binding DataContext.ViewInvoiceCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- Empty State Overlay -->
+                        <Border Background="{DynamicResource Brush.Surface.Default}"
+                                Visibility="{Binding HasNoMatchingSales, Converter={StaticResource BoolToVis}}"
+                                Padding="40"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="No Transactions Found"
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="16"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource Brush.Text.Primary}"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="No sales match the active search term or date range filter."
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource Brush.Text.Muted}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

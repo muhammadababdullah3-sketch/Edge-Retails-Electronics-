@@ -1,0 +1,74 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.ExpensesView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="1320">
+            <Grid Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Expenses" FontFamily="{StaticResource Font.Primary}" FontSize="24" FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Track operating expenses separately from inventory purchases"
+                               Margin="0,3,0,0" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
+                </StackPanel>
+                <Button Content="+ Add Expense" Command="{Binding AddExpenseCommand}"
+                        Style="{StaticResource Button.Warning.Compact}" Height="38" Padding="18,0"
+                        HorizontalAlignment="Right" />
+            </Grid>
+
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <controls:KpiCard Grid.Column="0" Height="98" Title="Today" Value="{Binding TodayAmountDisplay}"
+                                  Tone="Expense" IconGeometry="{StaticResource Icon.Nav.Expenses}" />
+                <controls:KpiCard Grid.Column="2" Height="98" Title="This Month" Value="{Binding ThisMonthAmountDisplay}"
+                                  Tone="Expense" IconGeometry="{StaticResource Icon.Nav.Expenses}" />
+                <controls:KpiCard Grid.Column="4" Height="98" Title="Top Category" Value="{Binding TopCategory}"
+                                  Tone="Info" IconGeometry="{StaticResource Icon.Nav.Reports}" />
+            </Grid>
+
+            <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                <Grid>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Today" Command="{Binding SelectPeriodCommand}" CommandParameter="Today"
+                                Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                        <Button Content="This Week" Command="{Binding SelectPeriodCommand}" CommandParameter="ThisWeek"
+                                Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                        <Button Content="This Month" Command="{Binding SelectPeriodCommand}" CommandParameter="ThisMonth"
+                                Style="{StaticResource Button.Neutral}" />
+                    </StackPanel>
+                    <ComboBox ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                              Width="190" Height="35" HorizontalAlignment="Right" VerticalContentAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <Border Background="{DynamicResource Brush.Surface.Default}"
+                    BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
+                    CornerRadius="{StaticResource Radius.Card}">
+                <DataGrid ItemsSource="{Binding FilteredExpenses}" Style="{StaticResource Table.DataGrid}"
+                          IsReadOnly="True" BorderThickness="0" MinHeight="390">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
+                        <DataGridTextColumn Header="CATEGORY" Binding="{Binding Category}" Width="1.4*" />
+                        <DataGridTextColumn Header="SUBCATEGORY" Binding="{Binding Subcategory}" Width="1.3*" />
+                        <DataGridTextColumn Header="NOTE" Binding="{Binding Note}" Width="2*" />
+                        <DataGridTextColumn Header="AMOUNT" Binding="{Binding AmountDisplay}" Width="150" />
+                        <DataGridTemplateColumn Header="ACTION" Width="100">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="Edit" Style="{StaticResource Button.Text.Primary}"
+                                            Command="{Binding DataContext.EditExpenseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

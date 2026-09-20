@@ -1,0 +1,138 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Controls.KpiCard"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Focusable="False">
+    <Border Padding="14"
+            BorderThickness="1"
+            CornerRadius="{StaticResource Radius.Card}"
+            Effect="{StaticResource Shadow.Surface}">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource Gradient.Surface.Card}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Brand}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Brand}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Brand.Pressed}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Success}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Success}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Function.Success}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Info}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Info}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Function.Info}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Payment}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Payment}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Function.Payment}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Warning}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Warning}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Function.Warning}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Expense}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Expense}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Function.Expense}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Thaka}">
+                        <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Thaka}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Thaka}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="35" />
+                <ColumnDefinition Width="10.5" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Width="35"
+                    Height="35"
+                    CornerRadius="{StaticResource Radius.IconWell}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Subtle}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Brand}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.BrandIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Success}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.SuccessIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Info}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.InfoIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Payment}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.PaymentIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Warning}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.WarningIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Expense}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.ExpenseIcon}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Thaka}">
+                                <Setter Property="Background" Value="{DynamicResource Brush.Kpi.ThakaIcon}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Path Width="18"
+                      Height="18"
+                      Data="{Binding IconGeometry, ElementName=Root}"
+                      Fill="Transparent"
+                      StrokeThickness="1.5"
+                      StrokeLineJoin="Round"
+                      StrokeStartLineCap="Round"
+                      StrokeEndLineCap="Round"
+                      Stretch="Uniform">
+                    <Path.Style>
+                        <Style TargetType="Path">
+                            <Setter Property="Stroke" Value="{DynamicResource Brush.Text.Secondary}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Brand}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Brand.Primary}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Success}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Function.Success}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Info}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Function.Info}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Payment}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Function.Payment}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Warning}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Function.Warning}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Expense}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Function.Expense}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone, ElementName=Root}" Value="{x:Static controls:KpiTone.Thaka}">
+                                    <Setter Property="Stroke" Value="{StaticResource Brush.Thaka}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Path.Style>
+                </Path>
+            </Border>
+
+            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Title, ElementName=Root}"
+                           Style="{StaticResource Text.KpiLabel}" />
+                <TextBlock Margin="0,1.75,0,0"
+                           Text="{Binding Value, ElementName=Root}"
+                           Style="{StaticResource Text.KpiValue}" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

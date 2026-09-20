@@ -1,0 +1,48 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.SuppliersView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="1320">
+            <Grid Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Suppliers / Wholesalers" FontFamily="{StaticResource Font.Primary}" FontSize="24" FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Supplier directory linked to purchase activity"
+                               Margin="0,3,0,0" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
+                </StackPanel>
+                <Button Content="+ Add Supplier" Command="{Binding AddSupplierCommand}"
+                        Style="{StaticResource Button.Primary}" Height="38" Padding="18,0" HorizontalAlignment="Right" />
+            </Grid>
+
+            <controls:SearchBox Width="392" Height="36" HorizontalAlignment="Left" Margin="0,0,0,14"
+                Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                Placeholder="Search supplier / phone / city..." />
+
+            <Border Background="{DynamicResource Brush.Surface.Default}"
+                    BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
+                    CornerRadius="{StaticResource Radius.Card}">
+                <DataGrid ItemsSource="{Binding FilteredSuppliers}" Style="{StaticResource Table.DataGrid}"
+                          IsReadOnly="True" BorderThickness="0" MinHeight="390">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Name}" Width="1.6*" />
+                        <DataGridTextColumn Header="PHONE" Binding="{Binding Phone}" Width="1.3*" />
+                        <DataGridTextColumn Header="TOTAL PURCHASES" Binding="{Binding TotalPurchasesDisplay}" Width="170" />
+                        <DataGridTextColumn Header="LAST PURCHASE" Binding="{Binding LastPurchaseDisplay}" Width="150" />
+                        <DataGridTextColumn Header="CITY" Binding="{Binding City}" Width="1.2*" />
+                        <DataGridTemplateColumn Header="ACTION" Width="100">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                            Command="{Binding DataContext.ViewSupplierCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

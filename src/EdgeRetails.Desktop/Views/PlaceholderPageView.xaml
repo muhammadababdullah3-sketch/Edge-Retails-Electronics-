@@ -1,0 +1,25 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.PlaceholderPageView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Focusable="False">
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <Border Margin="{StaticResource Padding.Page.Standard}"
+                Padding="24"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Top"
+                Background="{DynamicResource Brush.Surface.Default}"
+                BorderBrush="{DynamicResource Brush.Border.Default}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource Radius.Card}">
+            <StackPanel>
+                <TextBlock Text="{Binding Title}"
+                           Style="{StaticResource Text.PageTitle}" />
+                <TextBlock Margin="0,7,0,0"
+                           Text="{Binding Subtitle}"
+                           Style="{StaticResource Text.Secondary}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

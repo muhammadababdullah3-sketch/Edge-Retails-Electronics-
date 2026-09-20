@@ -1,0 +1,103 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Brush.App.Background" Color="{StaticResource Color.Light.AppBackground}" />
+    <SolidColorBrush x:Key="Brush.Surface.Default" Color="{StaticResource Color.Light.Surface}" />
+    <SolidColorBrush x:Key="Brush.Surface.Subtle" Color="{StaticResource Color.Light.SurfaceSubtle}" />
+    <SolidColorBrush x:Key="Brush.Surface.Raised" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Brush.Border.Default" Color="{StaticResource Color.Light.Border}" />
+    <SolidColorBrush x:Key="Brush.Border.Soft" Color="{StaticResource Color.Light.BorderSoft}" />
+    <SolidColorBrush x:Key="Brush.Text.Primary" Color="{StaticResource Color.Light.TextPrimary}" />
+    <SolidColorBrush x:Key="Brush.Text.Secondary" Color="{StaticResource Color.Light.TextSecondary}" />
+    <SolidColorBrush x:Key="Brush.Text.Muted" Color="{StaticResource Color.Light.TextMuted}" />
+    <SolidColorBrush x:Key="Brush.Text.Subtle" Color="{StaticResource Color.Light.TextSubtle}" />
+    <SolidColorBrush x:Key="Brush.Text.Divider" Color="#CAD3E0" />
+    <SolidColorBrush x:Key="Brush.Input.Background" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Brush.Table.Header" Color="#F4F7FB" />
+    <SolidColorBrush x:Key="Brush.Selection.Subtle" Color="#ECEAFF" />
+    <SolidColorBrush x:Key="Brush.Selection.Border" Color="#B9B2FF" />
+    <SolidColorBrush x:Key="Brush.Hover.Subtle" Color="#F4F7FB" />
+    <SolidColorBrush x:Key="Brush.Disabled.Background" Color="#EEF2F7" />
+    <SolidColorBrush x:Key="Brush.Disabled.Text" Color="#94A3B8" />
+    <SolidColorBrush x:Key="Brush.Overlay.Scrim" Color="#660A2540" />
+    <SolidColorBrush x:Key="Brush.ScrollBar.Thumb" Color="#CBD5E1" />
+    <SolidColorBrush x:Key="Brush.ScrollBar.ThumbHover" Color="#94A3B8" />
+    <SolidColorBrush x:Key="Brush.ScrollBar.ThumbDragging" Color="#64748B" />
+
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Background" Color="#F0EDFF" />
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Border" Color="#CEC8FF" />
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Text" Color="#5546E8" />
+    <SolidColorBrush x:Key="Brush.Badge.Success.Background" Color="#E7FBF5" />
+    <SolidColorBrush x:Key="Brush.Badge.Success.Border" Color="#99E7D3" />
+    <SolidColorBrush x:Key="Brush.Badge.Success.Text" Color="#0F8F70" />
+    <SolidColorBrush x:Key="Brush.Badge.Warning.Background" Color="#FFF5DB" />
+    <SolidColorBrush x:Key="Brush.Badge.Warning.Border" Color="#F8D46A" />
+    <SolidColorBrush x:Key="Brush.Badge.Warning.Text" Color="#B96805" />
+    <SolidColorBrush x:Key="Brush.Badge.Info.Background" Color="#EAF3FF" />
+    <SolidColorBrush x:Key="Brush.Badge.Info.Border" Color="#A9CCFF" />
+    <SolidColorBrush x:Key="Brush.Badge.Info.Text" Color="#1D5FD3" />
+    <SolidColorBrush x:Key="Brush.Badge.Danger.Background" Color="#FFF0F3" />
+    <SolidColorBrush x:Key="Brush.Badge.Danger.Border" Color="#F8B7C5" />
+    <SolidColorBrush x:Key="Brush.Badge.Danger.Text" Color="#C91D45" />
+    <SolidColorBrush x:Key="Brush.Badge.Neutral.Background" Color="#F5F7FA" />
+    <SolidColorBrush x:Key="Brush.Badge.Neutral.Border" Color="#DDE4EE" />
+    <SolidColorBrush x:Key="Brush.Badge.Neutral.Text" Color="#40536A" />
+
+    <SolidColorBrush x:Key="Brush.Kpi.BrandIcon" Color="#DDD9FF" />
+    <SolidColorBrush x:Key="Brush.Kpi.SuccessIcon" Color="#C9F5E9" />
+    <SolidColorBrush x:Key="Brush.Kpi.InfoIcon" Color="#D3E6FF" />
+    <SolidColorBrush x:Key="Brush.Kpi.PaymentIcon" Color="#C9F3F4" />
+    <SolidColorBrush x:Key="Brush.Kpi.WarningIcon" Color="#FDE8AB" />
+    <SolidColorBrush x:Key="Brush.Kpi.ExpenseIcon" Color="#FFD9BF" />
+    <SolidColorBrush x:Key="Brush.Kpi.ThakaIcon" Color="#E4D9FF" />
+    <SolidColorBrush x:Key="Brush.Kpi.ExpenseBackground" Color="#FFF5ED" />
+
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Header" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="0.55" Color="#F8F6FF" />
+        <GradientStop Offset="1" Color="#EEF3FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Active" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#EDE9FF" />
+        <GradientStop Offset="1" Color="#E6F0FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Sidebar.Footer" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="1" Color="#F2F5FA" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Surface.Card" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFFFFF" />
+        <GradientStop Offset="0.55" Color="#FAFBFF" />
+        <GradientStop Offset="1" Color="#F3F6FC" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Gradient.Kpi.Brand" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E5E3FF" />
+        <GradientStop Offset="1" Color="#F7F8FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Success" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#DFF9F1" />
+        <GradientStop Offset="1" Color="#F7FFFC" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Info" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E2EFFF" />
+        <GradientStop Offset="1" Color="#F8FBFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Payment" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#DDF8FA" />
+        <GradientStop Offset="1" Color="#F7FFFD" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Warning" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFEDC2" />
+        <GradientStop Offset="1" Color="#FFF9EC" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Thaka" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#EDE4FF" />
+        <GradientStop Offset="1" Color="#FAF7FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Kpi.Expense" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FFE3CF" />
+        <GradientStop Offset="1" Color="#FFF8F2" />
+    </LinearGradientBrush>
+</ResourceDictionary>

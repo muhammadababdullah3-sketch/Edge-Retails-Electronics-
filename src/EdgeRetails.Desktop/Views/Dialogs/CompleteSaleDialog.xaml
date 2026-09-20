@@ -1,0 +1,799 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.Dialogs.CompleteSaleDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:services="clr-namespace:EdgeRetails.Desktop.Services"
+    xmlns:vm="clr-namespace:EdgeRetails.Desktop.ViewModels"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance vm:CompleteSaleViewModel}"
+    Focusable="False">
+
+    <UserControl.Resources>
+        <!-- Resource Aliases ensuring 100% compliance with theme tokens -->
+        <SolidColorBrush x:Key="Brush.Surface.Card" Color="{DynamicResource Color.Light.Surface}" />
+        <SolidColorBrush x:Key="Brush.Border" Color="{DynamicResource Color.Light.Border}" />
+        <SolidColorBrush x:Key="Brush.Payment.Primary" Color="{StaticResource Color.Payment.End}" />
+        <SolidColorBrush x:Key="Brush.Success.Primary" Color="{StaticResource Color.Success.End}" />
+
+        <!-- Checkbox Template for Edge Retails design system -->
+        <Style x:Key="ReceiptCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+            <Setter Property="FontFamily" Value="{StaticResource Font.Primary}" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border x:Name="Box"
+                                    Width="18"
+                                    Height="18"
+                                    CornerRadius="4"
+                                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                                    BorderThickness="1.5"
+                                    Background="{DynamicResource Brush.Input.Background}"
+                                    Margin="0,0,10,0"
+                                    VerticalAlignment="Center">
+                                <Path x:Name="CheckMark"
+                                      Data="M 3 9 L 7 13 L 15 5"
+                                      Stroke="{StaticResource Brush.White}"
+                                      StrokeThickness="2"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource Brush.Brand.Primary}" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Box" Property="Opacity" Value="0.5" />
+                                <Setter Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Quick Cash Chip Button Style -->
+        <Style x:Key="QuickCashChipStyle" TargetType="Button">
+            <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+            <Setter Property="Background" Value="{DynamicResource Brush.Surface.Subtle}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Soft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ChipBorder"
+                                CornerRadius="6"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ChipBorder" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.Brand.Primary}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ChipBorder" Property="Background" Value="{DynamicResource Brush.Brand.Tint}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- CENTERED 480PX MODAL CARD (0-CANVAS RULE: Grid, DockPanel, StackPanel, Border) -->
+    <Border Width="480"
+            CornerRadius="12"
+            Background="{DynamicResource Brush.Surface.Raised}"
+            BorderBrush="{DynamicResource Brush.Border.Default}"
+            BorderThickness="1"
+            Effect="{StaticResource Shadow.Card}"
+            SnapsToDevicePixels="True">
+
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
+                <!-- Row 0: Header (Title + Close Button) -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 1: Total to Pay Prominent Banner (Space Grotesk 32px) -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 2: Payment Method Cards (Cash, Bank, Other) -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 3: Amount Received Input with "Rs." prefix -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 4: Change Returned / Remaining Due Display Banner -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 5: Validation Error Banner -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 6: Print Receipt Checkbox -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 7: Action Buttons (Cancel + Complete Sale) -->
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ROW 0: HEADER -->
+            <Grid Grid.Row="0" Margin="0,0,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Complete Sale"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Select payment method and verify amount received"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="12"
+                               Foreground="{DynamicResource Brush.Text.Muted}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+
+                <!-- Close Ghost Button (X) -->
+                <Button Grid.Column="1"
+                        Command="{Binding CancelCommand}"
+                        Width="32"
+                        Height="32"
+                        Cursor="Hand"
+                        FocusVisualStyle="{x:Null}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="CloseBorder"
+                                    CornerRadius="16"
+                                    Background="Transparent"
+                                    BorderThickness="0">
+                                <Path Data="M 4 4 L 12 12 M 12 4 L 4 12"
+                                      Stroke="{DynamicResource Brush.Text.Muted}"
+                                      StrokeThickness="1.75"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Width="16"
+                                      Height="16"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+
+            <!-- ROW 1: TOTAL TO PAY PROMINENT BANNER (Space Grotesk 32px) -->
+            <Border Grid.Row="1"
+                    Background="{DynamicResource Brush.Surface.Subtle}"
+                    BorderBrush="{DynamicResource Brush.Border.Soft}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="16,14"
+                    Margin="0,0,0,18">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="TOTAL TO PAY"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                   Margin="0,0,0,4" />
+                        <TextBlock Text="{Binding CustomerName}"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="12.5"
+                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding TotalToPayDisplay}"
+                               FontFamily="{StaticResource Font.Numeric}"
+                               FontSize="32"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <!-- ROW 2: PAYMENT METHOD CARDS (Cash, Bank, Other) -->
+            <StackPanel Grid.Row="2" Margin="0,0,0,18">
+                <TextBlock Text="Payment Method"
+                           FontFamily="{StaticResource Font.Primary}"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"
+                           Margin="0,0,0,8" />
+
+                <!-- 3 Payment Method Cards -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- CASH CARD (Selected by default with teal border and check indicator) -->
+                    <Button Grid.Column="0"
+                            Command="{Binding SelectCashCommand}"
+                            Height="76"
+                            Cursor="Hand"
+                            FocusVisualStyle="{x:Null}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="CardBorder"
+                                        CornerRadius="10"
+                                        Background="{DynamicResource Brush.Surface.Default}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        Padding="10,8">
+                                    <Grid>
+                                        <!-- Check indicator badge (top right) -->
+                                        <Border x:Name="CheckBadge"
+                                                Width="18"
+                                                Height="18"
+                                                CornerRadius="9"
+                                                Background="{DynamicResource Brush.Function.Payment}"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Visibility="Collapsed">
+                                            <Path Data="M 3 8 L 6 11 L 11 4"
+                                                  Stroke="{StaticResource Brush.White}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        </Border>
+
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <!-- Banknotes vector icon -->
+                                            <Path x:Name="CardIcon"
+                                                  Data="M 1 4 H 19 V 16 H 1 Z M 10 7 A 3 3 0 0 1 10 13 A 3 3 0 0 1 10 7 Z M 3 6 V 8 M 17 6 V 8 M 3 14 V 12 M 17 14 V 12"
+                                                  Stroke="{DynamicResource Brush.Text.Secondary}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeLineJoin="Round"
+                                                  Fill="Transparent"
+                                                  Width="20"
+                                                  Height="16"
+                                                  Stretch="Uniform"
+                                                  HorizontalAlignment="Center"
+                                                  Margin="0,0,0,6" />
+                                            <TextBlock x:Name="CardText"
+                                                       Text="Cash"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="13.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                       HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <!-- CASH SELECTED STATE (Teal border + Check indicator) -->
+                                    <DataTrigger Binding="{Binding IsCash}" Value="True">
+                                        <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Function.Payment}" />
+                                        <Setter TargetName="CardBorder" Property="BorderThickness" Value="2" />
+                                        <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource Brush.Badge.Success.Background}" />
+                                        <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
+                                        <Setter TargetName="CardIcon" Property="Stroke" Value="{DynamicResource Brush.Badge.Success.Text}" />
+                                        <Setter TargetName="CardText" Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+                                        <Setter TargetName="CardText" Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <!-- BANK CARD -->
+                    <Button Grid.Column="2"
+                            Command="{Binding SelectBankCommand}"
+                            Height="76"
+                            Cursor="Hand"
+                            FocusVisualStyle="{x:Null}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="CardBorder"
+                                        CornerRadius="10"
+                                        Background="{DynamicResource Brush.Surface.Default}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        Padding="10,8">
+                                    <Grid>
+                                        <!-- Check indicator badge (top right) -->
+                                        <Border x:Name="CheckBadge"
+                                                Width="18"
+                                                Height="18"
+                                                CornerRadius="9"
+                                                Background="{DynamicResource Brush.Function.Payment}"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Visibility="Collapsed">
+                                            <Path Data="M 3 8 L 6 11 L 11 4"
+                                                  Stroke="{StaticResource Brush.White}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        </Border>
+
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <!-- Bank / Card vector icon -->
+                                            <Path x:Name="CardIcon"
+                                                  Data="M 1 6 L 10 1 L 19 6 M 3 6 V 15 M 7 6 V 15 M 13 6 V 15 M 17 6 V 15 M 1 15 H 19 M 1 18 H 19"
+                                                  Stroke="{DynamicResource Brush.Text.Secondary}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  Fill="Transparent"
+                                                  Width="20"
+                                                  Height="16"
+                                                  Stretch="Uniform"
+                                                  HorizontalAlignment="Center"
+                                                  Margin="0,0,0,6" />
+                                            <TextBlock x:Name="CardText"
+                                                       Text="Bank"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="13.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                       HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <!-- BANK SELECTED STATE -->
+                                    <DataTrigger Binding="{Binding IsBank}" Value="True">
+                                        <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Function.Payment}" />
+                                        <Setter TargetName="CardBorder" Property="BorderThickness" Value="2" />
+                                        <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource Brush.Badge.Success.Background}" />
+                                        <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
+                                        <Setter TargetName="CardIcon" Property="Stroke" Value="{DynamicResource Brush.Badge.Success.Text}" />
+                                        <Setter TargetName="CardText" Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+                                        <Setter TargetName="CardText" Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <!-- OTHER CARD -->
+                    <Button Grid.Column="4"
+                            Command="{Binding SelectOtherCommand}"
+                            Height="76"
+                            Cursor="Hand"
+                            FocusVisualStyle="{x:Null}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="CardBorder"
+                                        CornerRadius="10"
+                                        Background="{DynamicResource Brush.Surface.Default}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        Padding="10,8">
+                                    <Grid>
+                                        <!-- Check indicator badge (top right) -->
+                                        <Border x:Name="CheckBadge"
+                                                Width="18"
+                                                Height="18"
+                                                CornerRadius="9"
+                                                Background="{DynamicResource Brush.Function.Payment}"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Visibility="Collapsed">
+                                            <Path Data="M 3 8 L 6 11 L 11 4"
+                                                  Stroke="{StaticResource Brush.White}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        </Border>
+
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <!-- Other / Wallet vector icon -->
+                                            <Path x:Name="CardIcon"
+                                                  Data="M 2 4 C 2 2.9 2.9 2 4 2 H 16 C 17.1 2 18 2.9 18 4 V 14 C 18 15.1 17.1 16 16 16 H 4 C 2.9 16 2 15.1 2 14 Z M 14 9 H 18 V 11 H 14 Z"
+                                                  Stroke="{DynamicResource Brush.Text.Secondary}"
+                                                  StrokeThickness="1.5"
+                                                  StrokeLineJoin="Round"
+                                                  Fill="Transparent"
+                                                  Width="20"
+                                                  Height="16"
+                                                  Stretch="Uniform"
+                                                  HorizontalAlignment="Center"
+                                                  Margin="0,0,0,6" />
+                                            <TextBlock x:Name="CardText"
+                                                       Text="Other"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="13.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                       HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <!-- OTHER SELECTED STATE -->
+                                    <DataTrigger Binding="{Binding IsOther}" Value="True">
+                                        <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Function.Payment}" />
+                                        <Setter TargetName="CardBorder" Property="BorderThickness" Value="2" />
+                                        <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource Brush.Badge.Success.Background}" />
+                                        <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
+                                        <Setter TargetName="CardIcon" Property="Stroke" Value="{DynamicResource Brush.Badge.Success.Text}" />
+                                        <Setter TargetName="CardText" Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+                                        <Setter TargetName="CardText" Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Grid>
+            </StackPanel>
+
+            <!-- ROW 3: AMOUNT RECEIVED INPUT WITH "Rs." PREFIX -->
+            <StackPanel Grid.Row="3" Margin="0,0,0,16">
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="Amount Received"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.Text.Secondary}" />
+
+                    <!-- Quick Exact Shortcut Link -->
+                    <Button Grid.Column="1"
+                            Command="{Binding SetExactAmountCommand}"
+                            Content="Set Exact"
+                            Style="{StaticResource Button.Text.Primary}"
+                            Cursor="Hand" />
+                </Grid>
+
+                <!-- Input Box Container with "Rs." prefix -->
+                <Border Height="46"
+                        CornerRadius="8"
+                        Background="{DynamicResource Brush.Input.Background}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- "Rs." Prefix (Space Grotesk Bold) -->
+                        <TextBlock Grid.Column="0"
+                                   Text="Rs."
+                                   FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                   Padding="14,0,4,0"
+                                   VerticalAlignment="Center" />
+
+                        <!-- Numeric Amount TextBox -->
+                        <TextBox x:Name="AmountReceivedTextBox"
+                                 Grid.Column="1"
+                                 Text="{Binding AmountReceivedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="{StaticResource Font.Numeric}"
+                                 FontSize="18"
+                                 FontWeight="Bold"
+                                 Foreground="{DynamicResource Brush.Text.Primary}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 VerticalContentAlignment="Center"
+                                 Padding="2,0,14,0"
+                                 CaretBrush="{DynamicResource Brush.Brand.Primary}"
+                                 FocusVisualStyle="{x:Null}" />
+                    </Grid>
+                </Border>
+
+                <!-- Quick Cash Presets Bar -->
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="Quick:"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.Text.Muted}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <Button Command="{Binding SetExactAmountCommand}"
+                            Content="Exact"
+                            Style="{StaticResource QuickCashChipStyle}" />
+                    <Button Command="{Binding AddCashCommand}"
+                            CommandParameter="500"
+                            Content="+500"
+                            Style="{StaticResource QuickCashChipStyle}" />
+                    <Button Command="{Binding AddCashCommand}"
+                            CommandParameter="1000"
+                            Content="+1,000"
+                            Style="{StaticResource QuickCashChipStyle}" />
+                    <Button Command="{Binding SetPresetCashCommand}"
+                            CommandParameter="5000"
+                            Content="5,000"
+                            Style="{StaticResource QuickCashChipStyle}" />
+                    <Button Command="{Binding SetPresetCashCommand}"
+                            CommandParameter="10000"
+                            Content="10,000"
+                            Style="{StaticResource QuickCashChipStyle}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ROW 4: CHANGE RETURNED / REMAINING DUE BANNER -->
+            <Grid Grid.Row="4" Margin="0,0,0,16">
+                <!-- Change Returned Banner (When AmountReceived >= TotalToPay) -->
+                <Border CornerRadius="8"
+                        Background="{DynamicResource Brush.Badge.Success.Background}"
+                        BorderBrush="{DynamicResource Brush.Badge.Success.Border}"
+                        BorderThickness="1"
+                        Padding="14,10"
+                        Visibility="{Binding HasRemainingDue, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="CHANGE TO RETURN"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Badge.Success.Text}" />
+                            <TextBlock Text="Return cash balance to customer"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11.5"
+                                       Foreground="{DynamicResource Brush.Badge.Success.Text}"
+                                       Opacity="0.85" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding ChangeReturnedDisplay}"
+                                   FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="22"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Badge.Success.Text}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <!-- Remaining Due Warning Banner (When Cash is insufficient) -->
+                <Border CornerRadius="8"
+                        Background="{DynamicResource Brush.Badge.Warning.Background}"
+                        BorderBrush="{DynamicResource Brush.Badge.Warning.Border}"
+                        BorderThickness="1"
+                        Padding="14,10"
+                        Visibility="{Binding HasRemainingDue, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="REMAINING DUE"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
+                            <TextBlock Text="Amount received is less than total"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11.5"
+                                       Foreground="{DynamicResource Brush.Badge.Warning.Text}"
+                                       Opacity="0.85" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding RemainingDueDisplay}"
+                                   FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="20"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Badge.Warning.Text}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ROW 5: VALIDATION ERROR BANNER -->
+            <Border Grid.Row="5"
+                    CornerRadius="6"
+                    Background="{DynamicResource Brush.Badge.Danger.Background}"
+                    BorderBrush="{DynamicResource Brush.Badge.Danger.Border}"
+                    BorderThickness="1"
+                    Padding="12,8"
+                    Margin="0,0,0,16"
+                    Visibility="{Binding HasValidationError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Path Grid.Column="0"
+                          Data="M 8 1 A 7 7 0 1 1 7.99 1 Z M 8 4 V 8 M 8 11 V 11.5"
+                          Stroke="{DynamicResource Brush.Badge.Danger.Text}"
+                          StrokeThickness="1.5"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          Width="14"
+                          Height="14"
+                          VerticalAlignment="Center"
+                          Margin="0,0,8,0" />
+
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ValidationMessage}"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.Badge.Danger.Text}"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                </Grid>
+            </Border>
+
+            <!-- ROW 6: PRINT RECEIPT CHECKBOX -->
+            <CheckBox Grid.Row="6"
+                      IsChecked="{Binding PrintReceipt, Mode=TwoWay}"
+                      Content="Print receipt after completing sale"
+                      Style="{StaticResource ReceiptCheckBoxStyle}"
+                      Margin="0,0,0,22" />
+
+            <!-- ROW 7: ACTION BUTTONS (Cancel + Complete Sale) -->
+            <Grid Grid.Row="7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="130" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Cancel Button -->
+                <Button Grid.Column="0"
+                        Content="Cancel"
+                        Command="{Binding CancelCommand}"
+                        Style="{StaticResource Button.Neutral}"
+                        Height="46"
+                        IsEnabled="{Binding IsNotProcessing}" />
+
+                <!-- COMPLETE SALE PRIMARY ACTION BUTTON -->
+                <Button Grid.Column="2"
+                        Command="{Binding CompleteSaleCommand}"
+                        Height="46"
+                        Cursor="Hand"
+                        FocusVisualStyle="{x:Null}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="RootBorder"
+                                    CornerRadius="{StaticResource Radius.PrimaryAction}"
+                                    Background="{StaticResource Gradient.Payment}"
+                                    BorderThickness="0"
+                                    Effect="{StaticResource Shadow.Button.SuccessStrong}"
+                                    SnapsToDevicePixels="True">
+                                <Grid>
+                                    <!-- Normal state (Check icon + Complete Sale) -->
+                                    <StackPanel x:Name="NormalContent"
+                                                Orientation="Horizontal"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center">
+                                        <Path Data="M 2 7 L 6 11 L 14 3"
+                                              Stroke="{StaticResource Brush.White}"
+                                              StrokeThickness="2"
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              StrokeLineJoin="Round"
+                                              Fill="Transparent"
+                                              Width="16"
+                                              Height="14"
+                                              Stretch="Uniform"
+                                              Margin="0,0,8,0"
+                                              VerticalAlignment="Center" />
+                                        <TextBlock Text="Complete Sale"
+                                                   FontFamily="{StaticResource Font.Primary}"
+                                                   FontSize="15"
+                                                   FontWeight="Bold"
+                                                   Foreground="{StaticResource Brush.White}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <!-- Processing state (Spinner + Processing text) -->
+                                    <StackPanel x:Name="ProcessingContent"
+                                                Orientation="Horizontal"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Visibility="Collapsed">
+                                        <Border Width="16"
+                                                Height="16"
+                                                BorderBrush="{StaticResource Brush.White}"
+                                                BorderThickness="2"
+                                                CornerRadius="8"
+                                                Margin="0,0,10,0"
+                                                VerticalAlignment="Center"
+                                                RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform>
+                                                <RotateTransform x:Name="SpinnerRotation" Angle="0" />
+                                            </Border.RenderTransform>
+                                            <Border.Triggers>
+                                                <EventTrigger RoutedEvent="Loaded">
+                                                    <BeginStoryboard>
+                                                        <Storyboard RepeatBehavior="Forever">
+                                                            <DoubleAnimation Storyboard.TargetName="SpinnerRotation"
+                                                                             Storyboard.TargetProperty="Angle"
+                                                                             From="0" To="360"
+                                                                             Duration="0:0:1" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </EventTrigger>
+                                            </Border.Triggers>
+                                        </Border>
+                                        <TextBlock Text="Processing Payment…"
+                                                   FontFamily="{StaticResource Font.Primary}"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Brush.White}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource Gradient.Payment.Hover}" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource Gradient.Payment.Pressed}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="RootBorder" Property="Opacity" Value="0.45" />
+                                    <Setter TargetName="RootBorder" Property="Effect" Value="{x:Null}" />
+                                    <Setter Property="Cursor" Value="Arrow" />
+                                </Trigger>
+                                <DataTrigger Binding="{Binding IsProcessing}" Value="True">
+                                    <Setter TargetName="NormalContent" Property="Visibility" Value="Collapsed" />
+                                    <Setter TargetName="ProcessingContent" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

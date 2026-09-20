@@ -1,0 +1,233 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Controls.AppSidebar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Focusable="False"
+    KeyboardNavigation.TabNavigation="Continue">
+    <Border Width="{Binding SidebarWidth}"
+            Background="{DynamicResource Brush.Surface.Default}"
+            BorderBrush="{DynamicResource Brush.Border.Default}"
+            BorderThickness="0,0,1,0"
+            Effect="{StaticResource Shadow.Sidebar}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="{StaticResource Dimension.TopBar.GridLength}" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0"
+                    Padding="17.5,0"
+                    Background="{DynamicResource Gradient.Sidebar.Header}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="24.5" />
+                        <ColumnDefinition Width="10.5" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Width="24.5"
+                            Height="24.5"
+                            CornerRadius="{StaticResource Radius.BrandIcon}"
+                            Background="{StaticResource Gradient.Brand.Primary}"
+                            Effect="{StaticResource Shadow.BrandIcon}"
+                            VerticalAlignment="Center">
+                        <Grid Width="14" Height="14">
+                            <Path Margin="1"
+                                  Data="M 6 0 L 12 3.5 L 12 8.5 L 6 12 L 0 8.5 L 0 3.5 L 6 0 Z"
+                                  Fill="Transparent"
+                                  Stroke="{StaticResource Brush.White}"
+                                  StrokeThickness="1.2"
+                                  StrokeLineJoin="Round" />
+                            <Ellipse Width="4"
+                                     Height="4"
+                                     Fill="{StaticResource Brush.White}"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Column="2"
+                               Text="Edge Retails"
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                </Grid>
+            </Border>
+
+            <ItemsControl Grid.Row="1"
+                          Margin="{StaticResource Padding.Sidebar.Navigation}"
+                          ItemsSource="{Binding NavigationItems}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="Margin" Value="0,0,0,2" />
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Height="35"
+                                Padding="0"
+                                BorderThickness="0"
+                                Background="Transparent"
+                                Foreground="{DynamicResource Brush.Text.Muted}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                FocusVisualStyle="{x:Null}"
+                                Cursor="Hand"
+                                ToolTip="{Binding Title}"
+                                AutomationProperties.Name="{Binding Title}"
+                                Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                                CommandParameter="{Binding Target}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="RowBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="1"
+                                            CornerRadius="{StaticResource Radius.Control}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3" />
+                                                <ColumnDefinition Width="7.5" />
+                                                <ColumnDefinition Width="20" />
+                                                <ColumnDefinition Width="10" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border x:Name="ActiveIndicator"
+                                                    Grid.Column="0"
+                                                    Width="3"
+                                                    Height="21"
+                                                    Background="{StaticResource Brush.Brand.Primary}"
+                                                    CornerRadius="0,3,3,0"
+                                                    Visibility="Collapsed"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center" />
+
+                                            <Path Grid.Column="2"
+                                                  Width="20"
+                                                  Height="20"
+                                                  Data="{Binding IconGeometry}"
+                                                  Fill="Transparent"
+                                                  Stroke="{TemplateBinding Foreground}"
+                                                  StrokeThickness="1.458333"
+                                                  StrokeLineJoin="Round"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  Stretch="None"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+
+                                            <TextBlock Grid.Column="4"
+                                                       Text="{Binding Title}"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="13.5"
+                                                       FontWeight="Medium"
+                                                       Foreground="{TemplateBinding Foreground}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding DataContext.IsSidebarCollapsed, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+                                        </Trigger>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource Gradient.Sidebar.Active}" />
+                                            <Setter TargetName="ActiveIndicator" Property="Visibility" Value="Visible" />
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Brand.Primary}" />
+                                        </DataTrigger>
+                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                            <Setter TargetName="RowBorder" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Grid.Row="2"
+                    Background="{DynamicResource Gradient.Sidebar.Footer}"
+                    BorderBrush="{DynamicResource Brush.Border.Soft}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid Margin="14,10.5"
+                          Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28" />
+                            <ColumnDefinition Width="10.5" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="7" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Width="28"
+                                Height="28"
+                                CornerRadius="{StaticResource Radius.Circle}"
+                                Background="{StaticResource Gradient.Brand.Primary}">
+                            <TextBlock Text="{Binding UserInitials}"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource Brush.White}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding UserName}"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <TextBlock Text="{Binding UserRole}"
+                                       Margin="0,1,0,0"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource Brush.Text.Subtle}" />
+                        </StackPanel>
+
+                        <Ellipse Grid.Column="3"
+                                 Width="7"
+                                 Height="7"
+                                 Fill="{StaticResource Brush.Function.Success}"
+                                 VerticalAlignment="Center"
+                                 Visibility="{Binding IsOnline, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
+
+                    <Grid Margin="14,10.5"
+                          Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Width="28"
+                                Height="28"
+                                CornerRadius="{StaticResource Radius.Circle}"
+                                Background="{StaticResource Gradient.Brand.Primary}"
+                                HorizontalAlignment="Center">
+                            <TextBlock Text="{Binding UserInitials}"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource Brush.White}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

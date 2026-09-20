@@ -1,0 +1,48 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.CustomersView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="1320">
+            <Grid Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Customers" FontFamily="{StaticResource Font.Primary}" FontSize="24" FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Customer activity across local sales and active Thaka projects"
+                               Margin="0,3,0,0" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
+                </StackPanel>
+                <Button Content="+ Add Customer" Command="{Binding AddCustomerCommand}"
+                        Style="{StaticResource Button.Primary}" Height="38" Padding="18,0" HorizontalAlignment="Right" />
+            </Grid>
+
+            <controls:SearchBox Width="392" Height="36" HorizontalAlignment="Left" Margin="0,0,0,14"
+                Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                Placeholder="Search name / phone / project..." />
+
+            <Border Background="{DynamicResource Brush.Surface.Default}"
+                    BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
+                    CornerRadius="{StaticResource Radius.Card}">
+                <DataGrid ItemsSource="{Binding FilteredCustomers}" Style="{StaticResource Table.DataGrid}"
+                          IsReadOnly="True" BorderThickness="0" MinHeight="390">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="CUSTOMER" Binding="{Binding Name}" Width="1.5*" />
+                        <DataGridTextColumn Header="PHONE" Binding="{Binding Phone}" Width="1.3*" />
+                        <DataGridTextColumn Header="LOCAL SALES" Binding="{Binding LocalSalesDisplay}" Width="150" />
+                        <DataGridTextColumn Header="ACTIVE THAKA" Binding="{Binding ActiveThaka}" Width="1.5*" />
+                        <DataGridTextColumn Header="LAST SALE" Binding="{Binding LastSaleDisplay}" Width="130" />
+                        <DataGridTemplateColumn Header="ACTION" Width="100">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                            Command="{Binding DataContext.ViewCustomerCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

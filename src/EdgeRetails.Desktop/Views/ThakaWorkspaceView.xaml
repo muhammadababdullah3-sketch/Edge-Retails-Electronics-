@@ -1,0 +1,205 @@
+﻿<UserControl
+    x:Class="EdgeRetails.Desktop.Views.ThakaWorkspaceView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls">
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Style="{StaticResource ScrollViewer.CleanOverlay}">
+            <Grid Margin="20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0"
+                            Content="← Back"
+                            Command="{Binding GoBackCommand}"
+                            Style="{StaticResource Button.Neutral}"
+                            Margin="0,0,12,0" />
+
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding ProjectName}"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <controls:StatusBadge Margin="10,2,0,0"
+                                                  Text="{Binding StatusDisplay}"
+                                                  Tone="{Binding StatusTone}"
+                                                  VerticalAlignment="Top" />
+                        </StackPanel>
+                        <TextBlock Margin="0,5,0,0"
+                                   Text="{Binding ContactSubtitle}"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button Content="+ Add Material"
+                                Command="{Binding AddMaterialCommand}"
+                                Style="{StaticResource Button.Info.Compact}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Record Payment"
+                                Command="{Binding RecordPaymentCommand}"
+                                Style="{StaticResource Button.Payment.Compact}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Final Settlement"
+                                Command="{Binding FinalSettlementCommand}"
+                                Style="{StaticResource Button.Warning.Compact}" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Grid.Row="1"
+                        Margin="0,16,0,0"
+                        Padding="12,10"
+                        CornerRadius="{StaticResource Radius.Control}"
+                        Background="{DynamicResource Brush.Badge.Neutral.Background}"
+                        BorderBrush="{DynamicResource Brush.Badge.Neutral.Border}"
+                        BorderThickness="1"
+                        Visibility="{Binding IsSettledBannerVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="This Thaka project is settled and finalized. Records are read-only."
+                               FontFamily="{StaticResource Font.Primary}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.Badge.Neutral.Text}" />
+                </Border>
+
+                <Grid Grid.Row="2" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource Card.Raised}">
+                        <StackPanel>
+                            <TextBlock Text="Material Value"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding MaterialValueFormatted}"
+                                       FontFamily="{StaticResource Font.Numeric}"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="Total goods issued"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Subtle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2" Style="{StaticResource Card.Raised}">
+                        <StackPanel>
+                            <TextBlock Text="Total Paid"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding TotalPaidFormatted}"
+                                       FontFamily="{StaticResource Font.Numeric}"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="Payments received"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Subtle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="4" Style="{StaticResource Card.Raised}">
+                        <StackPanel>
+                            <TextBlock Text="Outstanding Balance"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding BalanceFormatted}"
+                                       FontFamily="{StaticResource Font.Numeric}"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="Payable by client"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Subtle}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Row="3" Margin="0,18,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0"
+                            Content="Issued Items"
+                            Command="{Binding SwitchTabCommand}"
+                            CommandParameter="Materials"
+                            Style="{StaticResource Button.Neutral}"
+                            Margin="0,0,8,0" />
+                    <Button Grid.Column="1"
+                            Content="Payments Received"
+                            Command="{Binding SwitchTabCommand}"
+                            CommandParameter="Payments"
+                            Style="{StaticResource Button.Neutral}" />
+                </Grid>
+
+                <Grid Grid.Row="4">
+                    <DataGrid ItemsSource="{Binding MaterialLedger}"
+                              IsReadOnly="True"
+                              AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
+                              Visibility="{Binding IsMaterialsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Date" Binding="{Binding DateFormatted}" Width="120" />
+                            <DataGridTextColumn Header="Challan / Slip #" Binding="{Binding ChallanNumber}" Width="140" />
+                            <DataGridTextColumn Header="Product Name" Binding="{Binding ProductName}" Width="*" />
+                            <DataGridTextColumn Header="Quantity" Binding="{Binding QuantityDisplay}" Width="100" />
+                            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="90" />
+                            <DataGridTextColumn Header="Rate" Binding="{Binding RateFormatted}" Width="120" />
+                            <DataGridTextColumn Header="Total Value" Binding="{Binding TotalValueFormatted}" Width="140" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <DataGrid ItemsSource="{Binding PaymentLedger}"
+                              IsReadOnly="True"
+                              AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
+                              Visibility="{Binding IsPaymentsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Receipt #" Binding="{Binding ReceiptNumber}" Width="120" />
+                            <DataGridTextColumn Header="Date" Binding="{Binding DateFormatted}" Width="120" />
+                            <DataGridTextColumn Header="Payment Method" Binding="{Binding PaymentMethod}" Width="140" />
+                            <DataGridTextColumn Header="Amount" Binding="{Binding AmountFormatted}" Width="140" />
+                            <DataGridTextColumn Header="Recorded By" Binding="{Binding RecordedBy}" Width="140" />
+                            <DataGridTextColumn Header="Reference / Note" Binding="{Binding Reference}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
