@@ -1,4 +1,4 @@
-# Edge Retails — Final Backend Architecture Report
+# Edge Retails â€” Final Backend Architecture Report
 ## Final Implementation Baseline After Phase 16 Gap Resolution
 
 **Product:** Edge Retails  
@@ -29,13 +29,13 @@ Standalone V1:
 
 ```text
 EdgeRetails.exe
-├── WPF Presentation
-├── Application Layer
-├── Domain Layer
-└── Infrastructure Layer
-        ↓
+â”œâ”€â”€ WPF Presentation
+â”œâ”€â”€ Application Layer
+â”œâ”€â”€ Domain Layer
+â””â”€â”€ Infrastructure Layer
+        â†“
 Local PostgreSQL
-        ↑
+        â†‘
 EdgeRetails.Worker.exe
 ```
 
@@ -43,21 +43,21 @@ Business flow:
 
 ```text
 View
-↓
+â†“
 ViewModel
-↓
+â†“
 IApplicationGateway
-↓
+â†“
 LocalApplicationGateway
-↓
+â†“
 Command / Query Dispatcher
-↓
+â†“
 Application Handler
-↓
+â†“
 Domain
-↓
+â†“
 Infrastructure
-↓
+â†“
 PostgreSQL
 ```
 
@@ -180,7 +180,7 @@ All monetary rounding uses one central MoneyRoundingPolicy.
 
 ---
 
-# 8. Catalog Product Model — Final
+# 8. Catalog Product Model â€” Final
 
 A Product defines what an item is. It does not own current stock.
 
@@ -223,11 +223,11 @@ Rules:
 
 ```text
 QUANTITY / LENGTH
-→ SerialTrackingEnabled = false
-→ ImeiTrackingEnabled = false
+â†’ SerialTrackingEnabled = false
+â†’ ImeiTrackingEnabled = false
 
 SERIALIZED
-→ at least one identity tracking policy is enabled
+â†’ at least one identity tracking policy is enabled
 ```
 
 SKU and barcode are separate concepts.
@@ -236,7 +236,7 @@ A product may have multiple barcodes through `catalog.product_barcodes`.
 
 ---
 
-# 9. Serial / IMEI Rules — Resolved
+# 9. Serial / IMEI Rules â€” Resolved
 
 If Serial Tracking is enabled:
 
@@ -285,7 +285,7 @@ SELLABLE is the only stock available for normal POS sale and Thaka issue.
 
 ---
 
-# 12. Inventory Movement Model — Corrected
+# 12. Inventory Movement Model â€” Corrected
 
 The earlier single-delta model is superseded.
 
@@ -365,7 +365,7 @@ All buckets must remain non-negative.
 
 ---
 
-# 14. Opening Stock — Resolved
+# 14. Opening Stock â€” Resolved
 
 Product creation has no Initial Stock field.
 
@@ -386,7 +386,7 @@ No generic `Stock +5` operation exists for serialized products.
 
 ---
 
-# 15. Stock Adjustment — Final Semantics
+# 15. Stock Adjustment â€” Final Semantics
 
 Adjustment modes:
 
@@ -409,10 +409,10 @@ Behavior:
 
 ```text
 DAMAGED
-SELLABLE → DAMAGED
+SELLABLE â†’ DAMAGED
 
 LOST
-SELLABLE → removed
+SELLABLE â†’ removed
 Recognized Inventory Loss created
 
 PHYSICAL_COUNT_CORRECTION
@@ -429,7 +429,7 @@ Positive serialized adjustment requires identity plus acquisition cost.
 
 ---
 
-# 16. Inventory Cost Provenance — Corrected
+# 16. Inventory Cost Provenance â€” Corrected
 
 Inventory lots retain acquisition-origin cost.
 
@@ -487,7 +487,7 @@ Historical sale profit uses immutable cost snapshots.
 
 
 
-# 18. Serialized Unit Lifecycle — Corrected
+# 18. Serialized Unit Lifecycle â€” Corrected
 
 Final states:
 
@@ -518,7 +518,7 @@ A unit cannot be sold while SOLD, ISSUED_THAKA, SUPPLIER_RETURNED, or SCRAPPED.
 
 ---
 
-# 19. Serialized Sale History — Corrected
+# 19. Serialized Sale History â€” Corrected
 
 A serialized unit may be sold, returned, and legitimately sold again.
 
@@ -545,7 +545,7 @@ Historical inactive sale assignments remain permanently traceable.
 
 ---
 
-# 20. Warranty Model — Corrected
+# 20. Warranty Model â€” Corrected
 
 Product stores:
 
@@ -586,7 +586,7 @@ Completed sale financial values are immutable.
 
 ---
 
-# 22. SaleItem — Corrected Discount Model
+# 22. SaleItem â€” Corrected Discount Model
 
 Final SaleItem financial fields:
 
@@ -610,7 +610,7 @@ No per-item discount exists in V1.
 
 ---
 
-# 23. Complete Sale Price Authority — Corrected
+# 23. Complete Sale Price Authority â€” Corrected
 
 The Complete Sale command does not accept an authoritative requested sale price.
 
@@ -636,51 +636,51 @@ Final flow:
 
 ```text
 System State Guard
-↓
+â†“
 License Guard
-↓
+â†“
 Authenticated Session
-↓
+â†“
 sales.create Authorization
-↓
+â†“
 Input Validation
-↓
+â†“
 ClientOperationId Check
-↓
+â†“
 BEGIN
-↓
+â†“
 Reload Product/Price
-↓
+â†“
 Lock Stock in deterministic ProductId order
-↓
+â†“
 Validate Sellable Stock
-↓
+â†“
 Validate Serialized Units
-↓
+â†“
 Recalculate Subtotal
-↓
+â†“
 Allocate Invoice Discount
-↓
+â†“
 Recalculate Grand Total
-↓
+â†“
 Validate Payment
-↓
+â†“
 Generate Invoice Number
-↓
+â†“
 Create Sale + Items + Payment
-↓
+â†“
 Create Inventory Movements/Effects
-↓
+â†“
 Create Lot Consumption
-↓
+â†“
 Update StockBalance / CostState
-↓
+â†“
 Update Serialized Unit states
-↓
+â†“
 Business Audit
-↓
+â†“
 COMMIT
-↓
+â†“
 Receipt Generation / Printing
 ```
 
@@ -688,7 +688,7 @@ Printer failure never rolls back the committed sale.
 
 ---
 
-# 25. Payment Rules — Final
+# 25. Payment Rules â€” Final
 
 Counter Sale V1 is fully paid at completion.
 
@@ -742,7 +742,7 @@ The database unique constraint is the final duplicate barrier.
 
 ---
 
-# 27. Sale Return — Final
+# 27. Sale Return â€” Final
 
 Sale Return is a separate immutable aggregate.
 
@@ -773,7 +773,7 @@ Serialized return requires exact original InventoryUnit.
 
 ---
 
-# 28. Partial Refund Rounding — Resolved
+# 28. Partial Refund Rounding â€” Resolved
 
 Partial refund is based on the original SaleItem `NetLineTotal`, not the gross undiscounted line.
 
@@ -803,7 +803,7 @@ This removes cumulative rounding drift.
 
 ---
 
-# 29. Return Cost Treatment — Final
+# 29. Return Cost Treatment â€” Final
 
 Every return records:
 
@@ -823,7 +823,7 @@ The architecture does not pretend non-sellable stock is sellable stock.
 
 ---
 
-# 30. Recognized Inventory Losses — Added
+# 30. Recognized Inventory Losses â€” Added
 
 Inventory loss is a first-class financial reporting concept.
 
@@ -904,7 +904,7 @@ Allocation:
 LineShare = BaseLineTotal / PurchaseSubtotal
 
 AllocatedOtherCost =
-OtherCharges × LineShare
+OtherCharges Ã— LineShare
 ```
 
 The deterministic final line absorbs the rounding residual.
@@ -941,7 +941,7 @@ Original Purchase remains intact.
 
 ---
 
-# 34. Purchase Void — Added
+# 34. Purchase Void â€” Added
 
 A mistaken purchase data entry is not always a supplier return.
 
@@ -972,15 +972,15 @@ If a newer Product sale-price change occurred after the purchase, voiding the Pu
 
 ---
 
-# 35. Purchase Print — Added
+# 35. Purchase Print â€” Added
 
 Purchase Detail Print uses:
 
 ```text
 GetPurchaseDocumentQuery
-↓
+â†“
 PurchaseDocumentDto
-↓
+â†“
 IDocumentPrinter
 ```
 
@@ -996,14 +996,14 @@ Thaka remains separate from local POS Sales.
 
 ```text
 Customer
-↓
+â†“
 ThakaProject
-├── Material Issues
-├── Payments
-├── Settlements
-├── Reopenings
-├── Material Reversals
-└── Payment Reversals
+â”œâ”€â”€ Material Issues
+â”œâ”€â”€ Payments
+â”œâ”€â”€ Settlements
+â”œâ”€â”€ Reopenings
+â”œâ”€â”€ Material Reversals
+â””â”€â”€ Payment Reversals
 ```
 
 Thaka is never stored in the Sales table.
@@ -1016,9 +1016,9 @@ Revenue is recognized when material is issued.
 
 ```text
 Material issue
-→ stock leaves
-→ customer/project charge increases
-→ Thaka material revenue increases
+â†’ stock leaves
+â†’ customer/project charge increases
+â†’ Thaka material revenue increases
 ```
 
 Payment is collection of receivable, not new revenue.
@@ -1027,7 +1027,7 @@ Thaka remains separate from Today Local Sales and Local Sale Profit.
 
 ---
 
-# 38. Thaka Equations — Final
+# 38. Thaka Equations â€” Final
 
 Per project:
 
@@ -1067,7 +1067,7 @@ FinalBalance = 0
 
 ---
 
-# 39. Thaka Settlement Cycles — Resolved
+# 39. Thaka Settlement Cycles â€” Resolved
 
 A settled project may be explicitly reopened.
 
@@ -1083,7 +1083,7 @@ A wrongly entered settlement discount is corrected through a linked immutable re
 
 ---
 
-# 40. Thaka Material Reversal — Promoted to V1
+# 40. Thaka Material Reversal â€” Promoted to V1
 
 V1 includes a contextual `Reverse Thaka Material` workflow.
 
@@ -1104,7 +1104,7 @@ No full extra screen is added.
 
 ---
 
-# 41. Thaka Payment Reversal — Promoted to V1
+# 41. Thaka Payment Reversal â€” Promoted to V1
 
 V1 includes a contextual `Reverse Thaka Payment` workflow.
 
@@ -1123,7 +1123,7 @@ A settled project must first be reopened.
 
 ---
 
-# 42. Serialized Thaka State — Added
+# 42. Serialized Thaka State â€” Added
 
 A serialized unit issued to Thaka enters:
 
@@ -1208,7 +1208,7 @@ Controlled edits are audited.
 
 ---
 
-# 46. Dashboard KPI Definitions — Final
+# 46. Dashboard KPI Definitions â€” Final
 
 ```text
 Today Sales
@@ -1252,7 +1252,7 @@ Dashboard remains chart-free.
 
 ---
 
-# 47. Reports — Final Financial Definitions
+# 47. Reports â€” Final Financial Definitions
 
 ```text
 Gross Local Sales
@@ -1303,7 +1303,7 @@ Historical original transactions are not rewritten into another period.
 
 ---
 
-# 48. Reports Visual Scope — Final Precedence
+# 48. Reports Visual Scope â€” Final Precedence
 
 Dashboard:
 
@@ -1357,7 +1357,7 @@ All grouping uses Shop Time Zone.
 
 ---
 
-# 50. Receipt Configuration — Corrected
+# 50. Receipt Configuration â€” Corrected
 
 Global receipt template settings and local printer settings are now separate.
 
@@ -1385,7 +1385,7 @@ This prevents future multi-terminal installations from forcing every counter to 
 
 ---
 
-# 51. Historical Receipt Snapshot — Added
+# 51. Historical Receipt Snapshot â€” Added
 
 At Sale completion store an immutable receipt-template/shop snapshot containing relevant values such as:
 
@@ -1486,7 +1486,7 @@ Permissions never bypass business invariants.
 
 ---
 
-# 54. Owner PIN Recovery — Resolved Without Backdoor
+# 54. Owner PIN Recovery â€” Resolved Without Backdoor
 
 There is no hidden master PIN.
 
@@ -1494,17 +1494,17 @@ Recovery uses a one-time signed Recovery Authorization.
 
 ```text
 Support Recovery Tool
-↓
+â†“
 Signed Recovery Authorization
-↓
+â†“
 Bound to LicenseId + DeviceId + Action + Expiry + Nonce
-↓
+â†“
 Edge Retails verifies embedded Recovery public key
-↓
+â†“
 Owner PIN reset allowed
-↓
+â†“
 Authorization consumed
-↓
+â†“
 Audit
 ```
 
@@ -1529,7 +1529,7 @@ Private signing keys never ship with the customer application.
 
 
 
-# 56. Backup Encryption and Cross-Machine Recovery — Resolved
+# 56. Backup Encryption and Cross-Machine Recovery â€” Resolved
 
 Local Windows protection alone is not sufficient for disaster recovery onto a replacement PC.
 
@@ -1537,13 +1537,13 @@ Final model:
 
 ```text
 BackupMasterKey (BMK)
-→ random high-entropy secret
+â†’ random high-entropy secret
 
 Local BMK copy
-→ protected using Windows OS-backed protection
+â†’ protected using Windows OS-backed protection
 
 Backup Recovery Key (RK)
-→ separately exported/stored by Owner
+â†’ separately exported/stored by Owner
 ```
 
 Each backup contains metadata such as:
@@ -1562,31 +1562,31 @@ The Recovery Key is never stored next to the cloud backup by default.
 
 ---
 
-# 57. Backup Pipeline — Final
+# 57. Backup Pipeline â€” Final
 
 ```text
 Schedule / Backup Now
-↓
+â†“
 Acquire Backup Job Lock
-↓
+â†“
 Database Health Check
-↓
+â†“
 PostgreSQL Logical Backup
-↓
+â†“
 Manifest
-↓
+â†“
 Integrity Check
-↓
+â†“
 Compression
-↓
+â†“
 Authenticated Encryption
-↓
+â†“
 Protected Local Backup
-↓
+â†“
 Cloud Upload
-↓
+â†“
 Remote Verification
-↓
+â†“
 Retention
 ```
 
@@ -1598,37 +1598,37 @@ Pending encrypted local backup is retried later.
 
 ---
 
-# 58. Restore Architecture — Final
+# 58. Restore Architecture â€” Final
 
 Restore remains Owner-only.
 
 ```text
 Select Backup
-↓
+â†“
 Validate Manifest / Version
-↓
+â†“
 Validate Checksum / Authentication
-↓
+â†“
 Decrypt
-↓
+â†“
 Compatibility Check
-↓
+â†“
 Pre-Restore Safety Backup
-↓
+â†“
 Maintenance Mode
-↓
+â†“
 Block Business Writes
-↓
+â†“
 Restore into Staging Database
-↓
+â†“
 Integrity Checks
-↓
+â†“
 Controlled Database Swap
-↓
+â†“
 Migrations if supported/required
-↓
+â†“
 Post-Restore Reconciliation
-↓
+â†“
 Normal Mode
 ```
 
@@ -1642,7 +1642,7 @@ Normal POS writes remain blocked.
 
 ---
 
-# 59. Restore Operation Journal — Resolved
+# 59. Restore Operation Journal â€” Resolved
 
 Restore progress must not depend solely on the database being replaced.
 
@@ -1695,7 +1695,7 @@ Support Bundle
 
 ---
 
-# 61. System State Guard — Added
+# 61. System State Guard â€” Added
 
 System states:
 
@@ -1718,39 +1718,39 @@ A caller cannot bypass maintenance/recovery mode merely by invoking a handler di
 
 ---
 
-# 62. Final Command Pipeline — Corrected
+# 62. Final Command Pipeline â€” Corrected
 
 ```text
 IApplicationGateway
-↓
+â†“
 Operation Context / Correlation
-↓
+â†“
 System State Guard
-↓
+â†“
 License Guard
-↓
+â†“
 Session / Authentication
-↓
+â†“
 Authorization
-↓
+â†“
 Input Validation
-↓
+â†“
 Idempotency
-↓
+â†“
 Transaction Boundary
-↓
+â†“
 Command Handler
-↓
+â†“
 Domain Rules
-↓
+â†“
 Business Audit
-↓
+â†“
 SaveChanges
-↓
+â†“
 COMMIT
-↓
+â†“
 Post-Commit Action
-↓
+â†“
 Result<T>
 ```
 
@@ -1758,7 +1758,7 @@ Printing, cloud operations, and other noncritical external work never occur befo
 
 ---
 
-# 63. Application Gateway — Final
+# 63. Application Gateway â€” Final
 
 ViewModels depend on:
 
@@ -1770,9 +1770,9 @@ Standalone V1:
 
 ```text
 ViewModel
-↓
+â†“
 LocalApplicationGateway
-↓
+â†“
 Command / Query Dispatchers
 ```
 
@@ -1780,9 +1780,9 @@ Future LAN:
 
 ```text
 ViewModel
-↓
+â†“
 RemoteApplicationGateway
-↓
+â†“
 ASP.NET Core
 ```
 
@@ -1861,16 +1861,16 @@ Examples:
 
 ```text
 Complete Sale
-→ lock relevant StockBalance rows
+â†’ lock relevant StockBalance rows
 
 Serialized Sale
-→ lock InventoryUnit
+â†’ lock InventoryUnit
 
 Thaka Payment / Settlement / Reversal
-→ lock ThakaProject
+â†’ lock ThakaProject
 
 Purchase Return / Void
-→ lock purchase-origin stock state
+â†’ lock purchase-origin stock state
 ```
 
 When multiple products are locked, ProductIds are sorted deterministically before lock acquisition.
@@ -1879,7 +1879,7 @@ Negative stock and double-sale states are never allowed.
 
 ---
 
-# 68. Settings Storage — Corrected
+# 68. Settings Storage â€” Corrected
 
 Avoid a giant untyped settings blob.
 
@@ -1980,7 +1980,7 @@ Database/schema/recovery-integrity failure is blocking.
 
 ---
 
-# 71. Reconciliation — Final
+# 71. Reconciliation â€” Final
 
 Read-only deep integrity checks include:
 
@@ -2044,7 +2044,7 @@ Support diagnostics work offline.
 
 ---
 
-# 73. Security Boundary — Final
+# 73. Security Boundary â€” Final
 
 Daily POS runs without Windows Administrator privileges.
 
@@ -2081,17 +2081,17 @@ Then:
 
 ```text
 Notify Owner
-↓
+â†“
 Safe maintenance point
-↓
+â†“
 Pre-update backup
-↓
+â†“
 Install
-↓
+â†“
 Migrate
-↓
+â†“
 Verify
-↓
+â†“
 Restart
 ```
 
@@ -2099,7 +2099,7 @@ Silent downgrade is rejected by default.
 
 ---
 
-# 75. PostgreSQL Engine Major Upgrade — Added
+# 75. PostgreSQL Engine Major Upgrade â€” Added
 
 Application schema migration and PostgreSQL major-version upgrade are separate operations.
 
@@ -2249,13 +2249,13 @@ Future LAN topology:
 
 ```text
 POS Terminals
-↓ HTTPS
+â†“ HTTPS
 EdgeRetails.Server (ASP.NET Core)
-↓
+â†“
 same Application / Domain
-↓
+â†“
 PostgreSQL
-↑
+â†‘
 EdgeRetails.Worker
 ```
 
@@ -2570,7 +2570,7 @@ Future LAN Path          FINAL
 Gap Audit                PASSED
 ```
 
-**Edge Retails Phase 1–16 architecture is now the FINAL IMPLEMENTATION BASELINE.**
+**Edge Retails Phase 1â€“16 architecture is now the FINAL IMPLEMENTATION BASELINE.**
 
 Future work starts with implementation planning and execution, not further architecture invention, unless the product requirements themselves change.
 
@@ -2578,7 +2578,7 @@ Future work starts with implementation planning and execution, not further archi
 
 ---
 
-# 91. FORENSIC VERIFICATION ADDENDUM — Frontend ↔ Backend ↔ Database
+# 91. FORENSIC VERIFICATION ADDENDUM â€” Frontend â†” Backend â†” Database
 
 A second forensic cross-audit was performed after the Phase 16 declaration.
 
@@ -2601,7 +2601,7 @@ docs/Edge_Retails_Forensic_Architecture_Verification_v1.md
 
 ---
 
-# 92. POS and Thaka Separation — Reconfirmed
+# 92. POS and Thaka Separation â€” Reconfirmed
 
 The production POS screen is Local Sale only.
 
@@ -2611,17 +2611,17 @@ Final paths:
 
 ```text
 POS / New Sale
-→ Local Sale
+â†’ Local Sale
 
 Thaka Workspace
-→ Add Thaka Material
+â†’ Add Thaka Material
 ```
 
 No shared transaction mode is permitted.
 
 ---
 
-# 93. Serialized Transaction UI Contract — Added
+# 93. Serialized Transaction UI Contract â€” Added
 
 SERIALIZED products require exact-unit selection/capture at every relevant business boundary.
 
@@ -2629,25 +2629,25 @@ Mandatory UI paths:
 
 ```text
 POS Sale
-→ Select Serialized Units
+â†’ Select Serialized Units
 
 New Purchase
-→ Capture Received Serialized Units
+â†’ Capture Received Serialized Units
 
 Sale Return
-→ Select exact sold units
+â†’ Select exact sold units
 
 Purchase Return
-→ Select exact eligible purchase-origin units
+â†’ Select exact eligible purchase-origin units
 
 Thaka Material Issue
-→ Select exact IN_STOCK units
+â†’ Select exact IN_STOCK units
 
 Thaka Material Reversal
-→ Select exact issued units
+â†’ Select exact issued units
 
 Stock Adjustment
-→ Select/capture exact affected units
+â†’ Select/capture exact affected units
 ```
 
 For serialized products, quantity must equal selected/captured unit count.
@@ -2656,7 +2656,7 @@ Free-form quantity alone is not sufficient.
 
 ---
 
-# 94. Serialized PostgreSQL Relationship Set — Added
+# 94. Serialized PostgreSQL Relationship Set â€” Added
 
 Mandatory exact-unit link tables:
 
@@ -2687,7 +2687,7 @@ Business-specific link tables preserve document provenance.
 
 ---
 
-# 95. Inventory Lot Sources — Corrected
+# 95. Inventory Lot Sources â€” Corrected
 
 `inventory.lots` must support every cost-bearing inbound source, not only PurchaseItem.
 
@@ -2717,7 +2717,7 @@ Where possible, customer return restores original consumption allocation/lot ori
 
 ---
 
-# 96. Moving Average Cost Pool — Clarified
+# 96. Moving Average Cost Pool â€” Clarified
 
 For QUANTITY/LENGTH products:
 
@@ -2734,7 +2734,7 @@ Inventory lot costs remain provenance and supplier-return trace.
 Condition transfer:
 
 ```text
-SELLABLE ↔ DAMAGED / DEFECTIVE
+SELLABLE â†” DAMAGED / DEFECTIVE
 ```
 
 does not itself create COGS or inventory loss.
@@ -2751,23 +2751,23 @@ Lot original cost and MWA must not be treated as the same concept.
 
 ---
 
-# 97. Purchase Return Dual Values — Clarified
+# 97. Purchase Return Dual Values â€” Clarified
 
 Purchase Return preserves two distinct values:
 
 ```text
 SupplierReturnValue
-→ commercial supplier-facing return amount
+â†’ commercial supplier-facing return amount
 
 InventoryCostRemoved
-→ carrying cost removed from inventory
+â†’ carrying cost removed from inventory
 ```
 
 A single monetary field must not represent both concepts.
 
 ---
 
-# 98. Sale Return Refund and Disposition Rules — Corrected
+# 98. Sale Return Refund and Disposition Rules â€” Corrected
 
 V1 has no Customer Store Credit ledger.
 
@@ -2785,17 +2785,17 @@ Return Reason and Item Condition/Disposition are independent:
 
 ```text
 sales.returns
-→ reason_code / reason_note
+â†’ reason_code / reason_note
 
 sales.return_items
-→ disposition
+â†’ disposition
 ```
 
 A return reason must never automatically dictate the inventory bucket without explicit disposition.
 
 ---
 
-# 99. Setup, Brand and Operational Visibility — Added
+# 99. Setup, Brand and Operational Visibility â€” Added
 
 ## Setup State
 
@@ -2834,7 +2834,7 @@ Product Detail exposes a conditional View Serialized Units section/drawer showin
 
 ---
 
-# 100. License Hardware Replacement — Clarified
+# 100. License Hardware Replacement â€” Clarified
 
 A DEVICE_MISMATCH cannot be fixed locally by editing database state.
 
@@ -2852,16 +2852,16 @@ Current workspace status at this forensic pass:
 
 ```text
 database folder
-→ empty
+â†’ empty
 
 Domain / Application / Infrastructure backend folders
-→ scaffolding
+â†’ scaffolding
 
 EF Core / Npgsql physical persistence layer
-→ not implemented yet
+â†’ not implemented yet
 
 PostgreSQL migrations
-→ not created yet
+â†’ not created yet
 ```
 
 Therefore the architecture is approved, but the physical PostgreSQL schema cannot be called verified until migrations are implemented and tested against a real PostgreSQL database.
@@ -2889,21 +2889,21 @@ Reliability/Security              PASS
 Future LAN Path                   PASS
 
 Physical PostgreSQL Implementation
-→ NOT YET BUILT
+â†’ NOT YET BUILT
 
-Production WPF ↔ Backend Integration
-→ NOT YET COMPLETE
+Production WPF â†” Backend Integration
+â†’ NOT YET COMPLETE
 ```
 
 The architecture is now cleared for implementation planning and database migration design.
 
-No physical DB implementation should begin from an older schema description without applying Sections 91–101 of this addendum.
+No physical DB implementation should begin from an older schema description without applying Sections 91â€“101 of this addendum.
 
 
 
 ---
 
-# 103. SHOP-HOLDER OPERATIONAL ADDENDUM — Mandatory Before Physical Database
+# 103. SHOP-HOLDER OPERATIONAL ADDENDUM â€” Mandatory Before Physical Database
 
 A shop-holder operational audit identified workflows that are structurally important for an electrical/electronics retail shop.
 
@@ -2929,7 +2929,7 @@ No physical PostgreSQL migration should be created before Sections 103 onward ar
 
 ---
 
-# 104. Multi-Unit / Packaging Conversion — FINAL
+# 104. Multi-Unit / Packaging Conversion â€” FINAL
 
 Electrical products may be purchased, stocked, sold, or issued in different units.
 
@@ -3113,10 +3113,10 @@ Example:
 
 ```text
 Single Bulb barcode
-→ Piece
+â†’ Piece
 
 Outer Box barcode
-→ Box (12 Pieces)
+â†’ Box (12 Pieces)
 ```
 
 Barcode lookup returns:
@@ -3152,34 +3152,34 @@ Base Unit Cost = Rs. 100
 The cost pool receives:
 
 ```text
-120 × Rs.100
+120 Ã— Rs.100
 ```
 
 not:
 
 ```text
-10 × Rs.1,200 as 10 stock units
+10 Ã— Rs.1,200 as 10 stock units
 ```
 
 Sale in Box:
 
 ```text
 1 Box
-→ consumes 12 Base Units
+â†’ consumes 12 Base Units
 ```
 
 Sale in Piece:
 
 ```text
 1 Piece
-→ consumes 1 Base Unit
+â†’ consumes 1 Base Unit
 ```
 
 This rule applies identically to Returns, Thaka, Stocktake, and Purchase Return eligibility.
 
 ---
 
-# 110. Warranty Module — FINAL V1 Addition
+# 110. Warranty Module â€” FINAL V1 Addition
 
 Warranty is now a dedicated logical module.
 
@@ -3309,9 +3309,9 @@ If Supplier replaces a customer's item specifically against a Claim:
 
 ```text
 Supplier Replacement Received
-↓
+â†“
 Warranty Claim Replacement
-↓
+â†“
 Customer Handover
 ```
 
@@ -3331,7 +3331,7 @@ If the replacement instead becomes unrestricted shop-owned stock, it must enter 
 
 ---
 
-# 114. Shop-Owned Supplier Warranty — FINAL
+# 114. Shop-Owned Supplier Warranty â€” FINAL
 
 Shop-owned defective goods remain inventory assets while recoverable.
 
@@ -3361,20 +3361,20 @@ Typical flow:
 
 ```text
 SELLABLE
-↓ defect found
+â†“ defect found
 DEFECTIVE
-↓ sent for supplier warranty
+â†“ sent for supplier warranty
 WITH_SUPPLIER
-↓ repaired/replaced
+â†“ repaired/replaced
 SELLABLE
 ```
 
 Other outcomes:
 
 ```text
-WITH_SUPPLIER → DEFECTIVE
-WITH_SUPPLIER → SCRAP
-WITH_SUPPLIER → supplier credit/recovery resolution
+WITH_SUPPLIER â†’ DEFECTIVE
+WITH_SUPPLIER â†’ SCRAP
+WITH_SUPPLIER â†’ supplier credit/recovery resolution
 ```
 
 Moving a recoverable item to WITH_SUPPLIER does not create COGS or inventory loss by itself.
@@ -3415,7 +3415,7 @@ Exact unit links remain in `inventory.movement_units`.
 
 
 
-# 116. Batch Physical Stocktake — FINAL V1 Addition
+# 116. Batch Physical Stocktake â€” FINAL V1 Addition
 
 Stock Adjustment handles individual corrections.
 
@@ -3458,23 +3458,23 @@ Posting creates audited Physical Count Correction movement(s).
 
 ```text
 Create Stocktake
-↓
+â†“
 Choose Scope
-↓
+â†“
 Start Counting
-↓
+â†“
 Capture Expected Snapshot
-↓
+â†“
 Physical Count
-↓
+â†“
 Variance Review
-↓
+â†“
 Recount where needed
-↓
+â†“
 Authorized Post
-↓
+â†“
 Generate Stock Adjustment / Movement Effects
-↓
+â†“
 Stocktake = POSTED
 ```
 
@@ -3555,7 +3555,7 @@ Audit
 
 ---
 
-# 120. Non-Sellable Inventory Operations — FINAL
+# 120. Non-Sellable Inventory Operations â€” FINAL
 
 Inventory must expose an operational queue for:
 
@@ -3588,26 +3588,26 @@ No command directly edits a bucket balance.
 # 121. Damaged / Defective Financial Rules
 
 ```text
-SELLABLE → DAMAGED
-SELLABLE → DEFECTIVE
+SELLABLE â†’ DAMAGED
+SELLABLE â†’ DEFECTIVE
 ```
 
 does not automatically create COGS or loss while the item remains a recoverable shop asset.
 
 ```text
-DAMAGED / DEFECTIVE → SELLABLE
+DAMAGED / DEFECTIVE â†’ SELLABLE
 ```
 
 restores availability without creating revenue.
 
 ```text
-DAMAGED / DEFECTIVE → WITH_SUPPLIER
+DAMAGED / DEFECTIVE â†’ WITH_SUPPLIER
 ```
 
 preserves carrying cost.
 
 ```text
-DAMAGED / DEFECTIVE / WITH_SUPPLIER → SCRAP
+DAMAGED / DEFECTIVE / WITH_SUPPLIER â†’ SCRAP
 ```
 
 removes carrying cost and creates RecognizedInventoryLoss.
@@ -3636,7 +3636,7 @@ Inventory screen may expose these through tabs/filters/drawers without adding a 
 
 
 
-# 123. Cash Session / Daily Closing — STRONG V1 Addition
+# 123. Cash Session / Daily Closing â€” STRONG V1 Addition
 
 Edge Retails is not becoming a general ledger.
 
@@ -3732,16 +3732,16 @@ Examples:
 
 ```text
 Cash Sale commit
-→ Sale + Payment + SALE_CASH_IN
+â†’ Sale + Payment + SALE_CASH_IN
 
 Cash Sale Return
-→ Return + SALE_REFUND_CASH_OUT
+â†’ Return + SALE_REFUND_CASH_OUT
 
 Cash Thaka Payment
-→ ThakaPayment + THAKA_PAYMENT_CASH_IN
+â†’ ThakaPayment + THAKA_PAYMENT_CASH_IN
 
 Cash Expense
-→ Expense + EXPENSE_CASH_OUT
+â†’ Expense + EXPENSE_CASH_OUT
 ```
 
 A Purchase only affects the drawer if the user explicitly marks it as paid from the cash counter.
@@ -3765,21 +3765,21 @@ and is always audited.
 
 ```text
 Open Cash Session
-↓
+â†“
 Enter Opening Cash
-↓
+â†“
 Normal Shop Operations
-↓
+â†“
 Close Day / Close Cash
-↓
+â†“
 System Calculates Expected Cash
-↓
+â†“
 User Counts Physical Cash
-↓
+â†“
 Difference Shown
-↓
+â†“
 Confirm Close
-↓
+â†“
 Cash Session = CLOSED
 ```
 
@@ -3802,7 +3802,7 @@ This remains separate from Profit.
 
 ---
 
-# 127. Quotation / Estimate — STRONG V1 Addition
+# 127. Quotation / Estimate â€” STRONG V1 Addition
 
 Electrical shops frequently prepare estimates for customers, electricians, and house/project work.
 
@@ -3881,7 +3881,7 @@ V1 supports:
 
 ```text
 Quotation
-→ Convert to POS Sale
+â†’ Convert to POS Sale
 ```
 
 Conversion does not trust prices supplied by the client.
@@ -3921,22 +3921,22 @@ Use existing screens:
 
 ```text
 Inventory
-→ tabs/filters/drawers for:
+â†’ tabs/filters/drawers for:
    Warranty
    Non-Sellable Stock
    Stocktake
 
 POS / New Sale
-→ New Quotation action / Quotation drawer
-→ Convert Quotation to Cart
+â†’ New Quotation action / Quotation drawer
+â†’ Convert Quotation to Cart
 
 Dashboard / Reports
-→ Open/Close Cash Session drawer
-→ Daily Closing summary
+â†’ Open/Close Cash Session drawer
+â†’ Daily Closing summary
 
 Customer Detail
-→ Warranty Claims history
-→ Quotations history
+â†’ Warranty Claims history
+â†’ Quotations history
 ```
 
 No new primary navigation screen is required for V1.
@@ -3978,19 +3978,19 @@ Default policy:
 
 ```text
 OWNER
-→ all
+â†’ all
 
 MANAGER
-→ warranty, stocktake, non-sellable, quotation
-→ cash close optional/yes by policy
-→ stocktake post optional
+â†’ warranty, stocktake, non-sellable, quotation
+â†’ cash close optional/yes by policy
+â†’ stocktake post optional
 
 CASHIER
-→ quotation create optional
-→ warranty claim intake optional
-→ no stocktake post
-→ no non-sellable write-off
-→ no manual cash movement by default
+â†’ quotation create optional
+â†’ warranty claim intake optional
+â†’ no stocktake post
+â†’ no non-sellable write-off
+â†’ no manual cash movement by default
 ```
 
 Write-off/Scrap and Stocktake Post remain high-trust operations.
@@ -4172,8 +4172,8 @@ All sensitive financial DTO fields still follow existing permission-safe project
 Multi-Unit:
 
 ```text
-Box → Piece conversion
-Roll → Meter conversion
+Box â†’ Piece conversion
+Roll â†’ Meter conversion
 Historical factor snapshot
 Return uses original factor
 MWA cost per Base Unit
@@ -4304,7 +4304,7 @@ The critical and strongly recommended shop-holder operational gaps are now incor
 
 
 
-# 140. Quantity / Conversion Precision — Corrected
+# 140. Quantity / Conversion Precision â€” Corrected
 
 Multi-unit support tightens the quantity precision policy.
 
@@ -4345,4 +4345,1006 @@ display_decimal_places
 
 so Piece/Box can display 0 while Meter/Foot can display controlled decimals.
 
+
+
+
+---
+
+# 141. Authoritative Addendum - Sales, Purchasing, Concurrency, Provenance, and Cloud Control
+
+Sections 141 onward supersede any older contradictory notes about Sales, Purchasing, quotation conversion, idempotency, serialized cost provenance, vendor-cloud control, or remote database control.
+
+These sections are architecture authority. Physical implementation status must be verified separately and must not be inferred from the word FINAL in an architecture rule.
+
+---
+
+# 142. Local Business Authority vs Edge Retails Cloud Control Plane
+
+Edge Retails remains offline-first.
+
+The shop PC is the authority for day-to-day business transactions:
+
+```text
+Edge Retails Desktop
+        |
+        v
+Local Application / Domain
+        |
+        v
+Local PostgreSQL
+```
+
+The internet must not be required for normal Sale, Purchase, Return, Inventory, Warranty, Thaka, Expense, or Reporting operations.
+
+The online/vendor side is a separate control plane:
+
+```text
+Edge Retails Cloud
+|
++-- Shop Registry
++-- License Service
++-- Device Registry
++-- Encrypted Backup Metadata / Storage
++-- Software Update Service
++-- Recovery Authorization Service
++-- Support / Diagnostics
++-- Security Audit
+```
+
+Direct remote SQL access to a shop database is forbidden.
+
+Remote administrative operations, if introduced later, must follow:
+
+```text
+Vendor Cloud
+    |
+Signed / Authorized Command
+    |
+Local Edge Retails Worker / Application
+    |
+Local PostgreSQL
+```
+
+The cloud must never become a hidden second transaction authority for the local POS.
+
+---
+
+# 143. Online License Lifecycle
+
+The authoritative vendor-side license lifecycle is:
+
+```text
+Issue
+Activate
+Bind Device
+Renew
+Suspend
+Revoke
+Replace Device
+Recover
+Expire
+Audit
+```
+
+The shop keeps a locally verifiable signed entitlement so temporary internet loss does not stop the shop.
+
+Recommended entitlement model:
+
+```text
+Long-lived commercial license identity
++
+Shorter signed online entitlement lease
++
+Offline grace policy
+```
+
+The policy must define:
+
+- last successful entitlement refresh
+- offline grace duration
+- behavior after grace expiry
+- device replacement authorization
+- revocation propagation
+- subscription expiry
+- emergency vendor-side suspension
+
+A one-day internet outage must not brick the POS.
+
+---
+
+# 144. License Time Trust and Key Rotation
+
+Local wall-clock time alone must not be trusted for expiry enforcement.
+
+The licensing subsystem should maintain trusted observations such as:
+
+```text
+LastTrustedOnlineTime
+LastSuccessfulEntitlementRefresh
+LastObservedLocalTime
+SuspiciousBackwardClockJump
+```
+
+Backward clock movement must be detected and audited.
+
+Signing keys must support rotation:
+
+```text
+KeyId
+KeyVersion
+ValidFrom
+ValidUntil
+RevokedKeyIds
+Trust Set
+Emergency Rollover
+```
+
+License, Update, Recovery, and Backup cryptographic keys remain separate trust domains.
+
+Private signing keys must never be distributed to customer machines.
+
+---
+
+# 145. Cloud Data Classification and Privacy Boundary
+
+Cloud transmission must be explicit by data class.
+
+Default cloud operational metadata may include:
+
+```text
+ShopId
+LicenseId
+DeviceId
+ApplicationVersion
+DatabaseSchemaVersion
+LastBackupStatus
+BackupObjectMetadata
+WorkerHealth
+DiagnosticStatus
+SecurityEvents
+```
+
+Normal business data remains local by default:
+
+```text
+Customer names / phones
+Supplier commercial data
+Invoices
+Sale lines
+Purchase lines
+Thaka details
+Profit details
+Inventory commercial history
+```
+
+Encrypted full backups may contain business data, but the cloud must treat the backup as an encrypted object rather than an operational reporting database.
+
+Retention, deletion, restore access, and support-access policies must be explicit.
+
+---
+
+# 146. Production Sales Aggregate
+
+Production Sales is a real domain aggregate and must not be represented by demo ViewModel state.
+
+Core model:
+
+```text
+Sale
+SaleItem
+SalePayment
+SaleItemUnit
+SaleReturn
+SaleReturnItem
+SaleReturnItemUnit
+```
+
+Sale is immutable after completion except through explicit return/reversal workflows.
+
+Sale snapshots include:
+
+```text
+InvoiceNumber
+CustomerId nullable
+CashierUserId
+CompletedAt
+Subtotal
+InvoiceDiscount
+GrandTotal
+PaymentStatus = PAID
+ClientOperationId
+ReceiptSnapshot
+```
+
+Each SaleItem snapshots:
+
+```text
+ProductId
+ProductNameSnapshot
+SkuSnapshot
+ProductUnitId
+EnteredQuantity
+FactorToBaseSnapshot
+BaseQuantity
+UnitPrice
+GrossLineTotal
+AllocatedInvoiceDiscount
+NetLineTotal
+UnitCostSnapshot
+TotalCostSnapshot
+GrossProfitSnapshot
+InventoryMovementId
+```
+
+POS V1 remains fully paid only. Normal customer credit is still deferred.
+
+---
+
+# 147. Sale Completion Authority and Pricing
+
+The UI is never authoritative for price or inventory.
+
+Normal Sale price authority:
+
+```text
+Product.DefaultSalePrice
+x
+ProductUnit.FactorToBaseUnit
+=
+Selected Unit Authoritative Price
+```
+
+The client may submit ExpectedUnitPrice only for stale-cart detection.
+
+If current authoritative price differs from ExpectedUnitPrice, the command fails and the cart must be refreshed.
+
+Sale completion pipeline:
+
+```text
+Acquire ClientOperation lock
+Acquire Product resource locks in deterministic order
+Validate Customer
+Reload Product + ProductUnit
+Validate Unit conversion
+Validate Stocktake exclusion
+Lock StockBalance / Units / Lots
+Validate exact serialized selection
+Calculate subtotal
+Allocate invoice discount deterministically
+Validate payment
+Generate invoice number inside transaction
+Persist Sale / Items / Payment
+Create inventory movements
+Consume cost provenance
+Create Cash movement when applicable
+Mark quotation converted when applicable
+Audit
+Commit
+```
+
+Cash tender may exceed GrandTotal and creates ChangeGiven.
+
+Bank/Other applied amount must equal GrandTotal exactly.
+
+---
+
+# 148. Deterministic Invoice Discount Allocation
+
+Invoice-level discount is allocated proportionally across SaleItems.
+
+Rules:
+
+- money allocation rounds to two decimals
+- all but the final line use proportional rounded allocation
+- final line receives the exact residual
+- sum of item allocations must equal invoice discount exactly
+
+This allocation becomes historical truth for later partial returns.
+
+---
+
+# 149. Sale Return - Corrected Reason, Disposition, Refund, and Cost Model
+
+Return reason and inventory disposition are independent fields.
+
+Reason examples:
+
+```text
+CUSTOMER_CHANGED_MIND
+WRONG_ITEM
+FAULT
+OTHER
+```
+
+Disposition:
+
+```text
+RESTOCK_SELLABLE
+DAMAGED
+DEFECTIVE
+SCRAP
+```
+
+Refund methods:
+
+```text
+CASH
+BANK
+OTHER
+```
+
+Store Credit is not part of V1.
+
+Discounted Sales must remain returnable.
+
+Refund truth is based on original SaleItem.NetLineTotal, not current product price.
+
+For cumulative partial returns:
+
+```text
+TargetCumulativeRefund
+=
+NetLineTotal
+x
+CumulativeReturnedBaseQty / OriginalBaseQty
+```
+
+For non-final returns, money rounds to two decimals.
+
+For the final remaining quantity:
+
+```text
+CurrentRefund
+=
+NetLineTotal - PriorRefundedAmount
+```
+
+This guarantees full return equals original NetLineTotal exactly.
+
+Cost reversal uses the same cumulative residual principle at cost precision.
+
+---
+
+# 150. Sale Return Inventory and Scrap Financial Semantics
+
+A Sale Return creates positive inventory movement into its chosen bucket.
+
+For Sellable, Damaged, or Defective:
+
+- carrying cost is restored using original sold cost provenance
+- a new return lot is created directly in the destination bucket
+- do not restore to Sellable first and then move generically
+
+For Scrap:
+
+- Sale COGS reversal still uses original sold cost
+- returned Scrap quantity may remain visible operationally
+- carrying value is zero
+- RecognizedInventoryLoss equals the original returned cost amount
+- a zero-carrying Scrap lot may be created for physical trace
+
+This avoids double counting while preserving operational scrap visibility.
+
+---
+
+# 151. Serialized Sale and Return Provenance
+
+Serialized Sale requires exact inventory-unit selection.
+
+Each InventoryUnit must retain:
+
+```text
+InventoryUnitId
+ProductId
+SerialNumber / IMEI as configured
+AcquisitionCost
+SourcePurchaseItemId
+InventoryLotId
+Status
+```
+
+InventoryLotId is required for exact serialized cost provenance.
+
+On Sale:
+
+```text
+IN_STOCK -> SOLD
+```
+
+and the exact source lot carrying quantity is consumed.
+
+On Sale Return, the exact originally sold unit must be returned.
+
+Examples:
+
+```text
+SOLD -> IN_STOCK
+SOLD -> DAMAGED
+SOLD -> DEFECTIVE
+SOLD -> SCRAPPED
+```
+
+A returned serialized unit receives a new return-lot link representing its new inventory state.
+
+---
+
+# 152. Serialized Identity Normalization
+
+Serial/IMEI identity values are normalized before persistence.
+
+Minimum normalization:
+
+```text
+Trim
+Uppercase invariant
+Empty -> NULL
+```
+
+Within one receipt, duplicate Serial/IMEI values are rejected before persistence.
+
+Concurrent receipts of the same identity must be serialized with an identity-scoped resource lock before checking existing inventory history.
+
+Existing database partial unique indexes remain a final enforcement layer.
+
+---
+
+
+# 153. Production Purchasing Aggregate
+
+Production Purchasing is:
+
+```text
+Purchase
+PurchaseItem
+PurchaseItemUnit
+PurchaseReturn
+PurchaseReturnItem
+PurchaseReturnItemUnit
+PurchaseVoid
+```
+
+Purchase snapshots:
+
+```text
+PurchaseNumber
+SupplierId
+SupplierInvoiceNumber
+NormalizedSupplierInvoiceNumber
+PurchaseDate
+Subtotal
+OtherCharges
+GrandTotal
+SettlementMode
+CreatedBy
+CreatedAt
+ClientOperationId
+Status
+```
+
+PurchaseItem snapshots:
+
+```text
+ProductId
+ProductUnitId
+EnteredQuantity
+FactorToBaseSnapshot
+BaseQuantity
+EnteredUnitCost
+BaseLineTotal
+AllocatedOtherCost
+EffectiveBaseUnitCost
+EffectiveLineCost
+SalePriceAtPurchase
+```
+
+Purchase receipt does not silently redefine Product.DefaultSalePrice unless an explicit product-pricing command is approved.
+
+SalePriceAtPurchase remains a historical commercial snapshot.
+
+---
+
+# 154. Supplier Invoice Duplicate Protection
+
+Supplier invoice duplicate protection is mandatory.
+
+Normalized key:
+
+```text
+SupplierId
++
+NormalizedSupplierInvoiceNumber
+```
+
+must be unique.
+
+Normalization minimum:
+
+```text
+Trim
+Uppercase invariant
+Collapse repeated spaces
+```
+
+A resource lock on the normalized supplier-invoice key must be acquired before duplicate lookup so two concurrent requests cannot both pass the pre-check.
+
+The unique database index remains the final barrier.
+
+---
+
+# 155. Purchase Other-Cost Allocation and Inventory Cost
+
+Other Charges are allocated proportionally by purchase base line value.
+
+Allocation follows deterministic residual rounding.
+
+For each PurchaseItem:
+
+```text
+EffectiveLineCost
+=
+BaseLineTotal
++
+AllocatedOtherCost
+```
+
+```text
+EffectiveBaseUnitCost
+=
+EffectiveLineCost / BaseQuantity
+```
+
+Inventory cost state uses EffectiveBaseUnitCost.
+
+ProductCostState.LastPurchaseCost and LastPurchaseAt are transaction-derived from completed receipt.
+
+---
+
+# 156. Purchase Settlement Modes and Cash Session Effects
+
+Normal Supplier Accounts Payable remains deferred.
+
+V1 Purchase settlement is explicitly classified:
+
+```text
+EXTERNAL
+CASH_DRAWER
+```
+
+EXTERNAL means the transaction is commercially recorded but no local cash-drawer movement is created.
+
+CASH_DRAWER requires an open CashSession and creates:
+
+```text
+PURCHASE_CASH_OUT
+```
+
+Purchase Return settlement is separately explicit:
+
+```text
+EXTERNAL
+CASH_DRAWER
+```
+
+CASH_DRAWER Purchase Return creates:
+
+```text
+PURCHASE_RETURN_CASH_IN
+```
+
+Purchase Void of a drawer-paid purchase requires an open session and creates:
+
+```text
+PURCHASE_VOID_CASH_IN
+```
+
+Cash movement is operational drawer truth, not profit calculation.
+
+---
+
+# 157. Purchase Return - Supplier Value vs Inventory Cost Removed
+
+Purchase Return keeps two separate monetary truths:
+
+```text
+SupplierReturnValue
+InventoryCostRemoved
+```
+
+They may differ.
+
+Example:
+
+```text
+Supplier purchase price      5,000
+Allocated freight              200
+Inventory carrying cost      5,200
+Supplier credit              5,000
+```
+
+Then:
+
+```text
+SupplierReturnValue = 5,000
+InventoryCostRemoved = 5,200
+```
+
+Supplier return eligibility must derive from purchase-origin provenance, not from current total product stock.
+
+Serialized Purchase Return requires exact units whose SourcePurchaseItemId matches the returned PurchaseItem.
+
+---
+
+# 158. Strict Purchase Void Eligibility
+
+Purchase Void is for correcting a mistaken completed receipt, not for normal commercial returns.
+
+A Purchase is voidable only if:
+
+- no Purchase Return exists
+- every purchase-origin quantity is still available in the original eligible state
+- no purchase-origin quantity has ever been consumed
+- no serialized unit from the purchase has downstream history
+- stocktake does not block affected products
+- required cash reversal can be recorded when purchase was drawer-paid
+
+Current stock availability alone is not sufficient.
+
+Returning stock later must not erase historical consumption.
+
+---
+
+
+# 159. Immutable Lot Consumption Ledger
+
+Inventory requires an immutable lot-consumption provenance ledger.
+
+Logical entity:
+
+```text
+InventoryLotConsumption
+```
+
+Fields:
+
+```text
+Id
+LotId
+MovementId
+Quantity
+UnitCostSnapshot
+TotalCostSnapshot
+OccurredAt
+```
+
+Every outbound consumption that removes quantity from a cost-bearing lot must create one or more LotConsumption rows.
+
+Examples:
+
+```text
+Sale
+Thaka Issue
+Purchase Return
+future other cost-bearing outbound operations
+```
+
+This ledger supports:
+
+- Sale COGS provenance
+- exact lot trace
+- forensic reporting
+- Purchase Void "ever consumed" checks
+- deterministic reversals
+- serialized acquisition trace
+
+Lot consumption rows are append-only and are never deleted merely because goods later return.
+
+---
+
+# 160. Idempotency and Concurrent Duplicate Protection
+
+Every critical write command uses ClientOperationId.
+
+Examples:
+
+```text
+CompleteSale
+CreateSaleReturn
+CreatePurchase
+CreatePurchaseReturn
+VoidPurchase
+Quotation conversion commit
+```
+
+Database unique ClientOperationId constraints remain mandatory.
+
+To close the simultaneous-request race, PostgreSQL transaction-scoped advisory locks are used:
+
+```text
+Acquire operation lock(ClientOperationId)
+Check existing result
+If found -> return existing result
+Else -> execute command
+```
+
+A retry after commit must return the already-created business result rather than create a duplicate.
+
+---
+
+# 161. Deterministic Product Resource Locking
+
+All stock-affecting multi-product commands acquire product resource locks in sorted ProductId order.
+
+Pattern:
+
+```text
+Distinct ProductIds
+Sort ascending
+Acquire transaction-scoped product advisory locks
+Then lock rows / lots / units
+```
+
+Applies to:
+
+```text
+Complete Sale
+Sale Return
+Create Purchase
+Purchase Return
+Purchase Void
+Stocktake Start / Count window
+other stock-affecting commands
+```
+
+This provides a stable cross-module lock order and reduces deadlock risk.
+
+Cash-session locks are acquired after inventory/product locking in commands that need both inventory and cash.
+
+---
+
+# 162. Stocktake Concurrency Barrier
+
+When Stocktake begins for a scope, affected Product resource locks are acquired in deterministic order before the counting snapshot is finalized.
+
+Stock-affecting commands:
+
+1. acquire the same Product resource lock
+2. re-check active COUNTING Stocktake after inventory row lock
+3. fail if the product is blocked
+
+This closes the race where a Sale/Purchase starts just before Stocktake becomes COUNTING.
+
+---
+
+# 163. Quotation to Sale - Single Sale Engine
+
+Quotation conversion must not use a separate sale engine.
+
+Correct architecture:
+
+```text
+Quotation
+  |
+PrepareQuotationForSale
+  |
+Validated Sale Draft
+  |
+CompleteSale
+  |
+Normal Sale transaction pipeline
+```
+
+PrepareQuotationForSale does not mutate stock, cash, COGS, or revenue.
+
+It validates:
+
+- quotation status = ISSUED
+- not expired
+- product still active
+- selected unit still active and sellable
+- conversion factor unchanged
+- quoted price snapshot retained
+
+Final conversion occurs only inside CompleteSale.
+
+CompleteSale revalidates stock, exact serial selection, customer, unit, discount, and payment.
+
+On successful commit:
+
+```text
+Quotation -> CONVERTED
+ConvertedSaleId = Sale.Id
+```
+
+Double conversion is forbidden.
+
+The old direct IQuotationSaleConverter approach is superseded.
+
+---
+
+# 164. Backend-Authoritative Receipt Snapshot
+
+Historical Sale receipts must not depend on current shop settings.
+
+At Sale commit, backend captures immutable receipt/shop snapshot data such as:
+
+```text
+ShopName
+Address
+Phone
+ReceiptHeader
+ReceiptFooter
+Tax / registration identifiers if configured
+TemplateVersion
+```
+
+The snapshot must come from trusted application/system settings, not arbitrary caller-provided text.
+
+Later receipt reprint uses the historical Sale snapshot.
+
+---
+
+
+# 165. Business Audit for Sales and Purchasing
+
+Critical Sale/Purchase commands require append-only business audit events in the same database transaction.
+
+Minimum audit event shape:
+
+```text
+AuditEventId
+OccurredAt
+ActorUserId
+Action
+EntityType
+EntityId
+CorrelationId / ClientOperationId
+Reason
+BeforeJson optional
+AfterJson optional
+Machine / Session metadata where available
+```
+
+Mandatory examples:
+
+```text
+SALE_COMPLETED
+SALE_RETURN_CREATED
+PURCHASE_COMPLETED
+PURCHASE_RETURN_CREATED
+PURCHASE_VOIDED
+QUOTATION_ISSUED
+QUOTATION_CANCELLED
+QUOTATION_CONVERTED
+SERIALIZED_IDENTITY_RECEIVED
+```
+
+Audit is not a substitute for immutable domain records. It is an additional forensic trail.
+
+Audit records must not be deleted by normal business workflows.
+
+---
+
+# 166. Sales and Purchasing Read-Side Contract
+
+CQRS remains explicit.
+
+Write handlers mutate domain truth.
+
+Read-side queries use Dapper/raw SQL DTO projections where useful.
+
+Required backend query families:
+
+```text
+GetSalesHistory
+GetSaleDetail
+GetSaleReturnHistory
+GetPurchaseHistory
+GetPurchaseDetail
+GetPurchaseReturnHistory
+GetSupplierPurchaseHistory
+GetProductPurchaseProvenance
+GetProductSaleHistory
+GetSerializedUnitHistory
+GetLotConsumptionTrace
+GetQuotationList
+GetQuotationDetail
+```
+
+Read DTOs may join reporting-friendly data, but must never become write authority.
+
+---
+
+# 167. Migration Strategy After Final Sales/Purchasing Closure
+
+Because no production Edge Retails PostgreSQL database has yet been established as an applied migration authority, the first physical production migration should represent the complete approved V1 baseline rather than a deliberately incomplete single-unit or demo-era schema.
+
+Migration 001 must include, at minimum:
+
+```text
+Catalog / Product Units
+Parties
+Inventory ledger
+Inventory lots / bucket balances
+Lot consumptions
+Serialized units
+Stocktake
+Warranty
+Sales / Sale Returns / Quotations
+Purchasing / Purchase Returns / Purchase Void
+Finance Cash Sessions
+System document sequences
+Required audit structures
+Required constraints / filtered unique indexes
+```
+
+Before release:
+
+```text
+Model -> Migration drift = zero
+Migration Up = pass
+Migration Down = pass in disposable test DB
+Migration Up again = pass
+Real PostgreSQL integration tests = pass
+```
+
+Never rewrite an already-deployed production migration. This clean-baseline rule is valid only while no production database depends on an older migration history.
+
+---
+
+# 168. Backend-Only Closure Boundary
+
+Frontend integration is explicitly outside the current backend closure task.
+
+The backend must be considered complete independently of WPF demo services only when:
+
+- domain rules are implemented
+- persistence model is complete
+- migrations are valid
+- idempotency is enforced
+- resource-lock order is deterministic
+- inventory/cost provenance is complete
+- cash side effects are atomic
+- audit is append-only
+- read-side queries exist
+- real PostgreSQL tests cover the critical cross-module paths
+
+Frontend demo behavior must not be used as evidence of backend correctness.
+
+---
+
+# 169. Revised Architecture Declaration
+
+The following architecture rules are now authoritative:
+
+```text
+Local PostgreSQL business authority             FINAL
+Offline-first shop operation                    FINAL
+Cloud vendor control-plane boundary             FINAL
+License lifecycle / revocation / rotation path  FINAL DESIGN
+Sales aggregate                                 FINAL
+Sale completion authority                       FINAL
+Sale return residual refund/cost model          FINAL
+Purchasing aggregate                            FINAL
+Purchase settlement semantics                   FINAL
+Purchase return dual-value model                FINAL
+Strict Purchase Void provenance rule            FINAL
+Multi-unit transaction snapshots                FINAL
+Serialized exact-lot provenance                 FINAL
+Immutable lot-consumption ledger                FINAL
+ClientOperationId idempotency                   FINAL
+Product resource-lock order                     FINAL
+Stocktake concurrency barrier                   FINAL
+Quotation-to-Sale single-engine rule            FINAL
+Backend receipt snapshot authority              FINAL
+Business audit requirement                      FINAL
+Sales/Purchasing read-side contract              FINAL
+Fresh complete Migration 001 strategy           FINAL WHILE NO PROD DB EXISTS
+
+Normal Customer Credit / Udhaar                 DEFERRED
+Supplier Accounts Payable                       DEFERRED
+General Ledger / Double Entry                   OUT OF V1
+Frontend production integration                 SEPARATE TASK
+```
+
+This addendum supersedes any older contradictory Sales/Purchasing or cloud-control notes.
 
