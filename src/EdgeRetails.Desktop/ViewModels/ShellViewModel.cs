@@ -15,6 +15,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
 
     private readonly INavigationService _navigationService;
     private readonly ILiveClock _clock;
+    private readonly IFrontendPermissionService _permissionService;
     private bool _isSidebarCollapsed;
     private ViewModelBase? _currentPage;
     private string _pageTitle = "Dashboard";
