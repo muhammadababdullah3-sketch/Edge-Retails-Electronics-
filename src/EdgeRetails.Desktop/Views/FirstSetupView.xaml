@@ -14,17 +14,13 @@
             Style="{StaticResource Card.Raised}">
      <StackPanel>
       <StackPanel HorizontalAlignment="Center">
-       <Border Width="44" Height="44"
-               Background="{StaticResource Gradient.Brand.Primary}"
-               CornerRadius="12"
-               HorizontalAlignment="Center">
-        <TextBlock Text="ER" Foreground="{StaticResource Brush.White}"
-                   FontWeight="Bold" FontSize="14"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
-       </Border>
-       <TextBlock Text="EDGE RETAILS" Margin="0,10,0,0"
-                  FontSize="22" FontWeight="Bold"
+       <Image Source="/Assets/EdgeLogo.png"
+              Width="150"
+              Height="48"
+              Stretch="Uniform"
+              HorizontalAlignment="Center"/>
+       <TextBlock Text="EdgeRetails POS" Margin="0,7,0,0"
+                  FontSize="18" FontWeight="Bold"
                   Foreground="{DynamicResource Brush.Text.Primary}"
                   HorizontalAlignment="Center"/>
        <TextBlock Text="First Setup / License"
@@ -166,7 +162,8 @@
          </StackPanel>
         </Grid>
         <TextBlock Text="Owner PIN" Margin="0,14,0,5" FontSize="12"/>
-        <PasswordBox PasswordChanged="OnOwnerPinChanged"
+        <PasswordBox x:Name="OwnerPinInput"
+                     PasswordChanged="OnOwnerPinChanged"
                      Height="{StaticResource Dimension.Control.Standard}"
                      Padding="{StaticResource Padding.Input.Standard}"
                      Background="{DynamicResource Brush.Input.Background}"

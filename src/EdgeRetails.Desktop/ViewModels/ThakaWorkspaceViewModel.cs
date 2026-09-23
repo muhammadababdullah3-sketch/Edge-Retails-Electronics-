@@ -7,6 +7,7 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class MaterialLedgerEntry
 {
+    public Guid? BackendMaterialIssueId { get; init; }
     public DateTime Date { get; init; }
     public string ChallanNumber { get; init; } = string.Empty;
     public string ProductName { get; init; } = string.Empty;
@@ -24,6 +25,7 @@ public sealed class MaterialLedgerEntry
 
 public sealed class PaymentLedgerEntry
 {
+    public Guid? BackendPaymentId { get; init; }
     public string ReceiptNumber { get; init; } = string.Empty;
     public DateTime Date { get; init; }
     public string PaymentMethod { get; init; } = "Cash";
@@ -38,14 +40,20 @@ public sealed class PaymentLedgerEntry
 public sealed class ThakaWorkspaceViewModel : ViewModelBase
 {
     private readonly ThakaProjectListItemViewModel _project;
-    private readonly DemoRetailState _retailState;
+    private readonly DemoRetailState? _previewRetailState;
+    private readonly IBackendThakaService? _backendService;
+    private readonly IBackendPhase4WorkflowService? _phase4Service;
     private readonly IDialogService? _dialogService;
     private readonly IToastService? _toastService;
     private string _selectedTab = "Materials";
+    private MaterialLedgerEntry? _selectedMaterial;
+    private Guid? _pendingMaterialReversalIssueId;
+    private Guid? _pendingMaterialReversalOperationId;
 
     public ThakaWorkspaceViewModel()
         : this(
-            DemoRetailState.Instance.ThakaProjects.First(project => project.IsActive),
+            CreatePreviewProject(),
+            null,
             null,
             null)
     {
@@ -54,19 +62,30 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public ThakaWorkspaceViewModel(
         ThakaProjectListItemViewModel project,
         IDialogService? dialogService = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IBackendThakaService? backendService = null,
+        IBackendPhase4WorkflowService? phase4Service = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
-        _retailState = DemoRetailState.Instance;
+        _backendService = backendService;
+        _phase4Service = phase4Service;
+        _previewRetailState = ResolvePreviewRetailState(backendService);
         _dialogService = dialogService;
         _toastService = toastService;
 
-        MaterialLedger = _retailState.GetMaterialLedger(_project);
-        PaymentLedger = _retailState.GetPaymentLedger(_project);
+        MaterialLedger = _previewRetailState is not null
+            ? _previewRetailState.GetMaterialLedger(_project)
+            : [];
+        PaymentLedger = _previewRetailState is not null
+            ? _previewRetailState.GetPaymentLedger(_project)
+            : [];
 
         AddMaterialCommand = new RelayCommand(OpenAddMaterial, () => !IsSettled);
         RecordPaymentCommand = new RelayCommand(OpenRecordPayment, () => !IsSettled && Balance > 0m);
         FinalSettlementCommand = new RelayCommand(OpenFinalSettlement, () => !IsSettled && Balance > 0m);
+        ReverseMaterialCommand = new RelayCommand(
+            async () => await ReverseSelectedMaterialAsync(),
+            () => CanReverseSelectedMaterial);
         GoBackCommand = new RelayCommand(() => BackRequested?.Invoke(this, EventArgs.Empty));
         SwitchTabCommand = new RelayCommand<string>(tab =>
         {
@@ -75,6 +94,11 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
                 SelectedTab = tab;
             }
         });
+
+        if (_backendService is not null)
+        {
+            _ = RefreshBackendAsync();
+        }
     }
 
     public string ProjectName => _project.ProjectName;
@@ -100,6 +124,30 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public ObservableCollection<MaterialLedgerEntry> MaterialLedger { get; }
     public ObservableCollection<PaymentLedgerEntry> PaymentLedger { get; }
 
+    public MaterialLedgerEntry? SelectedMaterial
+    {
+        get => _selectedMaterial;
+        set
+        {
+            if (SetProperty(ref _selectedMaterial, value))
+            {
+                if (_pendingMaterialReversalIssueId != value?.BackendMaterialIssueId)
+                {
+                    _pendingMaterialReversalIssueId = value?.BackendMaterialIssueId;
+                    _pendingMaterialReversalOperationId = null;
+                }
+
+                OnPropertyChanged(nameof(CanReverseSelectedMaterial));
+                ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanReverseSelectedMaterial =>
+        !IsSettled &&
+        _backendService is not null &&
+        SelectedMaterial?.BackendMaterialIssueId is Guid;
+
     public string SelectedTab
     {
         get => _selectedTab;
@@ -121,6 +169,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public ICommand AddMaterialCommand { get; }
     public ICommand RecordPaymentCommand { get; }
     public ICommand FinalSettlementCommand { get; }
+    public ICommand ReverseMaterialCommand { get; }
     public ICommand GoBackCommand { get; }
     public ICommand SwitchTabCommand { get; }
 
@@ -139,7 +188,10 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             _project,
             onMaterialAdded: _ => RefreshFinancialState(),
             onClose: () => _dialogService.Close(),
-            toastService: _toastService);
+            toastService: _toastService,
+            backendService: _backendService,
+            phase4Service: _phase4Service,
+            dialogService: _dialogService);
 
         _dialogService.Show(vm);
     }
@@ -155,7 +207,8 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             _project,
             onPaymentRecorded: _ => RefreshFinancialState(),
             onClose: () => _dialogService.Close(),
-            toastService: _toastService);
+            toastService: _toastService,
+            backendService: _backendService);
 
         _dialogService.Show(vm);
     }
@@ -176,12 +229,125 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
                 ProjectSettled?.Invoke(this, EventArgs.Empty);
             },
             onClose: () => _dialogService.Close(),
-            toastService: _toastService);
+            toastService: _toastService,
+            backendService: _backendService);
 
         _dialogService.Show(vm);
     }
 
+    private async Task ReverseSelectedMaterialAsync()
+    {
+        if (!CanReverseSelectedMaterial ||
+            _backendService is null ||
+            SelectedMaterial?.BackendMaterialIssueId is not Guid issueId)
+        {
+            return;
+        }
+
+        _pendingMaterialReversalIssueId = issueId;
+        _pendingMaterialReversalOperationId ??= Guid.CreateVersion7();
+
+        try
+        {
+            await _backendService.ReverseMaterialAsync(
+                _project,
+                issueId,
+                $"Operator reversal of {SelectedMaterial.ChallanNumber}",
+                _pendingMaterialReversalOperationId.Value);
+
+            _toastService?.Show(
+                $"{SelectedMaterial.ChallanNumber} reversed and exact stock provenance restored.",
+                ToastTone.Success);
+            _pendingMaterialReversalIssueId = null;
+            _pendingMaterialReversalOperationId = null;
+            SelectedMaterial = null;
+            await RefreshBackendAsync();
+        }
+        catch (BackendOperationException ex)
+        {
+            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(ex.Message, ToastTone.Danger);
+        }
+    }
+
     private void RefreshFinancialState()
+    {
+        if (_backendService is not null)
+        {
+            _ = RefreshBackendAsync();
+            return;
+        }
+
+        NotifyFinancialState();
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null ||
+            _project.BackendProjectId is not Guid projectId)
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshot = await _backendService.GetWorkspaceAsync(projectId);
+
+            _project.MaterialValue = snapshot.Project.MaterialValue;
+            _project.Paid = snapshot.Project.Paid;
+            _project.SettlementDiscount = snapshot.Project.SettlementDiscount;
+            _project.Status = snapshot.Project.Status;
+            _project.Phone = snapshot.Project.Phone;
+            _project.Location = snapshot.Project.Location;
+            _project.Notes = snapshot.Project.Notes;
+
+            MaterialLedger.Clear();
+            foreach (var entry in snapshot.Materials)
+            {
+                MaterialLedger.Add(entry);
+            }
+
+            PaymentLedger.Clear();
+            foreach (var entry in snapshot.Payments)
+            {
+                PaymentLedger.Add(entry);
+            }
+
+            NotifyFinancialState();
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                $"Thaka workspace could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        IBackendThakaService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
+    }
+
+    private static ThakaProjectListItemViewModel CreatePreviewProject()
+    {
+#if DEBUG
+        return DemoRetailState.Instance.ThakaProjects
+            .First(project => project.IsActive);
+#else
+        throw new InvalidOperationException(
+            "Parameterless Thaka workspace construction is preview-only.");
+#endif
+    }
+
+    private void NotifyFinancialState()
     {
         OnPropertyChanged(nameof(MaterialValue));
         OnPropertyChanged(nameof(MaterialValueFormatted));
@@ -195,8 +361,10 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         OnPropertyChanged(nameof(StatusDisplay));
         OnPropertyChanged(nameof(StatusTone));
 
+        OnPropertyChanged(nameof(CanReverseSelectedMaterial));
         ((RelayCommand)AddMaterialCommand).NotifyCanExecuteChanged();
         ((RelayCommand)RecordPaymentCommand).NotifyCanExecuteChanged();
         ((RelayCommand)FinalSettlementCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
     }
 }

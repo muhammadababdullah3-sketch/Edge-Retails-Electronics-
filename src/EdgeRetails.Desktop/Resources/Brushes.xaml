@@ -14,6 +14,7 @@
     <SolidColorBrush x:Key="Brush.Function.Warning" Color="{StaticResource Color.Warning.End}" />
     <SolidColorBrush x:Key="Brush.Function.Expense" Color="{StaticResource Color.Expense.End}" />
     <SolidColorBrush x:Key="Brush.Function.Danger" Color="{StaticResource Color.Danger}" />
+    <SolidColorBrush x:Key="Brush.Status.Danger" Color="{StaticResource Color.Danger}" />
     <SolidColorBrush x:Key="Brush.White" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Transparent" Color="Transparent" />
 </ResourceDictionary>

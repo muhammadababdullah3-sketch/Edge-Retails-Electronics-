@@ -74,6 +74,17 @@
                                 <DataGridTextColumn Header="RETURN QTY"
                                                     Binding="{Binding ReturnQuantity, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                     Width="100" />
+                                <DataGridTextColumn Header="EXACT UNITS" Binding="{Binding ExactUnitSelectionDisplay}" Width="110" IsReadOnly="True" />
+                                <DataGridTemplateColumn Header="SELECT UNIT" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Select"
+                                                    Command="{Binding DataContext.SelectExactUnitsCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource Button.Text.Neutral}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="VALUE" Binding="{Binding ReturnValueDisplay}" Width="120" IsReadOnly="True" />
                             </DataGrid.Columns>
                         </DataGrid>

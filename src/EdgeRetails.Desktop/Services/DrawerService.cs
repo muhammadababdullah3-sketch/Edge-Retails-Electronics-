@@ -22,13 +22,29 @@ public sealed class DrawerService : ViewModelBase, IDrawerService
     public void Show(object content)
     {
         ArgumentNullException.ThrowIfNull(content);
+
+        if (!ReferenceEquals(Content, content))
+        {
+            DisposeContent(Content);
+        }
+
         Content = content;
         IsOpen = true;
     }
 
     public void Close()
     {
+        var content = Content;
         IsOpen = false;
         Content = null;
+        DisposeContent(content);
+    }
+
+    private static void DisposeContent(object? content)
+    {
+        if (content is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 }

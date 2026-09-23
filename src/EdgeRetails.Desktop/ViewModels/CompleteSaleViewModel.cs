@@ -21,6 +21,9 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     private readonly decimal _subtotal;
     private readonly decimal _discountAmount;
     private readonly Func<string?>? _preCommitValidation;
+    private readonly Guid _clientOperationId;
+    private readonly Guid? _draftId;
+    private readonly long? _draftVersion;
 
     private decimal _totalToPay;
     private PaymentMethod _paymentMethod = PaymentMethod.Cash;
@@ -30,9 +33,11 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     private bool _printReceipt = true;
     private bool _isProcessing;
     private string? _validationMessage;
+    private readonly Guid? _customerId;
     private string _customerName = "Walk-in Customer";
     private string _customerPhone = string.Empty;
     private string _cashierName = "Abdullah, Owner";
+    private string _paymentReference = string.Empty;
     private string? _notes;
 
     public event Action? RequestCloseRequested;
@@ -45,15 +50,20 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         IToastService? toastService = null,
         string customerName = "Walk-in Customer",
         string customerPhone = "",
+        Guid? customerId = null,
         string cashierName = "Abdullah, Owner",
         IReadOnlyList<SaleTransactionItem>? items = null,
         decimal subtotal = 0m,
         decimal discountAmount = 0m,
-        Func<string?>? preCommitValidation = null)
+        Func<string?>? preCommitValidation = null,
+        Guid? clientOperationId = null,
+        Guid? draftId = null,
+        long? draftVersion = null)
     {
         _transactionService = transactionService ?? DemoTransactionService.Instance;
         _dialogService = dialogService;
         _toastService = toastService;
+        _customerId = customerId;
         _customerName = string.IsNullOrWhiteSpace(customerName) ? "Walk-in Customer" : customerName;
         _customerPhone = customerPhone;
         _cashierName = string.IsNullOrWhiteSpace(cashierName) ? "Abdullah, Owner" : cashierName;
@@ -61,6 +71,9 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         _subtotal = subtotal > 0m ? subtotal : totalToPay;
         _discountAmount = Math.Max(0m, discountAmount);
         _preCommitValidation = preCommitValidation;
+        _clientOperationId = clientOperationId ?? Guid.CreateVersion7();
+        _draftId = draftId;
+        _draftVersion = draftVersion;
 
         // Initialize commands
         SelectCashCommand = new RelayCommand(() => PaymentMethod = PaymentMethod.Cash);
@@ -121,6 +134,8 @@ public sealed class CompleteSaleViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsBank));
                 OnPropertyChanged(nameof(IsOther));
                 OnPropertyChanged(nameof(PaymentMethodDisplay));
+                OnPropertyChanged(nameof(PaymentReferenceLabel));
+                OnPropertyChanged(nameof(PaymentGuidance));
 
                 // When switching to Bank or Other, automatically set received to exact amount
                 if (value == PaymentMethod.Bank || value == PaymentMethod.Other)
@@ -142,9 +157,23 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     public string PaymentMethodDisplay => PaymentMethod switch
     {
         PaymentMethod.Cash => "Cash",
-        PaymentMethod.Bank => "Bank",
+        PaymentMethod.Bank => "Bank Transfer",
         PaymentMethod.Other => "Other",
         _ => PaymentMethod.ToString()
+    };
+
+    public string PaymentReferenceLabel => PaymentMethod switch
+    {
+        PaymentMethod.Bank => "Bank Reference / Transaction ID (optional)",
+        PaymentMethod.Other => "Payment Note / Reference (optional)",
+        _ => string.Empty
+    };
+
+    public string PaymentGuidance => PaymentMethod switch
+    {
+        PaymentMethod.Bank => "Record the exact bank payment. No cash change is calculated.",
+        PaymentMethod.Other => "Record the exact non-cash payment and an optional reference.",
+        _ => "Enter cash received. Change is calculated automatically."
     };
 
     public decimal AmountReceived
@@ -256,13 +285,42 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     public string CustomerName
     {
         get => _customerName;
-        set => SetProperty(ref _customerName, value);
+        set
+        {
+            if (SetProperty(ref _customerName, value))
+            {
+                OnPropertyChanged(nameof(RecipientName));
+                OnPropertyChanged(nameof(RecipientSubtitle));
+            }
+        }
     }
 
     public string CustomerPhone
     {
         get => _customerPhone;
-        set => SetProperty(ref _customerPhone, value);
+        set
+        {
+            if (SetProperty(ref _customerPhone, value))
+            {
+                OnPropertyChanged(nameof(RecipientSubtitle));
+            }
+        }
+    }
+
+    public string RecipientName =>
+        string.IsNullOrWhiteSpace(CustomerName)
+            ? "Walk-in Customer"
+            : CustomerName.Trim();
+
+    public string RecipientSubtitle =>
+        string.IsNullOrWhiteSpace(CustomerPhone)
+            ? "Walk-in sale"
+            : CustomerPhone.Trim();
+
+    public string PaymentReference
+    {
+        get => _paymentReference;
+        set => SetProperty(ref _paymentReference, value ?? string.Empty);
     }
 
     public string CashierName
@@ -365,6 +423,10 @@ public sealed class CompleteSaleViewModel : ViewModelBase
 
             var request = new RecordSaleRequest
             {
+                ClientOperationId = _clientOperationId,
+                DraftId = _draftId,
+                DraftVersion = _draftVersion,
+                CustomerId = _customerId,
                 TotalAmount = TotalToPay,
                 PaymentMethod = PaymentMethod,
                 AmountReceived = AmountReceived,
@@ -373,6 +435,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
                 CustomerName = CustomerName,
                 CustomerPhone = CustomerPhone,
                 CashierName = CashierName,
+                PaymentReference = PaymentReference,
                 Notes = Notes,
                 Subtotal = _subtotal,
                 DiscountAmount = _discountAmount,

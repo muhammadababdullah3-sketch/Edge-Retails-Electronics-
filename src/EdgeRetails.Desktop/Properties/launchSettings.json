@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "EdgeRetails.Desktop (Development)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "EDGE_RETAILS_DB": "Host=localhost;Port=5432;Database=edge_retails_dev;Username=postgres"
+      }
+    },
+    "EdgeRetails.Desktop": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "EDGE_RETAILS_DB": "Host=localhost;Port=5432;Database=edge_retails_dev;Username=postgres"
+      }
+    },
+    "EdgeRetails.Desktop (Production Safety Test)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Production"
+      }
+    }
+  }
+}

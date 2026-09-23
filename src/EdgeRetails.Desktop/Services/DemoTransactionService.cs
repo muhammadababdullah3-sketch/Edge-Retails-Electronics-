@@ -117,6 +117,7 @@ public sealed class DemoTransactionService : ITransactionService
                 ChangeReturned = change,
                 PrintReceipt = request.PrintReceipt,
                 CashierName = string.IsNullOrWhiteSpace(request.CashierName) ? "Abdullah, Owner" : request.CashierName,
+                PaymentReference = request.PaymentReference?.Trim() ?? string.Empty,
                 Notes = request.Notes,
                 Items = request.Items != null && request.Items.Count > 0
                     ? request.Items

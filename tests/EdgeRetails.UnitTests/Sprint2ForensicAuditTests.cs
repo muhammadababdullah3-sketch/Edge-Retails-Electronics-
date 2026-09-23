@@ -121,7 +121,7 @@ public sealed class Sprint2ForensicAuditTests
             "LoginViewModel",
             "ShellViewModel",
             "DashboardViewModel",
-            "NewSaleViewModel",
+            "PosViewModel",
             "PlaceholderPageViewModel"
         };
 
@@ -154,7 +154,7 @@ public sealed class Sprint2ForensicAuditTests
         var requiredIcons = new[]
         {
             "Icon.Nav.Dashboard",
-            "Icon.Nav.NewSale",
+            "Icon.Nav.POS",
             "Icon.Nav.SalesHistory",
             "Icon.Nav.ThakaProjects",
             "Icon.Nav.Purchases",
@@ -261,8 +261,8 @@ public sealed class Sprint2ForensicAuditTests
     public void PosCatalogSelection_DoesNotMutateCartInsideSelectedItemSetter()
     {
         var desktopDir = GetDesktopDirectory();
-        var viewModelPath = Path.Combine(desktopDir, "ViewModels", "NewSaleViewModel.cs");
-        var viewPath = Path.Combine(desktopDir, "Views", "NewSaleView.xaml");
+        var viewModelPath = Path.Combine(desktopDir, "ViewModels", "PosViewModel.cs");
+        var viewPath = Path.Combine(desktopDir, "Views", "PosView.xaml");
 
         var viewModelContent = File.ReadAllText(viewModelPath);
         var selectionProperty = Regex.Match(
@@ -301,18 +301,18 @@ public sealed class Sprint2ForensicAuditTests
     }
 
     [Fact]
-    public void NewSaleTerminal_StartsCleanWithEmptyCart()
+    public void PosTerminal_StartsCleanWithEmptyCart()
     {
         var desktopDir = GetDesktopDirectory();
-        var viewModelPath = Path.Combine(desktopDir, "ViewModels", "NewSaleViewModel.cs");
+        var viewModelPath = Path.Combine(desktopDir, "ViewModels", "PosViewModel.cs");
         var content = File.ReadAllText(viewModelPath);
 
         var ctorMatch = Regex.Match(
             content,
-            @"public NewSaleViewModel\s*\([^)]*\)\s*\{(?<ctor>.*?)\n    \}",
+            @"public PosViewModel\s*\([^)]*\)\s*\{(?<ctor>.*?)\n    \}",
             RegexOptions.Singleline);
 
-        Assert.True(ctorMatch.Success, "NewSaleViewModel primary constructor not found.");
+        Assert.True(ctorMatch.Success, "PosViewModel primary constructor not found.");
         var ctorBody = ctorMatch.Groups["ctor"].Value;
 
         Assert.Contains("CartItems.Clear()", ctorBody);
@@ -325,17 +325,17 @@ public sealed class Sprint2ForensicAuditTests
         var desktopDir = GetDesktopDirectory();
         var scrollBarsPath = Path.Combine(desktopDir, "Resources", "ScrollBars.xaml");
         var appXamlPath = Path.Combine(desktopDir, "App.xaml");
-        var newSalePath = Path.Combine(desktopDir, "Views", "NewSaleView.xaml");
+        var posPath = Path.Combine(desktopDir, "Views", "PosView.xaml");
 
         Assert.True(File.Exists(scrollBarsPath), "ScrollBars.xaml missing.");
         var scrollBarsContent = File.ReadAllText(scrollBarsPath);
         var appContent = File.ReadAllText(appXamlPath);
-        var newSaleContent = File.ReadAllText(newSalePath);
+        var posContent = File.ReadAllText(posPath);
 
         Assert.Contains("Resources/ScrollBars.xaml", appContent);
         Assert.Contains("x:Key=\"ScrollViewer.CleanOverlay\"", scrollBarsContent);
         Assert.Contains("x:Key=\"ScrollBar.Thumb\"", scrollBarsContent);
-        Assert.Contains("Style=\"{StaticResource ScrollViewer.CleanOverlay}\"", newSaleContent);
+        Assert.Contains("Style=\"{StaticResource ScrollViewer.CleanOverlay}\"", posContent);
     }
 
     [Fact]
@@ -343,18 +343,18 @@ public sealed class Sprint2ForensicAuditTests
     {
         var desktopDir = GetDesktopDirectory();
         var tablesPath = Path.Combine(desktopDir, "Resources", "Tables.xaml");
-        var newSalePath = Path.Combine(desktopDir, "Views", "NewSaleView.xaml");
+        var posPath = Path.Combine(desktopDir, "Views", "PosView.xaml");
 
         var tablesContent = File.ReadAllText(tablesPath);
-        var newSaleContent = File.ReadAllText(newSalePath);
+        var posContent = File.ReadAllText(posPath);
 
         Assert.Contains("Padding=\"{TemplateBinding Padding}\"", tablesContent);
-        Assert.Contains("Property=\"Height\" Value=\"52\"", newSaleContent);
-        Assert.Contains("Header=\"Product\" Width=\"1.8*\"", newSaleContent);
-        Assert.Contains("Header=\"Brand\"", newSaleContent);
-        Assert.Contains("Width=\"1.1*\"", newSaleContent);
-        Assert.Contains("Header=\"Stock\" Width=\"135\"", newSaleContent);
-        Assert.Contains("Header=\"Price\" Width=\"130\"", newSaleContent);
+        Assert.Contains("Property=\"Height\" Value=\"52\"", posContent);
+        Assert.Contains("Header=\"Product\" Width=\"1.8*\"", posContent);
+        Assert.Contains("Header=\"Brand\"", posContent);
+        Assert.Contains("Width=\"1.1*\"", posContent);
+        Assert.Contains("Header=\"Stock\" Width=\"135\"", posContent);
+        Assert.Contains("Header=\"Price\" Width=\"130\"", posContent);
     }
 
     private static HashSet<string> ExtractResourceKeys(string xamlContent)

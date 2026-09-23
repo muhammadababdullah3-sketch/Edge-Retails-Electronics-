@@ -1,0 +1,7 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputName>EdgeRetailsSetup</OutputName>
+    <Platform>x64</Platform>
+    <DefineConstants>ProductVersion=$(ProductVersion);PublishDir=$(PublishDir);AppIconPath=$(AppIconPath)</DefineConstants>
+  </PropertyGroup>
+</Project>

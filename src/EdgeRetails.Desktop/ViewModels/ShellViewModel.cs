@@ -14,8 +14,10 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
     private const double CollapsedSidebarWidth = 72;
 
     private readonly INavigationService _navigationService;
+    private readonly ISessionContext _sessionContext;
     private readonly ILiveClock _clock;
     private readonly IFrontendPermissionService _permissionService;
+    private readonly Action _switchUser;
     private bool _isSidebarCollapsed;
     private ViewModelBase? _currentPage;
     private string _pageTitle = "Dashboard";
@@ -29,7 +31,9 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         IThemeService themeService,
         IDialogService dialogService,
         IDrawerService drawerService,
-        IToastService toastService)
+        IToastService toastService,
+        IFrontendPermissionService? permissionService = null,
+        Action? switchUser = null)
     {
         ArgumentNullException.ThrowIfNull(navigationService);
         ArgumentNullException.ThrowIfNull(clock);
@@ -40,7 +44,10 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(toastService);
 
         _navigationService = navigationService;
+        _sessionContext = sessionContext;
         _clock = clock;
+        _permissionService = permissionService ?? new DemoFrontendPermissionService();
+        _switchUser = switchUser ?? (() => { });
 
         UserName = sessionContext.DisplayName;
         UserRole = sessionContext.RoleName;
@@ -55,14 +62,16 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         var navigationItems = new List<NavigationItemViewModel>
         {
             CreateNavigationItem("Dashboard", NavigationTarget.Dashboard, "Icon.Nav.Dashboard"),
-            CreateNavigationItem("New Sale", NavigationTarget.NewSale, "Icon.Nav.NewSale"),
+            CreateNavigationItem("POS", NavigationTarget.POS, "Icon.Nav.POS"),
             CreateNavigationItem("Sales History", NavigationTarget.SalesHistory, "Icon.Nav.SalesHistory"),
             CreateNavigationItem("Thaka / Projects", NavigationTarget.ThakaProjects, "Icon.Nav.ThakaProjects"),
             CreateNavigationItem("Purchases", NavigationTarget.Purchases, "Icon.Nav.Purchases"),
+            CreateNavigationItem("Product Management", NavigationTarget.ProductManagement, "Icon.Nav.Inventory"),
             CreateNavigationItem("Inventory", NavigationTarget.Inventory, "Icon.Nav.Inventory"),
             CreateNavigationItem("Expenses", NavigationTarget.Expenses, "Icon.Nav.Expenses"),
             CreateNavigationItem("Customers", NavigationTarget.Customers, "Icon.Nav.Customers"),
             CreateNavigationItem("Suppliers", NavigationTarget.Suppliers, "Icon.Nav.Suppliers"),
+            CreateNavigationItem("Warranty", NavigationTarget.Warranty, "Icon.Nav.Suppliers"),
             CreateNavigationItem("Reports", NavigationTarget.Reports, "Icon.Nav.Reports"),
             CreateNavigationItem("Settings", NavigationTarget.Settings, "Icon.Nav.Settings"),
         };
@@ -80,6 +89,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
 
         NavigateCommand = new RelayCommand<NavigationTarget>(Navigate);
         ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
+        SwitchUserCommand = new RelayCommand(_switchUser);
 
         _navigationService.Navigated += OnNavigated;
         _clock.Tick += OnClockTick;
@@ -92,6 +102,8 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
     public ICommand NavigateCommand { get; }
 
     public ICommand ToggleSidebarCommand { get; }
+
+    public ICommand SwitchUserCommand { get; }
 
     public IThemeService ThemeService { get; }
 
@@ -159,7 +171,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         NavigationTarget target,
         string iconResourceKey)
     {
-        var icon = Application.Current.TryFindResource(iconResourceKey) as Geometry
+        var icon = System.Windows.Application.Current.TryFindResource(iconResourceKey) as Geometry
             ?? throw new InvalidOperationException(
                 $"Navigation icon resource '{iconResourceKey}' was not found.");
 
@@ -168,6 +180,17 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
 
     private void Navigate(NavigationTarget target)
     {
+        if (!_permissionService.CanNavigate(
+                _sessionContext,
+                target,
+                out var denialReason))
+        {
+            DialogService.Show(new PermissionRequiredViewModel(
+                denialReason,
+                DialogService.Close));
+            return;
+        }
+
         _navigationService.Navigate(target);
     }
 

@@ -17,8 +17,7 @@ public enum WarrantyCustody
 {
     WithCustomer = 1,
     WithShop = 2,
-    WithSupplier = 3,
-    WithServiceCenter = 4
+    WithSupplier = 3
 }
 
 public enum WarrantyResolutionType
@@ -28,7 +27,8 @@ public enum WarrantyResolutionType
     Rejected = 3,
     Credited = 4,
     Refunded = 5,
-    Other = 6
+    Other = 6,
+    Scrapped = 7
 }
 
 public sealed class WarrantyClaim : Entity
@@ -37,6 +37,7 @@ public sealed class WarrantyClaim : Entity
     public Guid CustomerId { get; set; }
     public Guid? OriginalSaleId { get; set; }
     public Guid? SupplierId { get; set; }
+    public Guid ClientOperationId { get; set; }
     public WarrantyClaimStatus Status { get; set; } = WarrantyClaimStatus.Received;
     public WarrantyCustody CurrentCustody { get; set; } = WarrantyCustody.WithShop;
     public DateTimeOffset ReceivedAt { get; set; }
@@ -46,27 +47,39 @@ public sealed class WarrantyClaim : Entity
     public DateTimeOffset CreatedAt { get; set; }
     public long Version { get; set; }
 
+    public void BeginReview()
+    {
+        RequireStatus(WarrantyClaimStatus.Received);
+        Status = WarrantyClaimStatus.UnderReview;
+        CurrentCustody = WarrantyCustody.WithShop;
+        Version++;
+    }
+
     public void SendToSupplier(DateTimeOffset now)
     {
-        if (Status is WarrantyClaimStatus.Closed or WarrantyClaimStatus.Cancelled)
-        {
-            throw new BusinessRuleException(
-                "warranty.closed_claim",
-                "A closed or cancelled warranty claim cannot be sent.");
-        }
-
+        RequireStatus(WarrantyClaimStatus.UnderReview);
         Status = WarrantyClaimStatus.SentToSupplier;
+        CurrentCustody = WarrantyCustody.WithSupplier;
+        Version++;
+    }
+
+    public void MarkSupplierProcessing()
+    {
+        RequireStatus(WarrantyClaimStatus.SentToSupplier);
+        Status = WarrantyClaimStatus.SupplierProcessing;
         CurrentCustody = WarrantyCustody.WithSupplier;
         Version++;
     }
 
     public void MarkReadyForCustomer(DateTimeOffset now)
     {
-        if (Status is WarrantyClaimStatus.Closed or WarrantyClaimStatus.Cancelled)
+        if (Status is not WarrantyClaimStatus.UnderReview and
+            not WarrantyClaimStatus.SentToSupplier and
+            not WarrantyClaimStatus.SupplierProcessing)
         {
             throw new BusinessRuleException(
-                "warranty.closed_claim",
-                "A closed or cancelled warranty claim cannot be resolved.");
+                "warranty.invalid_transition",
+                $"Warranty claim cannot move from {Status} to ReadyForCustomer.");
         }
 
         Status = WarrantyClaimStatus.ReadyForCustomer;
@@ -77,17 +90,35 @@ public sealed class WarrantyClaim : Entity
 
     public void Handover(DateTimeOffset now)
     {
-        if (Status != WarrantyClaimStatus.ReadyForCustomer)
-        {
-            throw new BusinessRuleException(
-                "warranty.not_ready",
-                "Warranty item must be ready for customer before handover.");
-        }
-
+        RequireStatus(WarrantyClaimStatus.ReadyForCustomer);
         Status = WarrantyClaimStatus.Closed;
         CurrentCustody = WarrantyCustody.WithCustomer;
         ClosedAt = now;
         Version++;
+    }
+
+    public void Cancel()
+    {
+        if (Status is WarrantyClaimStatus.Closed or WarrantyClaimStatus.Cancelled or WarrantyClaimStatus.SentToSupplier or WarrantyClaimStatus.SupplierProcessing)
+        {
+            throw new BusinessRuleException(
+                "warranty.claim_not_cancellable",
+                "This warranty claim can no longer be cancelled.");
+        }
+
+        Status = WarrantyClaimStatus.Cancelled;
+        CurrentCustody = WarrantyCustody.WithCustomer;
+        Version++;
+    }
+
+    private void RequireStatus(WarrantyClaimStatus required)
+    {
+        if (Status != required)
+        {
+            throw new BusinessRuleException(
+                "warranty.invalid_transition",
+                $"Warranty claim must be {required} for this transition; current status is {Status}.");
+        }
     }
 }
 
@@ -109,6 +140,7 @@ public sealed class WarrantyClaimItemUnit : Entity
 {
     public Guid ClaimItemId { get; set; }
     public Guid? OriginalInventoryUnitId { get; set; }
+    public Guid? ActiveOriginalInventoryUnitId { get; set; }
     public string? OriginalIdentitySnapshot { get; set; }
     public Guid? ReplacementInventoryUnitId { get; set; }
     public string? ReplacementIdentitySnapshot { get; set; }
@@ -122,6 +154,35 @@ public sealed class WarrantyClaimEvent : Entity
     public string EventType { get; set; } = string.Empty;
     public string? Note { get; set; }
     public Guid ActorId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+}
+
+public enum WarrantyOperationType
+{
+    BeginReview = 1,
+    SendToSupplier = 2,
+    SupplierProcessing = 3,
+    Resolution = 4,
+    CustomerReplacement = 5,
+    Handover = 6,
+    Cancellation = 7,
+    ShopSend = 8,
+    ShopReceiveRepaired = 9,
+    ShopReceiveRejected = 10,
+    ShopReceiveScrapped = 11,
+    ShopReceiveReplacement = 12,
+    ShopSupplierCredit = 13
+}
+
+public sealed class WarrantyOperation : Entity
+{
+    public Guid ClientOperationId { get; set; }
+    public string TargetType { get; set; } = string.Empty;
+    public Guid? TargetId { get; set; }
+    public WarrantyOperationType OperationType { get; set; }
+    public Guid ActorId { get; set; }
+    public string PayloadHash { get; set; } = string.Empty;
+    public Guid? ResultId { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
 }
 
@@ -149,6 +210,10 @@ public sealed class ShopStockWarrantyCase : Entity
     public DateTimeOffset? SentAt { get; set; }
     public DateTimeOffset? ReceivedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
+    public decimal? InventoryCarryingCostResolved { get; set; }
+    public decimal? SupplierCreditAmount { get; set; }
+    public decimal? RecoveryDifference { get; set; }
+    public Guid? ResolutionClientOperationId { get; set; }
     public Guid CreatedBy { get; set; }
     public long Version { get; set; }
 }

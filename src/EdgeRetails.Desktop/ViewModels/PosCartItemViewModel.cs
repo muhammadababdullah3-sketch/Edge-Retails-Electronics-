@@ -1,11 +1,9 @@
 using System.Globalization;
 using System.Windows.Input;
+using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
-/// <summary>
-/// Represents an individual item in the active POS sale/issue cart.
-/// </summary>
 public sealed class PosCartItemViewModel : ViewModelBase
 {
     private readonly Action<PosCartItemViewModel>? _onChanged;
@@ -15,12 +13,16 @@ public sealed class PosCartItemViewModel : ViewModelBase
     public PosCartItemViewModel(
         PosProductItemViewModel product,
         decimal quantity = 1m,
+        BackendExactUnit? exactUnit = null,
         Action<PosCartItemViewModel>? onChanged = null,
         Action<PosCartItemViewModel>? onRemove = null)
     {
         ArgumentNullException.ThrowIfNull(product);
         Product = product;
-        _quantity = Math.Min(product.Stock, Math.Max(0.01m, quantity));
+        ExactUnit = exactUnit;
+        _quantity = exactUnit is not null
+            ? 1m
+            : Math.Min(product.Stock, Math.Max(0.01m, quantity));
         _onChanged = onChanged;
         _onRemove = onRemove;
 
@@ -30,23 +32,25 @@ public sealed class PosCartItemViewModel : ViewModelBase
     }
 
     public PosProductItemViewModel Product { get; }
-
+    public BackendExactUnit? ExactUnit { get; }
     public string ProductId => Product.Id;
-
     public string Name => Product.Name;
-
     public string Sku => Product.Sku;
-
     public string Brand => Product.Brand;
-
     public decimal UnitPrice => Product.Price;
+    public bool HasExactUnit => ExactUnit is not null;
+    public IReadOnlyList<Guid> InventoryUnitIds =>
+        ExactUnit is null ? Array.Empty<Guid>() : new[] { ExactUnit.InventoryUnitId };
+    public string ExactIdentityDisplay => ExactUnit?.PrimaryIdentity ?? string.Empty;
 
     public decimal Quantity
     {
         get => _quantity;
         set
         {
-            var clamped = Math.Clamp(Math.Round(value, 2), 0m, Product.Stock);
+            var clamped = HasExactUnit
+                ? 1m
+                : Math.Clamp(Math.Round(value, 2), 0m, Product.Stock);
             if (SetProperty(ref _quantity, clamped))
             {
                 OnPropertyChanged(nameof(QuantityDisplay));
@@ -61,45 +65,34 @@ public sealed class PosCartItemViewModel : ViewModelBase
     }
 
     public string QuantityDisplay => _quantity.ToString("0.##", CultureInfo.InvariantCulture);
-
-    public string UnitPriceCalculationDisplay => $"Rs. {UnitPrice:N0} × {QuantityDisplay}";
-
+    public string UnitPriceCalculationDisplay => HasExactUnit
+        ? $"{ExactIdentityDisplay} · Rs. {UnitPrice:N0}"
+        : $"Rs. {UnitPrice:N0} × {QuantityDisplay}";
     public decimal LineTotal => Math.Round(UnitPrice * _quantity, 2);
-
     public string LineTotalDisplay => $"Rs. {LineTotal:N0}";
-
-    public bool CanIncrement => Quantity < Product.Stock;
-
+    public bool CanIncrement => !HasExactUnit && Quantity < Product.Stock;
     public ICommand IncrementCommand { get; }
-
     public ICommand DecrementCommand { get; }
-
     public ICommand RemoveCommand { get; }
 
     public void Increment()
     {
-        if (!CanIncrement)
+        if (CanIncrement)
         {
-            return;
+            Quantity = Math.Min(Product.Stock, Quantity + 1m);
         }
-
-        Quantity = Math.Min(Product.Stock, Quantity + 1m);
     }
 
     public void Decrement()
     {
-        if (Quantity > 1m)
-        {
-            Quantity -= 1m;
-        }
-        else
+        if (HasExactUnit || Quantity <= 1m)
         {
             Remove();
+            return;
         }
+
+        Quantity -= 1m;
     }
 
-    public void Remove()
-    {
-        _onRemove?.Invoke(this);
-    }
+    public void Remove() => _onRemove?.Invoke(this);
 }

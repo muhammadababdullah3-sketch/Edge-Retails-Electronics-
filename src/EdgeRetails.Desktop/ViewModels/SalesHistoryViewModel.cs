@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
+using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Desktop.Navigation;
 using EdgeRetails.Desktop.Services;
 
@@ -21,15 +22,22 @@ public sealed class SalesHistoryViewModel : ViewModelBase
     private readonly IDrawerService? _drawerService;
     private readonly IDialogService? _dialogService;
     private readonly ITransactionService _transactionService;
+    private readonly IBackendSalesHistoryService? _backendSalesHistoryService;
 
     private string _searchText = string.Empty;
     private SalesHistoryPeriod _selectedPeriod = SalesHistoryPeriod.Today;
     private SaleTransactionItemViewModel? _selectedSale;
     private SaleDetailViewModel? _currentSaleDetail;
     private readonly List<SaleTransactionItemViewModel> _allSales = [];
+    private CancellationTokenSource? _historyRefreshCancellation;
+    private long _historyRefreshVersion;
+    private DateTimeOffset? _nextCompletedAt;
+    private Guid? _nextSaleId;
+    private bool _hasMore;
+    private const int HistoryPageSize = 200;
 
     public SalesHistoryViewModel()
-        : this(null, null, null, null, null, null)
+        : this(null, null, null, null, null, null, null)
     {
     }
 
@@ -39,13 +47,15 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         IToastService? toastService = null,
         IDrawerService? drawerService = null,
         IDialogService? dialogService = null,
-        ITransactionService? transactionService = null)
+        ITransactionService? transactionService = null,
+        IBackendSalesHistoryService? backendSalesHistoryService = null)
     {
         _navigationService = navigationService;
         _toastService = toastService;
         _drawerService = drawerService;
         _dialogService = dialogService;
         _transactionService = transactionService ?? DemoTransactionService.Instance;
+        _backendSalesHistoryService = backendSalesHistoryService;
 
         CashierContext = sessionContext != null && !string.IsNullOrWhiteSpace(sessionContext.DisplayName)
             ? $"{sessionContext.DisplayName}, {sessionContext.RoleName}"
@@ -53,13 +63,14 @@ public sealed class SalesHistoryViewModel : ViewModelBase
 
         FilteredSales = new ObservableCollection<SaleTransactionItemViewModel>();
 
-        NewSaleCommand = new RelayCommand(NavigateToNewSale);
+        OpenPosCommand = new RelayCommand(NavigateToPos);
         SelectPeriodCommand = new RelayCommand<string>(SetPeriod);
         ViewInvoiceCommand = new RelayCommand<SaleTransactionItemViewModel>(OpenSaleDetail);
         CloseDetailCommand = new RelayCommand(CloseSaleDetail);
-        RefreshCommand = new RelayCommand(RefreshFromTransactionService);
+        LoadMoreCommand = new RelayCommand(() => _ = LoadMoreAsync(), () => HasMore);
+        RefreshCommand = new RelayCommand(() => _ = RefreshFromTransactionServiceAsync());
 
-        RefreshFromTransactionService();
+        _ = RefreshFromTransactionServiceAsync();
     }
 
     public string CashierContext { get; }
@@ -69,9 +80,9 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         get => _searchText;
         set
         {
-            if (SetProperty(ref _searchText, value))
+            if (SetProperty(ref _searchText, value ?? string.Empty))
             {
-                ApplyFiltersAndRecalculate();
+                ScheduleBackendRefresh();
             }
         }
     }
@@ -89,7 +100,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsThisMonthSelected));
                 OnPropertyChanged(nameof(SalesCountSubtitle));
                 OnPropertyChanged(nameof(TotalSalesSubtitle));
-                ApplyFiltersAndRecalculate();
+                ScheduleBackendRefresh();
             }
         }
     }
@@ -150,16 +161,19 @@ public sealed class SalesHistoryViewModel : ViewModelBase
     public string NetSalesSubtitle => "Gross sales less returns";
 
     public bool HasNoMatchingSales => FilteredSales.Count == 0;
+    public bool HasMore => _hasMore;
+    public bool IsBackendBoundedMode => _backendSalesHistoryService is not null;
 
-    public ICommand NewSaleCommand { get; }
+    public ICommand OpenPosCommand { get; }
     public ICommand SelectPeriodCommand { get; }
     public ICommand ViewInvoiceCommand { get; }
     public ICommand CloseDetailCommand { get; }
+    public ICommand LoadMoreCommand { get; }
     public ICommand RefreshCommand { get; }
 
-    public void NavigateToNewSale()
+    public void NavigateToPos()
     {
-        _navigationService?.Navigate(NavigationTarget.NewSale);
+        _navigationService?.Navigate(NavigationTarget.POS);
     }
 
     public void SetPeriod(string? periodName)
@@ -177,6 +191,12 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             return;
         }
 
+        if (_backendSalesHistoryService is not null)
+        {
+            _ = OpenBackendSaleDetailAsync(sale);
+            return;
+        }
+
         SelectedSale = sale;
         CurrentSaleDetail = new SaleDetailViewModel(
             sale,
@@ -189,6 +209,36 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             transactionService: _transactionService);
     }
 
+    private async Task OpenBackendSaleDetailAsync(SaleTransactionItemViewModel sale)
+    {
+        var invoice = sale.InvoiceDisplay;
+        try
+        {
+            var record = await _transactionService.GetByInvoiceNumberAsync(invoice, CancellationToken.None);
+            if (record is null)
+            {
+                _toastService?.Show($"Invoice {invoice} could not be loaded.", ToastTone.Danger);
+                return;
+            }
+
+            var detail = ProjectRecord(record);
+            SelectedSale = detail;
+            CurrentSaleDetail = new SaleDetailViewModel(
+                detail,
+                _navigationService,
+                _toastService,
+                _drawerService,
+                _dialogService,
+                onBack: CloseSaleDetail,
+                onSaleUpdated: ApplyFiltersAndRecalculate,
+                transactionService: _transactionService);
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show($"Invoice {invoice} could not be loaded: {ex.Message}", ToastTone.Danger);
+        }
+    }
+
     public void CloseSaleDetail()
     {
         CurrentSaleDetail = null;
@@ -197,14 +247,186 @@ public sealed class SalesHistoryViewModel : ViewModelBase
 
     public void RefreshFromTransactionService()
     {
-        _allSales.Clear();
+        _ = RefreshFromTransactionServiceAsync();
+    }
 
-        foreach (var record in _transactionService.GetAllTransactions())
+    public async Task RefreshFromTransactionServiceAsync()
+    {
+        if (_backendSalesHistoryService is not null)
         {
-            _allSales.Add(ProjectRecord(record));
+            ScheduleBackendRefresh(immediate: true);
+            return;
         }
 
-        ApplyFiltersAndRecalculate();
+        try
+        {
+            var records = await _transactionService.GetAllTransactionsAsync();
+            _allSales.Clear();
+
+            foreach (var record in records)
+            {
+                _allSales.Add(ProjectRecord(record));
+            }
+
+            ApplyFiltersAndRecalculate();
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                $"Sales history could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+    }
+
+    private void ScheduleBackendRefresh(bool immediate = false)
+    {
+        if (_backendSalesHistoryService is null)
+        {
+            ApplyFiltersAndRecalculate();
+            return;
+        }
+
+        var version = Interlocked.Increment(ref _historyRefreshVersion);
+        var previous = Interlocked.Exchange(ref _historyRefreshCancellation, new CancellationTokenSource());
+        previous?.Cancel();
+        previous?.Dispose();
+        var cts = _historyRefreshCancellation!;
+
+        _nextCompletedAt = null;
+        _nextSaleId = null;
+        _hasMore = false;
+        OnPropertyChanged(nameof(HasMore));
+
+        if (immediate)
+        {
+            _ = RefreshBackendPageAsync(version, cts);
+        }
+        else
+        {
+            _ = RefreshBackendAfterDebounceAsync(version, cts);
+        }
+    }
+
+    private async Task RefreshBackendAfterDebounceAsync(long version, CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            if (version != Volatile.Read(ref _historyRefreshVersion))
+            {
+                return;
+            }
+
+            await RefreshBackendPageAsync(version, cts);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshBackendPageAsync(long version, CancellationTokenSource cts)
+    {
+        if (_backendSalesHistoryService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var page = await _backendSalesHistoryService.GetPageAsync(
+                SelectedPeriod,
+                SearchText,
+                HistoryPageSize,
+                _nextCompletedAt,
+                _nextSaleId,
+                cts.Token);
+
+            if (cts.IsCancellationRequested || version != Volatile.Read(ref _historyRefreshVersion))
+            {
+                return;
+            }
+
+            var projected = page.Rows.Select(ProjectHistoryRow).ToArray();
+            if (_nextCompletedAt is null && _nextSaleId is null)
+            {
+                FilteredSales.Clear();
+            }
+
+            foreach (var row in projected)
+            {
+                FilteredSales.Add(row);
+            }
+
+            _nextCompletedAt = page.NextCompletedAt;
+            _nextSaleId = page.NextSaleId;
+            _hasMore = page.HasMore;
+            RecalculateFromRows();
+            OnPropertyChanged(nameof(HasMore));
+            if (LoadMoreCommand is RelayCommand loadMore)
+            {
+                loadMore.NotifyCanExecuteChanged();
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (version == Volatile.Read(ref _historyRefreshVersion))
+        {
+            _toastService?.Show($"Sales history could not be refreshed: {ex.Message}", ToastTone.Danger);
+        }
+    }
+
+    private SaleTransactionItemViewModel ProjectHistoryRow(SalesHistoryRowDto row)
+    {
+        var invoiceNumber = int.TryParse(row.InvoiceNumber.TrimStart('#'), out var parsed) ? parsed : 0;
+        var returnState = row.ReturnedAmount <= 0m
+            ? SaleReturnState.None
+            : row.ReturnedAmount >= row.GrandTotal
+                ? SaleReturnState.Refunded
+                : SaleReturnState.Partial;
+        return new SaleTransactionItemViewModel(
+            invoiceNumber,
+            row.CompletedAt.LocalDateTime,
+            row.CustomerName,
+            string.Empty,
+            "Backend User",
+            row.PaymentMethod.ToString(),
+            Array.Empty<SaleLineItemViewModel>(),
+            paymentState: PaymentState.Paid,
+            returnState: returnState,
+            totalReturnedAmount: row.ReturnedAmount,
+            invoiceDisplayOverride: row.InvoiceNumber,
+            itemCountOverride: row.ItemCount,
+            totalAmountOverride: row.GrandTotal);
+    }
+
+    private void RecalculateFromRows()
+    {
+        SalesCount = FilteredSales.Count;
+        TotalSalesAmount = FilteredSales.Sum(s => s.TotalAmount);
+        ReturnsAmount = FilteredSales.Sum(s => s.TotalReturnedAmount);
+        NetSalesAmount = Math.Max(0m, TotalSalesAmount - ReturnsAmount);
+        OnPropertyChanged(nameof(SalesCount));
+        OnPropertyChanged(nameof(SalesCountDisplay));
+        OnPropertyChanged(nameof(TotalSalesAmount));
+        OnPropertyChanged(nameof(TotalSalesDisplay));
+        OnPropertyChanged(nameof(ReturnsAmount));
+        OnPropertyChanged(nameof(ReturnsDisplay));
+        OnPropertyChanged(nameof(NetSalesAmount));
+        OnPropertyChanged(nameof(NetSalesDisplay));
+        OnPropertyChanged(nameof(HasNoMatchingSales));
+    }
+
+    public async Task LoadMoreAsync()
+    {
+        if (_backendSalesHistoryService is null || !_hasMore)
+        {
+            return;
+        }
+
+        var version = Volatile.Read(ref _historyRefreshVersion);
+        var cts = _historyRefreshCancellation ?? new CancellationTokenSource();
+        await RefreshBackendPageAsync(version, cts);
     }
 
     public void ApplyFiltersAndRecalculate()
@@ -231,7 +453,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         {
             var term = SearchText.Trim();
             query = query.Where(s =>
-                s.InvoiceNumber.ToString(CultureInfo.InvariantCulture).Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                s.InvoiceDisplay.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 s.CustomerName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 s.CustomerPhone.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 s.PaymentMethod.Contains(term, StringComparison.OrdinalIgnoreCase) ||
@@ -240,7 +462,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
 
         var results = query
             .OrderByDescending(s => s.TransactionDate)
-            .ThenByDescending(s => s.InvoiceNumber)
+            .ThenByDescending(s => s.InvoiceDisplay, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         FilteredSales.Clear();
@@ -315,7 +537,10 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             paymentReceived: record.AmountReceived,
             paymentState: record.PaymentState,
             returnState: returnState,
-            totalReturnedAmount: totalReturned);
+            totalReturnedAmount: totalReturned,
+            invoiceDisplayOverride: record.InvoiceNumber.StartsWith('#')
+                ? null
+                : record.InvoiceNumber);
     }
 
     private static DateTime StartOfWeek(DateTime date)

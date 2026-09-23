@@ -8,14 +8,16 @@ public sealed class PlaceholderPageViewModelFactory : IPageViewModelFactory
         new Dictionary<NavigationTarget, string>
         {
             [NavigationTarget.Dashboard] = "Dashboard",
-            [NavigationTarget.NewSale] = "New Sale",
+            [NavigationTarget.POS] = "POS",
             [NavigationTarget.SalesHistory] = "Sales History",
             [NavigationTarget.ThakaProjects] = "Thaka / Projects",
             [NavigationTarget.Purchases] = "Purchases",
+            [NavigationTarget.ProductManagement] = "Product Management",
             [NavigationTarget.Inventory] = "Inventory",
             [NavigationTarget.Expenses] = "Expenses",
             [NavigationTarget.Customers] = "Customers",
             [NavigationTarget.Suppliers] = "Suppliers",
+            [NavigationTarget.Warranty] = "Warranty",
             [NavigationTarget.Reports] = "Reports",
             [NavigationTarget.Settings] = "Settings",
         };

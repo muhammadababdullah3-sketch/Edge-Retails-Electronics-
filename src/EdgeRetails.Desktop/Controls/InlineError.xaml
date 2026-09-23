@@ -1,0 +1,28 @@
+<UserControl x:Class="EdgeRetails.Desktop.Controls.InlineError"
+ x:Name="Root"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Focusable="False">
+ <Border Padding="10,8"
+         Background="{DynamicResource Brush.Badge.Danger.Background}"
+         BorderBrush="{DynamicResource Brush.Badge.Danger.Border}"
+         BorderThickness="1"
+         CornerRadius="{StaticResource Radius.Control}">
+  <Grid>
+   <Grid.ColumnDefinitions>
+    <ColumnDefinition Width="Auto"/>
+    <ColumnDefinition Width="8"/>
+    <ColumnDefinition Width="*"/>
+   </Grid.ColumnDefinitions>
+   <TextBlock Text="!" FontWeight="Bold"
+              Foreground="{StaticResource Brush.Function.Danger}"
+              VerticalAlignment="Top"/>
+   <TextBlock Grid.Column="2"
+              Text="{Binding Message, ElementName=Root}"
+              TextWrapping="Wrap"
+              FontFamily="{StaticResource Font.Primary}"
+              FontSize="12"
+              Foreground="{StaticResource Brush.Function.Danger}"/>
+  </Grid>
+ </Border>
+</UserControl>

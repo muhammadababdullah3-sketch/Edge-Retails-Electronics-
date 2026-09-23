@@ -27,7 +27,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <controls:KpiCard Grid.Column="0" Height="98" Title="Current Stock" Value="{Binding StockDisplay}" Tone="Brand" IconGeometry="{StaticResource Icon.Nav.Inventory}" />
                 <controls:KpiCard Grid.Column="2" Height="98" Title="Purchase Cost" Value="{Binding CostDisplay}" Tone="Info" IconGeometry="{StaticResource Icon.Nav.Purchases}" />
-                <controls:KpiCard Grid.Column="4" Height="98" Title="Sale Price" Value="{Binding PriceDisplay}" Tone="Success" IconGeometry="{StaticResource Icon.Nav.NewSale}" />
+                <controls:KpiCard Grid.Column="4" Height="98" Title="Sale Price" Value="{Binding PriceDisplay}" Tone="Success" IconGeometry="{StaticResource Icon.Nav.POS}" />
             </Grid>
             <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
                 <Grid>

@@ -7,14 +7,9 @@ public interface IFirstRunSetupState
     void MarkSetupCompleted();
 }
 
-public sealed class DemoFirstRunSetupState : IFirstRunSetupState
+public sealed class DemoFirstRunSetupState(bool isSetupRequired) : IFirstRunSetupState
 {
-    public DemoFirstRunSetupState(bool isSetupRequired)
-    {
-        IsSetupRequired = isSetupRequired;
-    }
-
-    public bool IsSetupRequired { get; private set; }
+    public bool IsSetupRequired { get; private set; } = isSetupRequired;
 
     public void MarkSetupCompleted()
     {

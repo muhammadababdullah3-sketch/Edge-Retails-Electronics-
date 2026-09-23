@@ -16,9 +16,11 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
     private readonly Action<SettlementResult>? _onSettled;
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
-    private readonly DemoRetailState _retailState = DemoRetailState.Instance;
+    private readonly IBackendThakaService? _backendService;
+    private readonly DemoRetailState? _retailState;
     private decimal _settlementAmount;
     private string _settlementAmountText = string.Empty;
+    private string _paymentMethod = "Cash";
     private bool _isConfirmed;
     private bool _isProcessing;
     private string? _validationMessage;
@@ -27,17 +29,23 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
         ThakaProjectListItemViewModel project,
         Action<SettlementResult>? onSettled = null,
         Action? onClose = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IBackendThakaService? backendService = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _onSettled = onSettled;
         _onClose = onClose;
         _toastService = toastService;
+        _backendService = backendService;
+        _retailState = ResolvePreviewRetailState(backendService);
 
         _settlementAmount = project.Balance;
         _settlementAmountText = _settlementAmount.ToString("0.##", CultureInfo.InvariantCulture);
 
-        ConfirmSettlementCommand = new RelayCommand(ConfirmSettlement, () => CanConfirmSettlement);
+        PaymentMethods = new[] { "Cash", "Bank", "Other" };
+        ConfirmSettlementCommand = new RelayCommand(
+            async () => await ConfirmSettlementAsync(),
+            () => CanConfirmSettlement);
         CancelCommand = new RelayCommand(Cancel, () => !IsProcessing);
         Validate();
     }
@@ -47,6 +55,15 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
     public string TotalPaidDisplay => _project.PaidFormatted;
     public decimal RemainingBalance => _project.Balance;
     public string RemainingBalanceDisplay => _project.BalanceFormatted;
+    public IReadOnlyList<string> PaymentMethods { get; }
+
+    public string PaymentMethod
+    {
+        get => _paymentMethod;
+        set => SetProperty(
+            ref _paymentMethod,
+            string.IsNullOrWhiteSpace(value) ? "Cash" : value);
+    }
 
     public decimal SettlementAmount
     {
@@ -154,7 +171,7 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
         ((RelayCommand)ConfirmSettlementCommand).NotifyCanExecuteChanged();
     }
 
-    private void ConfirmSettlement()
+    private async Task ConfirmSettlementAsync()
     {
         if (!CanConfirmSettlement)
         {
@@ -164,16 +181,41 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
         IsProcessing = true;
         try
         {
-            var entry = _retailState.SettleProject(
-                _project,
-                SettlementAmount,
-                "Abdullah");
-
-            _onSettled?.Invoke(new SettlementResult
+            SettlementResult result;
+            if (_backendService is null)
             {
-                Amount = entry.Amount,
-                Timestamp = entry.Date
-            });
+                if (_retailState is null)
+                {
+                    throw new InvalidOperationException(
+                        "Authoritative Thaka settlement service is unavailable.");
+                }
+
+                var entry = _retailState.SettleProject(
+                    _project,
+                    SettlementAmount,
+                    "Abdullah");
+
+                result = new SettlementResult
+                {
+                    Amount = entry.Amount,
+                    Timestamp = entry.Date
+                };
+            }
+            else
+            {
+                await _backendService.SettleAsync(
+                    _project,
+                    SettlementAmount,
+                    PaymentMethod);
+
+                result = new SettlementResult
+                {
+                    Amount = SettlementAmount,
+                    Timestamp = DateTime.Now
+                };
+            }
+
+            _onSettled?.Invoke(result);
 
             _toastService?.Show(
                 $"{ProjectName} settled successfully. The workspace is now read-only.",
@@ -189,6 +231,16 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
         {
             IsProcessing = false;
         }
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        IBackendThakaService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
     }
 
     private void Cancel()

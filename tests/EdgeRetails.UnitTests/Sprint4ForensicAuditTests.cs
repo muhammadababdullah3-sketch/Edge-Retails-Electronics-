@@ -30,8 +30,8 @@ public sealed class Sprint4ForensicAuditTests
         var factory = ReadDesktop("Navigation", "PageViewModelFactory.cs");
         var app = ReadDesktop("App.xaml");
 
-        Assert.Contains("NavigationTarget.Purchases => new PurchaseHistoryViewModel", factory);
-        Assert.Contains("NavigationTarget.Inventory => new InventoryViewModel", factory);
+        Assert.Contains("NavigationTarget.Purchases => _purchaseHistoryViewModel ??=", factory);
+        Assert.Contains("NavigationTarget.Inventory => _inventoryViewModel ??=", factory);
         Assert.Contains("DataType=\"{x:Type viewModels:PurchaseHistoryViewModel}\"", app);
         Assert.Contains("DataType=\"{x:Type viewModels:NewPurchaseViewModel}\"", app);
         Assert.Contains("DataType=\"{x:Type viewModels:InventoryViewModel}\"", app);
@@ -174,8 +174,9 @@ public sealed class Sprint4ForensicAuditTests
     {
         var edit = ReadDesktop("ViewModels", "ProductEditViewModel.cs");
 
-        Assert.Contains("Another product already uses this SKU.", edit);
-        Assert.Contains("!ReferenceEquals(existing, _product)", edit);
+        Assert.Contains("\"catalog.sku_duplicate\"", edit);
+        Assert.Contains("This SKU is already assigned to another product.", edit);
+        Assert.DoesNotContain("DemoRetailState", edit);
     }
 
     [Fact]
@@ -194,7 +195,7 @@ public sealed class Sprint4ForensicAuditTests
     public void LiveSales_WriteInventoryMovementWithInvoiceReference()
     {
         var retail = ReadDesktop("Services", "DemoRetailState.cs");
-        var sale = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var sale = ReadDesktop("ViewModels", "PosViewModel.cs");
 
         Assert.Contains("DemoStockMutationKind.SaleOut", retail);
         Assert.Contains("record.InvoiceNumber", sale);
@@ -273,7 +274,7 @@ public sealed class Sprint4ForensicAuditTests
     [Fact]
     public void Phase5_CheckoutRevalidatesLiveStockBeforeRecordingTransaction()
     {
-        var sale = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var sale = ReadDesktop("ViewModels", "PosViewModel.cs");
         var checkout = ReadDesktop("ViewModels", "CompleteSaleViewModel.cs");
 
         Assert.Contains("preCommitValidation: ValidateCartStockForCommit", sale);
@@ -290,10 +291,12 @@ public sealed class Sprint4ForensicAuditTests
     {
         var retail = ReadDesktop("Services", "DemoRetailState.cs");
         var purchase = ReadDesktop("Services", "DemoPurchaseInventoryService.cs");
-        var sale = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var sale = ReadDesktop("ViewModels", "PosViewModel.cs");
         var thaka = ReadDesktop("ViewModels", "ThakaAddMaterialViewModel.cs");
 
-        Assert.Contains("AllProducts = _retailState.Products", sale);
+        Assert.Contains("_retailState.Products", sale);
+        Assert.Contains("_isBackendCatalog", sale);
+        Assert.Contains("backendProductId: row.ProductId", sale);
         Assert.Contains("Product = product", thaka);
         Assert.Contains("line.Product.Stock =", purchase);
         Assert.Contains("product.Stock =", retail);

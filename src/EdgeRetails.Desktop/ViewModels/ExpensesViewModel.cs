@@ -8,6 +8,8 @@ namespace EdgeRetails.Desktop.ViewModels;
 public sealed class ExpenseEditViewModel : ViewModelBase
 {
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
+    private readonly IBackendBusinessOperationsService? _backendService;
+    private readonly IReadOnlyList<string> _categories;
     private readonly ExpenseRecord? _existing;
     private readonly IToastService _toastService;
     private readonly Action _close;
@@ -25,14 +27,18 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         IToastService toastService,
         Action close,
         ExpenseRecord? existing = null,
-        Action? saved = null)
+        Action? saved = null,
+        IBackendBusinessOperationsService? backendService = null,
+        IReadOnlyList<string>? categories = null)
     {
         _toastService = toastService;
         _close = close;
         _existing = existing;
         _saved = saved;
+        _backendService = backendService;
+        _categories = categories ?? _service.ExpenseCategories;
 
-        _selectedCategory = existing?.Category ?? _service.ExpenseCategories[0];
+        _selectedCategory = existing?.Category ?? _categories.FirstOrDefault() ?? string.Empty;
         _subcategory = existing?.Subcategory ?? string.Empty;
         _amountText = existing?.Amount.ToString("0.##", CultureInfo.InvariantCulture) ?? string.Empty;
         _date = existing?.Date ?? DateTime.Today;
@@ -40,13 +46,13 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         _staffMember = existing?.StaffMember ?? string.Empty;
         _note = existing?.Note ?? string.Empty;
 
-        SaveCommand = new RelayCommand(Save);
+        SaveCommand = new RelayCommand(async () => await SaveAsync());
         CancelCommand = new RelayCommand(_close);
     }
 
     public string Title => _existing is null ? "Add Expense" : "Edit Expense";
     public string SaveButtonText => _existing is null ? "Add Expense" : "Save Changes";
-    public IReadOnlyList<string> Categories => _service.ExpenseCategories;
+    public IReadOnlyList<string> Categories => _categories;
     public IReadOnlyList<string> PaymentMethods => _service.PaymentMethods;
 
     public string SelectedCategory
@@ -94,7 +100,7 @@ public sealed class ExpenseEditViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand CancelCommand { get; }
 
-    private void Save()
+    private async Task SaveAsync()
     {
         if (!decimal.TryParse(AmountText, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) &&
             !decimal.TryParse(AmountText, NumberStyles.Number, CultureInfo.CurrentCulture, out amount))
@@ -105,15 +111,34 @@ public sealed class ExpenseEditViewModel : ViewModelBase
 
         try
         {
-            _service.SaveExpense(
-                _existing,
-                SelectedCategory,
-                Subcategory,
-                amount,
-                Date,
-                SelectedPaymentMethod,
-                StaffMember,
-                Note);
+            if (_backendService is null)
+            {
+                _service.SaveExpense(
+                    _existing,
+                    SelectedCategory,
+                    Subcategory,
+                    amount,
+                    Date,
+                    SelectedPaymentMethod,
+                    StaffMember,
+                    Note);
+            }
+            else
+            {
+                if (_existing?.BackendId is not null)
+                {
+                    throw new InvalidOperationException(
+                        "Posted expenses are immutable. Use a void/correction flow instead of editing in place.");
+                }
+
+                await _backendService.PostExpenseAsync(
+                    SelectedCategory,
+                    Subcategory,
+                    amount,
+                    Date,
+                    SelectedPaymentMethod,
+                    Note);
+            }
 
             _toastService.Show(
                 _existing is null ? "Expense added." : "Expense updated.",
@@ -128,32 +153,57 @@ public sealed class ExpenseEditViewModel : ViewModelBase
     }
 }
 
-public sealed class ExpensesViewModel : ViewModelBase
+public sealed class ExpensesViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
+    private readonly IBackendBusinessOperationsService? _backendService;
+    private readonly List<ExpenseRecord> _backendExpenses = [];
+    private bool _backendLoaded;
+    private bool _backendLoading;
     private readonly IToastService _toastService;
     private readonly IDialogService _dialogService;
     private string _selectedPeriod = "Today";
     private string _selectedCategory = "All";
 
-    public ExpensesViewModel(IToastService toastService, IDialogService dialogService)
+    public ExpensesViewModel(
+        IToastService toastService,
+        IDialogService dialogService,
+        IBackendBusinessOperationsService? backendService = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
+        _backendService = backendService;
 
         FilteredExpenses = [];
-        Categories = ["All", .. _service.ExpenseCategories];
+        Categories = backendService is null
+            ? new ObservableCollection<string>(["All", .. _service.ExpenseCategories])
+            : new ObservableCollection<string>(["All"]);
 
         AddExpenseCommand = new RelayCommand(() => OpenExpenseDialog(null));
         EditExpenseCommand = new RelayCommand<ExpenseRecord>(OpenExpenseDialog);
         SelectPeriodCommand = new RelayCommand<string>(SelectPeriod);
 
-        _service.StateChanged += OnStateChanged;
-        Refresh();
+        if (_backendService is null)
+        {
+            _service.StateChanged += OnStateChanged;
+            Refresh();
+        }
+        else
+        {
+            _ = RefreshBackendAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_backendService is null)
+        {
+            _service.StateChanged -= OnStateChanged;
+        }
     }
 
     public ObservableCollection<ExpenseRecord> FilteredExpenses { get; }
-    public IReadOnlyList<string> Categories { get; }
+    public ObservableCollection<string> Categories { get; }
 
     public string SelectedPeriod
     {
@@ -202,7 +252,9 @@ public sealed class ExpensesViewModel : ViewModelBase
             _toastService,
             _dialogService.Close,
             expense,
-            Refresh));
+            RefreshAfterMutation,
+            _backendService,
+            Categories.Where(x => !string.Equals(x, "All", StringComparison.OrdinalIgnoreCase)).ToArray()));
     }
 
     private void SelectPeriod(string period)
@@ -217,10 +269,86 @@ public sealed class ExpensesViewModel : ViewModelBase
 
     private void Refresh()
     {
+        if (_backendService is not null)
+        {
+            if (!_backendLoaded && !_backendLoading)
+            {
+                _ = RefreshBackendAsync();
+                return;
+            }
+
+            ApplyExpenseState(_backendExpenses);
+            return;
+        }
+
+        ApplyExpenseState(_service.Expenses);
+    }
+
+    private void RefreshAfterMutation()
+    {
+        if (_backendService is null)
+        {
+            Refresh();
+        }
+        else
+        {
+            _ = RefreshBackendAsync();
+        }
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null || _backendLoading)
+        {
+            return;
+        }
+
+        _backendLoading = true;
+        try
+        {
+            var expenses = await _backendService.GetExpensesAsync();
+            var categories = await _backendService.GetExpenseCategoriesAsync();
+
+            _backendExpenses.Clear();
+            _backendExpenses.AddRange(expenses);
+            _backendLoaded = true;
+
+            var selected = SelectedCategory;
+            Categories.Clear();
+            Categories.Add("All");
+            foreach (var category in categories
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                Categories.Add(category);
+            }
+
+            SelectedCategory = Categories.Any(x =>
+                string.Equals(x, selected, StringComparison.OrdinalIgnoreCase))
+                    ? selected
+                    : "All";
+
+            ApplyExpenseState(_backendExpenses);
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                $"Expenses could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+        finally
+        {
+            _backendLoading = false;
+        }
+    }
+
+    private void ApplyExpenseState(IEnumerable<ExpenseRecord> source)
+    {
+        var all = source.ToArray();
         var today = DateTime.Today;
         var startOfWeek = today.AddDays(-((7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7));
 
-        IEnumerable<ExpenseRecord> query = _service.Expenses;
+        IEnumerable<ExpenseRecord> query = all;
         query = SelectedPeriod switch
         {
             "Today" => query.Where(expense => expense.Date.Date == today),
@@ -241,10 +369,10 @@ public sealed class ExpensesViewModel : ViewModelBase
             FilteredExpenses.Add(expense);
         }
 
-        TodayAmount = _service.Expenses
+        TodayAmount = all
             .Where(expense => expense.Date.Date == today)
             .Sum(expense => expense.Amount);
-        var monthly = _service.Expenses
+        var monthly = all
             .Where(expense => expense.Date.Year == today.Year && expense.Date.Month == today.Month)
             .ToArray();
         ThisMonthAmount = monthly.Sum(expense => expense.Amount);

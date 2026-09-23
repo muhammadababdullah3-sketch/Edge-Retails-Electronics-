@@ -165,10 +165,17 @@
                             Command="{Binding SwitchTabCommand}"
                             CommandParameter="Payments"
                             Style="{StaticResource Button.Neutral}" />
+                    <Button Grid.Column="2"
+                            Content="Reverse Selected Issue"
+                            Command="{Binding ReverseMaterialCommand}"
+                            Style="{StaticResource Button.Warning.Compact}"
+                            HorizontalAlignment="Right"
+                            Visibility="{Binding IsMaterialsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </Grid>
 
                 <Grid Grid.Row="4">
                     <DataGrid ItemsSource="{Binding MaterialLedger}"
+                              SelectedItem="{Binding SelectedMaterial, Mode=TwoWay}"
                               IsReadOnly="True"
                               AutoGenerateColumns="False"
                               Style="{StaticResource Table.DataGrid}"

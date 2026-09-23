@@ -19,11 +19,13 @@ public sealed class ProductSaleHistoryItemViewModel
     public string LineTotalDisplay => $"Rs. {LineTotal:N0}";
 }
 
-public sealed class ProductDetailViewModel : ViewModelBase
+public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
 {
-    private readonly DemoPurchaseInventoryService _inventoryService;
-    private readonly DemoRetailState _retailState;
-    private readonly ITransactionService _transactionService;
+    private readonly DemoPurchaseInventoryService? _inventoryService;
+    private readonly DemoRetailState? _retailState;
+    private readonly ITransactionService? _transactionService;
+    private readonly IBackendPurchasingInventoryService? _backendService;
+    private readonly IBackendProductManagementService? _catalogService;
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly Action _close;
@@ -33,29 +35,54 @@ public sealed class ProductDetailViewModel : ViewModelBase
         PosProductItemViewModel product,
         IDialogService dialogService,
         IToastService toastService,
-        Action close)
+        Action close,
+        IBackendPurchasingInventoryService? backendService = null,
+        IBackendProductManagementService? catalogService = null)
     {
         Product = product;
         _dialogService = dialogService;
         _toastService = toastService;
         _close = close;
-        _inventoryService = DemoPurchaseInventoryService.Instance;
-        _retailState = DemoRetailState.Instance;
-        _transactionService = DemoTransactionService.Instance;
+        _backendService = backendService;
+        _catalogService = catalogService;
+        _inventoryService = ResolvePreviewInventoryService(backendService);
+        _retailState = ResolvePreviewRetailState(backendService);
+        _transactionService = ResolvePreviewTransactionService(backendService);
 
         Movements = [];
         Purchases = [];
         Sales = [];
         SelectTabCommand = new RelayCommand<string>(SelectTab);
         BackCommand = new RelayCommand(close);
-        EditProductCommand = new RelayCommand(OpenEditProduct);
+        EditProductCommand = new RelayCommand(() => _ = OpenEditProductAsync());
         StockAdjustmentCommand = new RelayCommand(OpenAdjustment);
 
-        _inventoryService.StateChanged += OnStateChanged;
-        _retailState.StateChanged += OnStateChanged;
-        _transactionService.TransactionRecorded += OnTransactionRecorded;
-        _transactionService.ReturnRecorded += OnReturnRecorded;
+        if (_backendService is null &&
+            _inventoryService is not null &&
+            _retailState is not null &&
+            _transactionService is not null)
+        {
+            _inventoryService.StateChanged += OnStateChanged;
+            _retailState.StateChanged += OnStateChanged;
+            _transactionService.TransactionRecorded += OnTransactionRecorded;
+            _transactionService.ReturnRecorded += OnReturnRecorded;
+        }
+
         Refresh();
+    }
+
+    public void Dispose()
+    {
+        if (_backendService is null &&
+            _inventoryService is not null &&
+            _retailState is not null &&
+            _transactionService is not null)
+        {
+            _inventoryService.StateChanged -= OnStateChanged;
+            _retailState.StateChanged -= OnStateChanged;
+            _transactionService.TransactionRecorded -= OnTransactionRecorded;
+            _transactionService.ReturnRecorded -= OnReturnRecorded;
+        }
     }
 
     public PosProductItemViewModel Product { get; }
@@ -105,13 +132,55 @@ public sealed class ProductDetailViewModel : ViewModelBase
         }
     }
 
-    private void OpenEditProduct()
+    private async Task OpenEditProductAsync()
     {
-        _dialogService.Show(new ProductEditViewModel(Product, _toastService, _dialogService.Close));
+        if (_catalogService is null ||
+            Product.BackendProductId is not Guid productId)
+        {
+            _toastService.Show(
+                "Authoritative catalog editing is unavailable for this product.",
+                ToastTone.Warning);
+            return;
+        }
+
+        try
+        {
+            var item = await _catalogService.GetProductAsync(productId);
+            var snapshot = await _catalogService.GetSnapshotAsync();
+            if (item is null)
+            {
+                _toastService.Show("Product no longer exists in the catalog.", ToastTone.Warning);
+                return;
+            }
+
+            _dialogService.Show(new ProductEditViewModel(
+                item,
+                snapshot,
+                _catalogService,
+                _toastService,
+                _dialogService.Close,
+                RefreshCatalogAsync));
+        }
+        catch (BackendCatalogOperationException ex)
+        {
+            _toastService.Show(ex.Message, ToastTone.Danger);
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show($"Product editor could not be opened: {ex.Message}", ToastTone.Danger);
+        }
     }
 
     private void OpenAdjustment()
     {
+        if (_backendService is not null)
+        {
+            _toastService.Show(
+                "Stock adjustment is blocked until the authoritative backend adjustment flow is attached.",
+                ToastTone.Warning);
+            return;
+        }
+
         _dialogService.Show(new StockAdjustmentViewModel(Product, _toastService, _dialogService.Close));
     }
 
@@ -132,6 +201,21 @@ public sealed class ProductDetailViewModel : ViewModelBase
 
     private void Refresh()
     {
+        if (_backendService is not null)
+        {
+            _ = RefreshBackendAsync();
+            return;
+        }
+
+        if (_inventoryService is null || _transactionService is null)
+        {
+            Movements.Clear();
+            Purchases.Clear();
+            Sales.Clear();
+            NotifyHeaderChanged();
+            return;
+        }
+
         Movements.Clear();
         foreach (var movement in _inventoryService.GetMovements(Product.Id))
         {
@@ -165,6 +249,132 @@ public sealed class ProductDetailViewModel : ViewModelBase
             }
         }
 
+        NotifyHeaderChanged();
+    }
+
+    private static DemoPurchaseInventoryService? ResolvePreviewInventoryService(
+        IBackendPurchasingInventoryService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoPurchaseInventoryService.Instance : null;
+#else
+        return null;
+#endif
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        IBackendPurchasingInventoryService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
+    }
+
+    private static ITransactionService? ResolvePreviewTransactionService(
+        IBackendPurchasingInventoryService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoTransactionService.Instance : null;
+#else
+        return null;
+#endif
+    }
+
+    private async Task RefreshCatalogAsync()
+    {
+        if (_catalogService is null ||
+            Product.BackendProductId is not Guid productId)
+        {
+            return;
+        }
+
+        var item = await _catalogService.GetProductAsync(productId);
+        if (item is null)
+        {
+            return;
+        }
+
+        Product.Name = item.Name;
+        Product.Sku = item.Sku;
+        Product.Brand = string.IsNullOrWhiteSpace(item.Brand) ? "â€”" : item.Brand;
+        Product.Model = item.Model ?? string.Empty;
+        Product.Category = item.Category;
+        Product.Unit = item.BaseUnit;
+        Product.Price = item.DefaultSalePrice;
+        Product.MinimumStock = item.MinimumStockLevel;
+        NotifyHeaderChanged();
+        await RefreshBackendAsync();
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null ||
+            Product.BackendProductId is not Guid productId)
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshot = await _backendService.GetInventorySnapshotAsync();
+            var inventoryProduct = snapshot.Products.FirstOrDefault(
+                x => x.BackendProductId == productId);
+            if (inventoryProduct is not null)
+            {
+                Product.Stock = inventoryProduct.Stock;
+                Product.Cost = inventoryProduct.Cost;
+                Product.MinimumStock = inventoryProduct.MinimumStock;
+            }
+
+            // Bounded product purchases replaces full GetPurchasesAsync
+            var purchases = await _backendService.GetProductPurchasesAsync(productId);
+            var sales = await _backendService.GetProductSalesAsync(productId);
+
+            Movements.Clear();
+            foreach (var movement in snapshot.Movements
+                .Where(x => string.Equals(
+                    x.ProductId,
+                    productId.ToString("D"),
+                    StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.Timestamp))
+            {
+                Movements.Add(movement);
+            }
+
+            Purchases.Clear();
+            foreach (var purchase in purchases)
+            {
+                Purchases.Add(purchase);
+            }
+
+            Sales.Clear();
+            foreach (var sale in sales.OrderByDescending(x => x.Timestamp))
+            {
+                Sales.Add(new ProductSaleHistoryItemViewModel
+                {
+                    InvoiceNumber = sale.InvoiceNumber,
+                    Timestamp = sale.Timestamp,
+                    CustomerName = sale.CustomerName,
+                    Quantity = sale.Quantity,
+                    UnitPrice = sale.UnitPrice,
+                    LineTotal = sale.LineTotal
+                });
+            }
+
+            NotifyHeaderChanged();
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                $"Product history could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+    }
+
+    private void NotifyHeaderChanged()
+    {
         OnPropertyChanged(nameof(StockDisplay));
         OnPropertyChanged(nameof(CostDisplay));
         OnPropertyChanged(nameof(PriceDisplay));

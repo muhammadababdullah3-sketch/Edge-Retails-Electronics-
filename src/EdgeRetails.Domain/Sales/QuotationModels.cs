@@ -12,6 +12,23 @@ public enum QuotationStatus
     Cancelled = 5
 }
 
+public enum QuotationOperationType
+{
+    Create = 1,
+    Update = 2,
+    Issue = 3,
+    Cancel = 4
+}
+
+public sealed class QuotationOperation : Entity
+{
+    public Guid QuotationId { get; set; }
+    public Guid ClientOperationId { get; set; }
+    public QuotationOperationType OperationType { get; set; }
+    public Guid ActorId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+}
+
 public sealed class Quotation : Entity
 {
     public string QuotationNumber { get; set; } = string.Empty;
@@ -28,6 +45,23 @@ public sealed class Quotation : Entity
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? ConvertedSaleId { get; set; }
     public long Version { get; set; }
+
+    public void PrepareForUpdate()
+    {
+        if (Status == QuotationStatus.Converted)
+        {
+            throw new BusinessRuleException(
+                "sales.quotation_converted",
+                "A converted quotation cannot be updated.");
+        }
+
+        if (Status != QuotationStatus.Draft)
+        {
+            Status = QuotationStatus.Draft;
+            ConvertedSaleId = null;
+            Version++;
+        }
+    }
 
     public void Issue()
     {

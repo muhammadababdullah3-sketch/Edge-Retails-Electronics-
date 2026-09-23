@@ -1,0 +1,46 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.Dialogs.PosDraftsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Width="760" MaxHeight="620" Padding="22" Style="{StaticResource Card.Raised}">
+        <DockPanel>
+            <Grid DockPanel.Dock="Top" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="Recent POS Drafts" FontSize="20" FontWeight="Bold"
+                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Resume or cancel authoritative backend drafts." Margin="0,4,0,0" FontSize="12.5"
+                               Foreground="{DynamicResource Brush.Text.Muted}" />
+                </StackPanel>
+                <Button Content="âœ•" HorizontalAlignment="Right" Command="{Binding CloseCommand}"
+                        Style="{StaticResource Button.Text.Neutral}" />
+            </Grid>
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+                <TextBlock Text="{Binding Message}" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,0,8" />
+                <Button Content="Refresh" HorizontalAlignment="Right" Command="{Binding RefreshCommand}"
+                        Style="{StaticResource Button.Neutral}" />
+            </StackPanel>
+            <DataGrid ItemsSource="{Binding Drafts}" Style="{StaticResource Table.DataGrid}" AutoGenerateColumns="False"
+                      IsReadOnly="True" MinHeight="330">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="DRAFT" Binding="{Binding DraftNumber}" Width="120" />
+                    <DataGridTextColumn Header="CUSTOMER" Binding="{Binding CustomerName}" Width="*" />
+                    <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="70" />
+                    <DataGridTextColumn Header="UPDATED" Binding="{Binding UpdatedAt, StringFormat={}{0:dd MMM HH:mm}}" Width="130" />
+                    <DataGridTemplateColumn Header="ACTIONS" Width="180">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Resume"
+                                            Command="{Binding DataContext.ResumeCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" Style="{StaticResource Button.Text.Neutral}" />
+                                    <Button Content="Cancel" Margin="8,0,0,0"
+                                            Command="{Binding DataContext.CancelDraftCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" Style="{StaticResource Button.Text.Neutral}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </Border>
+</UserControl>

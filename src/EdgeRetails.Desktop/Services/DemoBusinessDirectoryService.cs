@@ -15,6 +15,8 @@ public sealed class ExpenseRecord : ViewModelBase
 
     public required string Id { get; init; }
 
+    public Guid? BackendId { get; init; }
+
     public string Category
     {
         get => _category;
@@ -84,6 +86,8 @@ public sealed class CustomerDirectoryRecord : ViewModelBase
     private DateTime? _lastSale;
 
     public required string Id { get; init; }
+
+    public Guid? BackendId { get; init; }
 
     public string Name
     {
@@ -157,6 +161,8 @@ public sealed class SupplierDirectoryRecord : ViewModelBase
     private DateTime? _lastPurchase;
 
     public required string Id { get; init; }
+
+    public Guid? BackendId { get; init; }
 
     public string Name
     {
@@ -414,7 +420,20 @@ public sealed class DemoBusinessDirectoryService
                 transaction.CustomerPhone))
             .ToArray();
 
-        customer.LocalSales = transactions.Sum(transaction => transaction.TotalAmount);
+        var invoiceNumbers = transactions
+            .Select(transaction => transaction.InvoiceNumber)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var refunds = _transactionService.GetAllReturns()
+            .Where(returnRecord => invoiceNumbers.Contains(returnRecord.InvoiceNumber))
+            .Sum(returnRecord => returnRecord.TotalRefundAmount);
+
+        customer.LocalSales = Math.Max(
+            0m,
+            Math.Round(
+                transactions.Sum(transaction => transaction.TotalAmount) - refunds,
+                2));
+
         customer.LastSale = transactions
             .OrderByDescending(transaction => transaction.Timestamp)
             .Select(transaction => (DateTime?)transaction.Timestamp)
@@ -443,7 +462,20 @@ public sealed class DemoBusinessDirectoryService
                 string.Equals(purchase.Supplier, supplier.Name, StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
-        supplier.TotalPurchases = purchases.Sum(purchase => purchase.Total);
+        var purchaseNumbers = purchases
+            .Select(purchase => purchase.PurchaseNumber)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var returnedValue = _purchaseService.PurchaseReturns
+            .Where(returnRecord => purchaseNumbers.Contains(returnRecord.PurchaseNumber))
+            .Sum(returnRecord => returnRecord.TotalValue);
+
+        supplier.TotalPurchases = Math.Max(
+            0m,
+            Math.Round(
+                purchases.Sum(purchase => purchase.Total) - returnedValue,
+                2));
+
         supplier.LastPurchase = purchases
             .OrderByDescending(purchase => purchase.Date)
             .Select(purchase => (DateTime?)purchase.Date)
@@ -483,6 +515,7 @@ public sealed class DemoBusinessDirectoryService
 
     private void OnReturnRecorded(object? sender, SaleReturnRecord record)
     {
+        RefreshCustomerMetrics();
         RaiseStateChanged();
     }
 

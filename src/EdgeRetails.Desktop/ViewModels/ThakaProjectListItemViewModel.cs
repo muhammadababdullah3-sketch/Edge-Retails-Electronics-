@@ -17,6 +17,7 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
     private DateTime _startDate;
     private decimal _materialValue;
     private decimal _paid;
+    private decimal _settlementDiscount;
     private string _status;
     private string _notes;
 
@@ -31,7 +32,9 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
         decimal paid,
         string status = "ACTIVE",
         string notes = "",
-        Action<ThakaProjectListItemViewModel>? onOpenWorkspace = null)
+        Action<ThakaProjectListItemViewModel>? onOpenWorkspace = null,
+        Guid? backendProjectId = null,
+        decimal settlementDiscount = 0m)
     {
         _id = id;
         _projectName = projectName;
@@ -43,10 +46,14 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
         _paid = paid;
         _status = status;
         _notes = notes;
+        BackendProjectId = backendProjectId;
+        _settlementDiscount = Math.Max(0m, settlementDiscount);
 
         OpenWorkspaceCommand = new RelayCommand(
             () => onOpenWorkspace?.Invoke(this));
     }
+
+    public Guid? BackendProjectId { get; }
 
     public string Id
     {
@@ -157,7 +164,21 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
 
     public string PaidFormatted => $"Rs. {Paid:N0}";
 
-    public decimal Balance => Math.Max(0m, MaterialValue - Paid);
+    public decimal SettlementDiscount
+    {
+        get => _settlementDiscount;
+        set
+        {
+            if (SetProperty(ref _settlementDiscount, Math.Max(0m, value)))
+            {
+                OnPropertyChanged(nameof(Balance));
+                OnPropertyChanged(nameof(BalanceFormatted));
+                OnPropertyChanged(nameof(Subtitle));
+            }
+        }
+    }
+
+    public decimal Balance => Math.Max(0m, MaterialValue - Paid - SettlementDiscount);
 
     public string BalanceFormatted => $"Rs. {Balance:N0}";
 

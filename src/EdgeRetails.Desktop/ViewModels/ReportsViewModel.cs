@@ -19,18 +19,26 @@ public sealed class ReportAverageMetric
     public required string Value { get; init; }
 }
 
-public sealed class ReportsViewModel : ViewModelBase
+public sealed class ReportsViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoReportingService _reportingService = DemoReportingService.Instance;
+    private readonly IBackendBusinessOperationsService? _backendService;
+    private readonly IToastService? _toastService;
 
     private ReportPeriodMode _mode = ReportPeriodMode.Monthly;
     private DateTime _selectedDate = DateTime.Today;
     private ReportMonthOption _selectedMonth;
     private int _selectedYear;
     private ReportSnapshot _snapshot;
+    private CancellationTokenSource? _refreshCancellation;
+    private long _refreshVersion;
 
-    public ReportsViewModel()
+    public ReportsViewModel(
+        IBackendBusinessOperationsService? backendService = null,
+        IToastService? toastService = null)
     {
+        _backendService = backendService;
+        _toastService = toastService;
         Months = [.. Enumerable.Range(1, 12)
             .Select(month => new ReportMonthOption
             {
@@ -43,11 +51,13 @@ public sealed class ReportsViewModel : ViewModelBase
 
         _selectedMonth = Months.First(month => month.Number == DateTime.Today.Month);
         _selectedYear = currentYear;
-        _snapshot = _reportingService.GetSnapshot(
-            _mode,
-            _selectedDate,
-            _selectedMonth.Number,
-            _selectedYear);
+        _snapshot = _backendService is null
+            ? _reportingService.GetSnapshot(
+                _mode,
+                _selectedDate,
+                _selectedMonth.Number,
+                _selectedYear)
+            : CreateEmptySnapshot(_mode, "Loading…");
 
         Trend = [];
         ExpenseBreakdown = [];
@@ -57,8 +67,28 @@ public sealed class ReportsViewModel : ViewModelBase
         SelectModeCommand = new RelayCommand<string>(SelectMode);
         RefreshCommand = new RelayCommand(Refresh);
 
-        _reportingService.StateChanged += OnReportingStateChanged;
-        ApplySnapshot(_snapshot);
+        if (_backendService is null)
+        {
+            _reportingService.StateChanged += OnReportingStateChanged;
+            ApplySnapshot(_snapshot);
+        }
+        else
+        {
+            ApplySnapshot(_snapshot);
+            _ = RefreshBackendAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshCancellation?.Cancel();
+        _refreshCancellation?.Dispose();
+        _refreshCancellation = null;
+
+        if (_backendService is null)
+        {
+            _reportingService.StateChanged -= OnReportingStateChanged;
+        }
     }
 
     public IReadOnlyList<ReportMonthOption> Months { get; }
@@ -183,13 +213,69 @@ public sealed class ReportsViewModel : ViewModelBase
 
     private void Refresh()
     {
-        Snapshot = _reportingService.GetSnapshot(
-            Mode,
-            SelectedDate,
-            SelectedMonth.Number,
-            SelectedYear);
+        if (_backendService is null)
+        {
+            Snapshot = _reportingService.GetSnapshot(
+                Mode,
+                SelectedDate,
+                SelectedMonth.Number,
+                SelectedYear);
+            ApplySnapshot(Snapshot);
+            return;
+        }
 
-        ApplySnapshot(Snapshot);
+        _ = RefreshBackendAsync();
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null)
+        {
+            return;
+        }
+
+        var requestVersion = Interlocked.Increment(ref _refreshVersion);
+        var previous = _refreshCancellation;
+        _refreshCancellation = new CancellationTokenSource();
+        previous?.Cancel();
+        previous?.Dispose();
+
+        var cancellationToken = _refreshCancellation.Token;
+        var mode = Mode;
+        var selectedDate = SelectedDate;
+        var selectedMonth = SelectedMonth.Number;
+        var selectedYear = SelectedYear;
+
+        try
+        {
+            var snapshot = await _backendService.GetReportAsync(
+                mode,
+                selectedDate,
+                selectedMonth,
+                selectedYear,
+                cancellationToken);
+
+            if (cancellationToken.IsCancellationRequested ||
+                requestVersion != Volatile.Read(ref _refreshVersion))
+            {
+                return;
+            }
+
+            Snapshot = snapshot;
+            ApplySnapshot(snapshot);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (requestVersion == Volatile.Read(ref _refreshVersion))
+            {
+                _toastService?.Show(
+                    $"Reports could not be refreshed: {ex.Message}",
+                    ToastTone.Danger);
+            }
+        }
     }
 
     private void ApplySnapshot(ReportSnapshot snapshot)
@@ -290,6 +376,22 @@ public sealed class ReportsViewModel : ViewModelBase
             Value = snapshot.SalesCount.ToString("N0")
         };
     }
+
+    private static ReportSnapshot CreateEmptySnapshot(
+        ReportPeriodMode mode,
+        string periodLabel) =>
+        new()
+        {
+            Mode = mode,
+            PeriodLabel = periodLabel,
+            ProfitSeriesLabel = mode == ReportPeriodMode.Daily
+                ? "Gross Profit"
+                : "Net Profit",
+            ShowExpenseSeries = mode != ReportPeriodMode.Daily,
+            Trend = Array.Empty<ReportTrendPoint>(),
+            ExpenseBreakdown = Array.Empty<ReportExpenseBreakdownItem>(),
+            ThakaActivity = Array.Empty<ReportThakaActivityItem>()
+        };
 
     private static void ReplaceCollection<T>(
         ObservableCollection<T> target,

@@ -10,14 +10,21 @@ namespace EdgeRetails.Desktop.ViewModels;
 /// ViewModel for Thaka Projects screen (Figma 14:4538 "Thaka Project").
 /// Manages active/settled customer project contracts, financial KPIs, and workspace navigation.
 /// </summary>
-public sealed class ThakaProjectsViewModel : ViewModelBase
+public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
 {
     private readonly ISessionContext? _sessionContext;
     private readonly INavigationService? _navigationService;
     private readonly IToastService? _toastService;
     private readonly IDialogService? _dialogService;
     private readonly IDrawerService? _drawerService;
-    private readonly DemoRetailState _retailState = DemoRetailState.Instance;
+    private readonly IBackendThakaService? _backendService;
+    private readonly DemoRetailState? _retailState;
+    private CancellationTokenSource? _backendRefreshCancellation;
+    private long _backendRefreshVersion;
+    private DateOnly? _nextStartedOn;
+    private Guid? _nextProjectId;
+    private bool _hasMore;
+    private const int ProjectPageSize = 200;
 
     private string _searchText = string.Empty;
     private string _selectedFilter = "All";
@@ -29,7 +36,7 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
     public event EventHandler<ThakaProjectListItemViewModel>? WorkspaceOpened;
 
     public ThakaProjectsViewModel()
-        : this(null, null, null, null, null)
+        : this(null, null, null, null, null, null)
     {
     }
 
@@ -38,27 +45,32 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
         INavigationService? navigationService = null,
         IToastService? toastService = null,
         IDialogService? dialogService = null,
-        IDrawerService? drawerService = null)
+        IDrawerService? drawerService = null,
+        IBackendThakaService? backendService = null)
     {
         _sessionContext = sessionContext;
         _navigationService = navigationService;
         _toastService = toastService;
         _dialogService = dialogService;
         _drawerService = drawerService;
+        _backendService = backendService;
+        _retailState = ResolvePreviewRetailState(backendService);
+        _isBackendLoading = backendService is not null;
 
         // Cashier profile context
         CashierName = _sessionContext?.DisplayName ?? "Abdullah";
         CashierRole = _sessionContext?.RoleName ?? "Owner";
         CashierInitials = _sessionContext?.Initials ?? "A";
         IsOnline = _sessionContext?.IsOnline ?? true;
-        AllProjects = _retailState.ThakaProjects;
+        AllProjects = _retailState?.ThakaProjects ?? [];
         FilteredProjects = new ObservableCollection<ThakaProjectListItemViewModel>(AllProjects);
 
         // Sub-ViewModel for New Thaka creation
         NewThaka = new NewThakaViewModel(
             onProjectCreated: OnNewProjectCreated,
             onCloseRequested: CloseNewThaka,
-            toastService: _toastService);
+            toastService: _toastService,
+            backendService: _backendService);
 
         // Commands
         NewThakaCommand = new RelayCommand(OpenNewThaka);
@@ -66,10 +78,33 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
         SetFilterCommand = new RelayCommand<string>(ExecuteSetFilter);
         ToggleViewModeCommand = new RelayCommand<string>(ExecuteToggleViewMode);
         OpenWorkspaceCommand = new RelayCommand<ThakaProjectListItemViewModel>(OpenWorkspace);
+        LoadMoreCommand = new RelayCommand(() => _ = LoadMoreAsync(), () => HasMore);
 
-        _retailState.StateChanged += OnRetailStateChanged;
-        RecalculateKpis();
-        ApplyFilter();
+        if (_backendService is null)
+        {
+            if (_retailState is not null)
+            {
+                _retailState.StateChanged += OnRetailStateChanged;
+            }
+
+            RecalculateKpis();
+            ApplyFilter();
+        }
+        else
+        {
+            _ = RefreshBackendAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_retailState is not null)
+        {
+            _retailState.StateChanged -= OnRetailStateChanged;
+        }
+
+        _backendRefreshCancellation?.Cancel();
+        _backendRefreshCancellation?.Dispose();
     }
 
     // Cashier Profile Context
@@ -84,16 +119,30 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
     public string PageSubtitle => "Manage customer project contracts & material tracking";
 
     // Summary KPI Cards (Figma 14:4538)
-    private int _activeThakasCount = 3;
-    public string ActiveThakasCount => _activeThakasCount.ToString(CultureInfo.InvariantCulture);
+    private bool _isBackendLoading;
+    private bool _backendUnavailable;
+    private int _activeThakasCount;
+    public string ActiveThakasCount => _isBackendLoading
+        ? "Loading…"
+        : _backendUnavailable
+            ? "Unavailable"
+            : _activeThakasCount.ToString(CultureInfo.InvariantCulture);
     public string ActiveThakasSubtitle => "Ongoing projects";
 
-    private decimal _totalMaterialValue = 687400m;
-    public string TotalMaterialValueFormatted => $"Rs. {_totalMaterialValue:N0}";
+    private decimal _totalMaterialValue;
+    public string TotalMaterialValueFormatted => _isBackendLoading
+        ? "Loading…"
+        : _backendUnavailable
+            ? "Unavailable"
+            : $"Rs. {_totalMaterialValue:N0}";
     public string TotalMaterialValueSubtitle => "Total issued";
 
-    private decimal _outstandingBalance = 587400m;
-    public string OutstandingBalanceFormatted => $"Rs. {_outstandingBalance:N0}";
+    private decimal _outstandingBalance;
+    public string OutstandingBalanceFormatted => _isBackendLoading
+        ? "Loading…"
+        : _backendUnavailable
+            ? "Unavailable"
+            : $"Rs. {_outstandingBalance:N0}";
     public string OutstandingBalanceSubtitle => "Unpaid balance";
 
     // Collections
@@ -112,9 +161,9 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
         get => _searchText;
         set
         {
-            if (SetProperty(ref _searchText, value))
+            if (SetProperty(ref _searchText, value ?? string.Empty))
             {
-                ApplyFilter();
+                ScheduleBackendRefresh();
             }
         }
     }
@@ -129,7 +178,7 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsFilterAll));
                 OnPropertyChanged(nameof(IsFilterActive));
                 OnPropertyChanged(nameof(IsFilterSettled));
-                ApplyFilter();
+                ScheduleBackendRefresh();
             }
         }
     }
@@ -168,6 +217,8 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
     public ICommand SetFilterCommand { get; }
     public ICommand ToggleViewModeCommand { get; }
     public ICommand OpenWorkspaceCommand { get; }
+    public ICommand LoadMoreCommand { get; }
+    public bool HasMore => _hasMore;
 
     public void OpenNewThaka()
     {
@@ -199,7 +250,179 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
 
     private void OnNewProjectCreated(ThakaProjectListItemViewModel newProject)
     {
-        _retailState.AddProject(newProject);
+        if (_backendService is null)
+        {
+            if (_retailState is not null)
+            {
+                _retailState.AddProject(newProject);
+            }
+            else
+            {
+                _toastService?.Show(
+                    "Authoritative Thaka project service is unavailable.",
+                    ToastTone.Warning);
+            }
+            return;
+        }
+
+        AllProjects.Insert(0, newProject);
+        RecalculateKpis();
+        ApplyFilter();
+    }
+
+    private void ScheduleBackendRefresh()
+    {
+        if (_backendService is null)
+        {
+            ApplyFilter();
+            return;
+        }
+
+        _nextStartedOn = null;
+        _nextProjectId = null;
+        _hasMore = false;
+        OnPropertyChanged(nameof(HasMore));
+        if (LoadMoreCommand is RelayCommand command)
+        {
+            command.NotifyCanExecuteChanged();
+        }
+
+        _ = RefreshBackendAsync();
+    }
+
+    public Task<IReadOnlyList<ThakaProjectListItemViewModel>> LoadProjectsAsync(CancellationToken cancellationToken = default)
+    {
+        return _backendService is null
+            ? Task.FromResult<IReadOnlyList<ThakaProjectListItemViewModel>>(AllProjects)
+            : _backendService.GetProjectsAsync();
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null)
+        {
+            return;
+        }
+
+        var version = Interlocked.Increment(ref _backendRefreshVersion);
+        var previous = Interlocked.Exchange(ref _backendRefreshCancellation, new CancellationTokenSource());
+        previous?.Cancel();
+        previous?.Dispose();
+        var cts = _backendRefreshCancellation!;
+
+        try
+        {
+            await Task.Delay(250, cts.Token);
+
+            if (cts.IsCancellationRequested || version != Volatile.Read(ref _backendRefreshVersion))
+            {
+                return;
+            }
+
+            var page = await _backendService.GetProjectsPageAsync(
+                SearchText,
+                SelectedFilter,
+                ProjectPageSize,
+                _nextStartedOn,
+                _nextProjectId,
+                cts.Token);
+
+            if (cts.IsCancellationRequested || version != Volatile.Read(ref _backendRefreshVersion))
+            {
+                return;
+            }
+
+            var reset = _nextStartedOn is null && _nextProjectId is null;
+            if (reset)
+            {
+                AllProjects.Clear();
+                FilteredProjects.Clear();
+            }
+
+            foreach (var project in page.Items)
+            {
+                AllProjects.Add(project);
+                FilteredProjects.Add(project);
+            }
+
+            _nextStartedOn = page.NextStartedOn;
+            _nextProjectId = page.NextProjectId;
+            _hasMore = page.HasMore;
+            _activeThakasCount = page.TotalActiveCount;
+            _totalMaterialValue = page.TotalActiveMaterialValue;
+            _outstandingBalance = page.TotalActiveBalance;
+            _isBackendLoading = false;
+            _backendUnavailable = false;
+            NotifyBackendState();
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (version == Volatile.Read(ref _backendRefreshVersion))
+        {
+            _isBackendLoading = false;
+            _backendUnavailable = true;
+            NotifyBackendState();
+            _toastService?.Show(
+                $"Thaka projects could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+    }
+
+    public async Task LoadMoreAsync()
+    {
+        if (_backendService is null || !_hasMore)
+        {
+            return;
+        }
+
+        var version = Volatile.Read(ref _backendRefreshVersion);
+        var cts = _backendRefreshCancellation ?? new CancellationTokenSource();
+        try
+        {
+            var page = await _backendService.GetProjectsPageAsync(
+                SearchText,
+                SelectedFilter,
+                ProjectPageSize,
+                _nextStartedOn,
+                _nextProjectId,
+                cts.Token);
+
+            if (version != Volatile.Read(ref _backendRefreshVersion))
+            {
+                return;
+            }
+
+            foreach (var project in page.Items)
+            {
+                AllProjects.Add(project);
+                FilteredProjects.Add(project);
+            }
+
+            _nextStartedOn = page.NextStartedOn;
+            _nextProjectId = page.NextProjectId;
+            _hasMore = page.HasMore;
+            OnPropertyChanged(nameof(HasMore));
+            if (LoadMoreCommand is RelayCommand command)
+            {
+                command.NotifyCanExecuteChanged();
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void NotifyBackendState()
+    {
+        OnPropertyChanged(nameof(ActiveThakasCount));
+        OnPropertyChanged(nameof(TotalMaterialValueFormatted));
+        OnPropertyChanged(nameof(OutstandingBalanceFormatted));
+        OnPropertyChanged(nameof(HasMore));
+        if (LoadMoreCommand is RelayCommand command)
+        {
+            command.NotifyCanExecuteChanged();
+        }
     }
 
     private void OnRetailStateChanged(object? sender, EventArgs e)
@@ -239,6 +462,16 @@ public sealed class ThakaProjectsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ActiveThakasCount));
         OnPropertyChanged(nameof(TotalMaterialValueFormatted));
         OnPropertyChanged(nameof(OutstandingBalanceFormatted));
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        IBackendThakaService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
     }
 
     private void ApplyFilter()

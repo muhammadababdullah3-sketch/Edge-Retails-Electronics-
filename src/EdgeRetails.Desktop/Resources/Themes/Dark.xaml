@@ -5,6 +5,7 @@
     <SolidColorBrush x:Key="Brush.App.Background" Color="{StaticResource Color.Dark.AppBackground}" />
     <SolidColorBrush x:Key="Brush.Surface.Default" Color="{StaticResource Color.Dark.Surface}" />
     <SolidColorBrush x:Key="Brush.Surface.Subtle" Color="#0F1D39" />
+    <SolidColorBrush x:Key="Brush.Surface.Sunken" Color="#0B132B" />
     <SolidColorBrush x:Key="Brush.Surface.Raised" Color="{StaticResource Color.Dark.SurfaceRaised}" />
     <SolidColorBrush x:Key="Brush.Border.Default" Color="{StaticResource Color.Dark.Border}" />
     <SolidColorBrush x:Key="Brush.Border.Soft" Color="#182C4E" />
@@ -100,4 +101,22 @@
         <GradientStop Offset="0" Color="#4A2D1A" />
         <GradientStop Offset="1" Color="#2C1D18" />
     </LinearGradientBrush>
+    <RadialGradientBrush x:Key="Gradient.Login.Background"
+                         Center="0.5,0.4"
+                         GradientOrigin="0.5,0.4"
+                         RadiusX="0.8"
+                         RadiusY="0.8">
+        <GradientStop Offset="0.0" Color="#162447" />
+        <GradientStop Offset="0.3" Color="#111E3B" />
+        <GradientStop Offset="0.65" Color="#0D1932" />
+        <GradientStop Offset="1.0" Color="#081225" />
+    </RadialGradientBrush>
+    <RadialGradientBrush x:Key="Gradient.Login.Glow.Brand">
+        <GradientStop Offset="0.0" Color="#796BFF" />
+        <GradientStop Offset="0.7" Color="#00796BFF" />
+    </RadialGradientBrush>
+    <RadialGradientBrush x:Key="Gradient.Login.Glow.Info">
+        <GradientStop Offset="0.0" Color="#3B82F6" />
+        <GradientStop Offset="0.7" Color="#003B82F6" />
+    </RadialGradientBrush>
 </ResourceDictionary>

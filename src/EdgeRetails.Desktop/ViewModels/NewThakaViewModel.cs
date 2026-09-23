@@ -10,6 +10,8 @@ namespace EdgeRetails.Desktop.ViewModels;
 public sealed class NewThakaViewModel : ViewModelBase
 {
     private readonly IToastService? _toastService;
+    private readonly IBackendThakaService? _backendService;
+    private bool _isProcessing;
     private string _customerName = string.Empty;
     private string _phoneNumber = string.Empty;
     private string _projectName = string.Empty;
@@ -24,20 +26,24 @@ public sealed class NewThakaViewModel : ViewModelBase
     public Action? CloseRequested { get; set; }
 
     public NewThakaViewModel()
-        : this(null, null, null)
+        : this(null, null, null, null)
     {
     }
 
     public NewThakaViewModel(
         Action<ThakaProjectListItemViewModel>? onProjectCreated = null,
         Action? onCloseRequested = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IBackendThakaService? backendService = null)
     {
         ProjectCreated = onProjectCreated;
         CloseRequested = onCloseRequested;
         _toastService = toastService;
+        _backendService = backendService;
 
-        CreateThakaCommand = new RelayCommand(ExecuteCreateThaka, () => CanCreate);
+        CreateThakaCommand = new RelayCommand(
+            async () => await ExecuteCreateThakaAsync(),
+            () => CanCreate);
         CancelCommand = new RelayCommand(ExecuteCancel);
         CloseCommand = new RelayCommand(ExecuteCancel);
     }
@@ -128,7 +134,21 @@ public sealed class NewThakaViewModel : ViewModelBase
 
     public bool HasValidationMessage => !string.IsNullOrEmpty(_validationMessage);
 
+    public bool IsProcessing
+    {
+        get => _isProcessing;
+        private set
+        {
+            if (SetProperty(ref _isProcessing, value))
+            {
+                OnPropertyChanged(nameof(CanCreate));
+                ((RelayCommand)CreateThakaCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
     public bool CanCreate =>
+        !IsProcessing &&
         !string.IsNullOrWhiteSpace(CustomerName) &&
         !string.IsNullOrWhiteSpace(ProjectName);
 
@@ -195,7 +215,7 @@ public sealed class NewThakaViewModel : ViewModelBase
         ((RelayCommand)CreateThakaCommand).NotifyCanExecuteChanged();
     }
 
-    private void ExecuteCreateThaka()
+    private async Task ExecuteCreateThakaAsync()
     {
         ValidateCustomerName();
         ValidateProjectName();
@@ -207,25 +227,58 @@ public sealed class NewThakaViewModel : ViewModelBase
         }
 
         ValidationMessage = null;
+        IsProcessing = true;
 
-        var id = $"THK-{DateTime.Now:yyyyMMddHHmmss}";
-        var newProject = new ThakaProjectListItemViewModel(
-            id: id,
-            projectName: ProjectName.Trim(),
-            customerName: CustomerName.Trim(),
-            phone: string.IsNullOrWhiteSpace(PhoneNumber) ? "N/A" : PhoneNumber.Trim(),
-            location: string.IsNullOrWhiteSpace(Location) ? "N/A" : Location.Trim(),
-            startDate: DateTime.Today,
-            materialValue: 0m,
-            paid: 0m,
-            status: "ACTIVE",
-            notes: Notes?.Trim() ?? string.Empty);
+        try
+        {
+            ThakaProjectListItemViewModel newProject;
+            if (_backendService is null)
+            {
+#if DEBUG
+                var id = $"THK-{DateTime.Now:yyyyMMddHHmmss}";
+                newProject = new ThakaProjectListItemViewModel(
+                    id: id,
+                    projectName: ProjectName.Trim(),
+                    customerName: CustomerName.Trim(),
+                    phone: string.IsNullOrWhiteSpace(PhoneNumber) ? "N/A" : PhoneNumber.Trim(),
+                    location: string.IsNullOrWhiteSpace(Location) ? "N/A" : Location.Trim(),
+                    startDate: DateTime.Today,
+                    materialValue: 0m,
+                    paid: 0m,
+                    status: "ACTIVE",
+                    notes: Notes?.Trim() ?? string.Empty);
+#else
+                throw new InvalidOperationException(
+                    "Production Thaka project creation requires the authoritative backend service.");
+#endif
+            }
+            else
+            {
+                newProject = await _backendService.CreateProjectAsync(
+                    CustomerName,
+                    PhoneNumber,
+                    ProjectName,
+                    Location,
+                    Notes);
+            }
 
-        ProjectCreated?.Invoke(newProject);
-        _toastService?.Show($"Thaka project '{newProject.ProjectName}' created successfully.", ToastTone.Success);
+            ProjectCreated?.Invoke(newProject);
+            _toastService?.Show(
+                $"Thaka project '{newProject.ProjectName}' created successfully.",
+                ToastTone.Success);
 
-        Reset();
-        CloseRequested?.Invoke();
+            Reset();
+            CloseRequested?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            ValidationMessage = ex.Message;
+            _toastService?.Show(ex.Message, ToastTone.Danger);
+        }
+        finally
+        {
+            IsProcessing = false;
+        }
     }
 
     private void ExecuteCancel()

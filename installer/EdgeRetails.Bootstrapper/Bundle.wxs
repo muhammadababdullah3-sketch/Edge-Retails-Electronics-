@@ -1,0 +1,16 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="Edge Retails"
+          Manufacturer="Edge Retails"
+          Version="$(var.ProductVersion)"
+          IconSourceFile="$(var.AppIconPath)"
+          UpgradeCode="DAB67E93-BA16-4DE4-9928-410F42468143"
+          ProviderKey="EdgeRetails.Electronics.POS">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication LicenseUrl="" Theme="hyperlinkLicense" ShowVersion="yes" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage SourceFile="$(var.MsiPath)" Visible="no" />
+    </Chain>
+  </Bundle>
+</Wix>

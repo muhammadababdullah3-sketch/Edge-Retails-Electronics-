@@ -137,7 +137,7 @@ public sealed class SalesReturnViewModel : ViewModelBase
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
     private readonly ITransactionService _transactionService;
-    private readonly DemoRetailState _retailState = DemoRetailState.Instance;
+    private readonly DemoRetailState? _previewRetailState;
 
     private ReturnDisposition _selectedDisposition = ReturnDisposition.CustomerChangedMind;
     private string _refundMethod = "Cash Refund";
@@ -160,7 +160,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
         _onReturnProcessed = onReturnProcessed;
         _onClose = onClose;
         _toastService = toastService;
-        _transactionService = transactionService ?? DemoTransactionService.Instance;
+        _transactionService = ResolveTransactionService(transactionService);
+        _previewRetailState = ResolvePreviewRetailState(transactionService);
 
         ReasonOptions = new ReadOnlyCollection<ReturnReasonOptionViewModel>(
             [
@@ -344,7 +345,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
             };
 
             var record = await _transactionService.RecordReturnAsync(request);
-            _retailState.ApplySaleReturnStock(record);
+#if DEBUG
+            _previewRetailState?.ApplySaleReturnStock(record);
+#endif
 
             foreach (var selected in selectedItems)
             {
@@ -391,6 +394,32 @@ public sealed class SalesReturnViewModel : ViewModelBase
         {
             IsProcessing = false;
         }
+    }
+
+    private static ITransactionService ResolveTransactionService(
+        ITransactionService? transactionService)
+    {
+        if (transactionService is not null)
+        {
+            return transactionService;
+        }
+
+#if DEBUG
+        return DemoTransactionService.Instance;
+#else
+        throw new InvalidOperationException(
+            "Production sale returns require an authoritative transaction service.");
+#endif
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        ITransactionService? transactionService)
+    {
+#if DEBUG
+        return transactionService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
     }
 
     private void RecalculateRefundTotals()

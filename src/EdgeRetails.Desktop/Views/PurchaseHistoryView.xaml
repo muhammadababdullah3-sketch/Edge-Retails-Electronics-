@@ -62,27 +62,48 @@
                 <Border Background="{DynamicResource Brush.Surface.Default}"
                         BorderBrush="{DynamicResource Brush.Border.Default}"
                         BorderThickness="1" CornerRadius="{StaticResource Radius.Card}">
-                    <DataGrid ItemsSource="{Binding FilteredPurchases}"
-                              Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
-                              BorderThickness="0" MinHeight="360">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="120" />
-                            <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
-                            <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="2*" />
-                            <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="160" />
-                            <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="100" />
-                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
-                            <DataGridTemplateColumn Header="ACTION" Width="120">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <Button Content="View" Style="{StaticResource Button.Text.Primary}"
-                                                Command="{Binding DataContext.ViewPurchaseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                CommandParameter="{Binding}" />
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid MinHeight="360">
+                        <DataGrid ItemsSource="{Binding FilteredPurchases}"
+                                  Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
+                                  BorderThickness="0"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="120" />
+                                <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
+                                <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="2*" />
+                                <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="160" />
+                                <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="100" />
+                                <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
+                                <DataGridTemplateColumn Header="ACTION" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                                    Command="{Binding DataContext.ViewPurchaseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <controls:EmptyState Title="No purchases found"
+                                             Message="Try changing the date, supplier or search filters."
+                                             IconGeometry="{StaticResource Icon.Search}">
+                            <controls:EmptyState.Style>
+                                <Style TargetType="controls:EmptyState">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding FilteredPurchases.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyState.Style>
+                        </controls:EmptyState>
+                    </Grid>
                 </Border>
             </StackPanel>
         </ScrollViewer>

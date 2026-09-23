@@ -36,6 +36,9 @@ public enum SaleReturnDisposition
 public sealed class SaleTransactionItem
 {
     public string ProductId { get; init; } = string.Empty;
+    public Guid? BackendProductId { get; init; }
+    public Guid? BackendProductUnitId { get; init; }
+    public IReadOnlyList<Guid> InventoryUnitIds { get; init; } = Array.Empty<Guid>();
     public string ProductName { get; init; } = string.Empty;
     public string Sku { get; init; } = string.Empty;
     public string Brand { get; init; } = string.Empty;
@@ -68,6 +71,7 @@ public sealed class SaleTransactionRecord
     public decimal ChangeReturned { get; init; }
     public bool PrintReceipt { get; init; } = true;
     public string CashierName { get; init; } = "Abdullah, Owner";
+    public string PaymentReference { get; init; } = string.Empty;
     public string? Notes { get; init; }
     public IReadOnlyList<SaleTransactionItem> Items { get; init; } = [];
 
@@ -89,6 +93,10 @@ public sealed class SaleTransactionRecord
 
 public sealed class RecordSaleRequest
 {
+    public Guid ClientOperationId { get; init; }
+    public Guid? DraftId { get; init; }
+    public long? DraftVersion { get; init; }
+    public Guid? CustomerId { get; init; }
     public decimal TotalAmount { get; init; }
     public PaymentMethod PaymentMethod { get; init; } = PaymentMethod.Cash;
     public decimal AmountReceived { get; init; }
@@ -97,6 +105,7 @@ public sealed class RecordSaleRequest
     public string CustomerName { get; init; } = "Walk-in Customer";
     public string CustomerPhone { get; init; } = string.Empty;
     public string CashierName { get; init; } = "Abdullah, Owner";
+    public string PaymentReference { get; init; } = string.Empty;
     public string? Notes { get; init; }
     public decimal Subtotal { get; init; }
     public decimal DiscountAmount { get; init; }

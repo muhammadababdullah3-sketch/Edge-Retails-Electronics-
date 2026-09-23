@@ -5,6 +5,10 @@ namespace EdgeRetails.Desktop.Services;
 /// </summary>
 public sealed class DesignPreviewSessionContext : ISessionContext
 {
+    public Guid? UserId => null;
+
+    public Guid? SessionId => null;
+
     public string DisplayName => "Abdullah";
 
     public string RoleName => "Owner";
@@ -12,4 +16,7 @@ public sealed class DesignPreviewSessionContext : ISessionContext
     public string Initials => "A";
 
     public bool IsOnline => true;
+
+    public IReadOnlySet<string> PermissionKeys { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 }

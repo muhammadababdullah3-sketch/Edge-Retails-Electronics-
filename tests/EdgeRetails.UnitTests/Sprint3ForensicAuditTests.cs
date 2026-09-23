@@ -39,28 +39,31 @@ public sealed class Sprint3ForensicAuditTests
     }
 
     [Fact]
-    public void NormalSale_UsesSharedTransactionAndRetailState()
+    public void NormalSale_PreviewStateIsDebugOnly_AndThakaMutationIsNotOwnedByPos()
     {
-        var newSale = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var pos = ReadDesktop("ViewModels", "PosViewModel.cs");
 
-        Assert.Contains("DemoTransactionService.Instance", newSale);
-        Assert.Contains("DemoRetailState.Instance", newSale);
-        Assert.Contains("_retailState.Products", newSale);
-        Assert.Contains("_retailState.ApplyLocalSaleStock", newSale);
-        Assert.Contains("_retailState.IssueMaterialBatch", newSale);
-        Assert.DoesNotContain("new(\"THK-01\"", newSale);
+        Assert.Contains("DemoTransactionService.Instance", pos);
+        Assert.Contains("DemoRetailState.Instance", pos);
+        Assert.Contains("_retailState.Products", pos);
+        Assert.Contains("_retailState.ApplyLocalSaleStock", pos);
+        Assert.DoesNotContain("_retailState.IssueMaterialBatch", pos);
+        Assert.Contains("#if DEBUG", pos);
+        Assert.Contains("Thaka material issuance belongs exclusively to Thaka Workspace.", pos);
+        Assert.DoesNotContain("new(\"THK-01\"", pos);
     }
 
     [Fact]
     public void SalesHistory_UsesSameTransactionService()
     {
         var history = ReadDesktop("ViewModels", "SalesHistoryViewModel.cs");
-        var sale = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var sale = ReadDesktop("ViewModels", "PosViewModel.cs");
 
         Assert.Contains("DemoTransactionService.Instance", history);
         Assert.Contains("DemoTransactionService.Instance", sale);
-        Assert.Contains("_transactionService.GetAllTransactions()", history);
-        Assert.Contains("RefreshFromTransactionService()", history);
+        Assert.Contains("_transactionService.GetAllTransactionsAsync()", history);
+        Assert.Contains("RefreshFromTransactionServiceAsync()", history);
+        Assert.Contains("ITransactionService _transactionService", history);
     }
 
     [Fact]
@@ -131,7 +134,7 @@ public sealed class Sprint3ForensicAuditTests
     {
         var names = new[]
         {
-            "NewSaleViewModel.cs",
+            "PosViewModel.cs",
             "SalesHistoryViewModel.cs",
             "SaleDetailViewModel.cs",
             "SalesReturnViewModel.cs",

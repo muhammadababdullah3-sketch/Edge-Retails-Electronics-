@@ -1,0 +1,16 @@
+<Window x:Class="EdgeRetails.Desktop.Production.Printing.ProductionPrintPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Print Preview" Width="980" Height="760" WindowStartupLocation="CenterOwner">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <DocumentViewer x:Name="PreviewViewer" Margin="12" />
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="12">
+            <Button Width="100" Margin="0,0,8,0" IsCancel="True" Content="Cancel" />
+            <Button Width="100" IsDefault="True" Click="Print_Click" Content="Print" />
+        </StackPanel>
+    </Grid>
+</Window>

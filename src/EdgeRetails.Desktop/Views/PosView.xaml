@@ -1,0 +1,866 @@
+<UserControl
+    x:Class="EdgeRetails.Desktop.Views.PosView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    xmlns:converters="clr-namespace:EdgeRetails.Desktop.Converters"
+    xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=viewModels:PosViewModel, IsDesignTimeCreatable=True}"
+    Focusable="False">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+
+        <!-- Segmented Button Gradients -->
+        <LinearGradientBrush x:Key="Gradient.Segmented.Normal" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Offset="0" Color="#0D9488" />
+            <GradientStop Offset="1" Color="#10B981" />
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="Gradient.Segmented.Thaka" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Offset="0" Color="#7C3AED" />
+            <GradientStop Offset="1" Color="#635BFF" />
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="Gradient.Divider.Normal" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Offset="0" Color="#00C7C4FF" />
+            <GradientStop Offset="0.5" Color="#FFC7C4FF" />
+            <GradientStop Offset="1" Color="#00C7C4FF" />
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="Gradient.Divider.Thaka" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Offset="0" Color="#00C4B5FD" />
+            <GradientStop Offset="0.5" Color="#FFC4B5FD" />
+            <GradientStop Offset="1" Color="#00C4B5FD" />
+        </LinearGradientBrush>
+
+        <!-- Stepper Button Style -->
+        <Style x:Key="Pos.StepperButton" TargetType="Button">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Background" Value="{DynamicResource Brush.Surface.Default}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+            <Setter Property="FontFamily" Value="{StaticResource Font.Primary}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Remove Button Style -->
+        <Style x:Key="Pos.RemoveButton" TargetType="Button">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <Path Data="M 1 1 L 9 9 M 9 1 L 1 9"
+                                  Stroke="{DynamicResource Brush.Text.Muted}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Width="10"
+                                  Height="10"
+                                  Stretch="Uniform"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Semantic Theme Mode Surface Resources -->
+        <Style x:Key="Pos.Badge.Brand" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Brush.Badge.Brand.Background}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Brand.Border}" />
+        </Style>
+        <Style x:Key="Pos.DisabledText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Disabled.Text}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource Brush.App.Background}">
+        <!-- Main Layout: Catalog (*) and Cart (420) -->
+        <Grid Margin="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="420" />
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT SIDE: Product Catalog Card -->
+            <Border Grid.Column="0"
+                    Style="{StaticResource Card.Default}"
+                    CornerRadius="12"
+                    Padding="14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <!-- Row 0: Search Bar (46px) -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 1: Filters Bar -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 2: Product Table / List -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- SEARCH BAR (46px height, rounded, barcode icon, F2 badge) -->
+                    <Border Grid.Row="0"
+                            Height="46"
+                            Background="{DynamicResource Brush.Input.Background}"
+                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                            BorderThickness="1"
+                            CornerRadius="9"
+                            Padding="12,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=SearchInput}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="20" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Search Magnifier Icon -->
+                            <Path Grid.Column="0"
+                                  Width="18"
+                                  Height="18"
+                                  Data="{StaticResource Icon.Search}"
+                                  Fill="Transparent"
+                                  Stroke="{DynamicResource Brush.Text.Muted}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Stretch="None"
+                                  VerticalAlignment="Center" />
+
+                            <!-- Search TextBox with Placeholder -->
+                            <Grid Grid.Column="2">
+                                <TextBox x:Name="SearchInput"
+                                         Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Background="Transparent"
+                                         Foreground="{DynamicResource Brush.Text.Primary}"
+                                         BorderThickness="0"
+                                         FontFamily="{StaticResource Font.Primary}"
+                                         FontSize="14"
+                                         VerticalContentAlignment="Center"
+                                         CaretBrush="{StaticResource Brush.Brand.Primary}"
+                                         FocusVisualStyle="{x:Null}">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Enter" Command="{Binding ScanCommand}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+
+                                <TextBlock IsHitTestVisible="False"
+                                           Text="Search product, SKU or scan barcode…"
+                                           Foreground="{DynamicResource Brush.Text.Subtle}"
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="14"
+                                           VerticalAlignment="Center">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=SearchInput}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+
+                            <!-- Barcode Scanner Icon -->
+                            <Path Grid.Column="3"
+                                  Data="M 0 0 H 2 V 16 H 0 Z M 3.5 0 H 4.5 V 16 H 3.5 Z M 6 0 H 8 V 16 H 6 Z M 9.5 0 H 11.5 V 16 H 9.5 Z M 13 0 H 14 V 16 H 13 Z M 15 0 H 16 V 16 H 15 Z"
+                                  Fill="{DynamicResource Brush.Text.Muted}"
+                                  Width="16"
+                                  Height="16"
+                                  Stretch="Uniform"
+                                  VerticalAlignment="Center" />
+
+                            <!-- F2 Shortcut Tag -->
+                            <Border Grid.Column="5"
+                                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                                    BorderThickness="1"
+                                    CornerRadius="3.5"
+                                    Padding="5,1.5"
+                                    Background="{DynamicResource Brush.Surface.Subtle}"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="F2"
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Brush.Text.Muted}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- FILTERS BAR (Category dropdown, Brand dropdown, Count text) -->
+                    <Grid Grid.Row="1" Margin="0,12,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Category Filter -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Category"
+                                       Style="{StaticResource Text.TableHeader}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <ComboBox Width="130"
+                                      Height="31.5"
+                                      FontSize="13"
+                                      ItemsSource="{Binding Categories}"
+                                      SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                                      Style="{StaticResource Input.ComboBox}" />
+                        </StackPanel>
+
+                        <!-- Brand Filter -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Brand"
+                                       Style="{StaticResource Text.TableHeader}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <ComboBox Width="135"
+                                      Height="31.5"
+                                      FontSize="13"
+                                      ItemsSource="{Binding Brands}"
+                                      SelectedItem="{Binding SelectedBrand, Mode=TwoWay}"
+                                      Style="{StaticResource Input.ComboBox}" />
+                        </StackPanel>
+
+                        <!-- Phase 4 operational actions -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DraftStatusDisplay}"
+                                       Style="{StaticResource Text.Secondary}"
+                                       VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button Content="Price Check" Command="{Binding PriceCheckCommand}"
+                                    Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                            <Button Content="Save Draft" Command="{Binding SaveDraftCommand}"
+                                    Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                            <Button Content="Hold" Command="{Binding HoldDraftCommand}"
+                                    Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
+                            <Button Content="Drafts" Command="{Binding RecentDraftsCommand}"
+                                    Style="{StaticResource Button.Neutral}" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding FilteredProductCountText}"
+                                       Style="{StaticResource Text.Secondary}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- PRODUCT TABLE / CATALOG LIST -->
+                    <Border Grid.Row="2"
+                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            ClipToBounds="True">
+                        <Grid>
+                            <!-- DataGrid for Catalog -->
+                            <DataGrid ItemsSource="{Binding FilteredProducts}"
+                                      SelectedItem="{Binding SelectedCatalogProduct, Mode=TwoWay}"
+                                      Style="{StaticResource Table.DataGrid}"
+                                      IsReadOnly="True"
+                                      BorderThickness="0">
+                                <DataGrid.RowStyle>
+                                    <Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}">
+                                        <EventSetter Event="PreviewMouseLeftButtonDown"
+                                                     Handler="OnCatalogRowPreviewMouseLeftButtonDown" />
+                                        <Setter Property="Height" Value="52" />
+                                        <Setter Property="Cursor" Value="Hand" />
+                                        <Setter Property="ToolTipService.InitialShowDelay" Value="350" />
+                                        <Setter Property="ToolTipService.BetweenShowDelay" Value="100" />
+                                        <Setter Property="ToolTip" Value="Click to add to sale" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                                                <Setter Property="Opacity" Value="0.45" />
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Cursor" Value="No" />
+                                                <Setter Property="ToolTip" Value="Out of stock — cannot be added" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGrid.RowStyle>
+
+                                <DataGrid.Columns>
+                                    <!-- Product & SKU -->
+                                    <DataGridTemplateColumn Header="Product" Width="1.8*">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontFamily="{StaticResource Font.Primary}"
+                                                               FontSize="13.5"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                                                    <TextBlock Text="{Binding Sku}"
+                                                               FontFamily="{StaticResource Font.Primary}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource Brush.Text.Muted}"
+                                                               Margin="0,2,0,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+
+                                    <!-- Brand -->
+                                    <DataGridTextColumn Header="Brand"
+                                                        Binding="{Binding Brand}"
+                                                        ElementStyle="{StaticResource Table.TextCell}"
+                                                        Width="1.1*" />
+
+                                    <!-- Stock Status Badge -->
+                                    <DataGridTemplateColumn Header="Stock" Width="135">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <controls:StatusBadge Text="{Binding StockDisplay}"
+                                                                      Tone="{Binding StockTone}"
+                                                                      HorizontalAlignment="Left"
+                                                                      VerticalAlignment="Center" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+
+                                    <!-- Price (Aligned Right) -->
+                                    <DataGridTemplateColumn Header="Price" Width="130">
+                                        <DataGridTemplateColumn.HeaderStyle>
+                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource Table.ColumnHeader}">
+                                                <Setter Property="HorizontalContentAlignment" Value="Right" />
+                                            </Style>
+                                        </DataGridTemplateColumn.HeaderStyle>
+                                        <DataGridTemplateColumn.CellStyle>
+                                            <Style TargetType="DataGridCell" BasedOn="{StaticResource Table.Cell}">
+                                                <Setter Property="HorizontalContentAlignment" Value="Right" />
+                                            </Style>
+                                        </DataGridTemplateColumn.CellStyle>
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding PriceDisplay}"
+                                                           FontFamily="{StaticResource Font.Numeric}"
+                                                           FontSize="14"
+                                                           FontWeight="Bold"
+                                                           Foreground="{DynamicResource Brush.Text.Primary}"
+                                                           HorizontalAlignment="Right"
+                                                           VerticalAlignment="Center" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <!-- Empty Search/Filter State -->
+                            <Border Background="{DynamicResource Brush.Surface.Default}"
+                                    Visibility="{Binding HasNoMatchingProducts, Converter={StaticResource BoolToVis}}">
+                                <controls:EmptyState Title="No products found"
+                                                     Message="Try changing your search term or clearing category/brand filters."
+                                                     IconGeometry="{StaticResource Icon.Search}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- RIGHT SIDE: Cart Panel (Fixed 420px) -->
+            <Border Grid.Column="2"
+                    CornerRadius="12"
+                    Background="{DynamicResource Brush.Surface.Raised}"
+                    BorderThickness="1">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+                        <Setter Property="Effect" Value="{StaticResource Shadow.Card}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsThakaMode}" Value="True">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Badge.Brand.Border}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <!-- Row 0: Mode Toggle (Normal Sale vs Thaka) -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 1: Active Mode Header / Thaka Project Selector -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 2: Cart Items List -->
+                        <RowDefinition Height="*" />
+                        <!-- Row 3: Cart Totals & Checkout Actions -->
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0" Padding="14,9" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="12,12,0,0" Background="{DynamicResource Brush.Surface.Subtle}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="LOCAL SALE" FontFamily="{StaticResource Font.Primary}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Brush.Brand.Primary}" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="{Binding CartItemCountText}" FontFamily="{StaticResource Font.Primary}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid></Border>
+
+
+
+                    <!-- ROW 1: ACTIVE MODE SUB-HEADER -->
+                    <!-- Normal Sale Sub-Header -->
+                    <Border Grid.Row="1"
+                            Padding="14,9"
+                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                            BorderThickness="0,0,0,1"
+                            Background="{DynamicResource Brush.Surface.Subtle}"
+                            >
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Width="24"
+                                    Height="24"
+                                    CornerRadius="6"
+                                    Background="{StaticResource Brush.Brand.Primary}"
+                                    Margin="0,0,8,0">
+                                <Path Data="M 4 5 V 3.5 C 4 2.1 5.1 1 6.5 1 C 7.9 1 9 2.1 9 3.5 V 5 M 1.5 5 H 11.5 L 12.5 15 H 0.5 L 1.5 5 Z"
+                                      Stroke="{StaticResource Brush.White}"
+                                      StrokeThickness="1.3"
+                                      Fill="Transparent"
+                                      Width="12"
+                                      Height="12"
+                                      Stretch="Uniform"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="CURRENT SALE"
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource Brush.Brand.Primary}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+
+                    <!-- ROW 2: CART ITEMS LIST -->
+                    <Grid Grid.Row="2">
+                        <!-- Scrollable Cart Items (Overlay ScrollViewer prevents any width/layout shift when items overflow) -->
+                        <ScrollViewer Style="{StaticResource ScrollViewer.CleanOverlay}"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding HasCartItems, Converter={StaticResource BoolToVis}}">
+                            <ItemsControl ItemsSource="{Binding CartItems}" Margin="14,6">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="0,10"
+                                                BorderBrush="{DynamicResource Brush.Border.Soft}"
+                                                BorderThickness="0,0,0,1">
+                                            <Grid>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="8" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+
+                                                <!-- Top Row: Name + Brand/SKU + Remove Button -->
+                                                <Grid Grid.Row="0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontFamily="{StaticResource Font.Primary}"
+                                                                   FontSize="13.5"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                                                        <TextBlock Text="{Binding Brand}"
+                                                                   FontFamily="{StaticResource Font.Primary}"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                                                   Margin="0,1,0,0" />
+                                                    </StackPanel>
+
+                                                    <!-- Remove Button -->
+                                                    <Button Grid.Column="1"
+                                                            Command="{Binding RemoveCommand}"
+                                                            Style="{StaticResource Pos.RemoveButton}"
+                                                            VerticalAlignment="Top" />
+                                                </Grid>
+
+                                                <!-- Bottom Row: Stepper + Unit Price Calc + Line Total -->
+                                                <Grid Grid.Row="2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- Quantity Stepper -->
+                                                    <Border Grid.Column="0"
+                                                            Background="{DynamicResource Brush.Surface.Default}"
+                                                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6"
+                                                            VerticalAlignment="Center">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Button Command="{Binding DecrementCommand}"
+                                                                    Content="−"
+                                                                    Style="{StaticResource Pos.StepperButton}"
+                                                                    BorderThickness="0,0,1,0" />
+                                                            <TextBlock Text="{Binding QuantityDisplay}"
+                                                                       Width="34"
+                                                                       FontFamily="{StaticResource Font.Primary}"
+                                                                       FontSize="13"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource Brush.Text.Primary}"
+                                                                       TextAlignment="Center"
+                                                                       VerticalAlignment="Center" />
+                                                            <Button Command="{Binding IncrementCommand}"
+                                                                    Content="+"
+                                                                    Style="{StaticResource Pos.StepperButton}"
+                                                                    BorderThickness="1,0,0,0" />
+                                                        </StackPanel>
+                                                    </Border>
+
+                                                    <!-- Price Calculations (Right-Aligned) -->
+                                                    <StackPanel Grid.Column="1"
+                                                                HorizontalAlignment="Right"
+                                                                VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding UnitPriceCalculationDisplay}"
+                                                                   FontFamily="{StaticResource Font.Primary}"
+                                                                   FontSize="12"
+                                                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                                                   HorizontalAlignment="Right" />
+                                                        <TextBlock Text="{Binding LineTotalDisplay}"
+                                                                   FontFamily="{StaticResource Font.Numeric}"
+                                                                   FontSize="14"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{DynamicResource Brush.Text.Primary}"
+                                                                   HorizontalAlignment="Right" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <!-- Clean Empty State (When Cart is empty) -->
+                        <Border Visibility="{Binding IsCartEmpty, Converter={StaticResource BoolToVis}}"
+                                Padding="20">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border Width="48"
+                                        Height="48"
+                                        CornerRadius="24"
+                                        Background="{DynamicResource Brush.Surface.Subtle}"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,0,0,12">
+                                    <Path Data="M 4 5 V 3.5 C 4 2.1 5.1 1 6.5 1 C 7.9 1 9 2.1 9 3.5 V 5 M 1.5 5 H 11.5 L 12.5 15 H 0.5 L 1.5 5 Z"
+                                          Stroke="{DynamicResource Brush.Text.Muted}"
+                                          StrokeThickness="1.5"
+                                          Fill="Transparent"
+                                          Width="20"
+                                          Height="20"
+                                          Stretch="Uniform"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                                </Border>
+                                <TextBlock Text="Cart is empty"
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Brush.Text.Primary}"
+                                           TextAlignment="Center" />
+                                <TextBlock Text="Click products from the catalog to add items."
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="12.5"
+                                           Foreground="{DynamicResource Brush.Text.Muted}"
+                                           TextAlignment="Center"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- ROW 3: CART SUMMARY & CHECKOUT CTA -->
+                    <Border Grid.Row="3"
+                            Padding="14,10,14,14"
+                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                            BorderThickness="0,1,0,0"
+                            CornerRadius="0,0,12,12"
+                            Background="{DynamicResource Brush.Surface.Default}">
+                        <StackPanel>
+                            <!-- NORMAL SALE SUMMARY -->
+                            <StackPanel>
+                                <!-- Customer Row: Walk-in Customer + Change F4 -->
+                                <Border MinHeight="42"
+                                        Background="{DynamicResource Brush.Surface.Default}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Padding="10,0"
+                                        Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Customer Icon -->
+                                        <Path Grid.Column="0"
+                                              Data="M 2 12 C 2 9.8 3.8 8 6 8 C 8.2 8 10 9.8 10 12 M 8.5 4 C 8.5 5.4 7.4 6.5 6 6.5 C 4.6 6.5 3.5 5.4 3.5 4 C 3.5 2.6 4.6 1.5 6 1.5 C 7.4 1.5 8.5 2.6 8.5 4 Z"
+                                              Stroke="{DynamicResource Brush.Text.Secondary}"
+                                              StrokeThickness="1.4"
+                                              Fill="Transparent"
+                                              Width="13"
+                                              Height="13"
+                                              Stretch="Uniform"
+                                              VerticalAlignment="Center" />
+
+                                        <!-- Customer identity -->
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CustomerName}"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="12.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Brush.Text.Primary}" />
+                                            <TextBlock Text="{Binding CustomerSubtitle}"
+                                                       Margin="0,1,0,0"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="10.5"
+                                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                                        </StackPanel>
+
+                                        <!-- Change F4 Button -->
+                                        <Button Grid.Column="3"
+                                                Command="{Binding ChangeCustomerCommand}"
+                                                Style="{StaticResource Button.Text.Primary}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock>
+                                                <Run Text="Change " />
+                                                <Run Text="F4" FontFamily="{StaticResource Font.Mono}" FontSize="10" />
+                                            </TextBlock>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Discount Row -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="Discount"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="13"
+                                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                                               VerticalAlignment="Center" />
+
+                                    <!-- Discount Input Box -->
+                                    <Border Grid.Column="1"
+                                            Width="100"
+                                            Height="28"
+                                            Background="{DynamicResource Brush.Input.Background}"
+                                            BorderBrush="{DynamicResource Brush.Border.Default}"
+                                            BorderThickness="1"
+                                            CornerRadius="7"
+                                            Padding="8,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="Rs."
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource Brush.Text.Muted}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding DiscountAmountText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     BorderThickness="0"
+                                                     Background="Transparent"
+                                                     Foreground="{DynamicResource Brush.Text.Primary}"
+                                                     FontFamily="{StaticResource Font.Primary}"
+                                                     FontSize="13"
+                                                     TextAlignment="Right"
+                                                     VerticalContentAlignment="Center"
+                                                     FocusVisualStyle="{x:Null}" />
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Subtotal Row -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="Subtotal"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="13"
+                                               Foreground="{DynamicResource Brush.Text.Muted}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SubtotalDisplay}"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="13"
+                                               FontWeight="Medium"
+                                               Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                </Grid>
+
+                                <!-- Divider -->
+                                <Border Height="1"
+                                        Background="{StaticResource Gradient.Divider.Normal}"
+                                        Margin="0,0,0,10" />
+
+                                <!-- TOTAL Row (Space Grotesk Bold 28px) -->
+                                <Grid Margin="0,0,0,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="TOTAL"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="12"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                                               VerticalAlignment="Bottom"
+                                               Margin="0,0,0,4" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding TotalDisplay}"
+                                               FontFamily="{StaticResource Font.Numeric}"
+                                               FontSize="28"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                                </Grid>
+
+                                <!-- COMPLETE SALE CTA BUTTON (46px, radius 9, success gradient, shadow, F10) -->
+                                <Button Command="{Binding CompleteSaleCommand}"
+                                        Height="46"
+                                        Cursor="Hand"
+                                        FocusVisualStyle="{x:Null}">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="{StaticResource Gradient.Success}" />
+                                            <Setter Property="BorderThickness" Value="0" />
+                                            <Setter Property="Effect" Value="{StaticResource Shadow.Button.SuccessStrong}" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="Bd"
+                                                                Background="{TemplateBinding Background}"
+                                                                CornerRadius="{StaticResource Radius.PrimaryAction}"
+                                                                Padding="14,0">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                    <Path Data="M 2 7.5 L 5.5 11 L 12 3"
+                                                                          Stroke="{StaticResource Brush.White}"
+                                                                          StrokeThickness="2"
+                                                                          StrokeStartLineCap="Round"
+                                                                          StrokeEndLineCap="Round"
+                                                                          Fill="Transparent"
+                                                                          Width="14"
+                                                                          Height="14"
+                                                                          Stretch="Uniform"
+                                                                          Margin="0,0,8,0"
+                                                                          VerticalAlignment="Center" />
+                                                                    <TextBlock Text="Complete Sale"
+                                                                               FontFamily="{StaticResource Font.Primary}"
+                                                                               FontSize="14"
+                                                                               FontWeight="Bold"
+                                                                               Foreground="{StaticResource Brush.White}"
+                                                                               VerticalAlignment="Center" />
+                                                                </StackPanel>
+
+                                                                <Border Grid.Column="1"
+                                                                        BorderBrush="#4DFFFFFF"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="3.5"
+                                                                        Padding="6,2"
+                                                                        VerticalAlignment="Center"
+                                                                        Opacity="0.85">
+                                                                    <TextBlock Text="F10"
+                                                                               FontFamily="{StaticResource Font.Mono}"
+                                                                               FontSize="11"
+                                                                               FontWeight="SemiBold"
+                                                                               Foreground="{StaticResource Brush.White}" />
+                                                                </Border>
+                                                            </Grid>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Gradient.Success.Hover}" />
+                                                            </Trigger>
+                                                            <Trigger Property="IsPressed" Value="True">
+                                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Gradient.Success.Pressed}" />
+                                                            </Trigger>
+                                                            <Trigger Property="IsEnabled" Value="False">
+                                                                <Setter TargetName="Bd" Property="Opacity" Value="0.5" />
+                                                                <Setter Property="Cursor" Value="Arrow" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+    </Grid>
+</UserControl>

@@ -16,8 +16,10 @@ public sealed class FirstSetupViewModel : ViewModelBase
 {
     private readonly IFirstRunSetupState _setupState;
     private readonly IDemoIdentityService _identityService;
-    private readonly DemoSettingsState _settingsState;
+    private readonly DemoSettingsState? _previewSettingsState;
     private readonly IToastService _toastService;
+    private readonly IBackendSetupService? _backendSetupService;
+    private bool _isCompletingSetup;
 
     private FirstSetupStep _step = FirstSetupStep.License;
     private string _licensePath = string.Empty;
@@ -31,7 +33,8 @@ public sealed class FirstSetupViewModel : ViewModelBase
         IFirstRunSetupState setupState,
         IDemoIdentityService identityService,
         IToastService toastService,
-        DemoSettingsState? settingsState = null)
+        DemoSettingsState? settingsState = null,
+        IBackendSetupService? backendSetupService = null)
     {
         ArgumentNullException.ThrowIfNull(setupState);
         ArgumentNullException.ThrowIfNull(identityService);
@@ -40,20 +43,24 @@ public sealed class FirstSetupViewModel : ViewModelBase
         _setupState = setupState;
         _identityService = identityService;
         _toastService = toastService;
-        _settingsState = settingsState ?? DemoSettingsState.Instance;
+        _backendSetupService = backendSetupService;
+        _previewSettingsState = ResolvePreviewSettingsState(
+            settingsState,
+            backendSetupService);
 
-        _shopName = _settingsState.ShopName;
-        _ownerName = _settingsState.OwnerName;
-        _phone = _settingsState.Phone;
-        _address = _settingsState.Address;
+        _shopName = _previewSettingsState?.ShopName ?? string.Empty;
+        _ownerName = _previewSettingsState?.OwnerName ?? string.Empty;
+        _phone = _previewSettingsState?.Phone ?? string.Empty;
+        _address = _previewSettingsState?.Address ?? string.Empty;
 
         BrowseLicenseCommand = new RelayCommand(BrowseLicense);
-        ContinueCommand = new RelayCommand(Continue);
+        ContinueCommand = new RelayCommand(() => _ = ContinueAsync());
         BackCommand = new RelayCommand(Back, () => Step != FirstSetupStep.License);
         StartCommand = new RelayCommand(Start, () => Step == FirstSetupStep.Ready);
     }
 
     public event EventHandler? SetupCompleted;
+    public event EventHandler? OwnerPinClearRequested;
 
     public FirstSetupStep Step
     {
@@ -111,7 +118,9 @@ public sealed class FirstSetupViewModel : ViewModelBase
         set => SetProperty(ref _address, value);
     }
 
-    public string DatabaseStatus => "Integration Pending";
+    public string DatabaseStatus => _backendSetupService is null
+        ? "Demo / Offline"
+        : "PostgreSQL Ready";
     public string ModuleName => "Electronics";
     public string ReadyLicenseStatus => "Verification Pending";
 
@@ -165,8 +174,13 @@ public sealed class FirstSetupViewModel : ViewModelBase
         }
     }
 
-    private void Continue()
+    private async Task ContinueAsync()
     {
+        if (_isCompletingSetup)
+        {
+            return;
+        }
+
         if (Step == FirstSetupStep.License)
         {
             if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
@@ -183,12 +197,13 @@ public sealed class FirstSetupViewModel : ViewModelBase
 
         if (Step == FirstSetupStep.ShopSetup)
         {
-            CompleteShopStep();
+            await CompleteShopStepAsync();
         }
     }
 
-    private void CompleteShopStep()
+    private async Task CompleteShopStepAsync()
     {
+        _isCompletingSetup = true;
         try
         {
             if (string.IsNullOrWhiteSpace(ShopName) ||
@@ -204,46 +219,86 @@ public sealed class FirstSetupViewModel : ViewModelBase
                     "Owner PIN must be exactly 4 numeric digits.");
             }
 
-            _settingsState.SaveShop(
-                ShopName,
-                OwnerName,
-                Phone,
-                Address,
-                _settingsState.LogoPath);
-
-            var ownerUser = _settingsState.Users.FirstOrDefault(
-                user => string.Equals(
-                    user.Role,
-                    "Owner",
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (ownerUser is not null)
+            if (_backendSetupService is null)
             {
-                _settingsState.SaveUser(
-                    ownerUser,
+                _identityService.ConfigureOwner(OwnerName, _ownerPin);
+            }
+            else
+            {
+                await _backendSetupService.CompleteFirstSetupAsync(
+                    ShopName,
                     OwnerName,
-                    "Owner",
-                    isActive: true);
+                    Phone,
+                    Address,
+                    _ownerPin,
+                    ModuleName);
             }
 
-            _identityService.ConfigureOwner(OwnerName, _ownerPin);
-            _ownerPin = string.Empty;
+#if DEBUG
+            if (_previewSettingsState is not null)
+            {
+                _previewSettingsState.SaveShop(
+                    ShopName,
+                    OwnerName,
+                    Phone,
+                    Address,
+                    _previewSettingsState.LogoPath);
+
+                var ownerUser = _previewSettingsState.Users.FirstOrDefault(
+                    user => string.Equals(
+                        user.Role,
+                        "Owner",
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (ownerUser is not null)
+                {
+                    _previewSettingsState.SaveUser(
+                        ownerUser,
+                        OwnerName,
+                        "Owner",
+                        isActive: true);
+                }
+            }
+#endif
+
             Step = FirstSetupStep.Ready;
         }
         catch (Exception ex)
         {
             _toastService.Show(ex.Message, ToastTone.Warning);
         }
+        finally
+        {
+            ClearOwnerPin();
+            _isCompletingSetup = false;
+        }
+    }
+
+    private static DemoSettingsState? ResolvePreviewSettingsState(
+        DemoSettingsState? settingsState,
+        IBackendSetupService? backendSetupService)
+    {
+#if DEBUG
+        return backendSetupService is null
+            ? settingsState ?? DemoSettingsState.Instance
+            : null;
+#else
+        return null;
+#endif
     }
 
     private void Back()
     {
-        Step = Step switch
+        if (Step == FirstSetupStep.ShopSetup)
         {
-            FirstSetupStep.Ready => FirstSetupStep.ShopSetup,
-            FirstSetupStep.ShopSetup => FirstSetupStep.License,
-            _ => FirstSetupStep.License
-        };
+            ClearOwnerPin();
+            Step = FirstSetupStep.License;
+            return;
+        }
+
+        Step = Step == FirstSetupStep.Ready
+            ? FirstSetupStep.ShopSetup
+            : FirstSetupStep.License;
     }
 
     private void Start()
@@ -255,6 +310,12 @@ public sealed class FirstSetupViewModel : ViewModelBase
 
         _setupState.MarkSetupCompleted();
         SetupCompleted?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ClearOwnerPin()
+    {
+        _ownerPin = string.Empty;
+        OwnerPinClearRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void RaiseStepStateChanged()

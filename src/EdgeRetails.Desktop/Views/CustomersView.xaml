@@ -23,25 +23,44 @@
             <Border Background="{DynamicResource Brush.Surface.Default}"
                     BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
                     CornerRadius="{StaticResource Radius.Card}">
-                <DataGrid ItemsSource="{Binding FilteredCustomers}" Style="{StaticResource Table.DataGrid}"
-                          IsReadOnly="True" BorderThickness="0" MinHeight="390">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="CUSTOMER" Binding="{Binding Name}" Width="1.5*" />
-                        <DataGridTextColumn Header="PHONE" Binding="{Binding Phone}" Width="1.3*" />
-                        <DataGridTextColumn Header="LOCAL SALES" Binding="{Binding LocalSalesDisplay}" Width="150" />
-                        <DataGridTextColumn Header="ACTIVE THAKA" Binding="{Binding ActiveThaka}" Width="1.5*" />
-                        <DataGridTextColumn Header="LAST SALE" Binding="{Binding LastSaleDisplay}" Width="130" />
-                        <DataGridTemplateColumn Header="ACTION" Width="100">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Button Content="View" Style="{StaticResource Button.Text.Primary}"
-                                            Command="{Binding DataContext.ViewCustomerCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                            CommandParameter="{Binding}" />
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <Grid MinHeight="390">
+                    <DataGrid ItemsSource="{Binding FilteredCustomers}" Style="{StaticResource Table.DataGrid}"
+                              IsReadOnly="True" BorderThickness="0"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="CUSTOMER" Binding="{Binding Name}" Width="1.5*" />
+                            <DataGridTextColumn Header="PHONE" Binding="{Binding Phone}" Width="1.3*" />
+                            <DataGridTextColumn Header="LOCAL SALES" Binding="{Binding LocalSalesDisplay}" Width="150" />
+                            <DataGridTextColumn Header="ACTIVE THAKA" Binding="{Binding ActiveThaka}" Width="1.5*" />
+                            <DataGridTextColumn Header="LAST SALE" Binding="{Binding LastSaleDisplay}" Width="130" />
+                            <DataGridTemplateColumn Header="ACTION" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                                Command="{Binding DataContext.ViewCustomerCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <controls:EmptyState Title="No customers found"
+                                         Message="Try changing the customer search."
+                                         IconGeometry="{StaticResource Icon.Search}">
+                        <controls:EmptyState.Style>
+                            <Style TargetType="controls:EmptyState">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FilteredCustomers.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </controls:EmptyState.Style>
+                    </controls:EmptyState>
+                </Grid>
             </Border>
         </StackPanel>
     </ScrollViewer>

@@ -1,0 +1,20 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Edge Retails"
+           Manufacturer="Edge Retails"
+           Version="$(var.ProductVersion)"
+           Scope="perMachine"
+           UpgradeCode="D7F563E6-18A9-4AB8-938D-C70D9A1972E9">
+    <!-- Explicit upgrade behavior. Only application binaries under Program Files are MSI-owned. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Edge Retails is already installed." Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="EdgeRetail.ico" SourceFile="$(var.AppIconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="EdgeRetail.ico" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Edge Retails" />
+    </StandardDirectory>
+
+    <!-- Database-engine data, backups, license state, exports and ProgramData are intentionally not authored here. -->
+    <Files Directory="INSTALLFOLDER" Include="$(var.PublishDir)\**" />
+  </Package>
+</Wix>

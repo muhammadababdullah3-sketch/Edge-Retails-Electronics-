@@ -4,9 +4,18 @@ using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
-public sealed class PurchaseHistoryViewModel : ViewModelBase
+public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoPurchaseInventoryService _service;
+    private readonly IBackendPurchasingInventoryService? _backendService;
+    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly List<PurchaseRecord> _backendPurchases = [];
+    private bool _backendLoaded;
+    private bool _backendLoading;
+    private CancellationTokenSource? _backendRefreshCancellation;
+    private long _backendRefreshVersion;
+    private readonly Dictionary<string, Guid> _supplierIds = new(StringComparer.OrdinalIgnoreCase);
+    private const int BackendPageSize = 200;
     private readonly IToastService _toastService;
     private readonly IDrawerService _drawerService;
     private readonly IDialogService _dialogService;
@@ -20,28 +29,59 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
     public PurchaseHistoryViewModel(
         IToastService toastService,
         IDrawerService drawerService,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        IBackendPurchasingInventoryService? backendService = null,
+        IBackendPhase4WorkflowService? phase4Service = null)
     {
         _toastService = toastService;
         _drawerService = drawerService;
         _dialogService = dialogService;
         _service = DemoPurchaseInventoryService.Instance;
+        _backendService = backendService;
+        _phase4Service = phase4Service;
 
         FilteredPurchases = [];
-        Suppliers = ["All", .. _service.Suppliers];
+        Suppliers = backendService is null
+            ? new ObservableCollection<string>(["All", .. _service.Suppliers])
+            : new ObservableCollection<string>(["All"]);
 
         NewPurchaseCommand = new RelayCommand(OpenNewPurchase);
         CloseNewPurchaseCommand = new RelayCommand(CloseNewPurchase);
         SelectPeriodCommand = new RelayCommand<string>(SelectPeriod);
-        RefreshCommand = new RelayCommand(Refresh);
+        RefreshCommand = new RelayCommand(() =>
+        {
+            if (_backendService is null)
+            {
+                Refresh();
+            }
+            else
+            {
+                _ = RefreshBackendAsync();
+            }
+        });
         ViewPurchaseCommand = new RelayCommand<PurchaseRecord>(SelectPurchase);
 
-        _service.StateChanged += OnServiceStateChanged;
+        if (_backendService is null)
+        {
+            _service.StateChanged += OnServiceStateChanged;
+        }
+
         Refresh();
     }
 
+    public void Dispose()
+    {
+        if (_backendService is null)
+        {
+            _service.StateChanged -= OnServiceStateChanged;
+        }
+
+        _backendRefreshCancellation?.Cancel();
+        _backendRefreshCancellation?.Dispose();
+    }
+
     public ObservableCollection<PurchaseRecord> FilteredPurchases { get; }
-    public IReadOnlyList<string> Suppliers { get; }
+    public ObservableCollection<string> Suppliers { get; }
 
     public string SearchText
     {
@@ -50,7 +90,14 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
         {
             if (SetProperty(ref _searchText, value ?? string.Empty))
             {
-                Refresh();
+                if (_backendService is null)
+                {
+                    Refresh();
+                }
+                else
+                {
+                    ScheduleBackendRefresh();
+                }
             }
         }
     }
@@ -65,7 +112,14 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsTodaySelected));
                 OnPropertyChanged(nameof(IsThisWeekSelected));
                 OnPropertyChanged(nameof(IsThisMonthSelected));
-                Refresh();
+                if (_backendService is null)
+                {
+                    Refresh();
+                }
+                else
+                {
+                    ScheduleBackendRefresh();
+                }
             }
         }
     }
@@ -77,7 +131,14 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedSupplier, value ?? "All"))
             {
-                Refresh();
+                if (_backendService is null)
+                {
+                    Refresh();
+                }
+                else
+                {
+                    ScheduleBackendRefresh();
+                }
             }
         }
     }
@@ -120,11 +181,20 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
         CurrentNewPurchase = new NewPurchaseViewModel(
             _toastService,
             cancel: CloseNewPurchase,
-            saved: _ =>
+            saved: savedPurchase =>
             {
                 CloseNewPurchase();
-                Refresh();
-            });
+                if (_backendService is null)
+                {
+                    Refresh();
+                }
+                else
+                {
+                    _ = RefreshBackendAsync();
+                }
+            },
+            backendService: _backendService,
+            dialogService: _dialogService);
         IsNewPurchaseActive = true;
     }
 
@@ -149,15 +219,135 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
             purchase,
             _drawerService,
             _dialogService,
-            _toastService));
+            _toastService,
+            _backendService,
+            _phase4Service));
     }
 
     private void OnServiceStateChanged(object? sender, EventArgs e) => Refresh();
 
     private void Refresh()
     {
+        if (_backendService is not null)
+        {
+            if (!_backendLoaded && !_backendLoading)
+            {
+                _ = RefreshBackendAsync();
+                return;
+            }
+
+            ApplyFilters(_backendPurchases);
+            return;
+        }
+
+        ApplyFilters(_service.Purchases);
+    }
+
+    private void ScheduleBackendRefresh()
+    {
+        if (_backendService is null)
+        {
+            Refresh();
+            return;
+        }
+
+        _ = RefreshBackendAsync();
+    }
+
+    private async Task RefreshBackendAsync()
+    {
+        if (_backendService is null)
+        {
+            return;
+        }
+
+        var version = Interlocked.Increment(ref _backendRefreshVersion);
+        var previous = Interlocked.Exchange(ref _backendRefreshCancellation, new CancellationTokenSource());
+        previous?.Cancel();
+        previous?.Dispose();
+        var cts = _backendRefreshCancellation!;
+
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            if (version != Volatile.Read(ref _backendRefreshVersion))
+            {
+                return;
+            }
+
+            _backendLoading = true;
+            var selectedSupplier = SelectedSupplier;
+            Guid? supplierId = null;
+            if (!string.Equals(selectedSupplier, "All", StringComparison.OrdinalIgnoreCase) &&
+                _supplierIds.TryGetValue(selectedSupplier, out var resolvedSupplierId))
+            {
+                supplierId = resolvedSupplierId;
+            }
+
+            var (fromDate, toDate) = ResolvePeriod(DateTime.Today);
+            var purchasesTask = _backendService.GetPurchasesAsync(
+                SearchText,
+                fromDate,
+                toDate,
+                supplierId,
+                cts.Token);
+            var suppliersTask = _backendService.GetSuppliersAsync(cts.Token);
+            await Task.WhenAll(purchasesTask, suppliersTask);
+
+            if (cts.IsCancellationRequested || version != Volatile.Read(ref _backendRefreshVersion))
+            {
+                return;
+            }
+
+            var suppliers = await suppliersTask;
+            _supplierIds.Clear();
+            Suppliers.Clear();
+            Suppliers.Add("All");
+            foreach (var supplier in suppliers
+                .Where(x => x.Id != Guid.Empty)
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                Suppliers.Add(supplier.Name);
+                _supplierIds[supplier.Name] = supplier.Id;
+            }
+
+            _backendPurchases.Clear();
+            _backendPurchases.AddRange(await purchasesTask);
+            _backendLoaded = true;
+            ApplyFilters(_backendPurchases, preserveServerFilter: true);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (version == Volatile.Read(ref _backendRefreshVersion))
+        {
+            _toastService.Show(
+                $"Purchases could not be refreshed: {ex.Message}",
+                ToastTone.Danger);
+        }
+        finally
+        {
+            if (version == Volatile.Read(ref _backendRefreshVersion))
+            {
+                _backendLoading = false;
+            }
+        }
+    }
+
+    private void ApplyFilters(
+        IEnumerable<PurchaseRecord> source,
+        bool preserveServerFilter = false)
+    {
         var now = DateTime.Today;
-        IEnumerable<PurchaseRecord> query = _service.Purchases;
+        var query = source;
+        if (preserveServerFilter)
+        {
+            var results = query.ToArray();
+            ApplyResults(results);
+            return;
+        }
 
         query = SelectedPeriod switch
         {
@@ -181,19 +371,36 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase
                 p.InvoiceNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 p.Supplier.Contains(term, StringComparison.OrdinalIgnoreCase));
         }
-        var results = query.OrderByDescending(p => p.Date).ToArray();
+
+        ApplyResults(query.OrderByDescending(p => p.Date).ToArray());
+    }
+
+    private void ApplyResults(IReadOnlyCollection<PurchaseRecord> results)
+    {
         FilteredPurchases.Clear();
         foreach (var purchase in results)
         {
             FilteredPurchases.Add(purchase);
         }
 
-        PurchasesCount = results.Length;
-        TotalPurchases = results.Sum(p => p.Total);
+        PurchasesCount = results.Count;
+        TotalPurchases = results.Where(p => !p.IsVoided).Sum(p => p.Total);
         OnPropertyChanged(nameof(PurchasesCount));
         OnPropertyChanged(nameof(TotalPurchases));
         OnPropertyChanged(nameof(PurchasesCountDisplay));
         OnPropertyChanged(nameof(TotalPurchasesDisplay));
+    }
+
+    private (DateOnly? FromDate, DateOnly? ToDate) ResolvePeriod(DateTime today)
+    {
+        var date = DateOnly.FromDateTime(today);
+        return SelectedPeriod switch
+        {
+            "Today" => (date, date),
+            "ThisWeek" => (DateOnly.FromDateTime(StartOfWeek(today)), date),
+            "ThisMonth" => (new DateOnly(date.Year, date.Month, 1), date),
+            _ => (null, null)
+        };
     }
 
     private static DateTime StartOfWeek(DateTime date)

@@ -127,6 +127,14 @@
                              Margin="3.5,0,0,0"
                              Fill="{StaticResource Brush.Function.Success}"
                              Visibility="{Binding IsOnline, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                    <Button Content="Switch"
+                            Command="{Binding SwitchUserCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            Margin="8,0,0,0"
+                            Padding="6,2"
+                            ToolTip="Switch user"
+                            AutomationProperties.Name="Switch user" />
                 </StackPanel>
             </Border>
         </Grid>

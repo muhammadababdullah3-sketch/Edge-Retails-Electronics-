@@ -18,7 +18,8 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
     private readonly Action<PaymentRecordResult>? _onPaymentRecorded;
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
-    private readonly DemoRetailState _retailState = DemoRetailState.Instance;
+    private readonly IBackendThakaService? _backendService;
+    private readonly DemoRetailState? _retailState;
     private decimal _amount;
     private string _amountText = string.Empty;
     private string _paymentMethod = "Cash";
@@ -30,15 +31,20 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
         ThakaProjectListItemViewModel project,
         Action<PaymentRecordResult>? onPaymentRecorded = null,
         Action? onClose = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IBackendThakaService? backendService = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _onPaymentRecorded = onPaymentRecorded;
         _onClose = onClose;
         _toastService = toastService;
+        _backendService = backendService;
+        _retailState = ResolvePreviewRetailState(backendService);
 
         PaymentMethods = new[] { "Cash", "Bank", "Other" };
-        RecordPaymentCommand = new RelayCommand(RecordPayment, () => CanRecordPayment);
+        RecordPaymentCommand = new RelayCommand(
+            async () => await RecordPaymentAsync(),
+            () => CanRecordPayment);
         CancelCommand = new RelayCommand(Cancel, () => !IsProcessing);
     }
 
@@ -161,7 +167,7 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
         ((RelayCommand)RecordPaymentCommand).NotifyCanExecuteChanged();
     }
 
-    private void RecordPayment()
+    private async Task RecordPaymentAsync()
     {
         if (!CanRecordPayment)
         {
@@ -171,20 +177,46 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
         IsProcessing = true;
         try
         {
-            var entry = _retailState.RecordPayment(
-                _project,
-                Amount,
-                PaymentMethod,
-                Reference,
-                "Abdullah");
-
-            var result = new PaymentRecordResult
+            PaymentRecordResult result;
+            if (_backendService is null)
             {
-                Amount = entry.Amount,
-                PaymentMethod = entry.PaymentMethod,
-                Reference = entry.Reference,
-                Timestamp = entry.Date
-            };
+                if (_retailState is null)
+                {
+                    throw new InvalidOperationException(
+                        "Authoritative Thaka payment service is unavailable.");
+                }
+
+                var entry = _retailState.RecordPayment(
+                    _project,
+                    Amount,
+                    PaymentMethod,
+                    Reference,
+                    "Abdullah");
+
+                result = new PaymentRecordResult
+                {
+                    Amount = entry.Amount,
+                    PaymentMethod = entry.PaymentMethod,
+                    Reference = entry.Reference,
+                    Timestamp = entry.Date
+                };
+            }
+            else
+            {
+                await _backendService.RecordPaymentAsync(
+                    _project,
+                    Amount,
+                    PaymentMethod,
+                    Reference);
+
+                result = new PaymentRecordResult
+                {
+                    Amount = Amount,
+                    PaymentMethod = PaymentMethod,
+                    Reference = Reference,
+                    Timestamp = DateTime.Now
+                };
+            }
 
             _onPaymentRecorded?.Invoke(result);
             _toastService?.Show(
@@ -201,6 +233,16 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
         {
             IsProcessing = false;
         }
+    }
+
+    private static DemoRetailState? ResolvePreviewRetailState(
+        IBackendThakaService? backendService)
+    {
+#if DEBUG
+        return backendService is null ? DemoRetailState.Instance : null;
+#else
+        return null;
+#endif
     }
 
     private void Cancel()

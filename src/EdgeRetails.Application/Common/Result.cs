@@ -1,8 +1,13 @@
 namespace EdgeRetails.Application.Common;
 
+public interface IResult
+{
+    bool IsSuccess { get; }
+}
+
 public sealed record Error(string Code, string Message);
 
-public readonly record struct Result
+public readonly record struct Result : IResult
 {
     private Result(bool isSuccess, Error? error)
     {
@@ -19,7 +24,7 @@ public readonly record struct Result
         new(false, new Error(code, message));
 }
 
-public readonly record struct Result<T>
+public readonly record struct Result<T> : IResult
 {
     private Result(bool isSuccess, T? value, Error? error)
     {

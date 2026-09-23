@@ -6,27 +6,29 @@ namespace EdgeRetails.Desktop.ViewModels;
 /// <summary>
 /// Session context payload emitted upon successful authentication.
 /// </summary>
-public sealed class UserSessionContext : ISessionContext
+public sealed class UserSessionContext(
+    string displayName,
+    string roleName,
+    string initials,
+    bool isOnline = true,
+    Guid? userId = null,
+    Guid? sessionId = null,
+    IReadOnlySet<string>? permissionKeys = null) : ISessionContext
 {
-    public UserSessionContext(
-        string displayName,
-        string roleName,
-        string initials,
-        bool isOnline = true)
-    {
-        DisplayName = displayName;
-        RoleName = roleName;
-        Initials = initials;
-        IsOnline = isOnline;
-    }
+    public Guid? UserId { get; } = userId;
 
-    public string DisplayName { get; }
+    public Guid? SessionId { get; } = sessionId;
 
-    public string RoleName { get; }
+    public string DisplayName { get; } = displayName;
 
-    public string Initials { get; }
+    public string RoleName { get; } = roleName;
 
-    public bool IsOnline { get; }
+    public string Initials { get; } = initials;
+
+    public bool IsOnline { get; } = isOnline;
+
+    public IReadOnlySet<string> PermissionKeys { get; } =
+        permissionKeys ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -39,6 +41,7 @@ public sealed class LoginViewModel : ViewModelBase
     public const string ErrorHelperText = "Incorrect PIN. Please try again.";
 
     private readonly IDemoIdentityService _identityService;
+    private readonly IBackendIdentityService? _backendIdentityService;
     private readonly ObservableCollection<LoginAccountItemViewModel> _accounts;
     private LoginAccountItemViewModel? _selectedAccount;
     private string _pin = string.Empty;
@@ -46,25 +49,34 @@ public sealed class LoginViewModel : ViewModelBase
     private bool _hasError;
     private bool _isSigningIn;
 
-    public LoginViewModel(IDemoIdentityService? identityService = null)
+    public LoginViewModel(
+        IDemoIdentityService? identityService = null,
+        IBackendIdentityService? backendIdentityService = null)
     {
         _identityService = identityService ?? new DemoIdentityService();
+        _backendIdentityService = backendIdentityService;
 
-        _accounts = new ObservableCollection<LoginAccountItemViewModel>(
-            _identityService.Accounts.Select((account, index) =>
-                new LoginAccountItemViewModel(
+        _accounts = [];
+        if (_backendIdentityService is null)
+        {
+            foreach (var account in _identityService.Accounts)
+            {
+                _accounts.Add(new LoginAccountItemViewModel(
                     account.Id,
                     account.DisplayName,
                     account.RoleName,
                     account.Initials,
                     account.AvatarLetter,
                     account.IsOnline,
-                    account.IsPrimary)
-                {
-                    IsSelected = index == 0
-                }));
+                    account.IsPrimary));
+            }
 
-        _selectedAccount = _accounts.FirstOrDefault();
+            SelectInitialAccount();
+        }
+        else
+        {
+            _ = LoadBackendAccountsAsync();
+        }
 
         SelectAccountCommand = new RelayCommand<LoginAccountItemViewModel>(SelectAccount);
         AppendDigitCommand = new RelayCommand<string>(AppendDigit);
@@ -227,45 +239,130 @@ public sealed class LoginViewModel : ViewModelBase
             return;
         }
 
+        IsSigningIn = true;
+        HasError = false;
+
         try
         {
-            IsSigningIn = true;
-            HasError = false;
-
-            // Short verification latency simulating authentication
-            await Task.Delay(200);
-
-            if (_identityService.VerifyPin(
-                    _selectedAccount.AccountId,
-                    _pin))
+            UserSessionContext? session = null;
+            if (_backendIdentityService is null)
             {
-                var session = new UserSessionContext(
-                    _selectedAccount.DisplayName,
-                    _selectedAccount.RoleName,
-                    _selectedAccount.Initials,
-                    _selectedAccount.IsOnline);
+                await Task.Delay(200);
 
-                IsSigningIn = false;
-                OnLoginSuccess?.Invoke(session);
-                LoginSucceeded?.Invoke(this, session);
+                if (_identityService.VerifyPin(
+                        _selectedAccount.AccountId,
+                        _pin))
+                {
+                    session = new UserSessionContext(
+                        _selectedAccount.DisplayName,
+                        _selectedAccount.RoleName,
+                        _selectedAccount.Initials,
+                        _selectedAccount.IsOnline);
+                }
             }
             else
             {
-                HasError = true;
-                HelperText = ErrorHelperText;
-                IsSigningIn = false;
+                var authenticated = await _backendIdentityService.AuthenticateAsync(
+                    _selectedAccount.AccountId,
+                    _pin);
 
-                // Brief pause so the user sees the error-highlighted dots and shake effect
-                await Task.Delay(600);
-                Pin = string.Empty;
-                NotifyPinStateChanged();
+                session = new UserSessionContext(
+                    authenticated.DisplayName,
+                    authenticated.RoleName,
+                    authenticated.Initials,
+                    isOnline: true,
+                    userId: authenticated.UserId,
+                    sessionId: authenticated.SessionId,
+                    permissionKeys: authenticated.PermissionKeys);
+            }
+
+            if (session is null)
+            {
+                await ShowAuthenticationFailureAsync();
+                return;
+            }
+
+            IsSigningIn = false;
+            ClearPin();
+            OnLoginSuccess?.Invoke(session);
+            LoginSucceeded?.Invoke(this, session);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await ShowAuthenticationFailureAsync();
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            HelperText = $"Sign in unavailable: {ex.Message}";
+            IsSigningIn = false;
+            Pin = string.Empty;
+            NotifyPinStateChanged();
+        }
+    }
+
+    private async Task LoadBackendAccountsAsync()
+    {
+        if (_backendIdentityService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var accounts = await _backendIdentityService.GetAccountsAsync();
+
+            _accounts.Clear();
+            foreach (var account in accounts)
+            {
+                _accounts.Add(new LoginAccountItemViewModel(
+                    account.UserId.ToString("D"),
+                    account.DisplayName,
+                    account.RoleName,
+                    account.Initials,
+                    account.Initials,
+                    isOnline: true,
+                    account.IsPrimary));
+            }
+
+            SelectInitialAccount();
+
+            if (_accounts.Count == 0)
+            {
+                HasError = true;
+                HelperText = "No active users are available.";
             }
         }
-        catch
+        catch (Exception ex)
         {
-            IsSigningIn = false;
-            throw;
+            HasError = true;
+            HelperText = $"Accounts unavailable: {ex.Message}";
         }
+    }
+
+    private void SelectInitialAccount()
+    {
+        var initial = _accounts.FirstOrDefault(x => x.IsPrimary)
+            ?? _accounts.FirstOrDefault();
+
+        foreach (var item in _accounts)
+        {
+            item.IsSelected = ReferenceEquals(item, initial);
+        }
+
+        _selectedAccount = initial;
+        OnPropertyChanged(nameof(SelectedAccount));
+    }
+
+    private async Task ShowAuthenticationFailureAsync()
+    {
+        HasError = true;
+        HelperText = ErrorHelperText;
+        IsSigningIn = false;
+
+        await Task.Delay(600);
+        Pin = string.Empty;
+        NotifyPinStateChanged();
     }
 
     private void NotifyPinStateChanged()

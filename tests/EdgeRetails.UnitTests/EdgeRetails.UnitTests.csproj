@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\EdgeRetails.Domain\EdgeRetails.Domain.csproj" />
     <ProjectReference Include="..\..\src\EdgeRetails.Application\EdgeRetails.Application.csproj" />
+    <ProjectReference Include="..\..\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\EdgeRetails.Worker\EdgeRetails.Worker.csproj" />
   </ItemGroup>
 
 </Project>

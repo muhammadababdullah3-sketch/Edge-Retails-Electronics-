@@ -35,9 +35,21 @@ public sealed class PosProductItemViewModel : ViewModelBase
         string unit = "Pcs",
         decimal cost = 0m,
         decimal minimumStock = 10m,
-        string model = "")
+        string model = "",
+        Guid? backendProductId = null,
+        Guid? backendProductUnitId = null,
+        bool isSerialized = false,
+        bool serialTrackingEnabled = false,
+        bool imeiTrackingEnabled = false,
+        decimal factorToBaseUnit = 1m)
     {
         Id = id;
+        BackendProductId = backendProductId;
+        BackendProductUnitId = backendProductUnitId;
+        IsSerialized = isSerialized;
+        SerialTrackingEnabled = serialTrackingEnabled;
+        ImeiTrackingEnabled = imeiTrackingEnabled;
+        FactorToBaseUnit = factorToBaseUnit <= 0m ? 1m : factorToBaseUnit;
         _name = name;
         _sku = sku;
         _brand = brand;
@@ -62,6 +74,15 @@ public sealed class PosProductItemViewModel : ViewModelBase
     }
 
     public string Id { get; }
+
+    public Guid? BackendProductId { get; }
+
+    public Guid? BackendProductUnitId { get; }
+
+    public bool IsSerialized { get; }
+    public bool SerialTrackingEnabled { get; }
+    public bool ImeiTrackingEnabled { get; }
+    public decimal FactorToBaseUnit { get; }
 
     public string Name
     {

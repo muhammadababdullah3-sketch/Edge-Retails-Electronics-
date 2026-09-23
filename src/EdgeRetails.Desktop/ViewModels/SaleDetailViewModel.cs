@@ -138,6 +138,9 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
     private decimal _discountAmount;
     private decimal _paymentReceived;
     private decimal _totalReturnedAmount;
+    private readonly string? _invoiceDisplayOverride;
+    private readonly int? _itemCountOverride;
+    private readonly decimal? _totalAmountOverride;
 
     public SaleTransactionItemViewModel(
         int invoiceNumber,
@@ -151,9 +154,15 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
         decimal? paymentReceived = null,
         PaymentState paymentState = PaymentState.Paid,
         SaleReturnState returnState = SaleReturnState.None,
-        decimal totalReturnedAmount = 0m)
+        decimal totalReturnedAmount = 0m,
+        string? invoiceDisplayOverride = null,
+        int? itemCountOverride = null,
+        decimal? totalAmountOverride = null)
     {
         InvoiceNumber = invoiceNumber;
+        _invoiceDisplayOverride = string.IsNullOrWhiteSpace(invoiceDisplayOverride)
+            ? null
+            : invoiceDisplayOverride.Trim();
         TransactionDate = transactionDate;
         CustomerName = customerName;
         CustomerPhone = customerPhone;
@@ -163,13 +172,15 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
         _paymentState = paymentState;
         _returnState = returnState;
         _totalReturnedAmount = Math.Max(0m, totalReturnedAmount);
+        _itemCountOverride = itemCountOverride;
+        _totalAmountOverride = totalAmountOverride;
 
         LineItems = new ObservableCollection<SaleLineItemViewModel>(lineItems);
         _paymentReceived = paymentReceived ?? TotalAmount;
     }
 
     public int InvoiceNumber { get; }
-    public string InvoiceDisplay => $"#{InvoiceNumber}";
+    public string InvoiceDisplay => _invoiceDisplayOverride ?? $"#{InvoiceNumber}";
     public DateTime TransactionDate { get; }
     public string DateDisplay => TransactionDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
     public string TimeDisplay => TransactionDate.ToString("hh:mm tt", CultureInfo.InvariantCulture);
@@ -184,7 +195,7 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
     public string PaymentMethod { get; set; }
 
     public ObservableCollection<SaleLineItemViewModel> LineItems { get; }
-    public int ItemsCount => LineItems.Sum(i => (int)Math.Ceiling(i.Quantity));
+    public int ItemsCount => _itemCountOverride ?? LineItems.Sum(i => (int)Math.Ceiling(i.Quantity));
     public string ItemsCountDisplay => $"{ItemsCount} {(ItemsCount == 1 ? "item" : "items")}";
 
     public decimal Subtotal => LineItems.Sum(i => i.LineTotal);
@@ -204,7 +215,7 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
     }
 
     public string DiscountDisplay => $"Rs. {DiscountAmount:N0}";
-    public decimal TotalAmount => Math.Max(0m, Math.Round(Subtotal - DiscountAmount, 2));
+    public decimal TotalAmount => _totalAmountOverride ?? Math.Max(0m, Math.Round(Subtotal - DiscountAmount, 2));
     public string TotalAmountDisplay => $"Rs. {TotalAmount:N0}";
 
     public decimal PaymentReceived

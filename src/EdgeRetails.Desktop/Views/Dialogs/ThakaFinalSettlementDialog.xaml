@@ -74,6 +74,16 @@
             <TextBox Text="{Binding SettlementAmountText, UpdateSourceTrigger=PropertyChanged}"
                      Style="{StaticResource Input.TextBox}" />
 
+            <TextBlock Margin="0,14,0,6"
+                       Text="Payment Method"
+                       FontFamily="{StaticResource Font.Primary}"
+                       FontSize="12"
+                       Foreground="{DynamicResource Brush.Text.Secondary}" />
+            <ComboBox ItemsSource="{Binding PaymentMethods}"
+                      SelectedItem="{Binding PaymentMethod}"
+                      Height="34"
+                      VerticalContentAlignment="Center" />
+
             <CheckBox Margin="0,14,0,0"
                       IsChecked="{Binding IsConfirmed}"
                       Foreground="{DynamicResource Brush.Text.Secondary}"

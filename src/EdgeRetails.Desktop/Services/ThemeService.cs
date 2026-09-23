@@ -3,9 +3,16 @@ using Microsoft.Win32;
 
 namespace EdgeRetails.Desktop.Services;
 
-public sealed class ThemeService : IThemeService
+public sealed class ThemeService : IThemeService, IDisposable
 {
     private const string ThemeDictionaryMarker = "Resources/Themes/";
+    private const string ThemeDictionaryUriPrefix =
+        "pack://application:,,,/EdgeRetails.Desktop;component/Resources/Themes/";
+
+    public ThemeService()
+    {
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+    }
 
     public event EventHandler<AppTheme>? ThemeChanged;
 
@@ -19,7 +26,7 @@ public sealed class ThemeService : IThemeService
             ? ResolveSystemTheme()
             : theme;
 
-        var dictionaries = Application.Current.Resources.MergedDictionaries;
+        var dictionaries = System.Windows.Application.Current.Resources.MergedDictionaries;
         var currentIndex = FindThemeDictionaryIndex(dictionaries);
 
         if (currentIndex < 0)
@@ -30,12 +37,49 @@ public sealed class ThemeService : IThemeService
 
         dictionaries[currentIndex] = new ResourceDictionary
         {
-            Source = new Uri($"Resources/Themes/{resolved}.xaml", UriKind.Relative),
+            Source = new Uri(
+                $"{ThemeDictionaryUriPrefix}{resolved}.xaml",
+                UriKind.Absolute),
         };
 
         CurrentTheme = theme;
         ResolvedTheme = resolved;
         ThemeChanged?.Invoke(this, resolved);
+    }
+
+    public void Dispose()
+    {
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+    }
+
+    private void OnUserPreferenceChanged(
+        object sender,
+        UserPreferenceChangedEventArgs e)
+    {
+        if (CurrentTheme != AppTheme.System)
+        {
+            return;
+        }
+
+        var application = System.Windows.Application.Current;
+        if (application?.Dispatcher is null)
+        {
+            return;
+        }
+
+        application.Dispatcher.BeginInvoke(() =>
+        {
+            if (CurrentTheme != AppTheme.System)
+            {
+                return;
+            }
+
+            var resolved = ResolveSystemTheme();
+            if (resolved != ResolvedTheme)
+            {
+                ApplyTheme(AppTheme.System);
+            }
+        });
     }
 
     private static int FindThemeDictionaryIndex(

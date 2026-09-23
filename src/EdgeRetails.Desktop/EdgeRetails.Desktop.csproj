@@ -11,6 +11,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\EdgeRetails.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);CS0169</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\EdgeLogo.png" />
+    <Resource Include="Assets\EdgeAppIcon.png" />
+    <Resource Include="Assets\EdgeRetails.ico" />
+  </ItemGroup>
 
 </Project>

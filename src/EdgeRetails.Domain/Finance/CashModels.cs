@@ -23,7 +23,14 @@ public enum CashMovementType
     ExpenseCashOut = 4,
     ManualCashIn = 5,
     ManualCashOut = 6,
-    PurchaseCashOut = 7
+    PurchaseCashOut = 7,
+    PurchaseVoidCashIn = 8,
+    PurchaseReturnCashIn = 9,
+    ThakaPaymentReversalCashOut = 10,
+    SupplierPaymentCashOut = 11,
+    SupplierPaymentReversalCashIn = 12,
+    SupplierRefundCashIn = 13,
+    SupplierRefundReversalCashOut = 14
 }
 
 public sealed class CashSession : Entity

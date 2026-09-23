@@ -120,9 +120,17 @@ public sealed class DemoReportingService
         var expenseTotal = expenses.Sum(record => record.Amount);
         var netProfit = Math.Round(grossProfit - expenseTotal, 2);
 
-        var purchases = _purchases.Purchases
+        var grossPurchases = _purchases.Purchases
             .Where(record => record.Date >= start && record.Date < end)
             .Sum(record => record.Total);
+
+        var purchaseReturns = _purchases.PurchaseReturns
+            .Where(record => record.Timestamp >= start && record.Timestamp < end)
+            .Sum(record => record.TotalValue);
+
+        var purchases = Math.Max(
+            0m,
+            Math.Round(grossPurchases - purchaseReturns, 2));
 
         var thakaEntries = GetThakaEntries(start, end);
         var thakaTotal = thakaEntries.Sum(item => item.Entry.TotalValue);

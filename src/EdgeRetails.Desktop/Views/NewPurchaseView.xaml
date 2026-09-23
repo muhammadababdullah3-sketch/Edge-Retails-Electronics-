@@ -79,12 +79,18 @@
                         <DataGridTextColumn Header="COST" Binding="{Binding Cost, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="130" />
                         <DataGridTextColumn Header="SALE PRICE" Binding="{Binding SalePrice, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="140" />
                         <DataGridTextColumn Header="TOTAL" Binding="{Binding LineTotalDisplay}" Width="150" IsReadOnly="True" />
-                        <DataGridTemplateColumn Header="ACTION" Width="110">
+                        <DataGridTextColumn Header="TRACKING" Binding="{Binding SerializedIdentityStatusDisplay}" Width="120" IsReadOnly="True" />
+                        <DataGridTemplateColumn Header="ACTION" Width="210">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Content="Remove" Style="{StaticResource Button.Text.Neutral}"
-                                            Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                            CommandParameter="{Binding}" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Serial / IMEI" Style="{StaticResource Button.Text.Neutral}"
+                                                Command="{Binding DataContext.ConfigureSerializedUnitsCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}" Margin="0,0,8,0" />
+                                        <Button Content="Remove" Style="{StaticResource Button.Text.Neutral}"
+                                                Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

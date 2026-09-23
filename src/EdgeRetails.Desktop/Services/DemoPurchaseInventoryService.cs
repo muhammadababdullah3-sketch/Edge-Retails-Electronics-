@@ -8,6 +8,7 @@ public enum InventoryMovementKind
     OpeningBalance,
     PurchaseIn,
     PurchaseReturnOut,
+    PurchaseVoidOut,
     SaleOut,
     SaleReturnIn,
     ThakaOut,
@@ -32,6 +33,7 @@ public sealed class InventoryMovementRecord
         InventoryMovementKind.OpeningBalance => "Opening Balance",
         InventoryMovementKind.PurchaseIn => "Purchase",
         InventoryMovementKind.PurchaseReturnOut => "Purchase Return",
+        InventoryMovementKind.PurchaseVoidOut => "Purchase Void",
         InventoryMovementKind.SaleOut => "Sale",
         InventoryMovementKind.SaleReturnIn => "Sale Return",
         InventoryMovementKind.ThakaOut => "Thaka",
@@ -48,6 +50,9 @@ public sealed class InventoryMovementRecord
 
 public sealed class PurchaseItemRecord
 {
+    public Guid? BackendPurchaseItemId { get; init; }
+    public Guid? BackendProductUnitId { get; init; }
+    public decimal? BackendEligibleReturnQuantity { get; set; }
     public required PosProductItemViewModel Product { get; init; }
     public decimal PurchasedQuantity { get; init; }
     public decimal UsedQuantity { get; set; }
@@ -56,8 +61,9 @@ public sealed class PurchaseItemRecord
     public decimal EffectiveUnitCost { get; init; }
     public decimal LandedUnitCost => EffectiveUnitCost > 0m ? EffectiveUnitCost : Cost;
     public decimal SalePrice { get; init; }
-    public decimal EligibleReturnQuantity =>
-        Math.Max(0m, Math.Min(
+    public decimal EligibleReturnQuantity => BackendEligibleReturnQuantity is not null
+        ? Math.Max(0m, BackendEligibleReturnQuantity.Value)
+        : Math.Max(0m, Math.Min(
             PurchasedQuantity - UsedQuantity - ReturnedQuantity,
             Product.Stock));
 
@@ -68,6 +74,9 @@ public sealed class PurchaseItemRecord
 
 public sealed class PurchaseRecord
 {
+    public Guid? BackendPurchaseId { get; init; }
+    public Guid? BackendSupplierId { get; init; }
+    public bool IsVoided { get; init; }
     public required string PurchaseNumber { get; init; }
     public required string Supplier { get; init; }
     public required string InvoiceNumber { get; init; }
@@ -75,10 +84,13 @@ public sealed class PurchaseRecord
     public string Note { get; init; } = string.Empty;
     public decimal OtherCharges { get; init; }
     public required IReadOnlyList<PurchaseItemRecord> Items { get; init; }
+    public decimal? BackendSubtotal { get; init; }
+    public decimal? BackendTotal { get; init; }
+    public int? BackendItemCount { get; init; }
 
-    public decimal Subtotal => Items.Sum(item => item.LineTotal);
-    public decimal Total => Subtotal + OtherCharges;
-    public int ItemCount => Items.Count;
+    public decimal Subtotal => BackendSubtotal ?? Items.Sum(item => item.LineTotal);
+    public decimal Total => BackendTotal ?? (Subtotal + OtherCharges);
+    public int ItemCount => BackendItemCount ?? Items.Count;
     public string DateDisplay => Date.ToString("dd MMM yyyy");
     public string TotalDisplay => $"Rs. {Total:N0}";
 }
@@ -89,6 +101,7 @@ public sealed class PurchaseDraftLine
     public decimal Quantity { get; init; }
     public decimal Cost { get; init; }
     public decimal SalePrice { get; init; }
+    public IReadOnlyList<BackendSerializedIdentityInput> SerializedIdentities { get; init; } = [];
 }
 
 public sealed class PurchaseReturnLineRecord

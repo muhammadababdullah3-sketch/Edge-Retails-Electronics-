@@ -11,9 +11,6 @@
     Focusable="False">
 
     <UserControl.Resources>
-        <!-- Resource Aliases ensuring 100% compliance with theme tokens -->
-        <SolidColorBrush x:Key="Brush.Surface.Card" Color="{DynamicResource Color.Light.Surface}" />
-        <SolidColorBrush x:Key="Brush.Border" Color="{DynamicResource Color.Light.Border}" />
         <SolidColorBrush x:Key="Brush.Payment.Primary" Color="{StaticResource Color.Payment.End}" />
         <SolidColorBrush x:Key="Brush.Success.Primary" Color="{StaticResource Color.Success.End}" />
 
@@ -206,16 +203,22 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="TOTAL TO PAY"
+                        <TextBlock Text="RECIPIENT"
                                    FontFamily="{StaticResource Font.Primary}"
                                    FontSize="11"
                                    FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    Margin="0,0,0,4" />
-                        <TextBlock Text="{Binding CustomerName}"
+                        <TextBlock Text="{Binding RecipientName}"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="12.5"
-                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                   FontSize="13.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding RecipientSubtitle}"
+                                   Margin="0,2,0,0"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
 
                     <TextBlock Grid.Column="1"
@@ -466,8 +469,9 @@
                 </Grid>
             </StackPanel>
 
-            <!-- ROW 3: AMOUNT RECEIVED INPUT WITH "Rs." PREFIX -->
-            <StackPanel Grid.Row="3" Margin="0,0,0,16">
+            <!-- ROW 3: PAYMENT-METHOD-SPECIFIC DETAILS -->
+            <Grid Grid.Row="3" Margin="0,0,0,16">
+            <StackPanel Visibility="{Binding IsCash, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -559,8 +563,85 @@
                 </StackPanel>
             </StackPanel>
 
+            <StackPanel Visibility="{Binding IsBank, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Bank Transfer"
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                <TextBlock Text="{Binding PaymentGuidance}"
+                           Margin="0,4,0,10"
+                           FontSize="11.5"
+                           Foreground="{DynamicResource Brush.Text.Muted}"
+                           TextWrapping="Wrap"/>
+                <Border Padding="12"
+                        Background="{DynamicResource Brush.Surface.Subtle}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Exact Amount"
+                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding TotalToPayDisplay}"
+                                   FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}"/>
+                    </Grid>
+                </Border>
+                <TextBlock Text="{Binding PaymentReferenceLabel}"
+                           Margin="0,10,0,5"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                <TextBox Text="{Binding PaymentReference, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource Input.TextBox}"/>
+            </StackPanel>
+
+            <StackPanel Visibility="{Binding IsOther, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Other Payment"
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                <TextBlock Text="{Binding PaymentGuidance}"
+                           Margin="0,4,0,10"
+                           FontSize="11.5"
+                           Foreground="{DynamicResource Brush.Text.Muted}"
+                           TextWrapping="Wrap"/>
+                <Border Padding="12"
+                        Background="{DynamicResource Brush.Surface.Subtle}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Exact Amount"
+                                   Foreground="{DynamicResource Brush.Text.Muted}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding TotalToPayDisplay}"
+                                   FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}"/>
+                    </Grid>
+                </Border>
+                <TextBlock Text="{Binding PaymentReferenceLabel}"
+                           Margin="0,10,0,5"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                <TextBox Text="{Binding PaymentReference, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource Input.TextBox}"/>
+            </StackPanel>
+            </Grid>
+
             <!-- ROW 4: CHANGE RETURNED / REMAINING DUE BANNER -->
-            <Grid Grid.Row="4" Margin="0,0,0,16">
+            <Grid Grid.Row="4"
+                  Margin="0,0,0,16"
+                  Visibility="{Binding IsCash, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <!-- Change Returned Banner (When AmountReceived >= TotalToPay) -->
                 <Border CornerRadius="8"
                         Background="{DynamicResource Brush.Badge.Success.Background}"

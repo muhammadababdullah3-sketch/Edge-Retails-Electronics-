@@ -1,0 +1,178 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.ProductManagementView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
+    Background="{DynamicResource Brush.App.Background}">
+    <Grid>
+        <ContentControl Content="{Binding CurrentProductDetail}"
+                        Visibility="{Binding IsDetailViewActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+        <ScrollViewer Padding="20"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="{Binding IsDetailViewActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+            <StackPanel MaxWidth="1380">
+                <Grid Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Product Management"
+                                   FontFamily="{StaticResource Font.Primary}"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Catalog master data, units, tracking policy and supplier relationships"
+                                   Margin="0,3,0,0"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Categories"
+                                Command="{Binding ManageCategoriesCommand}"
+                                Style="{StaticResource Button.Neutral}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Units"
+                                Command="{Binding ManageUnitsCommand}"
+                                Style="{StaticResource Button.Neutral}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Refresh"
+                                Command="{Binding RefreshCommand}"
+                                Style="{StaticResource Button.Neutral}"
+                                Margin="0,0,8,0" />
+                        <Button Content="+ Add Product"
+                                Command="{Binding AddProductCommand}"
+                                Style="{StaticResource Button.Primary}" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="360" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="210" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <controls:SearchBox Grid.Column="0"
+                                            Height="36"
+                                            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            Placeholder="Search SKU, name, brand, model or category..." />
+                        <ComboBox Grid.Column="2"
+                                  Height="36"
+                                  ItemsSource="{Binding Categories}"
+                                  SelectedItem="{Binding SelectedCategory}" />
+                        <ComboBox Grid.Column="4"
+                                  Height="36"
+                                  ItemsSource="{Binding StatusFilters}"
+                                  SelectedItem="{Binding SelectedStatus}" />
+                        <TextBlock Grid.Column="5"
+                                   Text="{Binding ResultCountDisplay}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                    </Grid>
+                </Border>
+
+                <Border Padding="16"
+                        Margin="0,0,0,14"
+                        Background="{DynamicResource Brush.Surface.Raised}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}"
+                        Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Loading authoritative catalogâ€¦"
+                               Foreground="{DynamicResource Brush.Text.Secondary}" />
+                </Border>
+
+                <Border Padding="16"
+                        Margin="0,0,0,14"
+                        BorderBrush="{DynamicResource Brush.Status.Danger}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}"
+                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="Catalog unavailable"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding ErrorMessage}"
+                                   Margin="0,5,0,0"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{DynamicResource Brush.Surface.Default}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Card}"
+                        Visibility="{Binding IsContentReady, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding FilteredProducts}"
+                                  SelectedItem="{Binding SelectedProduct, Mode=TwoWay}"
+                                  Style="{StaticResource Table.DataGrid}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  ScrollViewer.CanContentScroll="True"
+                                  BorderThickness="0"
+                                  MinHeight="430">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="120" />
+                                <DataGridTextColumn Header="PRODUCT" Binding="{Binding Name}" Width="2*" />
+                                <DataGridTextColumn Header="BRAND" Binding="{Binding Brand}" Width="130" />
+                                <DataGridTextColumn Header="MODEL" Binding="{Binding Model}" Width="120" />
+                                <DataGridTextColumn Header="CATEGORY" Binding="{Binding Category}" Width="140" />
+                                <DataGridTextColumn Header="UNIT" Binding="{Binding BaseUnit}" Width="80" />
+                                <DataGridTextColumn Header="TRACKING" Binding="{Binding TrackingDisplay}" Width="120" />
+                                <DataGridTextColumn Header="SALE PRICE" Binding="{Binding PriceDisplay}" Width="120" />
+                                <DataGridTextColumn Header="MIN STOCK" Binding="{Binding MinimumStockDisplay}" Width="110" />
+                                <DataGridTextColumn Header="STATUS" Binding="{Binding StatusDisplay}" Width="90" />
+                                <DataGridTextColumn Header="SUPPLIERS" Binding="{Binding SupplierDisplay}" Width="135" />
+                                <DataGridTemplateColumn Header="ACTIONS" Width="210">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="View"
+                                                        Style="{StaticResource Button.Text.Primary}"
+                                                        Command="{Binding DataContext.OpenProductCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}"
+                                                        Margin="0,0,8,0" />
+                                                <Button Content="Edit"
+                                                        Style="{StaticResource Button.Text.Primary}"
+                                                        Command="{Binding DataContext.EditProductCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}"
+                                                        Margin="0,0,8,0" />
+                                                <Button Content="Toggle"
+                                                        Style="{StaticResource Button.Text.Neutral}"
+                                                        Command="{Binding DataContext.ToggleActiveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <controls:EmptyState Title="No products configured"
+                                             Message="Create the first catalog product. Product creation does not create stock."
+                                             IconGeometry="{StaticResource Icon.Nav.Inventory}"
+                                             Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <controls:EmptyState Title="No products match"
+                                             Message="Change the search, category or active-state filter."
+                                             IconGeometry="{StaticResource Icon.Search}"
+                                             Visibility="{Binding IsSearchNoResults, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
+                </Border>
+
+                <TextBlock Margin="2,12,0,0"
+                           Text="Stock quantities, lots, exact physical units and inventory movements are intentionally read-only from Product Management."
+                           TextWrapping="Wrap"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.Text.Muted}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

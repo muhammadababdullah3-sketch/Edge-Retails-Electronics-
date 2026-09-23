@@ -6,8 +6,15 @@
     Focusable="False">
     <Grid>
         <Border Background="{DynamicResource Brush.Overlay.Scrim}" />
-        <ContentControl Content="{Binding Content}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center" />
+        <ScrollViewer Margin="24"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalContentAlignment="Center"
+                      VerticalContentAlignment="Center"
+                      Focusable="False">
+            <ContentControl Content="{Binding Content}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+        </ScrollViewer>
     </Grid>
 </UserControl>

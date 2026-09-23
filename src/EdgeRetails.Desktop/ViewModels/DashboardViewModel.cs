@@ -6,9 +6,6 @@ using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
-/// <summary>
-/// Represents a Thaka / Project summary item on the dashboard.
-/// </summary>
 public sealed class DashboardThakaItem
 {
     public string ProjectName { get; init; } = string.Empty;
@@ -17,9 +14,6 @@ public sealed class DashboardThakaItem
     public string Subtitle { get; init; } = "balance";
 }
 
-/// <summary>
-/// Represents a recent operational activity item (Sale, Thaka, Expense, Purchase) on the dashboard.
-/// </summary>
 public sealed class DashboardActivityItem
 {
     public string Title { get; init; } = string.Empty;
@@ -28,9 +22,6 @@ public sealed class DashboardActivityItem
     public Brush DotBrush { get; init; } = Brushes.Transparent;
 }
 
-/// <summary>
-/// Represents a low-stock inventory alert item on the dashboard.
-/// </summary>
 public sealed class DashboardLowStockItem
 {
     public string ProductName { get; init; } = string.Empty;
@@ -38,72 +29,87 @@ public sealed class DashboardLowStockItem
 }
 
 /// <summary>
-/// ViewModel for the main Edge Retails POS Dashboard screen.
-/// Implements MVVM pattern with support for live navigation, toast alerts, and Figma-exact demo data.
+/// Production Dashboard presentation state. Operational truth comes from
+/// IBackendDashboardService; missing read authority is represented explicitly.
 /// </summary>
 public sealed class DashboardViewModel : ViewModelBase
 {
     private readonly INavigationService? _navigationService;
     private readonly IToastService? _toastService;
+    private readonly IBackendDashboardService? _backendService;
 
-    private string _userName = "Abdullah";
-    private string _greeting = "Good Evening, Abdullah";
-    private string _subtitle = "Here's what's happening in your shop today.";
+    private string _userName = "User";
+    private string _greeting = string.Empty;
+    private string _subtitle = "Authoritative shop status and today's activity.";
     private string _currentDateFormatted = DateTime.Now.ToString("dddd, MMMM d, yyyy");
-    private bool _isDatabaseConnected = true;
-    private bool _isBackupUpToDate = true;
+    private bool _isDatabaseConnected;
+    private bool _isBackupUpToDate;
+    private string _databaseStatusText = "Database status unavailable";
+    private string _backupStatusText = "Backup status unavailable";
+    private bool _isLoading;
+    private string? _loadError;
 
-    // KPI row 1
-    private string _todaySales = "Rs. 84,500";
-    private string _todayProfit = "Rs. 13,400";
-    private string _expenses = "Rs. 3,200";
-    private string _lowStockCount = "12 Items";
-    private string _lowStockSubtitle = "products below minimum";
+    private string _todaySales = "Unavailable";
+    private string _todayProfit = "Unavailable";
+    private string _expenses = "Unavailable";
+    private string _lowStockCount = "Unavailable";
+    private string _lowStockSubtitle =
+        "Minimum-stock authority is not exposed by the current backend read model.";
 
-    // KPI row 2 (Thaka / Projects)
-    private string _activeThakasCount = "3";
-    private string _activeThakasSubtitle = "ongoing projects";
-    private string _thakaValue = "Rs. 687,400";
-    private string _thakaValueSubtitle = "total material issued";
-    private string _outstandingBalance = "Rs. 587,400";
-    private string _outstandingBalanceSubtitle = "unpaid balance";
+    private string _activeThakasCount = "Unavailable";
+    private string _activeThakasSubtitle = "Authoritative active projects";
+    private string _thakaValue = "Unavailable";
+    private string _thakaValueSubtitle = "Outstanding balance of active projects";
+    private string _todayThakaMaterial = "Unavailable";
+    private string _todayThakaMaterialSubtitle = "Today's issued material less reversals";
 
     public DashboardViewModel()
-        : this(null, null, null)
+        : this(null, null, null, null)
     {
     }
 
     public DashboardViewModel(
         ISessionContext? sessionContext = null,
         INavigationService? navigationService = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IBackendDashboardService? backendService = null)
     {
         _navigationService = navigationService;
         _toastService = toastService;
+        _backendService = backendService;
 
-        if (sessionContext != null && !string.IsNullOrWhiteSpace(sessionContext.DisplayName))
+        if (sessionContext is not null &&
+            !string.IsNullOrWhiteSpace(sessionContext.DisplayName))
         {
             _userName = sessionContext.DisplayName;
-            _greeting = ComputeGreeting(_userName);
-        }
-        else
-        {
-            _greeting = ComputeGreeting(_userName);
         }
 
-        ThakaProjects = new ObservableCollection<DashboardThakaItem>();
-        RecentActivities = new ObservableCollection<DashboardActivityItem>();
-        LowStockItems = new ObservableCollection<DashboardLowStockItem>();
+        _greeting = ComputeGreeting(_userName);
+
+        ThakaProjects = [];
+        RecentActivities = [];
+        LowStockItems = [];
 
         NewThakaCommand = new RelayCommand(ExecuteNewThaka);
         ViewAllProjectsCommand = new RelayCommand(ExecuteViewAllProjects);
-        OpenThakaItemCommand = new RelayCommand<DashboardThakaItem>(ExecuteOpenThakaItem);
-        OpenActivityItemCommand = new RelayCommand<DashboardActivityItem>(ExecuteOpenActivityItem);
-        OpenLowStockItemCommand = new RelayCommand<DashboardLowStockItem>(ExecuteOpenLowStockItem);
+        OpenThakaItemCommand =
+            new RelayCommand<DashboardThakaItem>(ExecuteOpenThakaItem);
+        OpenActivityItemCommand =
+            new RelayCommand<DashboardActivityItem>(ExecuteOpenActivityItem);
+        OpenLowStockItemCommand =
+            new RelayCommand<DashboardLowStockItem>(ExecuteOpenLowStockItem);
         ViewAllLowStockCommand = new RelayCommand(ExecuteViewAllLowStock);
-        RefreshCommand = new RelayCommand(ExecuteRefresh);
+        RefreshCommand = new RelayCommand(() => _ = RefreshBackendAsync(true));
 
-        LoadDemoData();
+        if (_backendService is null)
+        {
+            ApplyUnavailable(
+                "Authoritative Dashboard backend service is not attached.");
+        }
+        else
+        {
+            _ = RefreshBackendAsync(false);
+        }
     }
 
     public string UserName
@@ -121,123 +127,140 @@ public sealed class DashboardViewModel : ViewModelBase
     public string Greeting
     {
         get => _greeting;
-        set => SetProperty(ref _greeting, value);
+        private set => SetProperty(ref _greeting, value);
     }
 
     public string Subtitle
     {
         get => _subtitle;
-        set => SetProperty(ref _subtitle, value);
+        private set => SetProperty(ref _subtitle, value);
     }
 
     public string CurrentDateFormatted
     {
         get => _currentDateFormatted;
-        set => SetProperty(ref _currentDateFormatted, value);
+        private set => SetProperty(ref _currentDateFormatted, value);
     }
 
     public bool IsDatabaseConnected
     {
         get => _isDatabaseConnected;
-        set
-        {
-            if (SetProperty(ref _isDatabaseConnected, value))
-            {
-                OnPropertyChanged(nameof(DatabaseStatusText));
-            }
-        }
+        private set => SetProperty(ref _isDatabaseConnected, value);
     }
 
-    public string DatabaseStatusText => IsDatabaseConnected ? "Database Connected" : "Database Disconnected";
+    public string DatabaseStatusText
+    {
+        get => _databaseStatusText;
+        private set => SetProperty(ref _databaseStatusText, value);
+    }
 
     public bool IsBackupUpToDate
     {
         get => _isBackupUpToDate;
-        set
+        private set => SetProperty(ref _isBackupUpToDate, value);
+    }
+
+    public string BackupStatusText
+    {
+        get => _backupStatusText;
+        private set => SetProperty(ref _backupStatusText, value);
+    }
+
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set => SetProperty(ref _isLoading, value);
+    }
+
+    public string? LoadError
+    {
+        get => _loadError;
+        private set
         {
-            if (SetProperty(ref _isBackupUpToDate, value))
+            if (SetProperty(ref _loadError, value))
             {
-                OnPropertyChanged(nameof(BackupStatusText));
+                OnPropertyChanged(nameof(HasLoadError));
             }
         }
     }
 
-    public string BackupStatusText => IsBackupUpToDate ? "Backup Up to Date" : "Backup Pending";
+    public bool HasLoadError => !string.IsNullOrWhiteSpace(LoadError);
 
-    // KPI Row 1 Properties
     public string TodaySales
     {
         get => _todaySales;
-        set => SetProperty(ref _todaySales, value);
+        private set => SetProperty(ref _todaySales, value);
     }
 
     public string TodayProfit
     {
         get => _todayProfit;
-        set => SetProperty(ref _todayProfit, value);
+        private set => SetProperty(ref _todayProfit, value);
     }
 
     public string Expenses
     {
         get => _expenses;
-        set => SetProperty(ref _expenses, value);
+        private set => SetProperty(ref _expenses, value);
     }
 
     public string LowStockCount
     {
         get => _lowStockCount;
-        set => SetProperty(ref _lowStockCount, value);
+        private set => SetProperty(ref _lowStockCount, value);
     }
 
     public string LowStockSubtitle
     {
         get => _lowStockSubtitle;
-        set => SetProperty(ref _lowStockSubtitle, value);
+        private set => SetProperty(ref _lowStockSubtitle, value);
     }
 
-    // KPI Row 2 Properties
     public string ActiveThakasCount
     {
         get => _activeThakasCount;
-        set => SetProperty(ref _activeThakasCount, value);
+        private set => SetProperty(ref _activeThakasCount, value);
     }
 
     public string ActiveThakasSubtitle
     {
         get => _activeThakasSubtitle;
-        set => SetProperty(ref _activeThakasSubtitle, value);
+        private set => SetProperty(ref _activeThakasSubtitle, value);
     }
 
     public string ThakaValue
     {
         get => _thakaValue;
-        set => SetProperty(ref _thakaValue, value);
+        private set => SetProperty(ref _thakaValue, value);
     }
 
     public string ThakaValueSubtitle
     {
         get => _thakaValueSubtitle;
-        set => SetProperty(ref _thakaValueSubtitle, value);
+        private set => SetProperty(ref _thakaValueSubtitle, value);
     }
 
-    public string OutstandingBalance
+    public string TodayThakaMaterial
     {
-        get => _outstandingBalance;
-        set => SetProperty(ref _outstandingBalance, value);
+        get => _todayThakaMaterial;
+        private set => SetProperty(ref _todayThakaMaterial, value);
     }
 
-    public string OutstandingBalanceSubtitle
+    public string TodayThakaMaterialSubtitle
     {
-        get => _outstandingBalanceSubtitle;
-        set => SetProperty(ref _outstandingBalanceSubtitle, value);
+        get => _todayThakaMaterialSubtitle;
+        private set => SetProperty(ref _todayThakaMaterialSubtitle, value);
     }
 
-    // Collections
+    // Compatibility aliases retained for older bindings/tests while the canonical
+    // Dashboard now displays Today Thaka Material instead of a duplicate balance KPI.
+    public string OutstandingBalance => TodayThakaMaterial;
+    public string OutstandingBalanceSubtitle => TodayThakaMaterialSubtitle;
+
     public ObservableCollection<DashboardThakaItem> ThakaProjects { get; }
     public ObservableCollection<DashboardActivityItem> RecentActivities { get; }
     public ObservableCollection<DashboardLowStockItem> LowStockItems { get; }
 
-    // Commands
     public ICommand NewThakaCommand { get; }
     public ICommand ViewAllProjectsCommand { get; }
     public ICommand OpenThakaItemCommand { get; }
@@ -246,161 +269,156 @@ public sealed class DashboardViewModel : ViewModelBase
     public ICommand ViewAllLowStockCommand { get; }
     public ICommand RefreshCommand { get; }
 
-    private void ExecuteNewThaka()
-    {
-        _toastService?.Show("Creating a new Thaka project...", ToastTone.Info);
+    private void ExecuteNewThaka() =>
         _navigationService?.Navigate(NavigationTarget.ThakaProjects);
-    }
 
-    private void ExecuteViewAllProjects()
-    {
+    private void ExecuteViewAllProjects() =>
         _navigationService?.Navigate(NavigationTarget.ThakaProjects);
-    }
 
     private void ExecuteOpenThakaItem(DashboardThakaItem? item)
     {
-        if (item is null)
+        if (item is not null)
         {
-            return;
+            _navigationService?.Navigate(NavigationTarget.ThakaProjects);
         }
-
-        _toastService?.Show($"Viewing {item.ProjectName} for {item.CustomerName}.", ToastTone.Info);
-        _navigationService?.Navigate(NavigationTarget.ThakaProjects);
     }
 
     private void ExecuteOpenActivityItem(DashboardActivityItem? item)
     {
-        if (item is null)
+        if (item is not null)
         {
-            return;
+            _toastService?.Show(
+                "Unified authoritative recent-activity navigation is not attached yet.",
+                ToastTone.Info);
         }
-
-        _toastService?.Show($"{item.Title} ({item.TimeFormatted}) — {item.AmountFormatted}", ToastTone.Info);
     }
 
     private void ExecuteOpenLowStockItem(DashboardLowStockItem? item)
     {
-        if (item is null)
+        if (item is not null)
         {
+            _navigationService?.Navigate(NavigationTarget.Inventory);
+        }
+    }
+
+    private void ExecuteViewAllLowStock() =>
+        _navigationService?.Navigate(NavigationTarget.Inventory);
+
+    private async Task RefreshBackendAsync(bool showSuccessToast)
+    {
+        if (_backendService is null)
+        {
+            ApplyUnavailable(
+                "Authoritative Dashboard backend service is not attached.");
             return;
         }
 
-        _toastService?.Show($"{item.ProductName} is low in stock ({item.StockBadgeText}).", ToastTone.Warning);
-        _navigationService?.Navigate(NavigationTarget.Inventory);
-    }
-
-    private void ExecuteViewAllLowStock()
-    {
-        _navigationService?.Navigate(NavigationTarget.Inventory);
-    }
-
-    private void ExecuteRefresh()
-    {
+        IsLoading = true;
+        LoadError = null;
         CurrentDateFormatted = DateTime.Now.ToString("dddd, MMMM d, yyyy");
         Greeting = ComputeGreeting(UserName);
-        LoadDemoData();
-        _toastService?.Show("Dashboard metrics updated.", ToastTone.Success);
+
+        try
+        {
+            var snapshot = await _backendService.LoadAsync();
+            ApplySnapshot(snapshot);
+
+            if (snapshot.Issues.Count > 0)
+            {
+                LoadError = string.Join(" ", snapshot.Issues);
+                _toastService?.Show(
+                    "Dashboard loaded with unavailable backend sections.",
+                    ToastTone.Warning);
+            }
+            else if (showSuccessToast)
+            {
+                _toastService?.Show(
+                    "Dashboard refreshed from authoritative backend reads.",
+                    ToastTone.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            ApplyUnavailable($"Dashboard backend unavailable: {ex.Message}");
+            _toastService?.Show(LoadError!, ToastTone.Danger);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
-    private void LoadDemoData()
+    private void ApplySnapshot(BackendDashboardSnapshot snapshot)
     {
-        // 1. Thaka / Projects (matching Figma forensic spec)
-        ThakaProjects.Clear();
-        ThakaProjects.Add(new DashboardThakaItem
-        {
-            ProjectName = "Ahmed House",
-            CustomerName = "Ahmed",
-            BalanceFormatted = "Rs. 135,000",
-            Subtitle = "balance"
-        });
-        ThakaProjects.Add(new DashboardThakaItem
-        {
-            ProjectName = "Ali Plaza",
-            CustomerName = "Ali",
-            BalanceFormatted = "Rs. 370,000",
-            Subtitle = "balance"
-        });
-        ThakaProjects.Add(new DashboardThakaItem
-        {
-            ProjectName = "Usman House",
-            CustomerName = "Usman",
-            BalanceFormatted = "Rs. 82,400",
-            Subtitle = "balance"
-        });
+        TodaySales = CurrencyOrUnavailable(snapshot.TodaySales);
+        TodayProfit = CurrencyOrUnavailable(snapshot.TodayProfit);
+        Expenses = CurrencyOrUnavailable(snapshot.Expenses);
 
-        // 2. Recent Activity (matching Figma forensic spec)
-        RecentActivities.Clear();
-        RecentActivities.Add(new DashboardActivityItem
-        {
-            Title = "Sale #1288",
-            TimeFormatted = "04:20 PM",
-            AmountFormatted = "Rs. 4,200",
-            DotBrush = CreateFrozenBrush(Color.FromRgb(0x4F, 0x46, 0xE5)) // Indigo
-        });
-        RecentActivities.Add(new DashboardActivityItem
-        {
-            Title = "Thaka #45",
-            TimeFormatted = "03:55 PM",
-            AmountFormatted = "Rs. 8,700",
-            DotBrush = CreateFrozenBrush(Color.FromRgb(0x7C, 0x3A, 0xED)) // Purple
-        });
-        RecentActivities.Add(new DashboardActivityItem
-        {
-            Title = "Expense – Lunch",
-            TimeFormatted = "01:30 PM",
-            AmountFormatted = "Rs. 850",
-            DotBrush = CreateFrozenBrush(Color.FromRgb(0xEA, 0x58, 0x0C)) // Orange
-        });
-        RecentActivities.Add(new DashboardActivityItem
-        {
-            Title = "Purchase #252",
-            TimeFormatted = "11:10 AM",
-            AmountFormatted = "Rs. 72,000",
-            DotBrush = CreateFrozenBrush(Color.FromRgb(0x25, 0x63, 0xEB)) // Blue
-        });
-        RecentActivities.Add(new DashboardActivityItem
-        {
-            Title = "Sale #1287",
-            TimeFormatted = "10:45 AM",
-            AmountFormatted = "Rs. 1,500",
-            DotBrush = CreateFrozenBrush(Color.FromRgb(0x4F, 0x46, 0xE5)) // Indigo
-        });
-
-        // 3. Low Stock (matching Figma forensic spec)
+        // The current inventory overview read model does not expose
+        // MinimumStockLevel. Showing a numeric low-stock KPI would therefore be fake.
+        LowStockCount = "Unavailable";
+        LowStockSubtitle =
+            "Minimum-stock authority is not exposed by the current backend read model.";
         LowStockItems.Clear();
-        LowStockItems.Add(new DashboardLowStockItem
+
+        ActiveThakasCount = snapshot.ActiveThakaCount?.ToString() ?? "Unavailable";
+        ThakaValue = CurrencyOrUnavailable(snapshot.ActiveThakaOutstanding);
+        TodayThakaMaterial = CurrencyOrUnavailable(snapshot.TodayThakaMaterial);
+
+        ThakaProjects.Clear();
+        foreach (var project in snapshot.ActiveProjects.Take(3))
         {
-            ProductName = "LED Bulb 12W",
-            StockBadgeText = "8 left"
-        });
-        LowStockItems.Add(new DashboardLowStockItem
-        {
-            ProductName = "Wire 2.5mm",
-            StockBadgeText = "2 rolls"
-        });
-        LowStockItems.Add(new DashboardLowStockItem
-        {
-            ProductName = "Breaker 32A",
-            StockBadgeText = "4 left"
-        });
-        LowStockItems.Add(new DashboardLowStockItem
-        {
-            ProductName = "Switch 16A",
-            StockBadgeText = "7 left"
-        });
-        LowStockItems.Add(new DashboardLowStockItem
-        {
-            ProductName = "Socket 16A",
-            StockBadgeText = "3 left"
-        });
+            ThakaProjects.Add(new DashboardThakaItem
+            {
+                ProjectName = project.ProjectName,
+                CustomerName = project.CustomerName,
+                BalanceFormatted = project.BalanceFormatted,
+                Subtitle = "outstanding balance"
+            });
+        }
+
+        // There is no unified authoritative recent-activity read contract in the
+        // current backend composition. Empty is truthful; sample events are not.
+        RecentActivities.Clear();
+
+        IsDatabaseConnected = snapshot.IsDatabaseConnected == true;
+        DatabaseStatusText = snapshot.DatabaseStatusText;
+        IsBackupUpToDate = snapshot.IsBackupUpToDate == true;
+        BackupStatusText = snapshot.BackupStatusText;
+
+        Subtitle = snapshot.Issues.Count == 0
+            ? "Authoritative shop status and today's activity."
+            : "Some authoritative dashboard data is currently unavailable.";
+
+        OnPropertyChanged(nameof(OutstandingBalance));
+        OnPropertyChanged(nameof(OutstandingBalanceSubtitle));
     }
 
-    private static SolidColorBrush CreateFrozenBrush(Color color)
+    private void ApplyUnavailable(string reason)
     {
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return brush;
+        LoadError = reason;
+        TodaySales = "Unavailable";
+        TodayProfit = "Unavailable";
+        Expenses = "Unavailable";
+        LowStockCount = "Unavailable";
+        ActiveThakasCount = "Unavailable";
+        ThakaValue = "Unavailable";
+        TodayThakaMaterial = "Unavailable";
+        DatabaseStatusText = "Database status unavailable";
+        BackupStatusText = "Backup status unavailable";
+        IsDatabaseConnected = false;
+        IsBackupUpToDate = false;
+        ThakaProjects.Clear();
+        RecentActivities.Clear();
+        LowStockItems.Clear();
+        Subtitle = "Authoritative dashboard data is currently unavailable.";
+
+        OnPropertyChanged(nameof(OutstandingBalance));
+        OnPropertyChanged(nameof(OutstandingBalanceSubtitle));
     }
+
+    private static string CurrencyOrUnavailable(decimal? amount) =>
+        amount is null ? "Unavailable" : $"Rs. {amount.Value:N0}";
 
     private static string ComputeGreeting(string name)
     {
@@ -411,6 +429,7 @@ public sealed class DashboardViewModel : ViewModelBase
             < 17 => "Good Afternoon",
             _ => "Good Evening"
         };
+
         return $"{prefix}, {name}";
     }
 }

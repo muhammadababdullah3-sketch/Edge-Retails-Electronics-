@@ -1,4 +1,4 @@
-﻿<Application
+<Application
     x:Class="EdgeRetails.Desktop.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -31,6 +31,10 @@
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
 
+            <DataTemplate DataType="{x:Type viewModels:FirstSetupViewModel}">
+                <views:FirstSetupView />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type viewModels:LoginViewModel}">
                 <views:LoginView />
             </DataTemplate>
@@ -43,12 +47,16 @@
                 <views:DashboardView />
             </DataTemplate>
 
-            <DataTemplate DataType="{x:Type viewModels:NewSaleViewModel}">
-                <views:NewSaleView />
+            <DataTemplate DataType="{x:Type viewModels:PosViewModel}">
+                <views:PosView />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:SalesHistoryViewModel}">
                 <views:SalesHistoryView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:SaleDetailViewModel}">
+                <views:SaleDetailView />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:ThakaProjectsViewModel}">
@@ -65,6 +73,10 @@
 
             <DataTemplate DataType="{x:Type viewModels:NewPurchaseViewModel}">
                 <views:NewPurchaseView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:ProductManagementViewModel}">
+                <views:ProductManagementView />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:InventoryViewModel}">
@@ -85,6 +97,10 @@
 
             <DataTemplate DataType="{x:Type viewModels:SuppliersViewModel}">
                 <views:SuppliersView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:WarrantyViewModel}">
+                <views:WarrantyView />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:ReportsViewModel}">
@@ -123,12 +139,40 @@
                 <dialogs:PurchaseReturnDialog />
             </DataTemplate>
 
+            <DataTemplate DataType="{x:Type viewModels:ExactUnitPickerViewModel}">
+                <dialogs:ExactUnitPickerDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:SerializedPurchaseIntakeViewModel}">
+                <dialogs:SerializedPurchaseIntakeDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:PriceCheckViewModel}">
+                <dialogs:PriceCheckDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:PosDraftsViewModel}">
+                <dialogs:PosDraftsDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:StocktakeViewModel}">
+                <dialogs:StocktakeDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:SerializedStocktakeScanViewModel}">
+                <dialogs:SerializedStocktakeScanDialog />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type viewModels:StockAdjustmentViewModel}">
                 <dialogs:StockAdjustmentDialog />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:ProductEditViewModel}">
                 <dialogs:ProductEditDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:CatalogReferenceManagerViewModel}">
+                <dialogs:CatalogReferenceManagerDialog />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:SettingsEditorViewModel}">
@@ -139,8 +183,20 @@
                 <dialogs:SettingsConfirmDialog />
             </DataTemplate>
 
+            <DataTemplate DataType="{x:Type viewModels:PermissionRequiredViewModel}">
+                <dialogs:PermissionRequiredDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:ConfirmationDialogViewModel}">
+                <dialogs:ConfirmationDialog />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type viewModels:CompleteSaleViewModel}">
                 <dialogs:CompleteSaleDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:SaleCustomerPickerViewModel}">
+                <dialogs:SaleCustomerPickerDialog />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:ThakaAddMaterialViewModel}">

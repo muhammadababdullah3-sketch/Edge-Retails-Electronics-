@@ -183,8 +183,9 @@ public sealed class Sprint5ForensicAuditTests
 
         Assert.Contains("private ReportsViewModel? _reportsViewModel", factory);
         Assert.Contains(
-            "NavigationTarget.Reports => _reportsViewModel ??= new ReportsViewModel()",
+            "NavigationTarget.Reports => _reportsViewModel ??= new ReportsViewModel(",
             factory);
+        Assert.Contains("_businessOperationsService", factory);
     }
 
     [Fact]
@@ -216,7 +217,7 @@ public sealed class Sprint5ForensicAuditTests
     public void Sprint5Phase2_SalesCaptureHistoricalCostSnapshots()
     {
         var contract = ReadDesktop("Services", "ITransactionService.cs");
-        var pos = ReadDesktop("ViewModels", "NewSaleViewModel.cs");
+        var pos = ReadDesktop("ViewModels", "PosViewModel.cs");
         var demo = ReadDesktop("Services", "DemoTransactionService.cs");
 
         Assert.Contains("UnitCostSnapshot", contract);

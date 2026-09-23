@@ -15,7 +15,8 @@ public sealed record TransferInventoryConditionCommand(
     string? Note = null,
     string ReferenceType = "INVENTORY_CONDITION",
     Guid? ReferenceId = null,
-    IReadOnlyCollection<Guid>? InventoryUnitIds = null);
+    IReadOnlyCollection<Guid>? InventoryUnitIds = null,
+    InventoryMovementType? MovementTypeOverride = null);
 
 public interface IInventoryConditionService
 {
@@ -74,15 +75,6 @@ public sealed class InventoryConditionService : IInventoryConditionService
             return Result<Guid>.Failure("catalog.product_not_found", "Product was not found.");
         }
 
-        if (await _inventory.IsProductBlockedByCountingStocktakeAsync(
-                command.ProductId,
-                cancellationToken))
-        {
-            return Result<Guid>.Failure(
-                "inventory.stocktake_in_progress",
-                "Stock-affecting operations are blocked while this product is being counted.");
-        }
-
         var balance = await _inventory.GetStockBalanceForUpdateAsync(
             command.ProductId,
             cancellationToken);
@@ -92,6 +84,15 @@ public sealed class InventoryConditionService : IInventoryConditionService
             return Result<Guid>.Failure(
                 "inventory.balance_not_found",
                 "Inventory balance was not found for the product.");
+        }
+
+        if (await _inventory.IsProductBlockedByCountingStocktakeAsync(
+                command.ProductId,
+                cancellationToken))
+        {
+            return Result<Guid>.Failure(
+                "inventory.stocktake_in_progress",
+                "Stock-affecting operations are blocked while this product is being counted.");
         }
 
         var quantity = EdgeRetails.Domain.Common.QuantityMath.RoundQuantity(command.BaseQuantity);
@@ -146,7 +147,7 @@ public sealed class InventoryConditionService : IInventoryConditionService
         var movement = new InventoryMovement
         {
             ProductId = product.Id,
-            MovementType = ResolveMovementType(command.From, command.To),
+            MovementType = command.MovementTypeOverride ?? ResolveMovementType(command.From, command.To),
             ReferenceType = command.ReferenceType,
             ReferenceId = command.ReferenceId,
             RecognizedLossAmount = decimal.Round(
@@ -350,3 +351,4 @@ public sealed class TransferInventoryConditionHandler
         }, cancellationToken);
     }
 }
+

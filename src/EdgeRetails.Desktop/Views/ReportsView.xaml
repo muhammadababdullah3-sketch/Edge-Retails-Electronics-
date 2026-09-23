@@ -126,7 +126,7 @@
                                   Title="NET LOCAL SALES"
                                   Value="{Binding NetSalesDisplay}"
                                   Tone="Brand"
-                                  IconGeometry="{StaticResource Icon.Nav.NewSale}" />
+                                  IconGeometry="{StaticResource Icon.Nav.POS}" />
 
                 <controls:KpiCard Grid.Row="0"
                                   Grid.Column="2"
@@ -181,7 +181,7 @@
                                   Title="NET LOCAL SALES"
                                   Value="{Binding NetSalesDisplay}"
                                   Tone="Brand"
-                                  IconGeometry="{StaticResource Icon.Nav.NewSale}" />
+                                  IconGeometry="{StaticResource Icon.Nav.POS}" />
 
                 <controls:KpiCard Grid.Column="2"
                                   Height="98"

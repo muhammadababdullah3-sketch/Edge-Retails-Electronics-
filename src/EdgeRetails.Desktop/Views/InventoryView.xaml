@@ -20,10 +20,12 @@
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Stock Adjustment" Command="{Binding StockAdjustmentCommand}"
+                        <Button Content="Physical Units" Command="{Binding ViewPhysicalUnitsCommand}"
                                 Style="{StaticResource Button.Neutral}" Margin="0,0,8,0" />
-                        <Button Content="+ Add Product" Command="{Binding AddProductCommand}"
-                                Style="{StaticResource Button.Primary}" />
+                        <Button Content="Stocktake" Command="{Binding StocktakeCommand}"
+                                Style="{StaticResource Button.Neutral}" Margin="0,0,8,0" />
+                        <Button Content="Stock Adjustment" Command="{Binding StockAdjustmentCommand}"
+                                Style="{StaticResource Button.Neutral}" />
                     </StackPanel>
                 </Grid>
                 <Grid Margin="0,0,0,16">
@@ -51,7 +53,7 @@
                             </Grid.ColumnDefinitions>
                             <controls:SearchBox Grid.Column="0" Height="36"
                                 Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                Placeholder="Search product, model, SKU or barcode..." />
+                                Placeholder="Search product, brand, model or SKU..." />
                             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                                 <Button Content="All Stock" Command="{Binding SelectTabCommand}"
                                         CommandParameter="AllStock" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
@@ -81,7 +83,12 @@
                                   SelectedItem="{Binding SelectedProduct, Mode=TwoWay}"
                                   Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
                                   BorderThickness="0" MinHeight="380"
-                                  Visibility="{Binding IsStockListTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  Visibility="{Binding IsStockListTab, Converter={StaticResource BooleanToVisibilityConverter}}"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="PRODUCT" Binding="{Binding Name}" Width="2*" />
                                 <DataGridTextColumn Header="BRAND" Binding="{Binding Brand}" Width="1.3*" />
@@ -103,7 +110,12 @@
                         <DataGrid ItemsSource="{Binding FilteredMovements}"
                                   Style="{StaticResource Table.DataGrid}" IsReadOnly="True"
                                   BorderThickness="0" MinHeight="380"
-                                  Visibility="{Binding IsMovementsTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  Visibility="{Binding IsMovementsTab, Converter={StaticResource BooleanToVisibilityConverter}}"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="TIME" Binding="{Binding TimeDisplay}" Width="160" />
                                 <DataGridTextColumn Header="PRODUCT" Binding="{Binding ProductName}" Width="2*" />
@@ -114,6 +126,44 @@
                                 <DataGridTextColumn Header="REFERENCE" Binding="{Binding Reference}" Width="150" />
                             </DataGrid.Columns>
                         </DataGrid>
+
+                        <controls:EmptyState Title="No products found"
+                                             Message="Try changing the stock tab, category, brand or search filters."
+                                             IconGeometry="{StaticResource Icon.Search}">
+                            <controls:EmptyState.Style>
+                                <Style TargetType="controls:EmptyState">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsStockListTab}" Value="True" />
+                                                <Condition Binding="{Binding FilteredProducts.Count}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyState.Style>
+                        </controls:EmptyState>
+
+                        <controls:EmptyState Title="No stock movements found"
+                                             Message="No movement records match the current filters."
+                                             IconGeometry="{StaticResource Icon.Nav.Inventory}">
+                            <controls:EmptyState.Style>
+                                <Style TargetType="controls:EmptyState">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsMovementsTab}" Value="True" />
+                                                <Condition Binding="{Binding FilteredMovements.Count}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyState.Style>
+                        </controls:EmptyState>
                     </Grid>
                 </Border>
             </StackPanel>

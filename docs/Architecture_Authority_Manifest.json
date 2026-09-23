@@ -1,0 +1,18 @@
+﻿{
+    "ArchitectureVersion":  "EdgeRetails-Backend-V1-2026-09-22-InternationalAuditRemediated",
+    "CanonicalRelativePath":  "docs/Edge_Retails_Final_Architecture_Report_v1.md",
+    "CanonicalSha256":  "12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673",
+    "ArchitectureCoverage":  "Sections 0-233 including authoritative Section 233.1 remediation annex",
+    "EffectiveAtUtc":  "2026-09-22",
+    "Status":  "FINAL_ARCHITECTURE_BASELINE_AUDIT_REMEDIATED",
+    "Supersedes":  [
+                       "Earlier contradictory backend architecture notes",
+                       "Historical architecture milestones superseded by later canonical corrections",
+                       "External forensic claims not explicitly incorporated into canonical authority"
+                   ],
+    "SchemaPolicy":  "Section 79 PRE_PRODUCTION_SCHEMA_EPOCH -\u003e FIRST_PRODUCTION_BASELINE_FREEZE -\u003e POST_PRODUCTION append-only migrations",
+    "NavigationContractVersion":  "V1-19-SCREENS-SECTION-209",
+    "LockHierarchyVersion":  "V1-10-LEVEL-SECTION-185",
+    "ArchitectureImplementationGate":  "Section 233",
+    "InternationalForensicRemediationAuthority":  "Section 233.1"
+}
