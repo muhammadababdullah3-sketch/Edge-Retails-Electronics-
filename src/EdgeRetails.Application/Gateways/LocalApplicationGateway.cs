@@ -128,6 +128,20 @@ public sealed class LocalApplicationGateway : IApplicationGateway
         return await handler.HandleAsync(command, cancellationToken);
     }
 
+    public async Task<Result<CompleteSaleResult>> CompletePosDraftAsync(
+        CompletePosDraftCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var guard = CheckCanMutate<CompleteSaleResult>();
+        if (!guard.IsSuccess)
+        {
+            return guard;
+        }
+
+        var handler = GetService<CompletePosDraftHandler>();
+        return await handler.HandleAsync(command, cancellationToken);
+    }
+
     public async Task<Result<CreateSaleReturnResult>> CreateSaleReturnAsync(
         CreateSaleReturnCommand command,
         CancellationToken cancellationToken = default)

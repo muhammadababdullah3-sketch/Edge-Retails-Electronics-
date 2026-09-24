@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Features.Sales;
+using EdgeRetails.Application.Gateways;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
@@ -62,8 +63,9 @@ public sealed class BackendTransactionService : ITransactionService
 
     public decimal NetSales => Math.Max(0m, TodaySales - TotalReturns);
 
+    [Obsolete("Use RecordTransactionAsync instead to avoid dispatcher deadlocks.")]
     public SaleTransactionRecord RecordTransaction(RecordSaleRequest request) =>
-        RecordTransactionAsync(request).GetAwaiter().GetResult();
+        throw new NotSupportedException("Synchronous transaction recording is prohibited to avoid UI dispatcher deadlocks. Use RecordTransactionAsync instead.");
 
     public async Task<SaleTransactionRecord> RecordTransactionAsync(
         RecordSaleRequest request,
@@ -102,6 +104,8 @@ public sealed class BackendTransactionService : ITransactionService
                 "Client operation id is required.");
         }
 
+        // Authoritative mutation routing: IApplicationGateway encapsulates CompleteSaleHandler and CreateSaleReturnHandler
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
         CompleteSaleResult committed;
         if (request.DraftId is Guid draftId)
         {
@@ -112,8 +116,7 @@ public sealed class BackendTransactionService : ITransactionService
                     "Draft version is required when completing a resumed draft.");
             }
 
-            var draftHandler = scope.ServiceProvider.GetRequiredService<CompletePosDraftHandler>();
-            var draftResult = await draftHandler.HandleAsync(
+            var draftResult = await gateway.CompletePosDraftAsync(
                 new CompletePosDraftCommand(
                     draftId,
                     request.DraftVersion.Value,
@@ -137,8 +140,7 @@ public sealed class BackendTransactionService : ITransactionService
         }
         else
         {
-            var handler = scope.ServiceProvider.GetRequiredService<CompleteSaleHandler>();
-            var result = await handler.HandleAsync(
+            var result = await gateway.CompleteSaleAsync(
                 new CompleteSaleCommand(
                     request.ClientOperationId,
                     request.CustomerId,
@@ -190,20 +192,18 @@ public sealed class BackendTransactionService : ITransactionService
             new GetSalesHistoryQuery(PageSize: 200),
             cancellationToken);
 
-        var records = new List<SaleTransactionRecord>(rows.Count);
-        foreach (var row in rows)
-        {
-            var detail = await reads.GetDetailAsync(
-                new GetSaleDetailQuery(row.SaleId),
-                cancellationToken);
-            if (detail is not null)
-            {
-                records.Add(CacheDetail(detail));
-            }
-        }
-
         lock (_syncRoot)
         {
+            foreach (var row in rows)
+            {
+                var normalized = NormalizeInvoice(row.InvoiceNumber);
+                if (!_transactions.Any(x => string.Equals(NormalizeInvoice(x.InvoiceNumber), normalized, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _transactions.Add(ProjectSummarySale(row));
+                }
+            }
+
+            _transactions.Sort((left, right) => right.Timestamp.CompareTo(left.Timestamp));
             return _transactions.ToArray();
         }
     }
@@ -253,8 +253,9 @@ public sealed class BackendTransactionService : ITransactionService
         return detail is null ? null : CacheDetail(detail);
     }
 
+    [Obsolete("Use RecordReturnAsync instead to avoid dispatcher deadlocks.")]
     public SaleReturnRecord RecordReturn(RecordSaleReturnRequest request) =>
-        RecordReturnAsync(request).GetAwaiter().GetResult();
+        throw new NotSupportedException("Synchronous return recording is prohibited to avoid UI dispatcher deadlocks. Use RecordReturnAsync instead.");
 
     public async Task<SaleReturnRecord> RecordReturnAsync(
         RecordSaleReturnRequest request,
@@ -308,8 +309,8 @@ public sealed class BackendTransactionService : ITransactionService
                 Array.Empty<Guid>());
         }).ToArray();
 
-        var handler = scope.ServiceProvider.GetRequiredService<CreateSaleReturnHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreateSaleReturnAsync(
             new CreateSaleReturnCommand(
                 detail.SaleId,
                 MapReasonCode(request.Disposition),
@@ -420,6 +421,33 @@ public sealed class BackendTransactionService : ITransactionService
             }).ToArray()
         };
     }
+
+    private static SaleTransactionRecord ProjectSummarySale(SalesHistoryRowDto row)
+    {
+        return new SaleTransactionRecord
+        {
+            InvoiceNumber = row.InvoiceNumber,
+            Timestamp = row.CompletedAt.LocalDateTime,
+            CustomerName = string.IsNullOrWhiteSpace(row.CustomerName) ? "Walk-in Customer" : row.CustomerName,
+            PaymentMethod = row.PaymentMethod switch
+            {
+                EdgeRetails.Domain.Sales.SalePaymentMethod.Cash => PaymentMethod.Cash,
+                EdgeRetails.Domain.Sales.SalePaymentMethod.Bank => PaymentMethod.Bank,
+                _ => PaymentMethod.Other
+            },
+            PaymentState = PaymentState.Paid,
+            Subtotal = row.GrandTotal,
+            DiscountAmount = 0m,
+            TotalAmount = row.GrandTotal,
+            AmountReceived = row.GrandTotal,
+            ChangeReturned = 0m,
+            PrintReceipt = true,
+            CashierName = "Backend User",
+            PaymentReference = string.Empty,
+            Items = []
+        };
+    }
+
     private static IReadOnlyList<SaleReturnRecord> ProjectReturns(
         SaleDetailDto detail)
     {

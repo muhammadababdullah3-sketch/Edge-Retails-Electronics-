@@ -20,20 +20,13 @@ if (File.Exists(localConfig))
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? builder.Configuration["EDGE_RETAILS_DB"]
     ?? builder.Configuration["DatabaseConnectionString"]
-    ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
+    ?? (builder.Environment.IsEnvironment("Testing") ? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB") : null)
     ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_DB")
     ?? throw new InvalidOperationException(
         "No database connection string configured. " +
-        "Set ConnectionStrings:DefaultConnection, EDGE_RETAILS_TEST_DB, or EDGE_RETAILS_DB.");
+        "Set ConnectionStrings:DefaultConnection or EDGE_RETAILS_DB.");
 
 builder.Services.AddEdgeRetailsInfrastructure(connectionString);
-
-builder.Services.AddScoped<RuntimeLicenseService>(sp =>
-{
-    var store = sp.GetService<ILicenseStore>() ?? new FallbackLicenseStore();
-    var validator = sp.GetService<ILicenseValidator>() ?? new FallbackLicenseValidator();
-    return new RuntimeLicenseService(store, validator);
-});
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -55,16 +48,3 @@ app.Run();
 
 public partial class Program { }
 
-internal sealed class FallbackLicenseStore : ILicenseStore
-{
-    public Task<bool> ExistsAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
-    public Task<string?> ReadRawAsync(CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-    public Task<bool> TryPersistInitialRawAsync(string signedLicenseJson, CancellationToken cancellationToken = default) => Task.FromResult(true);
-    public Task PersistRawAsync(string signedLicenseJson, CancellationToken cancellationToken = default) => Task.CompletedTask;
-}
-
-internal sealed class FallbackLicenseValidator : ILicenseValidator
-{
-    public Task<LicenseValidationResult> ValidateAsync(string signedLicenseJson, CancellationToken cancellationToken = default)
-        => Task.FromResult(new LicenseValidationResult(LicenseValidationStatus.Missing, null, "No license installed.", "license.missing"));
-}

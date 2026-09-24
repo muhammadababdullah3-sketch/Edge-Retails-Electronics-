@@ -18,11 +18,11 @@ if (File.Exists(localConfig))
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? builder.Configuration["EDGE_RETAILS_DB"]
     ?? builder.Configuration["DatabaseConnectionString"]
-    ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
+    ?? (builder.Environment.IsEnvironment("Testing") ? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB") : null)
     ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_DB")
     ?? throw new InvalidOperationException(
         "No database connection string configured. " +
-        "Set ConnectionStrings:DefaultConnection, EDGE_RETAILS_TEST_DB, or EDGE_RETAILS_DB.");
+        "Set ConnectionStrings:DefaultConnection or EDGE_RETAILS_DB.");
 
 builder.Services.AddEdgeRetailsInfrastructure(connectionString);
 

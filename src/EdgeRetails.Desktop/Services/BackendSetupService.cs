@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Features.Setup;
+using EdgeRetails.Application.Production.Licensing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
@@ -12,6 +13,7 @@ public interface IBackendSetupService
         string address,
         string ownerPin,
         string selectedModule,
+        string? signedLicenseContent = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -23,6 +25,7 @@ public sealed class BackendSetupService : IBackendSetupService
     {
         _scopeFactory = scopeFactory;
     }
+
     public async Task CompleteFirstSetupAsync(
         string shopName,
         string ownerName,
@@ -30,9 +33,32 @@ public sealed class BackendSetupService : IBackendSetupService
         string address,
         string ownerPin,
         string selectedModule,
+        string? signedLicenseContent = null,
         CancellationToken cancellationToken = default)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
+
+        // 1. Authoritative backend license validation & persistence
+        if (!string.IsNullOrWhiteSpace(signedLicenseContent))
+        {
+            var validator = scope.ServiceProvider.GetRequiredService<ILicenseValidator>();
+            var validationResult = await validator.ValidateAsync(signedLicenseContent, cancellationToken);
+
+            if (!validationResult.IsValid)
+            {
+                throw new InvalidOperationException(
+                    $"License verification failed: {validationResult.Message ?? validationResult.Status.ToString()}");
+            }
+
+            var store = scope.ServiceProvider.GetRequiredService<ILicenseStore>();
+            var persisted = await store.TryPersistInitialRawAsync(signedLicenseContent, cancellationToken);
+            if (!persisted)
+            {
+                await store.PersistRawAsync(signedLicenseContent, cancellationToken);
+            }
+        }
+
+        // 2. Complete identity and business bootstrap
         var handler = scope.ServiceProvider
             .GetRequiredService<FirstSetupBootstrapHandler>();
 

@@ -87,8 +87,8 @@ Connect via `psql` as the PostgreSQL administrator:
 
 Execute SQL provisioning commands:
 ```sql
--- Create dedicated operational role
-CREATE USER edgeretails_user WITH PASSWORD 'SecureProductionPassword18!';
+-- Create dedicated operational role (replace <GENERATE_STRONG_RANDOM_PASSWORD> with an authoritatively generated random password; never use default passwords)
+CREATE USER edgeretails_user WITH PASSWORD '<GENERATE_STRONG_RANDOM_PASSWORD>';
 
 -- Create production database owned by edgeretails_user
 CREATE DATABASE edgeretails_prod OWNER edgeretails_user;

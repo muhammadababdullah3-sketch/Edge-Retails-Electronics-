@@ -77,22 +77,13 @@ public partial class App : System.Windows.Application
             }
             catch (Exception ex)
             {
-                if (isDevelopment)
-                {
-                    MessageBox.Show(
-                        $"Edge Retails cannot start in development mode.\n\n{ex.Message}\n\nConfigure the development database via the 'EDGE_RETAILS_DB' environment variable or launch profile, and restart the application.",
-                        "Development Configuration Required",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                }
-                else
-                {
-                    MessageBox.Show(
-                        $"Edge Retails cannot start in production mode.\n\n{ex.Message}\n\nConfigure the production backend and restart the application.",
-                        "Production Configuration Required",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                }
+                var failure = StartupFailureClassifier.Classify(ex);
+                var modeLabel = isDevelopment ? "Development" : "Production";
+                MessageBox.Show(
+                    $"[{failure.Code}] {failure.Title} ({modeLabel})\n\n{failure.ErrorMessage}\n\nTroubleshooting Guidance:\n{failure.RemediationGuidance}",
+                    $"Edge Retails — {failure.Title}",
+                    MessageBoxButton.OK,
+                    isDevelopment ? MessageBoxImage.Warning : MessageBoxImage.Error);
 
                 Shutdown();
                 return;
@@ -106,13 +97,13 @@ public partial class App : System.Windows.Application
 
             if (!startup.IsReady)
             {
-                var detail = startup.PendingMigrations.Count > 0
-                    ? $"Pending migrations: {string.Join(", ", startup.PendingMigrations)}"
-                    : startup.FailureReason ?? "Database readiness check failed.";
+                var failure = StartupFailureClassifier.ClassifyDatabaseFailure(
+                    startup.FailureReason,
+                    startup.PendingMigrations);
 
                 MessageBox.Show(
-                    $"Edge Retails cannot start in backend mode.\n\n{detail}\n\nApply the required database migration or restore database connectivity, then start the application again.",
-                    "Database Not Ready",
+                    $"[{failure.Code}] {failure.Title}\n\n{failure.ErrorMessage}\n\nTroubleshooting Guidance:\n{failure.RemediationGuidance}",
+                    $"Edge Retails — {failure.Title}",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 

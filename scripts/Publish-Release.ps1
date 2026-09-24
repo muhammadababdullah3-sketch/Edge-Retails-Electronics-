@@ -3,6 +3,8 @@ param(
     [string]$Runtime = "win-x64",
     [string]$Solution = "EdgeRetails.sln",
     [string]$DesktopProject = "src/EdgeRetails.Desktop/EdgeRetails.Desktop.csproj",
+    [string]$WorkerProject = "src/EdgeRetails.Worker/EdgeRetails.Worker.csproj",
+    [string]$ServerProject = "src/EdgeRetails.Server/EdgeRetails.Server.csproj",
     [string]$UnitTestProject = "tests/EdgeRetails.UnitTests/EdgeRetails.UnitTests.csproj",
     [string]$Output = "artifacts/release",
     [string]$PgBin = "",
@@ -99,6 +101,40 @@ if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed." }
 $exe = Join-Path $publish "EdgeRetails.Desktop.exe"
 if (-not (Test-Path $exe -PathType Leaf)) { throw "Publish did not produce EdgeRetails.Desktop.exe." }
 
+# Publish Worker
+dotnet restore $WorkerProject -r $Runtime
+if ($LASTEXITCODE -ne 0) { throw "Worker runtime restore failed." }
+$workerPublish = Join-Path $publish "worker"
+$workerArgs = @(
+    "publish", $WorkerProject, "-c", "Release", "-r", $Runtime, "--self-contained", "true", "--no-restore",
+    "-p:Version=$Version", "-p:FileVersion=$Version", "-p:AssemblyVersion=$Version",
+    "-p:Product=Edge Retails Worker", "-p:Company=Edge Retails", "-p:Description=Edge Retails Background Worker",
+    "-p:PublishSingleFile=false", "-p:DebugType=None", "-p:DebugSymbols=false",
+    "-p:Deterministic=true", "-p:ContinuousIntegrationBuild=true", "-p:TreatWarningsAsErrors=true",
+    "-o", $workerPublish
+)
+& dotnet @workerArgs
+if ($LASTEXITCODE -ne 0) { throw "Worker publish failed." }
+$workerExe = Join-Path $workerPublish "EdgeRetails.Worker.exe"
+if (-not (Test-Path $workerExe -PathType Leaf)) { throw "Publish did not produce EdgeRetails.Worker.exe." }
+
+# Publish Server
+dotnet restore $ServerProject -r $Runtime
+if ($LASTEXITCODE -ne 0) { throw "Server runtime restore failed." }
+$serverPublish = Join-Path $publish "server"
+$serverArgs = @(
+    "publish", $ServerProject, "-c", "Release", "-r", $Runtime, "--self-contained", "true", "--no-restore",
+    "-p:Version=$Version", "-p:FileVersion=$Version", "-p:AssemblyVersion=$Version",
+    "-p:Product=Edge Retails Server", "-p:Company=Edge Retails", "-p:Description=Edge Retails LAN Server",
+    "-p:PublishSingleFile=false", "-p:DebugType=None", "-p:DebugSymbols=false",
+    "-p:Deterministic=true", "-p:ContinuousIntegrationBuild=true", "-p:TreatWarningsAsErrors=true",
+    "-o", $serverPublish
+)
+& dotnet @serverArgs
+if ($LASTEXITCODE -ne 0) { throw "Server publish failed." }
+$serverExe = Join-Path $serverPublish "EdgeRetails.Server.exe"
+if (-not (Test-Path $serverExe -PathType Leaf)) { throw "Publish did not produce EdgeRetails.Server.exe." }
+
 # The production app performs target-machine PostgreSQL toolchain readiness at runtime. When PgBin is supplied
 # to this build, validate the exact tools now as an additional release gate.
 if (-not [string]::IsNullOrWhiteSpace($PgBin)) {
@@ -126,7 +162,7 @@ if ($LASTEXITCODE -ne 0) { throw "WiX Burn bundle build failed." }
 $setup = Get-ChildItem $bundleOut -Filter EdgeRetailsSetup.exe -File | Select-Object -First 1
 if (-not $setup) { throw "WiX Burn build completed without producing EdgeRetailsSetup.exe." }
 
-$artifacts = @($exe, $msi.FullName, $setup.FullName)
+$artifacts = @($exe, $workerExe, $serverExe, $msi.FullName, $setup.FullName)
 $hashes = foreach ($file in $artifacts) {
     $h = Get-FileHash $file -Algorithm SHA256
     [pscustomobject]@{ File = (Split-Path $file -Leaf); Sha256 = $h.Hash; Bytes = (Get-Item $file).Length }

@@ -203,6 +203,17 @@ public sealed class RemoteApplicationGateway : IApplicationGateway
             cancellationToken);
     }
 
+    public async Task<Result<CompleteSaleResult>> CompletePosDraftAsync(
+        CompletePosDraftCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        return await SendPostAsync<CompletePosDraftCommand, CompleteSaleResult>(
+            "/api/sales/drafts/complete",
+            command,
+            isMutation: true,
+            cancellationToken);
+    }
+
     public async Task<Result<CreateSaleReturnResult>> CreateSaleReturnAsync(
         CreateSaleReturnCommand command,
         CancellationToken cancellationToken = default)

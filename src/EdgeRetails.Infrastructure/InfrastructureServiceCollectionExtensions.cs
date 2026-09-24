@@ -213,6 +213,32 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
 
+        services.AddEdgeRetailsLicensing(connectionString, productionStateRoot);
+
+        return services;
+    }
+
+    public static IServiceCollection AddEdgeRetailsLicensing(
+        this IServiceCollection services,
+        string connectionString,
+        string? productionStateRoot = null)
+    {
+        var stateRoot = productionStateRoot ?? ResolveProductionStateRoot();
+        var licensePath = Path.Combine(stateRoot, "license.erlic");
+
+        services.AddSingleton<EdgeRetails.Application.Production.Licensing.IDeviceIdentityProvider, EdgeRetails.Infrastructure.Production.Licensing.WindowsMachineIdentityProvider>();
+        services.AddSingleton<EdgeRetails.Application.Production.Licensing.ILicensePublicKeyProvider, EdgeRetails.Infrastructure.Production.Licensing.ProductionLicensePublicKeyProvider>();
+        services.AddSingleton<EdgeRetails.Application.Production.Licensing.ILicenseSignatureVerifier, EdgeRetails.Infrastructure.Production.Licensing.RsaSha256LicenseSignatureVerifier>();
+        services.AddScoped<EdgeRetails.Application.Production.Licensing.ILicenseValidator, EdgeRetails.Infrastructure.Production.Licensing.SignedLicenseValidator>();
+        services.AddScoped<EdgeRetails.Application.Production.Licensing.ILicenseStore>(_ => new EdgeRetails.Infrastructure.Production.Licensing.FileLicenseStore(licensePath));
+        services.AddScoped<EdgeRetails.Application.Production.Licensing.RuntimeLicenseService>();
+
+        services.AddScoped<EdgeRetails.Application.Production.Startup.IDatabaseReadinessProbe>(_ => new EdgeRetails.Infrastructure.Production.Startup.NpgsqlDatabaseReadinessProbe(connectionString));
+        services.AddScoped<EdgeRetails.Application.Production.Startup.IMigrationCompatibilityProbe, EdgeRetails.Infrastructure.Production.Startup.EfMigrationCompatibilityProbe<EdgeRetailsDbContext>>();
+        services.AddScoped<EdgeRetails.Application.Production.Startup.ISetupStateProbe, EdgeRetails.Infrastructure.Production.Startup.InstallationStateProbe>();
+        services.AddScoped<EdgeRetails.Application.Production.Startup.ISessionRecoveryProbe, EdgeRetails.Infrastructure.Production.Startup.DefaultSessionRecoveryProbe>();
+        services.AddScoped<EdgeRetails.Application.Production.Startup.ProductionStartupCoordinator>();
+
         return services;
     }
 

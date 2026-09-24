@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Warranty;
+using EdgeRetails.Application.Gateways;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Warranty;
@@ -200,8 +201,8 @@ public sealed class BackendOperationsService : IBackendOperationsService
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreateSupplierPaymentHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreateSupplierPaymentAsync(
             new CreateSupplierPaymentCommand(
                 supplierId,
                 amount,
@@ -245,8 +246,8 @@ public sealed class BackendOperationsService : IBackendOperationsService
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreateSupplierRefundHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreateSupplierRefundAsync(
             new CreateSupplierRefundCommand(
                 supplierId,
                 amount,
@@ -335,8 +336,8 @@ public sealed class BackendOperationsService : IBackendOperationsService
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreateWarrantyClaimHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreateWarrantyClaimAsync(
             new CreateWarrantyClaimCommand(
                 customerId,
                 saleId,

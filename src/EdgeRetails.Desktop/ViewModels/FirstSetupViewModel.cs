@@ -145,11 +145,11 @@ public sealed class FirstSetupViewModel : ViewModelBase
         }
 
         var extension = Path.GetExtension(filePath);
-        if (!string.Equals(extension, ".lic", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(extension, ".key", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(extension, ".erlic", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(extension, ".lic", StringComparison.OrdinalIgnoreCase))
         {
             _toastService.Show(
-                "License file must use .lic or .key format.",
+                "License file must use .erlic or .lic format.",
                 ToastTone.Warning);
             return false;
         }
@@ -165,7 +165,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
         var picker = new OpenFileDialog
         {
             Title = "Import Edge Retails License",
-            Filter = "License Files (*.lic;*.key)|*.lic;*.key"
+            Filter = "Edge Retails License (*.erlic;*.lic)|*.erlic;*.lic|All Files (*.*)|*.*"
         };
 
         if (picker.ShowDialog() == true)
@@ -225,13 +225,20 @@ public sealed class FirstSetupViewModel : ViewModelBase
             }
             else
             {
+                string? licenseContent = null;
+                if (!string.IsNullOrWhiteSpace(LicensePath) && File.Exists(LicensePath))
+                {
+                    licenseContent = await File.ReadAllTextAsync(LicensePath);
+                }
+
                 await _backendSetupService.CompleteFirstSetupAsync(
                     ShopName,
                     OwnerName,
                     Phone,
                     Address,
                     _ownerPin,
-                    ModuleName);
+                    ModuleName,
+                    licenseContent);
             }
 
 #if DEBUG

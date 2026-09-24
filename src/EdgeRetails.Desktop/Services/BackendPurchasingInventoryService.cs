@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Parties;
 using EdgeRetails.Application.Features.Purchasing;
+using EdgeRetails.Application.Gateways;
 using EdgeRetails.Desktop.ViewModels;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Purchasing;
@@ -239,8 +240,9 @@ public sealed class BackendPurchasingInventoryService
         }).ToArray();
 
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreatePurchaseHandler>();
-        var result = await handler.HandleAsync(
+        // Authoritative mutation routing: IApplicationGateway encapsulates CreatePurchaseHandler, CreatePurchaseReturnHandler, and VoidPurchaseHandler
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreatePurchaseAsync(
             new CreatePurchaseCommand(
                 supplierId,
                 invoiceNumber,
@@ -341,9 +343,8 @@ public sealed class BackendPurchasingInventoryService
         }).ToArray();
 
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider
-            .GetRequiredService<CreatePurchaseReturnHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.CreatePurchaseReturnAsync(
             new CreatePurchaseReturnCommand(
                 purchaseId,
                 string.IsNullOrWhiteSpace(reason)
@@ -377,8 +378,8 @@ public sealed class BackendPurchasingInventoryService
                 "Purchase is not attached to the production backend.");
 
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<VoidPurchaseHandler>();
-        var result = await handler.HandleAsync(
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.VoidPurchaseAsync(
             new VoidPurchaseCommand(
                 purchaseId,
                 Guid.CreateVersion7(),
@@ -386,7 +387,9 @@ public sealed class BackendPurchasingInventoryService
                 string.IsNullOrWhiteSpace(reason)
                     ? "Purchase void"
                     : reason.Trim()),
-            cancellationToken); if (!result.IsSuccess)
+            cancellationToken);
+
+        if (!result.IsSuccess)
         {
             throw new InvalidOperationException(
                 result.Error?.Message ?? "Backend purchase void failed.");

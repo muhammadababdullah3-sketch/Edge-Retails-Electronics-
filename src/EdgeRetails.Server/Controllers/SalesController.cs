@@ -9,15 +9,18 @@ namespace EdgeRetails.Server.Controllers;
 public sealed class SalesController : ControllerBase
 {
     private readonly CompleteSaleHandler _completeSaleHandler;
+    private readonly CompletePosDraftHandler _completePosDraftHandler;
     private readonly CreateSaleReturnHandler _saleReturnHandler;
     private readonly CommercialExchangeHandler _exchangeHandler;
 
     public SalesController(
         CompleteSaleHandler completeSaleHandler,
+        CompletePosDraftHandler completePosDraftHandler,
         CreateSaleReturnHandler saleReturnHandler,
         CommercialExchangeHandler exchangeHandler)
     {
         _completeSaleHandler = completeSaleHandler;
+        _completePosDraftHandler = completePosDraftHandler;
         _saleReturnHandler = saleReturnHandler;
         _exchangeHandler = exchangeHandler;
     }
@@ -28,6 +31,15 @@ public sealed class SalesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _completeSaleHandler.HandleAsync(command, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("drafts/complete")]
+    public async Task<IActionResult> CompletePosDraft(
+        [FromBody] CompletePosDraftCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await _completePosDraftHandler.HandleAsync(command, cancellationToken);
         return ToActionResult(result);
     }
 

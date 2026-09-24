@@ -66,6 +66,12 @@ This document serves as the authoritative operational root and navigation index 
 |     Scope: 9 automated pre-flight certification gates, operational SLAs, supported hardware       |
 |            matrix (OS, printers, scanners, drawers), and architectural boundary limitations.      |
 |                                                                                                   |
+|  9. PRODUCTION LICENSING STANDARD OPERATING PROCEDURE                                             |
+|     Location: docs/operations/Production_Licensing_Standard_Operating_Procedure.md                 |
+|     ID: ER-OPS-LIC-01                                                                             |
+|     Scope: RSA-2048 signing ceremony, public key distribution, .erlic format, machine binding    |
+|            verification, and silent enterprise deployment procedures.                             |
+|                                                                                                   |
 +---------------------------------------------------------------------------------------------------+
 ```
 

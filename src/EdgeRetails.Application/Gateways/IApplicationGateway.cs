@@ -47,6 +47,10 @@ public interface IApplicationGateway
         CompleteSaleCommand command,
         CancellationToken cancellationToken = default);
 
+    Task<Result<CompleteSaleResult>> CompletePosDraftAsync(
+        CompletePosDraftCommand command,
+        CancellationToken cancellationToken = default);
+
     Task<Result<CreateSaleReturnResult>> CreateSaleReturnAsync(
         CreateSaleReturnCommand command,
         CancellationToken cancellationToken = default);
