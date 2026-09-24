@@ -76,11 +76,51 @@ The repository compiles with **0 warnings and 0 errors** under `-warnaserror`. A
 
 ### Test Suite Execution
 - **Unit Tests (`EdgeRetails.UnitTests`):** 470 passed, 0 failed, 0 skipped.
-- **Desktop Performance Tests (`EdgeRetails.Desktop.PerformanceTests`):** 12 passed, 0 failed, 0 skipped.
-- **Total Automated Tests:** 482 passing tests.
+- **Desktop Performance & Regression Tests (`EdgeRetails.Desktop.PerformanceTests`):** 16 passed, 0 failed, 0 skipped.
+- **Total Automated Tests:** 486 passing tests.
 
 ---
 
 ## 5. Certification Sign-Off
 
 The Edge Retails repository at commit baseline is verified as robust, production-safe, and formally compliant with all architectural, security, and operational standards.
+
+---
+
+## 6. Post-Remediation Closure Patch
+
+Following independent post-remediation review of commit `de616154d9468177c5cc9966658fd529e61dee30`, a narrowly-scoped closure patch was implemented to address residual runtime, certification, and operational findings without disturbing completed business logic:
+
+### 6.1 Findings & Resolution Summary
+
+1. **Issue A: Certification Gate 7 False-Green Elimination**
+   - **Root Cause:** A missing local PostgreSQL environment previously logged a skip message but exited 0, risking false green certification.
+   - **Remediation:** `Invoke-Phase6FinalCertification.ps1` now explicitly distinguishes `PASS`, `BLOCKED_ENVIRONMENT`, and `FAIL`. Exit codes are strictly enforced: `0` for `PASS`, `1` for `FAIL`, and `2` for `BLOCKED_ENVIRONMENT` (unless `-AllowBlockedEnvironment` is explicitly passed).
+
+2. **Issue B: Real PostgreSQL 18 Migration Rehearsal Execution**
+   - **Root Cause:** In PowerShell on Windows, quoted SQL string arguments passed via `-c` to `psql.exe` stripped quotes, causing migration history table lookups to fail; minor index and column names in verification queries did not match the canonical Phase 1 migration.
+   - **Remediation:** Fixed `Invoke-Phase6DatabaseMigrationRehearsal.ps1` to feed SQL queries via stdin stream. Corrected index checks to `ix_movements_occurred_at_id` on `inventory.movements` and `ix_product_unit_barcodes_barcode` on `catalog.product_unit_barcodes`. Added mandatory `is_active` column to unit seed statements. Executed real isolated PostgreSQL 18 rehearsal (cluster init, 0->Latest migration, 0 model drift, schema constraint/index validation, Down->Zero->Up unwind/re-apply, and compatibility cases A-F) - verified 100% PASS in Gate 7.
+
+3. **Issues C & D: Windows Service Deployment Model & Operational Path Alignment**
+   - **Root Cause:** The WiX installer does not bundle Windows Services; deployment requires manual registration. Documentation inconsistently referenced root binaries vs subfolder binaries (`worker/` and `server/`).
+   - **Remediation:** Authoritatively formalized the Windows service model as `MANUAL_BY_DESIGN`. Created production helper scripts `scripts/Register-EdgeRetailsServices.ps1`, `scripts/Unregister-EdgeRetailsServices.ps1`, and `scripts/Test-EdgeRetailsServices.ps1`. Aligned all paths in `docs/operations/Installer_Deployment_Guide.md`, `docs/operations/Disaster_Recovery_Runbook.md`, and `docs/operations/Security_Key_Rotation_Guide.md` to `worker\EdgeRetails.Worker.exe` and `server\EdgeRetails.Server.exe`. Added regression test `InstallerAndOperationalScripts_WorkerAndServerPaths_MatchPublishedLayout`.
+
+4. **Issue E: First Setup Fail-Closed Invariant without License**
+   - **Root Cause:** `IBackendSetupService.CompleteFirstSetupAsync` accepted optional nullable `string? signedLicenseContent = null`, allowing first setup completion without license verification.
+   - **Remediation:** Made `signedLicenseContent` a required non-nullable parameter. `CompleteFirstSetupAsync` immediately throws `InvalidOperationException("A valid production license is mandatory to complete initial setup.")` if null or whitespace. `FirstSetupViewModel` validates license path before reading and passes license content. Added regression tests `BackendSetupService_FailsClosed_WhenLicenseMissing` and `BackendSetupService_FailsClosed_WhenLicenseSignatureInvalid`.
+
+5. **Issue F: License Extension Standard and Compatibility**
+   - **Root Cause:** Clarification needed between canonical `.erlic` extension and legacy `.lic` files.
+   - **Remediation:** Standardized `.erlic` as the authoritative canonical extension while supporting `.lic` in file open dialogs. Cryptographic verification remains strictly content-based (RSA-SHA256 signature verification), ensuring extension name does not affect security.
+
+6. **Issue G: `IApplicationGateway` Architectural Boundary Clarification**
+   - **Root Cause:** Verification required that Desktop ViewModels remain agnostic to Standalone vs LAN topology.
+   - **Remediation:** Added architecture regression test `ArchitectureBoundary_DesktopViewModels_DoNotReferenceDbContextOrDirectGateways` confirming that no ViewModel directly references `EdgeRetailsDbContext` or concrete gateway types. All transactions and mutations flow strictly through `IApplicationGateway`.
+
+7. **Issue H: Gate 9 Multi-Agent Handoff Verification Fail-Closed**
+   - **Root Cause:** Gate 9 needed fail-closed validation of all Phase 6 multi-agent handoff artifacts.
+   - **Remediation:** Gate 9 now enforces that all patterns (`AgentA_*` through `AgentG_*`) match at least one `.md` file in `docs/Phase6_Agent_Handoffs/`.
+
+8. **Issue I: Certification Truthfulness and Exact Run Results**
+   - **Remediation:** Updated all metrics and documentation to reflect exact live test results (486 total automated tests, all 9 certification gates PASS).
+

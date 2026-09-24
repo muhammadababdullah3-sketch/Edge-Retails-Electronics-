@@ -5,7 +5,8 @@
 param(
     [string]$Solution = "EdgeRetails.sln",
     [string]$Configuration = "Release",
-    [switch]$SkipLongRehearsals = $false
+    [switch]$SkipLongRehearsals = $false,
+    [switch]$AllowBlockedEnvironment = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,7 @@ Write-Host ""
 
 $root = (Resolve-Path ".").Path
 $overallPass = $true
+$hasBlocked = $false
 $gateResults = [ordered]@{}
 
 function Invoke-CertificationGate {
@@ -33,10 +35,16 @@ function Invoke-CertificationGate {
     Write-Host ">>> EXECUTING GATE: $Name" -ForegroundColor Yellow
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        & $Action
+        $res = & $Action
         $sw.Stop()
-        Write-Host (">>> GATE PASS: " + $Name + " (" + $sw.ElapsedMilliseconds + " ms)`n") -ForegroundColor Green
-        $script:gateResults[$Name] = "PASS"
+        if ($res -is [string] -and $res -match "^BLOCKED_ENVIRONMENT") {
+            Write-Host (">>> GATE BLOCKED_ENVIRONMENT: " + $Name + " (" + $sw.ElapsedMilliseconds + " ms) - " + $res + "`n") -ForegroundColor Yellow
+            $script:gateResults[$Name] = "BLOCKED_ENVIRONMENT"
+            $script:hasBlocked = $true
+        } else {
+            Write-Host (">>> GATE PASS: " + $Name + " (" + $sw.ElapsedMilliseconds + " ms)`n") -ForegroundColor Green
+            $script:gateResults[$Name] = "PASS"
+        }
     }
     catch {
         $sw.Stop()
@@ -118,18 +126,52 @@ try {
         }
         
         $infraProj = Join-Path $root "src\EdgeRetails.Infrastructure"
-        # Rehearse idempotent migration script generation
+        # 1. Rehearse idempotent migration script generation
         $scriptOutput = & dotnet ef migrations script --project $infraProj --startup-project $infraProj --idempotent --no-build
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($scriptOutput)) {
             throw "Idempotent migration script generation failed."
         }
         Write-Host "    Idempotent migration script generated successfully." -ForegroundColor Gray
 
-        $connStr = $env:EDGE_RETAILS_DB
+        # 2. Check for isolated rehearsal PostgreSQL environment
+        $rehearsalScript = Join-Path $root "scripts\Invoke-Phase6DatabaseMigrationRehearsal.ps1"
+        $pgBin = $env:PG_BIN
+        if ([string]::IsNullOrWhiteSpace($pgBin)) {
+            $pgBin = "C:\Program Files\PostgreSQL\18\bin"
+        }
+
+        $canRehearseCluster = (Test-Path (Join-Path $pgBin "initdb.exe") -PathType Leaf) -and (Test-Path $rehearsalScript -PathType Leaf)
+        $connStr = $env:EDGE_RETAILS_TEST_DB
         if ([string]::IsNullOrWhiteSpace($connStr)) {
-            Write-Host "    [BLOCKED_ENVIRONMENT] Live database not provisioned for runtime rehearsal (EDGE_RETAILS_DB is unset). Static migration script generation passed." -ForegroundColor Yellow
-        } else {
-            Write-Host "    Live database connection string detected: verifying connectivity rehearsal..." -ForegroundColor Gray
+            $connStr = $env:EDGE_RETAILS_REHEARSAL_DB
+        }
+
+        if ($canRehearseCluster -and -not $SkipLongRehearsals) {
+            Write-Host "    Executing isolated PostgreSQL 18 cluster migration rehearsal..." -ForegroundColor Gray
+            $rehearsalOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $rehearsalScript -PgBin $pgBin -SolutionRoot $root
+            if ($LASTEXITCODE -ne 0) {
+                throw "PostgreSQL 18 database migration rehearsal failed."
+            }
+            Write-Host "    PostgreSQL 18 database migration rehearsal PASSED with full schema and compatibility verification." -ForegroundColor Gray
+            return "PASS"
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($connStr)) {
+            # Dedicated test connection provided
+            # Verify target database is explicitly disposable/non-production
+            if ($connStr -notmatch "_test|_rehearsal|_disposable|_temp" -or $connStr -match "prod|production") {
+                throw "Target database connection string does not appear to be an isolated disposable/test database: $connStr"
+            }
+            Write-Host "    Executing EF Core database update on test database: $connStr..." -ForegroundColor Gray
+            $updateOutput = & dotnet ef database update --project $infraProj --startup-project $infraProj --context EdgeRetailsDbContext --connection $connStr
+            if ($LASTEXITCODE -ne 0) {
+                throw "Migration rehearsal on test connection failed: $updateOutput"
+            }
+            Write-Host "    Migration rehearsal on test connection PASSED." -ForegroundColor Gray
+            return "PASS"
+        }
+        else {
+            Write-Host "    [BLOCKED_ENVIRONMENT] No local PostgreSQL 18 tools or disposable test database (EDGE_RETAILS_TEST_DB) detected for runtime migration rehearsal." -ForegroundColor Yellow
+            return "BLOCKED_ENVIRONMENT: SKIPPED_NO_REHEARSAL_POSTGRES"
         }
     }
 
@@ -177,17 +219,20 @@ try {
 
         # Also verify multi-agent handoff artifacts
         $stateFile = Join-Path $root "docs\Phase6_Execution_State.md"
-        if (-not (Test-Path $stateFile -PathType Leaf)) { throw "Phase 6 Execution State missing: $stateFile" }
+        if (-not (Test-Path $stateFile -PathType Leaf)) { throw "Phase6 Execution State missing: $stateFile" }
         $handoffDir = Join-Path $root "docs\Phase6_Agent_Handoffs"
-        if (-not (Test-Path $handoffDir -PathType Container)) { throw "Phase 6 Agent Handoffs directory missing: $handoffDir" }
+        if (-not (Test-Path $handoffDir -PathType Container)) { throw "Phase6 Agent Handoffs directory missing: $handoffDir" }
         
         $requiredHandoffPatterns = @(
             "AgentA_*", "AgentB_*", "AgentC_*", "AgentD_*", "AgentE_*", "AgentF_*", "AgentG_*"
         )
         foreach ($pattern in $requiredHandoffPatterns) {
-            $matched = Get-ChildItem -Path $handoffDir -Filter "$pattern.md" -File
-            if ($matched) {
-                Write-Host "    Verified handoff artifact: $($matched.Name)" -ForegroundColor Gray
+            $matched = @(Get-ChildItem -Path $handoffDir -Filter "$pattern.md" -File)
+            if ($matched.Count -eq 0) {
+                throw "Mandatory handoff artifact missing matching pattern '$pattern.md' in $handoffDir"
+            }
+            foreach ($m in $matched) {
+                Write-Host "    Verified handoff artifact: $($m.Name)" -ForegroundColor Gray
             }
         }
     }
@@ -199,14 +244,43 @@ catch {
     exit 1
 }
 
-Write-Host "=======================================================================" -ForegroundColor Green
-Write-Host " AUTOMATED PHASE 6 CERTIFICATION GATES SUMMARY" -ForegroundColor Green
-Write-Host "=======================================================================" -ForegroundColor Green
+Write-Host "=======================================================================" -ForegroundColor Cyan
+Write-Host " AUTOMATED PHASE 6 CERTIFICATION GATES SUMMARY" -ForegroundColor Cyan
+Write-Host "=======================================================================" -ForegroundColor Cyan
 foreach ($key in $gateResults.Keys) {
-    Write-Host ("{0,-50} : {1}" -f $key, $gateResults[$key]) -ForegroundColor Cyan
+    $resColor = switch ($gateResults[$key]) {
+        "PASS" { "Green" }
+        "BLOCKED_ENVIRONMENT" { "Yellow" }
+        Default { "Red" }
+    }
+    Write-Host ("{0,-50} : {1}" -f $key, $gateResults[$key]) -ForegroundColor $resColor
 }
 
 Write-Host ""
+if (-not $overallPass) {
+    Write-Host "=======================================================================" -ForegroundColor Red
+    Write-Host " PHASE6_FINAL_CERTIFICATION_FAIL" -ForegroundColor Red
+    Write-Host "=======================================================================" -ForegroundColor Red
+    exit 1
+}
+
+if ($hasBlocked) {
+    if ($AllowBlockedEnvironment) {
+        Write-Host "=======================================================================" -ForegroundColor Yellow
+        Write-Host " CERTIFIED_WITH_EXPLICIT_ENVIRONMENT_BLOCKED_GATES" -ForegroundColor Yellow
+        Write-Host "=======================================================================" -ForegroundColor Yellow
+        exit 0
+    }
+    else {
+        Write-Host "=======================================================================" -ForegroundColor Yellow
+        Write-Host " PHASE6_CERTIFICATION_BLOCKED_ENVIRONMENT" -ForegroundColor Yellow
+        Write-Host "=======================================================================" -ForegroundColor Yellow
+        Write-Host "One or more mandatory runtime gates were blocked due to missing environment requirements." -ForegroundColor Yellow
+        Write-Host "Run with -AllowBlockedEnvironment to permit non-production development progression." -ForegroundColor Yellow
+        exit 2
+    }
+}
+
 Write-Host "=======================================================================" -ForegroundColor Green
 Write-Host " PHASE6_FINAL_CERTIFICATION_PASS" -ForegroundColor Green
 Write-Host "=======================================================================" -ForegroundColor Green

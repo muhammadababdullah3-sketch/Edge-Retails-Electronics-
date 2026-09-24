@@ -149,7 +149,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
             !string.Equals(extension, ".lic", StringComparison.OrdinalIgnoreCase))
         {
             _toastService.Show(
-                "License file must use .erlic or .lic format.",
+                "License file must use canonical .erlic format (or legacy .lic).",
                 ToastTone.Warning);
             return false;
         }
@@ -165,7 +165,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
         var picker = new OpenFileDialog
         {
             Title = "Import Edge Retails License",
-            Filter = "Edge Retails License (*.erlic;*.lic)|*.erlic;*.lic|All Files (*.*)|*.*"
+            Filter = "Canonical Edge Retails License (*.erlic)|*.erlic|Legacy License (*.lic)|*.lic|All Files (*.*)|*.*"
         };
 
         if (picker.ShowDialog() == true)
@@ -225,11 +225,13 @@ public sealed class FirstSetupViewModel : ViewModelBase
             }
             else
             {
-                string? licenseContent = null;
-                if (!string.IsNullOrWhiteSpace(LicensePath) && File.Exists(LicensePath))
+                if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
                 {
-                    licenseContent = await File.ReadAllTextAsync(LicensePath);
+                    _toastService.Show("A valid license file (.erlic) is required before completing setup.", ToastTone.Warning);
+                    return;
                 }
+
+                var licenseContent = await File.ReadAllTextAsync(LicensePath);
 
                 await _backendSetupService.CompleteFirstSetupAsync(
                     ShopName,

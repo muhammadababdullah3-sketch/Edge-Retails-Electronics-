@@ -44,6 +44,11 @@ To ensure total data protection across upgrades, reinstallations, and uninstalls
 +---------------------------------------------------------------------------------------------------+
 |  1. APPLICATION BINARIES (MSI-OWNED)                                                              |
 |     C:\Program Files\Edge Retails\                                                                |
+|     ├── EdgeRetails.Desktop.exe (WPF Point of Sale Desktop Host)                                 |
+|     ├── worker\                                                                                   |
+|     │   └── EdgeRetails.Worker.exe (Background Outbox & Backup Worker)                             |
+|     └── server\                                                                                   |
+|         └── EdgeRetails.Server.exe (LAN Shop Server)                                              |
 |     - Overwritten during version upgrades.                                                        |
 |     - Removed completely on uninstall.                                                            |
 |     - Contains ZERO database files, user data, licenses, or logs.                                 |
@@ -151,13 +156,21 @@ if (Test-Path "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe") {
 
 ## 5. Background Service Registration
 
+Service registration is operational and manual by design, giving administrators explicit control over the node role (e.g. standalone workstation vs. dedicated LAN server host vs. satellite client terminal). 
+
+Administrators can use the automated PowerShell helper scripts located in the `scripts\` repository folder (or run the equivalent `sc.exe` commands below):
+- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker` (for Standalone / Host nodes)
+- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker -RegisterServer` (for LAN Server Host nodes)
+- `scripts\Unregister-EdgeRetailsServices.ps1` (for service removal / decommission)
+- `scripts\Test-EdgeRetailsServices.ps1` (for runtime service diagnostics)
+
 ### 5.1 Register Background Worker Service (`EdgeRetails.Worker`)
 The background worker manages outbox execution, scheduled database backups, and printer queue dispatching.
 
 ```powershell
 # Register Windows Service via sc.exe (Elevated Prompt)
 sc.exe create EdgeRetailsWorker `
-    binPath= "C:\Program Files\Edge Retails\EdgeRetails.Worker.exe" `
+    binPath= "C:\Program Files\Edge Retails\worker\EdgeRetails.Worker.exe" `
     start= auto `
     DisplayName= "Edge Retails Background Worker"
 
@@ -174,9 +187,12 @@ For multi-terminal deployments where the host machine acts as the shop server:
 ```powershell
 # Register LAN Server Service
 sc.exe create EdgeRetailsServer `
-    binPath= "C:\Program Files\Edge Retails\EdgeRetails.Server.exe" `
+    binPath= "C:\Program Files\Edge Retails\server\EdgeRetails.Server.exe" `
     start= auto `
     DisplayName= "Edge Retails LAN Shop Server"
+
+# Configure failure recovery
+sc.exe failure EdgeRetailsServer reset= 86400 actions= restart/60000/restart/60000/restart/60000
 
 # Configure firewall rule to allow terminal connections on port 7150
 New-NetFirewallRule -DisplayName "Edge Retails LAN Server (HTTPS)" `
@@ -184,6 +200,19 @@ New-NetFirewallRule -DisplayName "Edge Retails LAN Server (HTTPS)" `
 
 # Start the server service
 net start EdgeRetailsServer
+```
+
+### 5.3 Service Unregistration & Cleanup
+To cleanly unregister services prior to node decommissioning or re-provisioning:
+
+```powershell
+# Stop and delete worker service
+net stop EdgeRetailsWorker
+sc.exe delete EdgeRetailsWorker
+
+# Stop and delete server service (if registered)
+net stop EdgeRetailsServer
+sc.exe delete EdgeRetailsServer
 ```
 
 ---

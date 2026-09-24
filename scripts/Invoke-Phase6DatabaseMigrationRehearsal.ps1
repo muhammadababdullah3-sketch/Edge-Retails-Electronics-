@@ -61,7 +61,7 @@ function Invoke-PgTool([string]$Tool, [string[]]$Arguments) {
 
 function Invoke-PsqlQuery([string]$Database, [string]$Sql) {
     $exe = Join-Path $PgBin 'psql.exe'
-    $res = & $exe -h 127.0.0.1 -p $Port -U $adminUser -d $Database -t -A -q -c $Sql
+    $res = $Sql | & $exe -h 127.0.0.1 -p $Port -U $adminUser -d $Database -t -A -q
     if ($LASTEXITCODE -ne 0) {
         throw "psql query failed: $Sql"
     }
@@ -186,9 +186,9 @@ try {
     # Verify specific critical indexes
     $criticalIndexes = @(
         @{ Schema = 'purchasing'; Index = 'ix_purchases_purchase_date_id' },
-        @{ Schema = 'inventory'; Index = 'ix_inventory_movements_occurred_at_id' },
+        @{ Schema = 'inventory'; Index = 'ix_movements_occurred_at_id' },
         @{ Schema = 'warranty'; Index = 'ix_claims_claim_number' },
-        @{ Schema = 'catalog'; Index = 'ix_product_units_barcode' },
+        @{ Schema = 'catalog'; Index = 'ix_product_unit_barcodes_barcode' },
         @{ Schema = 'system'; Index = 'ix_installation_state_singleton_key' }
     )
     foreach ($ci in $criticalIndexes) {
@@ -258,7 +258,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Rollback to Phase 1 failed.' }
 
     # Seed business test record into older DB (unit in catalog)
-    $seedSql = "INSERT INTO catalog.units (id, name, short_name, allow_decimal, is_active) VALUES ('11111111-1111-1111-1111-111111111111', 'Pieces', 'pcs', false, true);"
+    $seedSql = "INSERT INTO catalog.units (id, name, symbol, display_decimal_places, is_active) VALUES ('11111111-1111-1111-1111-111111111111', 'Pieces', 'pcs', 0, true);"
     Invoke-PsqlQuery $testDb $seedSql | Out-Null
 
     # Take backup before upgrade (as required by Section 8.4 / Annex H)

@@ -13,7 +13,7 @@ public interface IBackendSetupService
         string address,
         string ownerPin,
         string selectedModule,
-        string? signedLicenseContent = null,
+        string signedLicenseContent,
         CancellationToken cancellationToken = default);
 }
 
@@ -33,29 +33,32 @@ public sealed class BackendSetupService : IBackendSetupService
         string address,
         string ownerPin,
         string selectedModule,
-        string? signedLicenseContent = null,
+        string signedLicenseContent,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(signedLicenseContent))
+        {
+            throw new InvalidOperationException(
+                "A valid signed Edge Retails license (.erlic) is required to complete first-time setup.");
+        }
+
         await using var scope = _scopeFactory.CreateAsyncScope();
 
         // 1. Authoritative backend license validation & persistence
-        if (!string.IsNullOrWhiteSpace(signedLicenseContent))
+        var validator = scope.ServiceProvider.GetRequiredService<ILicenseValidator>();
+        var validationResult = await validator.ValidateAsync(signedLicenseContent, cancellationToken);
+
+        if (!validationResult.IsValid)
         {
-            var validator = scope.ServiceProvider.GetRequiredService<ILicenseValidator>();
-            var validationResult = await validator.ValidateAsync(signedLicenseContent, cancellationToken);
+            throw new InvalidOperationException(
+                $"License verification failed: {validationResult.Message ?? validationResult.Status.ToString()}");
+        }
 
-            if (!validationResult.IsValid)
-            {
-                throw new InvalidOperationException(
-                    $"License verification failed: {validationResult.Message ?? validationResult.Status.ToString()}");
-            }
-
-            var store = scope.ServiceProvider.GetRequiredService<ILicenseStore>();
-            var persisted = await store.TryPersistInitialRawAsync(signedLicenseContent, cancellationToken);
-            if (!persisted)
-            {
-                await store.PersistRawAsync(signedLicenseContent, cancellationToken);
-            }
+        var store = scope.ServiceProvider.GetRequiredService<ILicenseStore>();
+        var persisted = await store.TryPersistInitialRawAsync(signedLicenseContent, cancellationToken);
+        if (!persisted)
+        {
+            await store.PersistRawAsync(signedLicenseContent, cancellationToken);
         }
 
         // 2. Complete identity and business bootstrap

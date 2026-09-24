@@ -33,7 +33,7 @@ When a POS machine or LAN Server suffers catastrophic hardware destruction (moth
 1. Locate the latest authenticated backup pair (`.erbak` and `.manifest.json`) from external storage, network share, or cloud replication.
 2. Execute the restore command via the Worker CLI:
    ```powershell
-   dotnet run --project "C:\Program Files\Edge Retails\EdgeRetails.Worker.exe" -- restore full `
+   & "C:\Program Files\Edge Retails\worker\EdgeRetails.Worker.exe" -- restore full `
        --artifact "D:\Backups\edgeretails_prod_latest.erbak"
    ```
 3. Verify that all 63 tables are restored and query plans report healthy.
@@ -42,12 +42,12 @@ When a POS machine or LAN Server suffers catastrophic hardware destruction (moth
 Because the physical hardware changed, `IDeviceIdentityProvider` will produce a new `DeviceId`. The existing license will report `LicenseValidationStatus.DeviceMismatch`:
 1. Obtain the new Device ID from the Diagnostics screen or CLI:
    ```powershell
-   dotnet run --project "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe" -- show-device-id
+   & "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe" -- show-device-id
    ```
 2. Contact Edge Retails Support / Portal with the shop NTN, license ID, and new Device ID.
 3. Receive the re-keyed signed license envelope (`.erlic`) and import it:
    ```powershell
-   dotnet run --project "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe" -- import-license `
+   & "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe" -- import-license `
        --file "D:\Licensing\edgeretails_reissued.erlic"
    ```
 
@@ -185,6 +185,6 @@ If the cross-process maintenance barrier remains stuck in `RecoveryRequired` aft
 2. Check the contents of `%LOCALAPPDATA%\EdgeRetails\Production\production-maintenance.state.json`.
 3. If database cutover completed and PostgreSQL is healthy (`SELECT 1`), reset the barrier:
    ```powershell
-   dotnet run --project "C:\Program Files\Edge Retails\EdgeRetails.Worker.exe" -- maintenance reset-barrier
+   & "C:\Program Files\Edge Retails\worker\EdgeRetails.Worker.exe" -- maintenance reset-barrier
    ```
 4. Verify that the barrier state returns to `Normal`.

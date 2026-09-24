@@ -102,7 +102,7 @@ Governed by `FileProductionMaintenanceIntegrityKeyProvider`. The barrier key pre
 #### Procedure:
 1. **Engage Maintenance Mode:**
    ```powershell
-   dotnet run --project "C:\Program Files\Edge Retails\EdgeRetails.Worker.exe" -- maintenance enter
+   & "C:\Program Files\Edge Retails\worker\EdgeRetails.Worker.exe" -- maintenance enter
    ```
 2. **Delete Existing Integrity Key File:**
    ```powershell
