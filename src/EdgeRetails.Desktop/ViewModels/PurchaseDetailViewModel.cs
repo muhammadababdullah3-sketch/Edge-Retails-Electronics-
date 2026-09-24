@@ -9,7 +9,7 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly IBackendPurchasingInventoryService? _backendService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private PurchaseRecord _purchase = null!;
     private bool _isLoadingBackendDetail;
 
@@ -19,14 +19,14 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
         IDialogService dialogService,
         IToastService toastService,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendPhase4WorkflowService? phase4Service = null)
+        IBackendWorkflowReadService? workflowService = null)
     {
         _purchase = purchase;
         _drawerService = drawerService;
         _dialogService = dialogService;
         _toastService = toastService;
         _backendService = backendService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
 
         CloseCommand = new RelayCommand(_drawerService.Close);
         ReturnPurchaseCommand = new RelayCommand(OpenReturn, () => CanReturnPurchase);
@@ -109,7 +109,7 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
             _dialogService.Close,
             completed: OnReturnProcessed,
             backendService: _backendService,
-            phase4Service: _phase4Service,
+            workflowService: _workflowService,
             dialogService: _dialogService));
     }
 

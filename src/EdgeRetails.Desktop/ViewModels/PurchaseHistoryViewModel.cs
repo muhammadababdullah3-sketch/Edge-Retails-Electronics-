@@ -8,7 +8,7 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoPurchaseInventoryService _service;
     private readonly IBackendPurchasingInventoryService? _backendService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly List<PurchaseRecord> _backendPurchases = [];
     private bool _backendLoaded;
     private bool _backendLoading;
@@ -31,14 +31,14 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
         IDrawerService drawerService,
         IDialogService dialogService,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendPhase4WorkflowService? phase4Service = null)
+        IBackendWorkflowReadService? workflowService = null)
     {
         _toastService = toastService;
         _drawerService = drawerService;
         _dialogService = dialogService;
         _service = DemoPurchaseInventoryService.Instance;
         _backendService = backendService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
 
         FilteredPurchases = [];
         Suppliers = backendService is null
@@ -221,7 +221,7 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
             _dialogService,
             _toastService,
             _backendService,
-            _phase4Service));
+            _workflowService));
     }
 
     private void OnServiceStateChanged(object? sender, EventArgs e) => Refresh();

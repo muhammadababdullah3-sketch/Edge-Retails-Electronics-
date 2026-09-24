@@ -9,7 +9,7 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class WarrantyViewModel : ViewModelBase
 {
-    private readonly IBackendPhase5OperationsService? _phase5Service;
+    private readonly IBackendOperationsService? _operationsService;
     private readonly IToastService? _toastService;
     private const int DashboardPageSize = 200;
     private readonly List<WarrantyQueueRowDto> _allRows = [];
@@ -49,10 +49,10 @@ public sealed class WarrantyViewModel : ViewModelBase
     private string? _pendingShopReceiveOperationKey;
 
     public WarrantyViewModel(
-        IBackendPhase5OperationsService? phase5Service = null,
+        IBackendOperationsService? operationsService = null,
         IToastService? toastService = null)
     {
-        _phase5Service = phase5Service;
+        _operationsService = operationsService;
         _toastService = toastService;
 
         Rows = [];
@@ -303,7 +303,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task SearchClaimIntakeAsync()
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             return;
         }
@@ -317,7 +317,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            var results = await _phase5Service.SearchWarrantyClaimIntakeAsync(ClaimIntakeSearchText);
+            var results = await _operationsService.SearchWarrantyClaimIntakeAsync(ClaimIntakeSearchText);
             IntakeRows.Clear();
             foreach (var row in results)
             {
@@ -329,7 +329,7 @@ public sealed class WarrantyViewModel : ViewModelBase
                 ? "No eligible sale/item candidates found."
                 : $"{results.Count} authoritative sale/item candidate(s) found.";
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
         }
@@ -345,7 +345,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task CreateClaimAsync()
     {
-        if (_phase5Service is null || SelectedIntakeRow is null)
+        if (_operationsService is null || SelectedIntakeRow is null)
         {
             _toastService?.Show("Search and select an eligible sold item first.", ToastTone.Warning);
             return;
@@ -404,7 +404,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            var claimId = await _phase5Service.CreateWarrantyClaimAsync(
+            var claimId = await _operationsService.CreateWarrantyClaimAsync(
                 customerId,
                 SelectedIntakeRow.SaleId,
                 null,
@@ -421,7 +421,7 @@ public sealed class WarrantyViewModel : ViewModelBase
             ClaimIntakeUnitIdsText = string.Empty;
             await RefreshAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show(
                 $"{ex.Code}: {ex.Message} The same ClientOperationId is retained for a safe retry.",
@@ -470,7 +470,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task RefreshAsync()
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             Summary = null;
             _allRows.Clear();
@@ -488,7 +488,7 @@ public sealed class WarrantyViewModel : ViewModelBase
             _searchCts = null;
             Interlocked.Increment(ref _searchVersion);
 
-            var dashboard = await _phase5Service.GetWarrantyDashboardAsync(
+            var dashboard = await _operationsService.GetWarrantyDashboardAsync(
                 null,
                 DashboardPageSize,
                 cancellationToken: CancellationToken.None);
@@ -500,7 +500,7 @@ public sealed class WarrantyViewModel : ViewModelBase
                 ? "No warranty cases are currently recorded."
                 : $"{_allRows.Count} warranty work item(s) loaded from backend authority.";
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             Summary = null;
             _allRows.Clear();
@@ -531,12 +531,12 @@ public sealed class WarrantyViewModel : ViewModelBase
         try
         {
             await Task.Delay(250, cts.Token);
-            if (_phase5Service is null || version != Volatile.Read(ref _searchVersion))
+            if (_operationsService is null || version != Volatile.Read(ref _searchVersion))
             {
                 return;
             }
 
-            var dashboard = await _phase5Service.GetWarrantyDashboardAsync(
+            var dashboard = await _operationsService.GetWarrantyDashboardAsync(
                 string.IsNullOrWhiteSpace(search) ? null : search,
                 DashboardPageSize,
                 cancellationToken: cts.Token);
@@ -557,7 +557,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
         }
-        catch (Phase5OperationException ex) when (version == Volatile.Read(ref _searchVersion))
+        catch (OperationException ex) when (version == Volatile.Read(ref _searchVersion))
         {
             StatusMessage = $"{ex.Code}: {ex.Message}";
         }
@@ -599,7 +599,7 @@ public sealed class WarrantyViewModel : ViewModelBase
     private async Task LoadTimelineAsync()
     {
         Timeline.Clear();
-        if (_phase5Service is null ||
+        if (_operationsService is null ||
             SelectedRow is not { Kind: WarrantyWorkKind.CustomerClaim } selected)
         {
             return;
@@ -607,7 +607,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
         try
         {
-            var events = await _phase5Service.GetWarrantyClaimTimelineAsync(selected.WorkId);
+            var events = await _operationsService.GetWarrantyClaimTimelineAsync(selected.WorkId);
             foreach (var entry in events)
             {
                 Timeline.Add(entry);
@@ -629,7 +629,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task ReceiveCustomerReplacementAsync()
     {
-        if (_phase5Service is null || SelectedRow is null)
+        if (_operationsService is null || SelectedRow is null)
         {
             _toastService?.Show("Select a Customer Warranty claim first.", ToastTone.Warning);
             return;
@@ -680,7 +680,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            await _phase5Service.ReceiveCustomerWarrantyReplacementAsync(
+            await _operationsService.ReceiveCustomerWarrantyReplacementAsync(
                 SelectedRow.WorkId,
                 inputs,
                 _pendingCustomerReplacementOperationId.Value,
@@ -691,7 +691,7 @@ public sealed class WarrantyViewModel : ViewModelBase
             ClearPendingCustomerReplacementOperation();
             await RefreshAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show($"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.", ToastTone.Danger);
         }
@@ -707,7 +707,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task SendShopStockAsync()
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             return;
         }
@@ -769,7 +769,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            var caseId = await _phase5Service.SendShopStockWarrantyAsync(
+            var caseId = await _operationsService.SendShopStockWarrantyAsync(
                 productId,
                 sourceBucket,
                 quantity,
@@ -783,7 +783,7 @@ public sealed class WarrantyViewModel : ViewModelBase
             ClearPendingShopSendOperation();
             await RefreshAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
         }
@@ -799,7 +799,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task ReceiveShopStockAsync(WarrantyResolutionType resolution)
     {
-        if (_phase5Service is null || SelectedRow is null)
+        if (_operationsService is null || SelectedRow is null)
         {
             _toastService?.Show("Select a Shop Stock warranty case first.", ToastTone.Warning);
             return;
@@ -867,7 +867,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            await _phase5Service.ReceiveShopStockWarrantyAsync(
+            await _operationsService.ReceiveShopStockWarrantyAsync(
                 SelectedRow.WorkId,
                 resolution,
                 originalUnitIds,
@@ -881,7 +881,7 @@ public sealed class WarrantyViewModel : ViewModelBase
             ClearPendingShopReceiveOperation();
             await RefreshAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show($"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.", ToastTone.Danger);
         }
@@ -926,10 +926,10 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     private async Task ExecuteCustomerActionAsync(
         string operationName,
-        Func<IBackendPhase5OperationsService, Guid, Guid, Task> action,
+        Func<IBackendOperationsService, Guid, Guid, Task> action,
         string successMessage)
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             return;
         }
@@ -959,13 +959,13 @@ public sealed class WarrantyViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            await action(_phase5Service, SelectedRow.WorkId, _pendingCustomerOperationId.Value);
+            await action(_operationsService, SelectedRow.WorkId, _pendingCustomerOperationId.Value);
             _toastService?.Show(successMessage, ToastTone.Success);
             ActionNote = string.Empty;
             ClearPendingCustomerOperation();
             await RefreshAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _toastService?.Show(
                 $"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.",

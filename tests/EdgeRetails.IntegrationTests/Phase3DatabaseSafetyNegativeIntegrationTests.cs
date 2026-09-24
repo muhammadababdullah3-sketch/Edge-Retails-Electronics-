@@ -14,7 +14,7 @@ public sealed class Phase3DatabaseSafetyNegativeIntegrationTests
     public async Task DBSAFE_01_DatabaseUnavailable_SocketTimeout_ReturnsUnavailableAndFailsFast()
     {
         // Target an unreachable port on localhost to trigger connection timeout
-        var unreachableConn = "Host=127.0.0.1;Port=54399;Database=nonexistent;Username=none;Password=none;Timeout=10";
+        var unreachableConn = "Host=127.0.0.1;Port=54399;Database=nonexistent;Username=none;Password=$none;Timeout=10";
         var probe = new NpgsqlDatabaseReadinessProbe(unreachableConn);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();

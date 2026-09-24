@@ -98,7 +98,7 @@ internal static class Program
         var memoryAfter = Process.GetCurrentProcess().WorkingSet64;
         var gcAfter = ReadGcCounts();
 
-        Phase5DiagnosticsSnapshot? diagnosticsSnapshot = null;
+        DiagnosticsSnapshot? diagnosticsSnapshot = null;
         if (options.ContainsKey("diagnostics"))
         {
             var services = new ServiceCollection();
@@ -111,7 +111,7 @@ internal static class Program
                 ValidateOnBuild = true
             });
             await using var scope = provider.CreateAsyncScope();
-            var diagnostics = scope.ServiceProvider.GetRequiredService<IPhase5DiagnosticsService>();
+            var diagnostics = scope.ServiceProvider.GetRequiredService<IHealthDiagnosticsService>();
             diagnosticsSnapshot = await diagnostics.CaptureAsync();
             Console.WriteLine("PHASE5_DIAGNOSTICS_RESULT " +
                 diagnosticsSnapshot.OverallClassification);
@@ -1302,7 +1302,7 @@ ORDER BY created_at,id
         MemoryEvidence Memory,
         IReadOnlyList<GrowthEvidence> Growth,
         CancellationEvidence Cancellation,
-        Phase5DiagnosticsSnapshot? Diagnostics,
+        DiagnosticsSnapshot? Diagnostics,
         string ExecutionMode,
         string[] KnownLimitations);
 

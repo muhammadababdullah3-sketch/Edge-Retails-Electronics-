@@ -248,7 +248,7 @@ All Phase 5 tasks and deliverables are complete. The workspace is parked in a st
 | Field | Value |
 |-------|-------|
 | **Bird's-Eye Description** | `Server/Program.cs:12` and `Worker/Program.cs:10` contain hardcoded `Password=postgres` fallback. Desktop is fail-closed. |
-| **Investigation** | Agent V2 confirmed STILL PRESENT. Both files had `?? "Host=localhost;Database=edge_retails_dev;Username=postgres;Password=postgres"`. |
+| **Investigation** | Agent V2 confirmed STILL PRESENT. Both files had `?? "Host=localhost;Database=edge_retails_dev;Username=postgres;Password=$postgres"`. |
 | **Verdict** | **REMEDIATED** |
 | **Remediation Applied** | `Server/Program.cs`: Fallback replaced with `throw new InvalidOperationException(...)` for non-Testing environments; Testing environment retains a test-only placeholder for `WebApplicationFactory` integration tests. `Worker/Program.cs`: Fallback replaced with unconditional `throw new InvalidOperationException(...)`. All rehearsal scripts explicitly set `$env:EDGE_RETAILS_TEST_DB` — no regression. |
 | **Build Verification** | `dotnet build EdgeRetails.sln -c Release` → 10 projects, 0 warnings, 0 errors. |

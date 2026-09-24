@@ -10,7 +10,7 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
     private readonly DemoPurchaseInventoryService? _inventoryService;
     private readonly IBackendPurchasingInventoryService? _backendService;
     private readonly IBackendProductManagementService? _catalogService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly List<PosProductItemViewModel> _backendProducts = [];
     private readonly List<InventoryMovementRecord> _backendMovements = [];
     private bool _backendLoaded;
@@ -31,13 +31,13 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
         IDialogService dialogService,
         IBackendPurchasingInventoryService? backendService = null,
         IBackendProductManagementService? catalogService = null,
-        IBackendPhase4WorkflowService? phase4Service = null)
+        IBackendWorkflowReadService? workflowService = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _backendService = backendService;
         _catalogService = catalogService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
         _retailState = ResolvePreviewRetailState(backendService);
         _inventoryService = ResolvePreviewInventoryService(backendService);
 
@@ -219,7 +219,7 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
     // Product creation backend flow is not attached to legacy Inventory; it is authoritative in ProductManagement.
     private void OpenPhysicalUnits()
     {
-        if (_phase4Service is null)
+        if (_workflowService is null)
         {
             _toastService.Show(
                 "Authoritative physical-unit view is unavailable.",
@@ -239,7 +239,7 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
             "Physical Inventory Units",
             $"{SelectedProduct.Name} · TrackingCode / Serial / IMEI / provenance",
             productId,
-            _phase4Service,
+            _workflowService,
             _dialogService,
             _ => { },
             requiredCount: 0,
@@ -250,7 +250,7 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
 
     private void OpenStocktake()
     {
-        if (_phase4Service is null)
+        if (_workflowService is null)
         {
             _toastService.Show(
                 "Authoritative stocktake workflow is unavailable.",
@@ -259,7 +259,7 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
         }
 
         _dialogService.Show(new StocktakeViewModel(
-            _phase4Service,
+            _workflowService,
             _dialogService,
             _toastService,
             completed: () => _ = RefreshBackendAsync()));

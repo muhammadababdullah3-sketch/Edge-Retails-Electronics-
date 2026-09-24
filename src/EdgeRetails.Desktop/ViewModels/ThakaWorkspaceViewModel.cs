@@ -42,7 +42,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     private readonly ThakaProjectListItemViewModel _project;
     private readonly DemoRetailState? _previewRetailState;
     private readonly IBackendThakaService? _backendService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly IDialogService? _dialogService;
     private readonly IToastService? _toastService;
     private string _selectedTab = "Materials";
@@ -64,11 +64,11 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         IDialogService? dialogService = null,
         IToastService? toastService = null,
         IBackendThakaService? backendService = null,
-        IBackendPhase4WorkflowService? phase4Service = null)
+        IBackendWorkflowReadService? workflowService = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _backendService = backendService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
         _previewRetailState = ResolvePreviewRetailState(backendService);
         _dialogService = dialogService;
         _toastService = toastService;
@@ -190,7 +190,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             onClose: () => _dialogService.Close(),
             toastService: _toastService,
             backendService: _backendService,
-            phase4Service: _phase4Service,
+            workflowService: _workflowService,
             dialogService: _dialogService);
 
         _dialogService.Show(vm);

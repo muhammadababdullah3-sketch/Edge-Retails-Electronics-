@@ -6,7 +6,7 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class PosDraftsViewModel : ViewModelBase
 {
-    private readonly IBackendPhase4WorkflowService _service;
+    private readonly IBackendWorkflowReadService _service;
     private readonly IDialogService _dialogService;
     private readonly IToastService? _toastService;
     private readonly Action<Guid> _resume;
@@ -14,7 +14,7 @@ public sealed class PosDraftsViewModel : ViewModelBase
     private string? _message;
 
     public PosDraftsViewModel(
-        IBackendPhase4WorkflowService service,
+        IBackendWorkflowReadService service,
         IDialogService dialogService,
         Action<Guid> resume,
         IToastService? toastService = null)

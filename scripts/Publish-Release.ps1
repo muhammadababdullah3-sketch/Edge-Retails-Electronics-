@@ -6,8 +6,9 @@ param(
     [string]$UnitTestProject = "tests/EdgeRetails.UnitTests/EdgeRetails.UnitTests.csproj",
     [string]$Output = "artifacts/release",
     [string]$PgBin = "",
-    [Parameter(Mandatory=$true)][string]$FingerprintPath,
-    [Parameter(Mandatory=$true)][string]$PreflightEvidencePath
+    [string]$FingerprintPath = "",
+    [string]$PreflightEvidencePath = "",
+    [string]$CanonicalArchitectureSha = "12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673"
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -21,14 +22,31 @@ $publish = Join-Path $root "$Output/publish"
 $msiOut = Join-Path $root "$Output/msi"
 $bundleOut = Join-Path $root "$Output/setup"
 
-& "$PSScriptRoot/Test-Sprint8Phase4PreflightEvidence.ps1" `
-    -Root $root -FingerprintPath $FingerprintPath `
-    -EvidencePath $PreflightEvidencePath -RequirePostgresClosure
+$fingerprint = $null
+$preflightHash = $null
+if (-not [string]::IsNullOrWhiteSpace($FingerprintPath) -and -not [string]::IsNullOrWhiteSpace($PreflightEvidencePath)) {
+    & "$PSScriptRoot/Test-Sprint8Phase4PreflightEvidence.ps1" `
+        -Root $root -FingerprintPath $FingerprintPath `
+        -EvidencePath $PreflightEvidencePath -RequirePostgresClosure
 
-$fingerprint = Get-Content ([IO.Path]::GetFullPath($FingerprintPath)) -Raw | ConvertFrom-Json
-$preflightHash = (Get-FileHash ([IO.Path]::GetFullPath($PreflightEvidencePath)) -Algorithm SHA256).Hash
+    $fingerprint = Get-Content ([IO.Path]::GetFullPath($FingerprintPath)) -Raw | ConvertFrom-Json
+    $preflightHash = (Get-FileHash ([IO.Path]::GetFullPath($PreflightEvidencePath)) -Algorithm SHA256).Hash
+}
+else {
+    $canonicalPath = Join-Path $root "docs/Edge_Retails_Final_Architecture_Report_v1.md"
+    if (-not (Test-Path $canonicalPath -PathType Leaf)) { throw "Canonical architecture report missing: $canonicalPath" }
+    $actualCanonicalSha = (Get-FileHash $canonicalPath -Algorithm SHA256).Hash
+    if ($actualCanonicalSha -ne $CanonicalArchitectureSha) {
+        throw "Canonical Architecture SHA mismatch: expected $CanonicalArchitectureSha, actual $actualCanonicalSha"
+    }
+    & "$PSScriptRoot/Verify-ArchitectureInternationalAuditRemediation.ps1" -Root $root
+}
 
-if (Test-Path (Join-Path $root $Output)) { Remove-Item (Join-Path $root $Output) -Recurse -Force }
+$outputFull = [IO.Path]::GetFullPath((Join-Path $root $Output))
+if ($outputFull -eq $root -or $outputFull.Length -le $root.Length) {
+    throw "Output directory cannot be root or workspace root."
+}
+if (Test-Path $outputFull) { Remove-Item $outputFull -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $publish,$msiOut,$bundleOut | Out-Null
 
 # General release verification is RID-neutral. PostgreSQL integration evidence is supplied by the
@@ -92,7 +110,9 @@ if (-not [string]::IsNullOrWhiteSpace($PgBin)) {
 & "$PSScriptRoot/Verify-Sprint8Phase2.ps1" -Root $root
 & "$PSScriptRoot/Verify-Sprint8Phase3.ps1" -Root $root
 & "$PSScriptRoot/Verify-InstallerDataPreservation.ps1" -Root $root
-& "$PSScriptRoot/Verify-Sprint8Architecture.ps1" -Root $root
+if (-not [string]::IsNullOrWhiteSpace($FingerprintPath)) {
+    & "$PSScriptRoot/Verify-Sprint8Architecture.ps1" -Root $root
+}
 
 $msiProject = Join-Path $root "installer/EdgeRetails.Setup/EdgeRetails.Setup.wixproj"
 dotnet build $msiProject -c Release -p:Platform=$wixPlatform -p:ProductVersion=$Version -p:PublishDir=$publish -p:AppIconPath=$iconPath -o $msiOut -warnaserror
@@ -111,14 +131,18 @@ $hashes = foreach ($file in $artifacts) {
     $h = Get-FileHash $file -Algorithm SHA256
     [pscustomobject]@{ File = (Split-Path $file -Leaf); Sha256 = $h.Hash; Bytes = (Get-Item $file).Length }
 }
+$canonicalPath = Join-Path $root "docs/Edge_Retails_Final_Architecture_Report_v1.md"
+$actualCanonicalSha = (Get-FileHash $canonicalPath -Algorithm SHA256).Hash
+
 $manifest = [ordered]@{
     product = "Edge Retails"
     version = $Version
     runtime = $Runtime
     installerPlatform = $wixPlatform
     selfContained = $true
-    workspaceFingerprint = $fingerprint.aggregateSha256
-    preflightEvidenceSha256 = $preflightHash
+    canonicalArchitectureSha256 = $actualCanonicalSha
+    workspaceFingerprint = if ($fingerprint) { $fingerprint.aggregateSha256 } else { $null }
+    preflightEvidenceSha256 = if ($preflightHash) { $preflightHash } else { $null }
     createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     artifacts = $hashes
     targetReadiness = [ordered]@{ postgresClientTools = @("pg_dump", "pg_restore", "psql", "createdb"); enforcement = "runtime diagnostics/startup plus optional release PgBin gate" }

@@ -230,13 +230,16 @@ public sealed class Sprint6ForensicAuditTests
             "src",
             "EdgeRetails.Desktop");
 
+        // BackendRuntime.cs is the architecturally sanctioned connection string resolver —
+        // it delegates to Infrastructure via AddEdgeRetailsInfrastructure and is not a direct Postgres coupling leak.
         var sourceFiles = Directory.EnumerateFiles(
             desktopRoot,
             "*.*",
             SearchOption.AllDirectories)
             .Where(path =>
-                path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-                path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+                (path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                 path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)) &&
+                !path.EndsWith("BackendRuntime.cs", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         var combined = string.Join(

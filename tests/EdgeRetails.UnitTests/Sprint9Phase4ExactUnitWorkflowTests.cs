@@ -71,7 +71,7 @@ public sealed class Sprint9Phase4ExactUnitWorkflowTests
     {
         var pos = Read("src", "EdgeRetails.Desktop", "ViewModels", "PosViewModel.cs");
         var drafts = Read("src", "EdgeRetails.Desktop", "ViewModels", "PosDraftsViewModel.cs");
-        var backend = Read("src", "EdgeRetails.Desktop", "Services", "BackendPhase4WorkflowService.cs");
+        var backend = Read("src", "EdgeRetails.Desktop", "Services", "BackendWorkflowReadService.cs");
         Assert.Contains("SaveDraftAsync", pos);
         Assert.Contains("ResumeDraftAsync", pos);
         Assert.Contains("CancelDraftAsync", drafts);
@@ -162,8 +162,8 @@ public sealed class Sprint9Phase4ExactUnitWorkflowTests
     {
         var factory = Read("src", "EdgeRetails.Desktop", "Navigation", "PageViewModelFactory.cs");
         var app = Read("src", "EdgeRetails.Desktop", "App.xaml");
-        Assert.Contains("new BackendPhase4WorkflowService", factory);
-        Assert.Contains("_phase4WorkflowService", factory);
+        Assert.Contains("new BackendWorkflowReadService", factory);
+        Assert.Contains("_workflowReadService", factory);
         Assert.Contains("ExactUnitPickerViewModel", app);
         Assert.Contains("SerializedPurchaseIntakeViewModel", app);
         Assert.Contains("PriceCheckViewModel", app);

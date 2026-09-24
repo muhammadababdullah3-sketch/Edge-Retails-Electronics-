@@ -118,7 +118,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly IBackendBusinessOperationsService? _backendService;
-    private readonly IBackendPhase5OperationsService? _phase5Service;
+    private readonly IBackendOperationsService? _operationsService;
     private readonly Action? _updated;
     private readonly Dictionary<Guid, Guid> _pendingPaymentReversals = [];
     private readonly Dictionary<Guid, Guid> _pendingRefundReversals = [];
@@ -142,7 +142,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         IToastService toastService,
         Action? updated = null,
         IBackendBusinessOperationsService? backendService = null,
-        IBackendPhase5OperationsService? phase5Service = null)
+        IBackendOperationsService? operationsService = null)
     {
         Supplier = supplier;
         _drawerService = drawerService;
@@ -150,7 +150,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         _toastService = toastService;
         _updated = updated;
         _backendService = backendService;
-        _phase5Service = phase5Service;
+        _operationsService = operationsService;
 
         CloseCommand = new RelayCommand(_drawerService.Close);
         EditCommand = new RelayCommand(Edit);
@@ -261,7 +261,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private async Task LoadAccountAsync()
     {
-        if (_phase5Service is null || Supplier.BackendId is not Guid supplierId)
+        if (_operationsService is null || Supplier.BackendId is not Guid supplierId)
         {
             Workspace = null;
             StatusMessage = "Supplier account authority is unavailable in preview mode.";
@@ -272,12 +272,12 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         StatusMessage = "Loading authoritative Supplier account...";
         try
         {
-            Workspace = await _phase5Service.GetSupplierWorkspaceAsync(supplierId);
+            Workspace = await _operationsService.GetSupplierWorkspaceAsync(supplierId);
             StatusMessage = Workspace.Statement.Count == 0
                 ? "No Supplier account events have been posted yet."
                 : "Supplier account is current.";
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             Workspace = null;
             StatusMessage = $"{ex.Code}: {ex.Message}";
@@ -295,7 +295,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private async Task PostPaymentAsync(SupplierPaymentPurpose purpose)
     {
-        if (_phase5Service is null || Supplier.BackendId is not Guid supplierId)
+        if (_operationsService is null || Supplier.BackendId is not Guid supplierId)
         {
             return;
         }
@@ -312,7 +312,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
         try
         {
-            await _phase5Service.CreateSupplierPaymentAsync(
+            await _operationsService.CreateSupplierPaymentAsync(
                 supplierId,
                 TransactionAmount,
                 purpose,
@@ -338,7 +338,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             ClearTransactionEditor();
             await LoadAccountAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             if (purpose == SupplierPaymentPurpose.Advance)
             {
@@ -361,7 +361,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private async Task ReceiveRefundAsync()
     {
-        if (_phase5Service is null || Supplier.BackendId is not Guid supplierId)
+        if (_operationsService is null || Supplier.BackendId is not Guid supplierId)
         {
             return;
         }
@@ -375,7 +375,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         _pendingRefundOperationId ??= Guid.CreateVersion7();
         try
         {
-            await _phase5Service.CreateSupplierRefundAsync(
+            await _operationsService.CreateSupplierRefundAsync(
                 supplierId,
                 TransactionAmount,
                 SelectedMethod,
@@ -387,7 +387,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             ClearTransactionEditor();
             await LoadAccountAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _pendingRefundOperationId = null;
             _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
@@ -402,7 +402,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private async Task ReversePaymentAsync(SupplierPaymentReadDto payment)
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             return;
         }
@@ -421,7 +421,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
         try
         {
-            await _phase5Service.ReverseSupplierPaymentAsync(
+            await _operationsService.ReverseSupplierPaymentAsync(
                 payment.PaymentId,
                 ReversalReason,
                 operationId);
@@ -430,7 +430,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             _toastService.Show("Supplier payment reversed through append-only correction.", ToastTone.Success);
             await LoadAccountAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _pendingPaymentReversals.Remove(payment.PaymentId);
             _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
@@ -445,7 +445,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private async Task ReverseRefundAsync(SupplierRefundReadDto refund)
     {
-        if (_phase5Service is null)
+        if (_operationsService is null)
         {
             return;
         }
@@ -464,7 +464,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
         try
         {
-            await _phase5Service.ReverseSupplierRefundAsync(
+            await _operationsService.ReverseSupplierRefundAsync(
                 refund.RefundId,
                 ReversalReason,
                 operationId);
@@ -473,7 +473,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             _toastService.Show("Supplier refund reversed through append-only correction.", ToastTone.Success);
             await LoadAccountAsync();
         }
-        catch (Phase5OperationException ex)
+        catch (OperationException ex)
         {
             _pendingRefundReversals.Remove(refund.RefundId);
             _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
@@ -520,7 +520,7 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
     private readonly IBackendBusinessOperationsService? _backendService;
-    private readonly IBackendPhase5OperationsService? _phase5Service;
+    private readonly IBackendOperationsService? _operationsService;
     private readonly List<SupplierDirectoryRecord> _backendSuppliers = [];
     private bool _backendLoaded;
     private bool _backendLoading;
@@ -536,13 +536,13 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
         IDialogService dialogService,
         IDrawerService drawerService,
         IBackendBusinessOperationsService? backendService = null,
-        IBackendPhase5OperationsService? phase5Service = null)
+        IBackendOperationsService? operationsService = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _drawerService = drawerService;
         _backendService = backendService;
-        _phase5Service = phase5Service;
+        _operationsService = operationsService;
 
         FilteredSuppliers = [];
         AddSupplierCommand = new RelayCommand(OpenAddSupplier);
@@ -602,7 +602,7 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
             _toastService,
             RefreshAfterMutation,
             _backendService,
-            _phase5Service));
+            _operationsService));
     }
 
     private void OnStateChanged(object? sender, EventArgs e) => Refresh();

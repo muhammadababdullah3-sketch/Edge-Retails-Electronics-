@@ -1,6 +1,6 @@
 namespace EdgeRetails.Application.Production.Diagnostics;
 
-public enum Phase5HealthClassification
+public enum HealthClassification
 {
     HEALTHY = 1,
     DEGRADED = 2,
@@ -8,7 +8,7 @@ public enum Phase5HealthClassification
     UNAVAILABLE = 4
 }
 
-public static class Phase5DiagnosticCodes
+public static class DiagnosticCodes
 {
     public const string DatabaseLatencyHealthy = "db.latency.healthy";
     public const string DatabaseLatencyDegraded = "db.latency.degraded";
@@ -38,7 +38,7 @@ public static class Phase5DiagnosticCodes
     public const string ReconciliationActionRequired = "reconciliation.action_required";
 }
 
-public sealed record Phase5DiagnosticsPolicy(
+public sealed record DiagnosticsPolicy(
     TimeSpan BackupMaxAge,
     TimeSpan WorkerHeartbeatMaxAge,
     long DiskFreeWarningBytes,
@@ -49,7 +49,7 @@ public sealed record Phase5DiagnosticsPolicy(
     int ReconciliationFailureWarningCount,
     double DbLatencyWarningMilliseconds)
 {
-    public static Phase5DiagnosticsPolicy Default => new(
+    public static DiagnosticsPolicy Default => new(
         TimeSpan.FromHours(24),
         TimeSpan.FromMinutes(2),
         10L * 1024 * 1024 * 1024,
@@ -60,7 +60,7 @@ public sealed record Phase5DiagnosticsPolicy(
         1,
         500);
 
-    public static Phase5DiagnosticsPolicy FromEnvironment()
+    public static DiagnosticsPolicy FromEnvironment()
     {
         static TimeSpan ReadTimeSpanHours(string name, TimeSpan fallback) =>
             double.TryParse(Environment.GetEnvironmentVariable(name), out var hours) &&
@@ -93,7 +93,7 @@ public sealed record Phase5DiagnosticsPolicy(
                 : fallback;
 
         var d = Default;
-        return new Phase5DiagnosticsPolicy(
+        return new DiagnosticsPolicy(
             ReadTimeSpanHours("EDGE_RETAILS_DIAG_BACKUP_MAX_AGE_HOURS", d.BackupMaxAge),
             ReadTimeSpanMinutes("EDGE_RETAILS_DIAG_WORKER_MAX_AGE_MINUTES", d.WorkerHeartbeatMaxAge),
             ReadBytes("EDGE_RETAILS_DIAG_DISK_FREE_WARNING_BYTES", d.DiskFreeWarningBytes),
@@ -106,51 +106,51 @@ public sealed record Phase5DiagnosticsPolicy(
     }
 }
 
-public sealed record Phase5DiagnosticValue(
+public sealed record DiagnosticValue(
     string Code,
-    Phase5HealthClassification Classification,
+    HealthClassification Classification,
     string HumanStatus,
     string Guidance,
     double? MeasuredValue = null,
     double? Threshold = null);
 
-public sealed record Phase5DiagnosticsSnapshot(
+public sealed record DiagnosticsSnapshot(
     DateTimeOffset CapturedAtUtc,
-    Phase5HealthClassification OverallClassification,
-    IReadOnlyList<Phase5DiagnosticValue> Checks,
+    HealthClassification OverallClassification,
+    IReadOnlyList<DiagnosticValue> Checks,
     IReadOnlyDictionary<string, string> SafeMetadata);
 
-public interface IPhase5DiagnosticsService
+public interface IHealthDiagnosticsService
 {
-    Task<Phase5DiagnosticsSnapshot> CaptureAsync(
+    Task<DiagnosticsSnapshot> CaptureAsync(
         CancellationToken cancellationToken = default);
 }
 
-public static class Phase5DiagnosticsClassifier
+public static class DiagnosticsClassifier
 {
-    public static Phase5HealthClassification Overall(
-        IReadOnlyList<Phase5DiagnosticValue> checks)
+    public static HealthClassification Overall(
+        IReadOnlyList<DiagnosticValue> checks)
     {
         if (checks.Count == 0)
         {
-            return Phase5HealthClassification.UNAVAILABLE;
+            return HealthClassification.UNAVAILABLE;
         }
 
-        if (checks.Any(x => x.Classification == Phase5HealthClassification.UNAVAILABLE))
+        if (checks.Any(x => x.Classification == HealthClassification.UNAVAILABLE))
         {
-            return Phase5HealthClassification.UNAVAILABLE;
+            return HealthClassification.UNAVAILABLE;
         }
 
-        if (checks.Any(x => x.Classification == Phase5HealthClassification.ACTION_REQUIRED))
+        if (checks.Any(x => x.Classification == HealthClassification.ACTION_REQUIRED))
         {
-            return Phase5HealthClassification.ACTION_REQUIRED;
+            return HealthClassification.ACTION_REQUIRED;
         }
 
-        if (checks.Any(x => x.Classification == Phase5HealthClassification.DEGRADED))
+        if (checks.Any(x => x.Classification == HealthClassification.DEGRADED))
         {
-            return Phase5HealthClassification.DEGRADED;
+            return HealthClassification.DEGRADED;
         }
 
-        return Phase5HealthClassification.HEALTHY;
+        return HealthClassification.HEALTHY;
     }
 }

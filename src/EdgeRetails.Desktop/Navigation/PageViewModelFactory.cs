@@ -15,9 +15,9 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
     private readonly IBackendProductManagementService? _productManagementService;
     private readonly IBackendThakaService? _backendThakaService;
     private readonly IBackendBusinessOperationsService? _businessOperationsService;
-    private readonly IBackendPhase5OperationsService? _phase5OperationsService;
+    private readonly IBackendOperationsService? _operationsService;
     private readonly IBackendSalesHistoryService? _backendSalesHistoryService;
-    private readonly IBackendPhase4WorkflowService? _phase4WorkflowService;
+    private readonly IBackendWorkflowReadService? _workflowReadService;
     private readonly IBackendDashboardService? _dashboardService;
     private readonly IBackendSettingsService? _settingsService;
     private readonly IPosCatalogGateway? _posCatalogGateway;
@@ -74,17 +74,17 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
             : new BackendBusinessOperationsService(
                 backendScopeFactory,
                 () => _sessionContext.UserId);
-        _phase5OperationsService = backendScopeFactory is null
+        _operationsService = backendScopeFactory is null
             ? null
-            : new BackendPhase5OperationsService(
+            : new BackendOperationsService(
                 backendScopeFactory,
                 () => _sessionContext.UserId);
         _backendSalesHistoryService = backendScopeFactory is null
             ? null
             : new BackendSalesHistoryService(backendScopeFactory);
-        _phase4WorkflowService = backendScopeFactory is null
+        _workflowReadService = backendScopeFactory is null
             ? null
-            : new BackendPhase4WorkflowService(
+            : new BackendWorkflowReadService(
                 backendScopeFactory,
                 () => _sessionContext.UserId);
         _dashboardService = backendScopeFactory is null
@@ -129,7 +129,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _sessionContext,
                 _posCatalogGateway,
                 _businessOperationsService,
-                _phase4WorkflowService),
+                _workflowReadService),
 
             NavigationTarget.SalesHistory => new SalesHistoryViewModel(
                 _sessionContext,
@@ -148,7 +148,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                     _drawerService,
                     _dialogService,
                     _purchasingInventoryService,
-                    _phase4WorkflowService),
+                    _workflowReadService),
             NavigationTarget.ProductManagement => new ProductManagementViewModel(
                 _toastService,
                 _dialogService,
@@ -160,7 +160,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                     _dialogService,
                     _purchasingInventoryService,
                     _productManagementService,
-                    _phase4WorkflowService),
+                    _workflowReadService),
             NavigationTarget.Expenses => _expensesViewModel ??= new ExpensesViewModel(
                 _toastService,
                 _dialogService,
@@ -175,9 +175,9 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _dialogService,
                 _drawerService,
                 _businessOperationsService,
-                _phase5OperationsService),
+                _operationsService),
             NavigationTarget.Warranty => new WarrantyViewModel(
-                _phase5OperationsService,
+                _operationsService,
                 _toastService),
             NavigationTarget.Reports => _reportsViewModel ??= new ReportsViewModel(
                 _businessOperationsService,
@@ -267,7 +267,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
             _dialogService,
             _toastService,
             _backendThakaService,
-            _phase4WorkflowService);
+            _workflowReadService);
 
         workspace.BackRequested += (_, _) =>
             _navigationService?.Navigate(NavigationTarget.ThakaProjects);

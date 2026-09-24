@@ -9,15 +9,15 @@ public sealed class Phase5DiagnosticsContractTests
     {
         var checks = new[]
         {
-            new Phase5DiagnosticValue("db.latency.healthy", Phase5HealthClassification.HEALTHY, "", ""),
-            new Phase5DiagnosticValue("backup.age.action_required", Phase5HealthClassification.ACTION_REQUIRED, "", ""),
-            new Phase5DiagnosticValue("worker.heartbeat.action_required", Phase5HealthClassification.ACTION_REQUIRED, "", ""),
-            new Phase5DiagnosticValue("reconciliation.action_required", Phase5HealthClassification.UNAVAILABLE, "", "")
+            new DiagnosticValue("db.latency.healthy", HealthClassification.HEALTHY, "", ""),
+            new DiagnosticValue("backup.age.action_required", HealthClassification.ACTION_REQUIRED, "", ""),
+            new DiagnosticValue("worker.heartbeat.action_required", HealthClassification.ACTION_REQUIRED, "", ""),
+            new DiagnosticValue("reconciliation.action_required", HealthClassification.UNAVAILABLE, "", "")
         };
 
         Assert.Equal(
-            Phase5HealthClassification.UNAVAILABLE,
-            Phase5DiagnosticsClassifier.Overall(checks));
+            HealthClassification.UNAVAILABLE,
+            DiagnosticsClassifier.Overall(checks));
     }
 
     [Fact]
@@ -25,13 +25,13 @@ public sealed class Phase5DiagnosticsContractTests
     {
         var checks = new[]
         {
-            new Phase5DiagnosticValue("db.latency.degraded", Phase5HealthClassification.DEGRADED, "", ""),
-            new Phase5DiagnosticValue("failed_jobs.action_required", Phase5HealthClassification.ACTION_REQUIRED, "", "")
+            new DiagnosticValue("db.latency.degraded", HealthClassification.DEGRADED, "", ""),
+            new DiagnosticValue("failed_jobs.action_required", HealthClassification.ACTION_REQUIRED, "", "")
         };
 
         Assert.Equal(
-            Phase5HealthClassification.ACTION_REQUIRED,
-            Phase5DiagnosticsClassifier.Overall(checks));
+            HealthClassification.ACTION_REQUIRED,
+            DiagnosticsClassifier.Overall(checks));
     }
 
     [Fact]
@@ -39,13 +39,13 @@ public sealed class Phase5DiagnosticsContractTests
     {
         var checks = new[]
         {
-            new Phase5DiagnosticValue("db.latency.degraded", Phase5HealthClassification.DEGRADED, "", ""),
-            new Phase5DiagnosticValue("disk.healthy", Phase5HealthClassification.HEALTHY, "", "")
+            new DiagnosticValue("db.latency.degraded", HealthClassification.DEGRADED, "", ""),
+            new DiagnosticValue("disk.healthy", HealthClassification.HEALTHY, "", "")
         };
 
         Assert.Equal(
-            Phase5HealthClassification.DEGRADED,
-            Phase5DiagnosticsClassifier.Overall(checks));
+            HealthClassification.DEGRADED,
+            DiagnosticsClassifier.Overall(checks));
     }
 
     [Fact]
@@ -53,21 +53,21 @@ public sealed class Phase5DiagnosticsContractTests
     {
         var checks = new[]
         {
-            new Phase5DiagnosticValue("db.latency.healthy", Phase5HealthClassification.HEALTHY, "", ""),
-            new Phase5DiagnosticValue("disk.healthy", Phase5HealthClassification.HEALTHY, "", "")
+            new DiagnosticValue("db.latency.healthy", HealthClassification.HEALTHY, "", ""),
+            new DiagnosticValue("disk.healthy", HealthClassification.HEALTHY, "", "")
         };
 
         Assert.Equal(
-            Phase5HealthClassification.HEALTHY,
-            Phase5DiagnosticsClassifier.Overall(checks));
+            HealthClassification.HEALTHY,
+            DiagnosticsClassifier.Overall(checks));
     }
 
     [Fact]
     public void Overall_ReturnsUnavailableForEmptySnapshot()
     {
         Assert.Equal(
-            Phase5HealthClassification.UNAVAILABLE,
-            Phase5DiagnosticsClassifier.Overall(Array.Empty<Phase5DiagnosticValue>()));
+            HealthClassification.UNAVAILABLE,
+            DiagnosticsClassifier.Overall(Array.Empty<DiagnosticValue>()));
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public sealed class Phase5DiagnosticsContractTests
             Environment.SetEnvironmentVariable(names[7], "11");
             Environment.SetEnvironmentVariable(names[8], "12.5");
 
-            var policy = Phase5DiagnosticsPolicy.FromEnvironment();
+            var policy = DiagnosticsPolicy.FromEnvironment();
 
             Assert.Equal(TimeSpan.FromHours(48), policy.BackupMaxAge);
             Assert.Equal(TimeSpan.FromMinutes(5), policy.WorkerHeartbeatMaxAge);

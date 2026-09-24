@@ -63,7 +63,12 @@ BenchmarkDotNet.Artifacts/
 # .NET
 project.lock.json
 project.fragment.lock.json
-artifacts/
+artifacts/*
+!artifacts/release/
+artifacts/release/*
+!artifacts/release/release-manifest.json
+!artifacts/release/SHA256SUMS.txt
+
 
 # Tye
 .tye/
@@ -264,6 +269,8 @@ Generated_Code/
 # because we have git ;-)
 _UpgradeReport_Files/
 Backup*/
+!src/**/Backup/**
+!src/**/Backup/
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/

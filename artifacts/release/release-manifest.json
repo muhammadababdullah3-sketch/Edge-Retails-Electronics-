@@ -1,0 +1,37 @@
+﻿{
+    "product":  "Edge Retails",
+    "version":  "1.0.0",
+    "runtime":  "win-x64",
+    "installerPlatform":  "x64",
+    "selfContained":  true,
+    "canonicalArchitectureSha256":  "12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673",
+    "workspaceFingerprint":  null,
+    "preflightEvidenceSha256":  null,
+    "createdAtUtc":  "2026-09-24T08:44:47.9682638+00:00",
+    "artifacts":  [
+                      {
+                          "File":  "EdgeRetails.Desktop.exe",
+                          "Sha256":  "33D6628F05601386EE2B4B62CE653782E81FA91E602A5D28A5CB4EEB972FFC3E",
+                          "Bytes":  167424
+                      },
+                      {
+                          "File":  "EdgeRetailsSetup.msi",
+                          "Sha256":  "B8EF1DDE3A82F79C9FC394CBD72C9A60357414D1757E92CAB50C2AA2CB75D9EE",
+                          "Bytes":  56820063
+                      },
+                      {
+                          "File":  "EdgeRetailsSetup.exe",
+                          "Sha256":  "61C1806B12AE48D38B0FEF0FDB975C868090AFB04777D15CCA920CCA2BD14A2E",
+                          "Bytes":  57663049
+                      }
+                  ],
+    "targetReadiness":  {
+                            "postgresClientTools":  [
+                                                        "pg_dump",
+                                                        "pg_restore",
+                                                        "psql",
+                                                        "createdb"
+                                                    ],
+                            "enforcement":  "runtime diagnostics/startup plus optional release PgBin gate"
+                        }
+}

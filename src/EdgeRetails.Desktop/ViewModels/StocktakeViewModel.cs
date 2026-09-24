@@ -62,7 +62,7 @@ public sealed class StocktakeLineViewModel : ViewModelBase
 
 public sealed class StocktakeViewModel : ViewModelBase
 {
-    private readonly IBackendPhase4WorkflowService _service;
+    private readonly IBackendWorkflowReadService _service;
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly Action? _completed;
@@ -71,7 +71,7 @@ public sealed class StocktakeViewModel : ViewModelBase
     private string? _message;
 
     public StocktakeViewModel(
-        IBackendPhase4WorkflowService service,
+        IBackendWorkflowReadService service,
         IDialogService dialogService,
         IToastService toastService,
         Action? completed = null)

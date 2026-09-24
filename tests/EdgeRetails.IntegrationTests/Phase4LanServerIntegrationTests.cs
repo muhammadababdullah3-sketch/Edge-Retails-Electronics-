@@ -774,6 +774,7 @@ public sealed class CustomLanServerWebApplicationFactory : WebApplicationFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=127.0.0.1;Port=5432;Database=edge_retails_test;Username=test");
 
         builder.ConfigureServices(services =>
         {

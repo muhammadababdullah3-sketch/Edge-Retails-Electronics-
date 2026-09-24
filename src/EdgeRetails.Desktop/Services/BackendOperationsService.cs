@@ -8,9 +8,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
 
-public sealed class Phase5OperationException : InvalidOperationException
+public sealed class OperationException : InvalidOperationException
 {
-    public Phase5OperationException(string code, string message)
+    public OperationException(string code, string message)
         : base(message)
     {
         Code = code;
@@ -19,7 +19,7 @@ public sealed class Phase5OperationException : InvalidOperationException
     public string Code { get; }
 }
 
-public interface IBackendPhase5OperationsService
+public interface IBackendOperationsService
 {
     Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(
         Guid supplierId,
@@ -154,12 +154,12 @@ public interface IBackendPhase5OperationsService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class BackendPhase5OperationsService : IBackendPhase5OperationsService
+public sealed class BackendOperationsService : IBackendOperationsService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Func<Guid?> _actorUserId;
 
-    public BackendPhase5OperationsService(
+    public BackendOperationsService(
         IServiceScopeFactory scopeFactory,
         Func<Guid?> actorUserId)
     {
@@ -356,7 +356,7 @@ public sealed class BackendPhase5OperationsService : IBackendPhase5OperationsSer
             cancellationToken);
         if (!result.IsSuccess)
         {
-            throw new Phase5OperationException(
+            throw new OperationException(
                 result.Error?.Code ?? "warranty.claim_create_failed",
                 result.Error?.Message ?? "Warranty claim could not be created.");
         }
@@ -490,7 +490,7 @@ public sealed class BackendPhase5OperationsService : IBackendPhase5OperationsSer
             cancellationToken);
         if (!result.IsSuccess)
         {
-            throw new Phase5OperationException(
+            throw new OperationException(
                 result.Error?.Code ?? "phase5.operation_failed",
                 result.Error?.Message ?? "Shop-stock warranty could not be sent to Supplier.");
         }
@@ -568,7 +568,7 @@ public sealed class BackendPhase5OperationsService : IBackendPhase5OperationsSer
     {
         if (!isSuccess)
         {
-            throw new Phase5OperationException(
+            throw new OperationException(
                 code ?? "phase5.operation_failed",
                 message ?? fallback);
         }
@@ -579,7 +579,7 @@ public sealed class BackendPhase5OperationsService : IBackendPhase5OperationsSer
         var normalized = value?.Trim();
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            throw new Phase5OperationException(
+            throw new OperationException(
                 "phase5.validation_required",
                 $"{field} is required.");
         }

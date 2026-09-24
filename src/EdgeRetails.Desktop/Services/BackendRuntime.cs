@@ -145,17 +145,93 @@ public sealed class BackendRuntime : IDisposable
             Array.Empty<string>());
     }
 
-    public static BackendRuntime CreateFromEnvironment()
+    public static string ResolveConnectionString()
     {
         var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_DB");
-        if (string.IsNullOrWhiteSpace(connectionString))
+        if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            throw new InvalidOperationException(
-                "EDGE_RETAILS_DB is not configured. Production startup cannot fall back to demo data.");
+            return connectionString.Trim();
         }
 
+        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var programDataConfig = System.IO.Path.Combine(commonAppData, "EdgeRetails", "config.json");
+        connectionString = TryReadConnectionString(programDataConfig);
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            return connectionString.Trim();
+        }
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var localConfig = System.IO.Path.Combine(localAppData, "EdgeRetails", "config.json");
+        connectionString = TryReadConnectionString(localConfig);
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            return connectionString.Trim();
+        }
+
+        throw new InvalidOperationException(
+            $"EDGE_RETAILS_DB is not configured and no persistent configuration file was found at '{programDataConfig}' or '{localConfig}'. Production startup cannot fall back to demo data.");
+    }
+
+    private static string? TryReadConnectionString(string filePath)
+    {
+        if (!System.IO.File.Exists(filePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = System.IO.File.OpenRead(filePath);
+            using var doc = System.Text.Json.JsonDocument.Parse(stream);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("ConnectionStrings", out var connStrings) &&
+                connStrings.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                connStrings.TryGetProperty("DefaultConnection", out var defaultConn) &&
+                defaultConn.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var val = defaultConn.GetString();
+                if (!string.IsNullOrWhiteSpace(val))
+                {
+                    return val;
+                }
+            }
+
+            if (root.TryGetProperty("EDGE_RETAILS_DB", out var edgeDb) &&
+                edgeDb.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var val = edgeDb.GetString();
+                if (!string.IsNullOrWhiteSpace(val))
+                {
+                    return val;
+                }
+            }
+
+            if (root.TryGetProperty("DatabaseConnectionString", out var dbConn) &&
+                dbConn.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var val = dbConn.GetString();
+                if (!string.IsNullOrWhiteSpace(val))
+                {
+                    return val;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore unreadable/malformed files and fall back
+        }
+
+        return null;
+    }
+
+    public static BackendRuntime CreateFromEnvironment()
+    {
+        var connectionString = ResolveConnectionString();
+
         var services = new ServiceCollection();
-        services.AddEdgeRetailsInfrastructure(connectionString.Trim());
+        services.AddEdgeRetailsInfrastructure(connectionString);
 
         var provider = services.BuildServiceProvider(new ServiceProviderOptions
         {

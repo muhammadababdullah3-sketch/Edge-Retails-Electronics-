@@ -6,15 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EdgeRetails.Infrastructure.Production.Diagnostics;
 
-public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
+public sealed class HealthDiagnosticsService : IHealthDiagnosticsService
 {
     private readonly EdgeRetailsDbContext _db;
-    private readonly Phase5DiagnosticsPolicy _policy;
+    private readonly DiagnosticsPolicy _policy;
     private readonly string _stateRoot;
 
-    public Phase5DiagnosticsService(
+    public HealthDiagnosticsService(
         EdgeRetailsDbContext db,
-        Phase5DiagnosticsPolicy policy,
+        DiagnosticsPolicy policy,
         string stateRoot)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
@@ -22,10 +22,10 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         _stateRoot = Path.GetFullPath(stateRoot ?? throw new ArgumentNullException(nameof(stateRoot)));
     }
 
-    public async Task<Phase5DiagnosticsSnapshot> CaptureAsync(
+    public async Task<DiagnosticsSnapshot> CaptureAsync(
         CancellationToken cancellationToken = default)
     {
-        var checks = new List<Phase5DiagnosticValue>();
+        var checks = new List<DiagnosticValue>();
         var connection = _db.Database.GetDbConnection();
 
         var dbLatency = await CaptureDatabaseLatencyAsync(connection, cancellationToken);
@@ -47,21 +47,21 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
 
         checks.Add(CaptureReconciliationStatus());
 
-        var overall = Phase5DiagnosticsClassifier.Overall(checks);
+        var overall = DiagnosticsClassifier.Overall(checks);
         var metadata = new Dictionary<string,string>(StringComparer.Ordinal)
         {
             ["environment"] = "production-diagnostic-snapshot",
             ["state_root"] = _stateRoot
         };
 
-        return new Phase5DiagnosticsSnapshot(
+        return new DiagnosticsSnapshot(
             DateTimeOffset.UtcNow,
             overall,
             checks,
             metadata);
     }
 
-    private async Task<Phase5DiagnosticValue> CaptureDatabaseLatencyAsync(
+    private async Task<DiagnosticValue> CaptureDatabaseLatencyAsync(
         System.Data.Common.DbConnection connection,
         CancellationToken cancellationToken)
     {
@@ -82,15 +82,15 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
 
             return elapsed <= _policy.DbLatencyWarningMilliseconds
                 ? new(
-                    Phase5DiagnosticCodes.DatabaseLatencyHealthy,
-                    Phase5HealthClassification.HEALTHY,
+                    DiagnosticCodes.DatabaseLatencyHealthy,
+                    HealthClassification.HEALTHY,
                     $"Database probe completed in {elapsed:F1} ms.",
                     "No immediate database latency action is required.",
                     elapsed,
                     _policy.DbLatencyWarningMilliseconds)
                 : new(
-                    Phase5DiagnosticCodes.DatabaseLatencyDegraded,
-                    Phase5HealthClassification.DEGRADED,
+                    DiagnosticCodes.DatabaseLatencyDegraded,
+                    HealthClassification.DEGRADED,
                     $"Database probe completed in {elapsed:F1} ms.",
                     "Investigate active database load and query-plan regressions.",
                     elapsed,
@@ -103,14 +103,14 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         catch
         {
             return new(
-                Phase5DiagnosticCodes.DatabaseUnavailable,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.DatabaseUnavailable,
+                HealthClassification.UNAVAILABLE,
                 "Database probe could not be completed.",
                 "Restore database connectivity before continuing operational work.");
         }
     }
 
-    private async Task<Phase5DiagnosticValue> CaptureWriteSafetyAsync(
+    private async Task<DiagnosticValue> CaptureWriteSafetyAsync(
         System.Data.Common.DbConnection connection,
         CancellationToken cancellationToken)
     {
@@ -129,15 +129,15 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
             if (result is bool writable && writable)
             {
                 return new(
-                    Phase5DiagnosticCodes.DatabaseWriteSafetyHealthy,
-                    Phase5HealthClassification.HEALTHY,
+                    DiagnosticCodes.DatabaseWriteSafetyHealthy,
+                    HealthClassification.HEALTHY,
                     "PostgreSQL reports the current node is writable.",
                     "No immediate write-safety action is required.");
             }
 
             return new(
-                Phase5DiagnosticCodes.DatabaseWriteSafetyUnavailable,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.DatabaseWriteSafetyUnavailable,
+                HealthClassification.UNAVAILABLE,
                 "PostgreSQL is not currently writable.",
                 "Route operational writes to the authoritative writable database.");
         }
@@ -148,14 +148,14 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         catch
         {
             return new(
-                Phase5DiagnosticCodes.DatabaseWriteSafetyUnavailable,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.DatabaseWriteSafetyUnavailable,
+                HealthClassification.UNAVAILABLE,
                 "Database write-safety could not be verified.",
                 "Do not assume writes are safe until the authoritative database is verified.");
         }
     }
 
-    private async Task<Phase5DiagnosticValue> CaptureSchemaCompatibilityAsync(
+    private async Task<DiagnosticValue> CaptureSchemaCompatibilityAsync(
         CancellationToken cancellationToken)
     {
         try
@@ -164,15 +164,15 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
             if (!readiness.Any())
             {
                 return new(
-                    Phase5DiagnosticCodes.SchemaCompatible,
-                    Phase5HealthClassification.HEALTHY,
+                    DiagnosticCodes.SchemaCompatible,
+                    HealthClassification.HEALTHY,
                     "Database schema has no pending EF migrations.",
                     "Schema compatibility is current.");
             }
 
             return new(
-                Phase5DiagnosticCodes.SchemaIncompatible,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                DiagnosticCodes.SchemaIncompatible,
+                HealthClassification.ACTION_REQUIRED,
                 $"{readiness.Count()} pending database migration(s) were detected.",
                 "Apply the approved migration set through controlled deployment before normal operations.");
         }
@@ -183,14 +183,14 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         catch
         {
             return new(
-                Phase5DiagnosticCodes.SchemaIncompatible,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.SchemaIncompatible,
+                HealthClassification.UNAVAILABLE,
                 "Schema compatibility could not be verified.",
                 "Treat schema compatibility as unverified until the database can be inspected.");
         }
     }
 
-    private Phase5DiagnosticValue CaptureDisk()
+    private DiagnosticValue CaptureDisk()
     {
         try
         {
@@ -198,8 +198,8 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
             if (string.IsNullOrWhiteSpace(root))
             {
                 return new(
-                    Phase5DiagnosticCodes.DiskDegraded,
-                    Phase5HealthClassification.UNAVAILABLE,
+                    DiagnosticCodes.DiskDegraded,
+                    HealthClassification.UNAVAILABLE,
                     "Disk root could not be resolved.",
                     "Verify the production state path.");
             }
@@ -208,15 +208,15 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
             var available = drive.AvailableFreeSpace;
             return available >= _policy.DiskFreeWarningBytes
                 ? new(
-                    Phase5DiagnosticCodes.DiskHealthy,
-                    Phase5HealthClassification.HEALTHY,
+                    DiagnosticCodes.DiskHealthy,
+                    HealthClassification.HEALTHY,
                     $"Disk has {available / (1024d * 1024d * 1024d):F1} GiB free.",
                     "No immediate disk action is required.",
                     available,
                     _policy.DiskFreeWarningBytes)
                 : new(
-                    Phase5DiagnosticCodes.DiskDegraded,
-                    Phase5HealthClassification.DEGRADED,
+                    DiagnosticCodes.DiskDegraded,
+                    HealthClassification.DEGRADED,
                     $"Disk has only {available / (1024d * 1024d * 1024d):F1} GiB free.",
                     "Free disk capacity before backup/log/database growth becomes unsafe.",
                     available,
@@ -225,14 +225,14 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         catch
         {
             return new(
-                Phase5DiagnosticCodes.DiskDegraded,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.DiskDegraded,
+                HealthClassification.UNAVAILABLE,
                 "Disk free space could not be measured.",
                 "Verify the production state volume.");
         }
     }
 
-    private Phase5DiagnosticValue CaptureWorkerHeartbeat()
+    private DiagnosticValue CaptureWorkerHeartbeat()
     {
         var path = Environment.GetEnvironmentVariable("EDGE_RETAILS_WORKER_HEARTBEAT_PATH");
         path = string.IsNullOrWhiteSpace(path)
@@ -242,8 +242,8 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         if (!File.Exists(path))
         {
             return new(
-                Phase5DiagnosticCodes.WorkerHeartbeatActionRequired,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                DiagnosticCodes.WorkerHeartbeatActionRequired,
+                HealthClassification.ACTION_REQUIRED,
                 "Worker heartbeat has not been observed.",
                 "Start or repair the worker process and verify its heartbeat path.");
         }
@@ -254,29 +254,29 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
             var age = DateTimeOffset.UtcNow - lastUtc;
             return age <= _policy.WorkerHeartbeatMaxAge
                 ? new(
-                    Phase5DiagnosticCodes.WorkerHeartbeatHealthy,
-                    Phase5HealthClassification.HEALTHY,
+                    DiagnosticCodes.WorkerHeartbeatHealthy,
+                    HealthClassification.HEALTHY,
                     $"Worker heartbeat age is {age.TotalSeconds:F0} seconds.",
                     "Worker heartbeat is current.",
                     age.TotalSeconds,
                     _policy.WorkerHeartbeatMaxAge.TotalSeconds)
                 : new(
-                    Phase5DiagnosticCodes.WorkerHeartbeatActionRequired,
-                    Phase5HealthClassification.ACTION_REQUIRED,
+                    DiagnosticCodes.WorkerHeartbeatActionRequired,
+                    HealthClassification.ACTION_REQUIRED,
                     $"Worker heartbeat is {age.TotalMinutes:F1} minutes old.",
                     "Inspect worker liveness and recover the background worker.");
         }
         catch
         {
             return new(
-                Phase5DiagnosticCodes.WorkerHeartbeatActionRequired,
-                Phase5HealthClassification.UNAVAILABLE,
+                DiagnosticCodes.WorkerHeartbeatActionRequired,
+                HealthClassification.UNAVAILABLE,
                 "Worker heartbeat could not be read.",
                 "Verify heartbeat file accessibility.");
         }
     }
 
-    private Phase5DiagnosticValue CaptureBackupAge()
+    private DiagnosticValue CaptureBackupAge()
     {
         var directory = Environment.GetEnvironmentVariable("EDGE_RETAILS_BACKUP_DIR");
         directory = string.IsNullOrWhiteSpace(directory)
@@ -286,8 +286,8 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         if (!Directory.Exists(directory))
         {
             return new(
-                Phase5DiagnosticCodes.BackupUnavailable,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                DiagnosticCodes.BackupUnavailable,
+                HealthClassification.ACTION_REQUIRED,
                 "Backup directory does not exist.",
                 "Run the approved backup workflow and verify its authenticated manifest.");
         }
@@ -300,8 +300,8 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         if (manifest is null)
         {
             return new(
-                Phase5DiagnosticCodes.BackupUnavailable,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                DiagnosticCodes.BackupUnavailable,
+                HealthClassification.ACTION_REQUIRED,
                 "No backup manifest is available.",
                 "Run the approved backup workflow before relying on disaster recovery.");
         }
@@ -309,20 +309,20 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         var age = DateTimeOffset.UtcNow - manifest.LastWriteTimeUtc;
         return age <= _policy.BackupMaxAge
             ? new(
-                Phase5DiagnosticCodes.BackupHealthy,
-                Phase5HealthClassification.HEALTHY,
+                DiagnosticCodes.BackupHealthy,
+                HealthClassification.HEALTHY,
                 $"Latest local backup manifest is {age.TotalHours:F1} hours old.",
                 "Local backup age is within policy.",
                 age.TotalHours,
                 _policy.BackupMaxAge.TotalHours)
             : new(
-                Phase5DiagnosticCodes.BackupAgeActionRequired,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                DiagnosticCodes.BackupAgeActionRequired,
+                HealthClassification.ACTION_REQUIRED,
                 $"Latest local backup manifest is {age.TotalHours:F1} hours old.",
                 "Run the approved backup workflow and verify the resulting manifest.");
     }
 
-    private Phase5DiagnosticValue CaptureRemoteBackupVerification()
+    private DiagnosticValue CaptureRemoteBackupVerification()
     {
         var configured = Environment.GetEnvironmentVariable("EDGE_RETAILS_REMOTE_BACKUP_VERIFICATION_LEVEL");
         if (Enum.TryParse<RemoteVerificationLevel>(configured, true, out var level) &&
@@ -330,19 +330,19 @@ public sealed class Phase5DiagnosticsService : IPhase5DiagnosticsService
         {
             return new(
                 "backup.remote.verified",
-                Phase5HealthClassification.HEALTHY,
+                HealthClassification.HEALTHY,
                 $"Configured remote backup verification level is {level}.",
                 "Continue normal remote backup verification monitoring.");
         }
 
         return new(
-            Phase5DiagnosticCodes.RemoteBackupUnverified,
-            Phase5HealthClassification.UNAVAILABLE,
+            DiagnosticCodes.RemoteBackupUnverified,
+            HealthClassification.UNAVAILABLE,
             "No concrete remote backup verification authority is configured in the current deployment.",
             "Configure and verify the approved cloud backup adapter before presenting remote recoverability as green.");
     }
 
-    private async Task<IReadOnlyList<Phase5DiagnosticValue>> CaptureOutboxBacklogsAsync(
+    private async Task<IReadOnlyList<DiagnosticValue>> CaptureOutboxBacklogsAsync(
         System.Data.Common.DbConnection connection,
         CancellationToken cancellationToken)
     {
@@ -375,29 +375,29 @@ FROM system.outbox_messages
             return
             [
                 Backlog(
-                    Phase5DiagnosticCodes.PrintBacklogHealthy,
-                    Phase5DiagnosticCodes.PrintBacklogActionRequired,
+                    DiagnosticCodes.PrintBacklogHealthy,
+                    DiagnosticCodes.PrintBacklogActionRequired,
                     printPending,
                     _policy.PrintBacklogWarningCount,
                     "print backlog",
                     "Drain or reconcile the print outbox backlog."),
                 Backlog(
-                    Phase5DiagnosticCodes.OutcomeUnknownHealthy,
-                    Phase5DiagnosticCodes.OutcomeUnknownActionRequired,
+                    DiagnosticCodes.OutcomeUnknownHealthy,
+                    DiagnosticCodes.OutcomeUnknownActionRequired,
                     outcomeUnknown,
                     _policy.OutcomeUnknownWarningCount,
                     "OUTCOME_UNKNOWN backlog",
                     "Run the canonical same-operation reconciliation workflow."),
                 Backlog(
-                    Phase5DiagnosticCodes.ActionRequiredBacklogHealthy,
-                    Phase5DiagnosticCodes.ActionRequiredBacklogActionRequired,
+                    DiagnosticCodes.ActionRequiredBacklogHealthy,
+                    DiagnosticCodes.ActionRequiredBacklogActionRequired,
                     actionRequired,
                     _policy.ActionRequiredWarningCount,
                     "ACTION_REQUIRED backlog",
                     "Review and resolve action-required outbox effects."),
                 Backlog(
-                    Phase5DiagnosticCodes.FailedJobsHealthy,
-                    Phase5DiagnosticCodes.FailedJobsActionRequired,
+                    DiagnosticCodes.FailedJobsHealthy,
+                    DiagnosticCodes.FailedJobsActionRequired,
                     failed,
                     _policy.FailedJobsWarningCount,
                     "failed-job backlog",
@@ -413,15 +413,15 @@ FROM system.outbox_messages
             return
             [
                 new(
-                    Phase5DiagnosticCodes.PrintBacklogActionRequired,
-                    Phase5HealthClassification.UNAVAILABLE,
+                    DiagnosticCodes.PrintBacklogActionRequired,
+                    HealthClassification.UNAVAILABLE,
                     "Outbox backlog diagnostics could not be queried.",
                     "Verify the operational outbox before assuming print/background queues are healthy.")
             ];
         }
     }
 
-    private static Phase5DiagnosticValue Backlog(
+    private static DiagnosticValue Backlog(
         string healthyCode,
         string actionCode,
         long count,
@@ -431,24 +431,24 @@ FROM system.outbox_messages
         => count <= threshold
             ? new(
                 healthyCode,
-                Phase5HealthClassification.HEALTHY,
+                HealthClassification.HEALTHY,
                 $"Current {subject}: {count}.",
                 "Backlog is within configured warning policy.",
                 count,
                 threshold)
             : new(
                 actionCode,
-                Phase5HealthClassification.ACTION_REQUIRED,
+                HealthClassification.ACTION_REQUIRED,
                 $"Current {subject}: {count}.",
                 guidance,
                 count,
                 threshold);
 
-    private Phase5DiagnosticValue CaptureReconciliationStatus()
+    private DiagnosticValue CaptureReconciliationStatus()
     {
         return new(
-            Phase5DiagnosticCodes.ReconciliationActionRequired,
-            Phase5HealthClassification.UNAVAILABLE,
+            DiagnosticCodes.ReconciliationActionRequired,
+            HealthClassification.UNAVAILABLE,
             "No concrete reconciliation-failure authority is configured in the current deployment.",
             "Wire the canonical reconciliation failure source before presenting reconciliation health as green.");
     }

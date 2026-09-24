@@ -6,14 +6,25 @@ using EdgeRetails.Server.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var commonConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "EdgeRetails", "config.json");
+if (File.Exists(commonConfig))
+{
+    builder.Configuration.AddJsonFile(commonConfig, optional: true, reloadOnChange: false);
+}
+var localConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EdgeRetails", "config.json");
+if (File.Exists(localConfig))
+{
+    builder.Configuration.AddJsonFile(localConfig, optional: true, reloadOnChange: false);
+}
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? builder.Configuration["EDGE_RETAILS_DB"]
+    ?? builder.Configuration["DatabaseConnectionString"]
     ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
     ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_DB")
-    ?? (builder.Environment.IsEnvironment("Testing")
-        ? "Host=localhost;Database=edge_retails_test;Username=postgres;Password=postgres"
-        : throw new InvalidOperationException(
-            "No database connection string configured. " +
-            "Set ConnectionStrings:DefaultConnection, EDGE_RETAILS_TEST_DB, or EDGE_RETAILS_DB."));
+    ?? throw new InvalidOperationException(
+        "No database connection string configured. " +
+        "Set ConnectionStrings:DefaultConnection, EDGE_RETAILS_TEST_DB, or EDGE_RETAILS_DB.");
 
 builder.Services.AddEdgeRetailsInfrastructure(connectionString);
 

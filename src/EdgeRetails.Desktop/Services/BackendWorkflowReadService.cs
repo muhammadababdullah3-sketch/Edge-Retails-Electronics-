@@ -116,7 +116,7 @@ public sealed record BackendStocktakeSnapshot(
     long Version,
     IReadOnlyList<BackendStocktakeLine> Items);
 
-public interface IBackendPhase4WorkflowService
+public interface IBackendWorkflowReadService
 {
     Task<IReadOnlyList<BackendScannerMatch>> ResolveScannerAsync(
         string input,
@@ -183,12 +183,12 @@ public interface IBackendPhase4WorkflowService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class BackendPhase4WorkflowService : IBackendPhase4WorkflowService
+public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Func<Guid?> _actorUserId;
 
-    public BackendPhase4WorkflowService(
+    public BackendWorkflowReadService(
         IServiceScopeFactory scopeFactory,
         Func<Guid?> actorUserId)
     {

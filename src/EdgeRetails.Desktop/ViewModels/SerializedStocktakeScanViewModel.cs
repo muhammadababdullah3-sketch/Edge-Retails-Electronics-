@@ -7,7 +7,7 @@ public sealed class SerializedStocktakeScanViewModel : ViewModelBase
 {
     private readonly BackendStocktakeSnapshot _stocktake;
     private readonly StocktakeLineViewModel _line;
-    private readonly IBackendPhase4WorkflowService _service;
+    private readonly IBackendWorkflowReadService _service;
     private readonly IDialogService _dialogService;
     private readonly Func<Task> _refreshParent;
     private string _scannedIdentities = string.Empty;
@@ -17,7 +17,7 @@ public sealed class SerializedStocktakeScanViewModel : ViewModelBase
     public SerializedStocktakeScanViewModel(
         BackendStocktakeSnapshot stocktake,
         StocktakeLineViewModel line,
-        IBackendPhase4WorkflowService service,
+        IBackendWorkflowReadService service,
         IDialogService dialogService,
         Func<Task> refreshParent)
     {

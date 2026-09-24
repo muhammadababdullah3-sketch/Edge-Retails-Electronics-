@@ -38,12 +38,12 @@ public static class InfrastructureServiceCollectionExtensions
                 productionStateRoot,
                 500L * 1024 * 1024));
         services.AddSingleton<ProductionMaintenanceWriteGuard>();
-        services.AddSingleton<EdgeRetails.Application.Production.Diagnostics.Phase5DiagnosticsPolicy>(
-            _ => EdgeRetails.Application.Production.Diagnostics.Phase5DiagnosticsPolicy.FromEnvironment());
-        services.AddScoped<EdgeRetails.Application.Production.Diagnostics.IPhase5DiagnosticsService>(
-            provider => new EdgeRetails.Infrastructure.Production.Diagnostics.Phase5DiagnosticsService(
+        services.AddSingleton<EdgeRetails.Application.Production.Diagnostics.DiagnosticsPolicy>(
+            _ => EdgeRetails.Application.Production.Diagnostics.DiagnosticsPolicy.FromEnvironment());
+        services.AddScoped<EdgeRetails.Application.Production.Diagnostics.IHealthDiagnosticsService>(
+            provider => new EdgeRetails.Infrastructure.Production.Diagnostics.HealthDiagnosticsService(
                 provider.GetRequiredService<EdgeRetails.Infrastructure.Persistence.EdgeRetailsDbContext>(),
-                provider.GetRequiredService<EdgeRetails.Application.Production.Diagnostics.Phase5DiagnosticsPolicy>(),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Diagnostics.DiagnosticsPolicy>(),
                 productionStateRoot));
 
         services.AddSingleton<EdgeRetails.Application.Production.Backup.IBackupJobLock>(_ =>

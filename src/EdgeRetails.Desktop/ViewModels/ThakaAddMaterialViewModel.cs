@@ -31,7 +31,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
     private readonly IBackendThakaService? _backendService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly IDialogService? _dialogService;
     private readonly DemoRetailState? _retailState;
     private string _searchText = string.Empty;
@@ -49,7 +49,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         Action? onClose = null,
         IToastService? toastService = null,
         IBackendThakaService? backendService = null,
-        IBackendPhase4WorkflowService? phase4Service = null,
+        IBackendWorkflowReadService? workflowService = null,
         IDialogService? dialogService = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
@@ -57,7 +57,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         _onClose = onClose;
         _toastService = toastService;
         _backendService = backendService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
         _dialogService = dialogService;
         _retailState = ResolvePreviewRetailState(backendService);
 
@@ -259,7 +259,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
             return;
         }
 
-        if (_phase4Service is null || _dialogService is null)
+        if (_workflowService is null || _dialogService is null)
         {
             ValidationMessage = "Exact-unit picker is unavailable.";
             return;
@@ -269,7 +269,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
             "Select Thaka Material Units",
             $"{SelectedProduct.Name} · exact physical provenance",
             productId,
-            _phase4Service,
+            _workflowService,
             _dialogService,
             units =>
             {

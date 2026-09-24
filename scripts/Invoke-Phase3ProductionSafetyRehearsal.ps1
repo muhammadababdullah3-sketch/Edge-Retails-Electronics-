@@ -114,7 +114,7 @@ GRANT pg_read_all_data, pg_write_all_data TO $runtimeUser;
     $env:EDGE_RETAILS_SPRINT8_ALLOW_DESTRUCTIVE_CUTOVER_TEST = 'YES_DISPOSABLE_ONLY'
 
     Write-Output 'PHASE3_PG_APPLY_MIGRATIONS'
-    & dotnet ef database update --project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --connection $connectionString
+    & dotnet ef database update --project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --connection $connectionString --no-build
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet ef database update failed with exit code $LASTEXITCODE."
     }
@@ -152,13 +152,13 @@ SELECT count(*) FROM information_schema.tables WHERE table_schema = 'system' AND
     }
 
     Write-Output 'PHASE3_PG_RUN_PHASE3_SAFETY_TESTS'
-    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase3ProductionSafetyPostgresTests|FullyQualifiedName~Phase3CrashRestartIntegrationTests|FullyQualifiedName~Phase3UnknownOutcomeReplayIntegrationTests|FullyQualifiedName~Phase3RestoreInterruptionIntegrationTests|FullyQualifiedName~Phase3DatabaseSafetyNegativeIntegrationTests|FullyQualifiedName~PostgresBackupRestoreIntegrationTests|FullyQualifiedName~PostgresRestoreCutoverLiveClosureTests" --no-restore
+    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase3ProductionSafetyPostgresTests|FullyQualifiedName~Phase3CrashRestartIntegrationTests|FullyQualifiedName~Phase3UnknownOutcomeReplayIntegrationTests|FullyQualifiedName~Phase3RestoreInterruptionIntegrationTests|FullyQualifiedName~Phase3DatabaseSafetyNegativeIntegrationTests|FullyQualifiedName~PostgresBackupRestoreIntegrationTests|FullyQualifiedName~PostgresRestoreCutoverLiveClosureTests" --no-restore --no-build
     if ($LASTEXITCODE -ne 0) {
         throw "Phase 3 PostgreSQL safety tests failed with exit code $LASTEXITCODE."
     }
 
     Write-Output 'PHASE3_PG_RUN_PHASE2_REGRESSION_TESTS'
-    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase2TransactionalPostgresTests|FullyQualifiedName~Phase2ConcurrencyPostgresTests|FullyQualifiedName~Phase2ReconciliationPostgresTests|FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests" --no-restore
+    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase2TransactionalPostgresTests|FullyQualifiedName~Phase2ConcurrencyPostgresTests|FullyQualifiedName~Phase2ReconciliationPostgresTests|FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests" --no-restore --no-build
     if ($LASTEXITCODE -ne 0) {
         throw "Phase 2 regression tests failed on Phase 3 schema with exit code $LASTEXITCODE."
     }

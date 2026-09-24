@@ -17,7 +17,7 @@ public sealed class PosViewModel : ViewModelBase
     private readonly ITransactionService _transactionService;
     private readonly IPosCatalogGateway? _posCatalogGateway;
     private readonly IBackendBusinessOperationsService? _businessOperationsService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly List<CustomerDirectoryRecord> _customers = [];
     private readonly bool _isBackendCatalog;
     private readonly string _cashierName;
@@ -56,14 +56,14 @@ public sealed class PosViewModel : ViewModelBase
         ISessionContext? sessionContext = null,
         IPosCatalogGateway? posCatalogGateway = null,
         IBackendBusinessOperationsService? businessOperationsService = null,
-        IBackendPhase4WorkflowService? phase4Service = null)
+        IBackendWorkflowReadService? workflowService = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _transactionService = ResolveTransactionService(transactionService);
         _posCatalogGateway = posCatalogGateway;
         _businessOperationsService = businessOperationsService;
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
         _isBackendCatalog = posCatalogGateway is not null;
         _cashierName = sessionContext != null
             ? $"{sessionContext.DisplayName}, {sessionContext.RoleName}"
@@ -509,7 +509,7 @@ public sealed class PosViewModel : ViewModelBase
 
     private void OpenExactUnitPicker(PosProductItemViewModel product)
     {
-        if (_phase4Service is null || _dialogService is null ||
+        if (_workflowService is null || _dialogService is null ||
             product.BackendProductId is not Guid productId)
         {
             _toastService?.Show(
@@ -522,7 +522,7 @@ public sealed class PosViewModel : ViewModelBase
             "Select Physical Unit",
             $"{product.Name} · {product.Sku}",
             productId,
-            _phase4Service,
+            _workflowService,
             _dialogService,
             selected =>
             {
@@ -573,7 +573,7 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task ScanAsync()
     {
-        if (_phase4Service is null)
+        if (_workflowService is null)
         {
             if (FilteredProducts.Count == 1)
             {
@@ -596,7 +596,7 @@ public sealed class PosViewModel : ViewModelBase
 
         try
         {
-            var matches = await _phase4Service.ResolveScannerAsync(input);
+            var matches = await _workflowService.ResolveScannerAsync(input);
             if (matches.Count == 0)
             {
                 ScannerStatusMessage = $"No authoritative match for '{input}'.";
@@ -624,7 +624,7 @@ public sealed class PosViewModel : ViewModelBase
                     return;
                 }
 
-                var exact = (await _phase4Service.GetExactUnitsAsync(
+                var exact = (await _workflowService.GetExactUnitsAsync(
                         match.ProductId,
                         status: null))
                     .FirstOrDefault(x => x.InventoryUnitId == exactId);
@@ -670,7 +670,7 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task PriceCheckAsync()
     {
-        if (_phase4Service is null || _dialogService is null)
+        if (_workflowService is null || _dialogService is null)
         {
             _toastService?.Show(
                 "Authoritative Price Check is unavailable.",
@@ -699,7 +699,7 @@ public sealed class PosViewModel : ViewModelBase
 
         try
         {
-            var matches = await _phase4Service.ResolveScannerAsync(input);
+            var matches = await _workflowService.ResolveScannerAsync(input);
             var products = matches
                 .GroupBy(x => x.ProductId)
                 .Select(x => x.First())
@@ -733,7 +733,7 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task<bool> SaveDraftAsync(bool holdAfterSave)
     {
-        if (_phase4Service is null)
+        if (_workflowService is null)
         {
             _toastService?.Show(
                 "Backend POS Draft authority is unavailable.",
@@ -767,7 +767,7 @@ public sealed class PosViewModel : ViewModelBase
                     item.ExactUnit?.InventoryUnitId);
             }).ToArray();
 
-            var saved = await _phase4Service.SaveDraftAsync(
+            var saved = await _workflowService.SaveDraftAsync(
                 _currentDraftId,
                 _currentDraftVersion,
                 SelectedCustomer?.BackendId,
@@ -810,7 +810,7 @@ public sealed class PosViewModel : ViewModelBase
 
     private void OpenRecentDrafts()
     {
-        if (_phase4Service is null || _dialogService is null)
+        if (_workflowService is null || _dialogService is null)
         {
             _toastService?.Show(
                 "Backend POS Draft authority is unavailable.",
@@ -819,7 +819,7 @@ public sealed class PosViewModel : ViewModelBase
         }
 
         _dialogService.Show(new PosDraftsViewModel(
-            _phase4Service,
+            _workflowService,
             _dialogService,
             draftId => _ = ResumeDraftAsync(draftId),
             _toastService));
@@ -827,14 +827,14 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task ResumeDraftAsync(Guid draftId)
     {
-        if (_phase4Service is null)
+        if (_workflowService is null)
         {
             return;
         }
 
         try
         {
-            var detail = await _phase4Service.GetDraftAsync(draftId)
+            var detail = await _workflowService.GetDraftAsync(draftId)
                 ?? throw new BackendOperationException(
                     "sales.draft_not_found",
                     "POS draft is no longer open.");

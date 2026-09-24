@@ -87,13 +87,13 @@ try {
     $env:EDGE_RETAILS_PRODUCTION_STATE_DIR = (Join-Path $runRoot 'state')
 
     Write-Output 'PHASE2_PG_APPLY_MIGRATIONS'
-    & dotnet ef database update --project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --connection $connectionString
+    & dotnet ef database update --project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --connection $connectionString --no-build
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet ef database update failed with exit code $LASTEXITCODE."
     }
 
     Write-Output 'PHASE2_PG_RUN_INTEGRATION_TESTS'
-    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase2TransactionalPostgresTests|FullyQualifiedName~Phase2ConcurrencyPostgresTests|FullyQualifiedName~Phase2ReconciliationPostgresTests|FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests" --no-restore
+    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase2TransactionalPostgresTests|FullyQualifiedName~Phase2ConcurrencyPostgresTests|FullyQualifiedName~Phase2ReconciliationPostgresTests|FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests" --no-restore --no-build
     if ($LASTEXITCODE -ne 0) {
         throw "Phase 2 PostgreSQL integration tests failed with exit code $LASTEXITCODE."
     }

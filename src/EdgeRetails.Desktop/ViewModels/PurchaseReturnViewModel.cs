@@ -93,7 +93,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
 {
     private readonly DemoPurchaseInventoryService? _previewService;
     private readonly IBackendPurchasingInventoryService? _backendService;
-    private readonly IBackendPhase4WorkflowService? _phase4Service;
+    private readonly IBackendWorkflowReadService? _workflowService;
     private readonly IToastService _toastService;
     private readonly IDialogService? _dialogService;
     private readonly Action _close;
@@ -108,7 +108,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
         Action close,
         Action? completed = null,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendPhase4WorkflowService? phase4Service = null,
+        IBackendWorkflowReadService? workflowService = null,
         IDialogService? dialogService = null)
     {
         Purchase = purchase;
@@ -121,7 +121,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
 #else
         _previewService = null;
 #endif
-        _phase4Service = phase4Service;
+        _workflowService = workflowService;
         _dialogService = dialogService;
         Lines = new ObservableCollection<PurchaseReturnLineViewModel>(
             purchase.Items.Select(item => new PurchaseReturnLineViewModel(item, RefreshTotals)));
@@ -155,7 +155,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
             return;
         }
 
-        if (_phase4Service is null || _dialogService is null)
+        if (_workflowService is null || _dialogService is null)
         {
             _toastService.Show(
                 "Exact-unit picker is unavailable.",
@@ -175,7 +175,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
             "Select Units to Return",
             $"{line.ProductName} · original purchase provenance required",
             productId,
-            _phase4Service,
+            _workflowService,
             _dialogService,
             line.SetExactUnits,
             requiredCount: line.RequiredExactUnitCount,

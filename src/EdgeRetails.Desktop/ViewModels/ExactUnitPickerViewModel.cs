@@ -39,7 +39,7 @@ public sealed class ExactUnitOptionViewModel : ViewModelBase
 
 public sealed class ExactUnitPickerViewModel : ViewModelBase
 {
-    private readonly IBackendPhase4WorkflowService _service;
+    private readonly IBackendWorkflowReadService _service;
     private readonly IDialogService _dialogService;
     private readonly Action<IReadOnlyList<BackendExactUnit>> _confirmed;
     private readonly Guid _productId;
@@ -56,7 +56,7 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
         string title,
         string subtitle,
         Guid productId,
-        IBackendPhase4WorkflowService service,
+        IBackendWorkflowReadService service,
         IDialogService dialogService,
         Action<IReadOnlyList<BackendExactUnit>> confirmed,
         int requiredCount = 1,
