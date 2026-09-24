@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Warranty;
 using EdgeRetails.Domain.Catalog;
@@ -241,8 +242,13 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
 public sealed class WarrantyReadService : IWarrantyReadService
 {
     private readonly EdgeRetailsDbContext _db;
+    private readonly IClock? _clock;
 
-    public WarrantyReadService(EdgeRetailsDbContext db) => _db = db;
+    public WarrantyReadService(EdgeRetailsDbContext db, IClock? clock = null)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     public async Task<WarrantyDashboardDto> GetDashboardAsync(
         string? search,
@@ -610,11 +616,13 @@ public sealed class WarrantyReadService : IWarrantyReadService
             .OrderByDescending(x => x.CompletedAt)
             .Take(100)
             .ToListAsync(cancellationToken);
+        var matchingSaleIds = sales.Select(s => s.Id).ToArray();
         var items = await _db.SaleItems.AsNoTracking()
-            .Where(x => saleIds.Contains(x.SaleId))
+            .Where(x => matchingSaleIds.Contains(x.SaleId))
             .ToListAsync(cancellationToken);
+        var saleItemIds = items.Select(i => i.Id).Distinct().ToArray();
         var links = await _db.SaleItemUnits.AsNoTracking()
-            .Where(x => items.Select(i => i.Id).Contains(x.SaleItemId))
+            .Where(x => saleItemIds.Contains(x.SaleItemId))
             .ToListAsync(cancellationToken);
         var unitIds = links.Select(x => x.InventoryUnitId).Distinct().ToArray();
         var units = await _db.InventoryUnits.AsNoTracking()
@@ -627,39 +635,52 @@ public sealed class WarrantyReadService : IWarrantyReadService
             .Where(x => sales.Where(s => s.CustomerId != null).Select(s => s.CustomerId!.Value).Distinct().Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
 
-        var activeClaimItems = await (
-            from item in _db.WarrantyClaimItems.AsNoTracking()
-            join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
-            where claim.Status != WarrantyClaimStatus.Closed && claim.Status != WarrantyClaimStatus.Cancelled
-            select item)
-            .ToListAsync(cancellationToken);
+        var activeClaimItems = saleItemIds.Length == 0
+            ? new List<WarrantyClaimItem>()
+            : await (
+                from item in _db.WarrantyClaimItems.AsNoTracking()
+                join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
+                where claim.Status != WarrantyClaimStatus.Closed &&
+                      claim.Status != WarrantyClaimStatus.Cancelled &&
+                      item.OriginalSaleItemId != null &&
+                      saleItemIds.Contains(item.OriginalSaleItemId!.Value)
+                select item)
+                .ToListAsync(cancellationToken);
         var activeClaimedBySaleItem = activeClaimItems
             .Where(x => x.OriginalSaleItemId != null)
             .GroupBy(x => x.OriginalSaleItemId!.Value)
             .ToDictionary(x => x.Key, x => QuantityMath.RoundQuantity(x.Sum(i => i.Quantity)));
-        var activeClaimUnitIds = (await (
-            from link in _db.WarrantyClaimItemUnits.AsNoTracking()
-            join item in _db.WarrantyClaimItems.AsNoTracking() on link.ClaimItemId equals item.Id
-            join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
-            where claim.Status != WarrantyClaimStatus.Closed &&
-                  claim.Status != WarrantyClaimStatus.Cancelled &&
-                  link.OriginalInventoryUnitId != null
-            select link.OriginalInventoryUnitId!.Value)
-            .Distinct()
-            .ToListAsync(cancellationToken)).ToHashSet();
-        var terminalClaimItems = await (
-            from item in _db.WarrantyClaimItems.AsNoTracking()
-            join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
-            where claim.Status == WarrantyClaimStatus.Closed &&
-                  (item.ResolutionType == WarrantyResolutionType.Replaced ||
-                   item.ResolutionType == WarrantyResolutionType.Refunded)
-            select item)
-            .ToListAsync(cancellationToken);
+        var activeClaimUnitIds = unitIds.Length == 0
+            ? new HashSet<Guid>()
+            : (await (
+                from link in _db.WarrantyClaimItemUnits.AsNoTracking()
+                join item in _db.WarrantyClaimItems.AsNoTracking() on link.ClaimItemId equals item.Id
+                join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
+                where claim.Status != WarrantyClaimStatus.Closed &&
+                      claim.Status != WarrantyClaimStatus.Cancelled &&
+                      link.OriginalInventoryUnitId != null &&
+                      unitIds.Contains(link.OriginalInventoryUnitId!.Value)
+                select link.OriginalInventoryUnitId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken)).ToHashSet();
+        var terminalClaimItems = saleItemIds.Length == 0
+            ? new List<WarrantyClaimItem>()
+            : await (
+                from item in _db.WarrantyClaimItems.AsNoTracking()
+                join claim in _db.WarrantyClaims.AsNoTracking() on item.ClaimId equals claim.Id
+                where claim.Status == WarrantyClaimStatus.Closed &&
+                      item.OriginalSaleItemId != null &&
+                      saleItemIds.Contains(item.OriginalSaleItemId!.Value) &&
+                      (item.ResolutionType == WarrantyResolutionType.Replaced ||
+                       item.ResolutionType == WarrantyResolutionType.Refunded)
+                select item)
+                .ToListAsync(cancellationToken);
         var terminalBySaleItem = terminalClaimItems
             .Where(x => x.OriginalSaleItemId != null)
             .GroupBy(x => x.OriginalSaleItemId!.Value)
             .ToDictionary(x => x.Key, x => QuantityMath.RoundQuantity(x.Sum(i => i.Quantity)));
 
+        var today = _clock?.ShopDate ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
         var rows = new List<WarrantyClaimIntakeRowDto>();
         foreach (var sale in sales)
         {
@@ -672,7 +693,7 @@ public sealed class WarrantyReadService : IWarrantyReadService
                 var product = products.GetValueOrDefault(item.ProductId);
                 var baseEligibility = sale.CustomerId != null
                     ? item.WarrantyValidUntil is not null
-                        ? DateOnly.FromDateTime(DateTime.UtcNow.Date) <= item.WarrantyValidUntil.Value
+                        ? today <= item.WarrantyValidUntil.Value
                             ? (true, (string?)null)
                             : (false, "warranty.expired")
                         : (false, "warranty.not_covered")

@@ -18,6 +18,15 @@ public partial class App : System.Windows.Application
 
         ShutdownMode = ShutdownMode.OnMainWindowClose;
 
+        DispatcherUnhandledException += (s, args) =>
+        {
+            MessageBox.Show(
+                $"An unexpected application error occurred:\n\n{args.Exception.Message}",
+                "Application Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        };
+
         _themeService = new ThemeService();
         var themeService = _themeService;
         var dialogService = new DialogService();

@@ -99,5 +99,46 @@ public partial class PosView : UserControl
                 e.Handled = true;
             }
         }
+        else if (e.Key == Key.F6)
+        {
+            if (vm.HoldDraftCommand.CanExecute(null))
+            {
+                vm.HoldDraftCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.F7)
+        {
+            if (vm.RecentDraftsCommand.CanExecute(null))
+            {
+                vm.RecentDraftsCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.F8)
+        {
+            if (vm.PriceCheckCommand.CanExecute(null))
+            {
+                vm.PriceCheckCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.F9)
+        {
+            if (vm.SaveDraftCommand.CanExecute(null))
+            {
+                vm.SaveDraftCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.Escape)
+        {
+            if (!string.IsNullOrEmpty(vm.SearchText))
+            {
+                vm.SearchText = string.Empty;
+                FocusSearchBox();
+                e.Handled = true;
+            }
+        }
     }
 }
