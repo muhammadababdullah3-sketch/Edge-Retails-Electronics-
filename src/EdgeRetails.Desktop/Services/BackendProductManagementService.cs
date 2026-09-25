@@ -207,6 +207,28 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             cancellationToken);
         var categoryRows = await reads.GetCategoriesAsync(true, cancellationToken);
         var unitRows = await reads.GetUnitsAsync(true, cancellationToken);
+
+        if (unitRows.Count == 0)
+        {
+            var actor = _actorUserId() ?? Guid.Empty;
+            if (actor != Guid.Empty)
+            {
+                var saveUnitHandler = scope.ServiceProvider.GetRequiredService<SaveUnitHandler>();
+                await saveUnitHandler.HandleAsync(new SaveUnitCommand(actor, null, "Piece", "Pcs", 0), cancellationToken);
+                await saveUnitHandler.HandleAsync(new SaveUnitCommand(actor, null, "Meter", "m", 2), cancellationToken);
+                await saveUnitHandler.HandleAsync(new SaveUnitCommand(actor, null, "Box", "Box", 0), cancellationToken);
+
+                if (categoryRows.Count == 0)
+                {
+                    var saveCategoryHandler = scope.ServiceProvider.GetRequiredService<SaveCategoryHandler>();
+                    await saveCategoryHandler.HandleAsync(new SaveCategoryCommand(actor, null, "General Electronics"), cancellationToken);
+                }
+
+                categoryRows = await reads.GetCategoriesAsync(true, cancellationToken);
+                unitRows = await reads.GetUnitsAsync(true, cancellationToken);
+            }
+        }
+
         var supplierRows = await suppliers.HandleAsync(false, cancellationToken);
 
         return new BackendProductManagementSnapshot(

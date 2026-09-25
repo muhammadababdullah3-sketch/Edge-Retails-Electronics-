@@ -99,4 +99,29 @@
         <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
         <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
     </Style>
+
+    <!-- Numeric Table Styles -->
+    <Style x:Key="Table.ColumnHeader.Numeric" TargetType="DataGridColumnHeader" BasedOn="{StaticResource Table.ColumnHeader}">
+        <Setter Property="HorizontalContentAlignment" Value="Right" />
+    </Style>
+
+    <Style x:Key="Table.Cell.Numeric" TargetType="DataGridCell" BasedOn="{StaticResource Table.Cell}">
+        <Setter Property="HorizontalContentAlignment" Value="Right" />
+    </Style>
+
+    <Style x:Key="Table.TextCell.Numeric" TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="TextAlignment" Value="Right" />
+    </Style>
+
+    <Style x:Key="Table.TextCell.Numeric.Bold" TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell.Numeric}">
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <!-- Implicit DataGrid Styles -->
+    <Style TargetType="DataGrid" BasedOn="{StaticResource Table.DataGrid}" />
+    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource Table.ColumnHeader}" />
+    <Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}" />
+    <Style TargetType="DataGridCell" BasedOn="{StaticResource Table.Cell}" />
 </ResourceDictionary>

@@ -145,7 +145,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         FilteredProducts.Count == 0;
 
     public string ResultCountDisplay =>
-        IsLoading ? "Loading catalogâ€¦" : $"{FilteredProducts.Count} product(s)";
+        IsLoading ? "Loading catalog…" : $"{FilteredProducts.Count} product(s)";
 
     public bool IsDetailViewActive
     {
@@ -439,7 +439,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             id: item.ProductId.ToString("D"),
             name: item.Name,
             sku: item.Sku,
-            brand: string.IsNullOrWhiteSpace(item.Brand) ? "â€”" : item.Brand,
+            brand: string.IsNullOrWhiteSpace(item.Brand) ? "—" : item.Brand,
             category: item.Category,
             stock: 0m,
             price: item.DefaultSalePrice,

@@ -26,9 +26,13 @@
     <sys:Double x:Key="Dimension.Button.PrimaryAction">46</sys:Double>
     <sys:Double x:Key="Dimension.Button.PrimaryPurchaseAction">48</sys:Double>
     <sys:Double x:Key="Dimension.Search.Large">44</sys:Double>
+    <sys:Double x:Key="Dimension.Search.Compact">36</sys:Double>
     <sys:Double x:Key="Dimension.Table.Header">35</sys:Double>
     <sys:Double x:Key="Dimension.Table.Row">38.5</sys:Double>
     <sys:Double x:Key="Dimension.Drawer.Width">480</sys:Double>
+    <sys:Double x:Key="Dimension.Drawer.Wide">760</sys:Double>
+    <sys:Double x:Key="Container.MaxWidth.Standard">1320</sys:Double>
+    <sys:Double x:Key="Container.MaxWidth.Wide">1440</sys:Double>
 
     <Thickness x:Key="Padding.Control.Standard">14,0</Thickness>
     <Thickness x:Key="Padding.Input.Standard">10.5,0</Thickness>
@@ -36,4 +40,6 @@
     <Thickness x:Key="Padding.TopBar">21,0</Thickness>
     <Thickness x:Key="Padding.Card.Standard">14</Thickness>
     <Thickness x:Key="Padding.Page.Standard">24,20</Thickness>
+    <Thickness x:Key="Padding.Page.Compact">16,14</Thickness>
+    <Thickness x:Key="Padding.Page.Dense">14</Thickness>
 </ResourceDictionary>

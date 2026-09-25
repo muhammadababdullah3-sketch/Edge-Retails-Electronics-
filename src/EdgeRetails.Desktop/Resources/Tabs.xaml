@@ -47,4 +47,6 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <Style TargetType="TabControl" BasedOn="{StaticResource Tabs.Control}" />
+    <Style TargetType="TabItem" BasedOn="{StaticResource Tabs.Item}" />
 </ResourceDictionary>

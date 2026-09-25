@@ -3,13 +3,13 @@
  <Border Width="500" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid><TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/>
-    <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" HorizontalAlignment="Right"/></Grid>
+    <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" IsCancel="True" HorizontalAlignment="Right"/></Grid>
    <StackPanel Margin="0,16,0,0"><TextBlock Text="Name *" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Phone *" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Address" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Notes" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" Height="64" TextWrapping="Wrap" AcceptsReturn="True" Padding="10,7"/></StackPanel>
-   <Grid Margin="0,18,0,0"><Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" HorizontalAlignment="Left"/>
-    <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Style="{StaticResource Button.Primary}" HorizontalAlignment="Right"/></Grid>
+   <Grid Margin="0,18,0,0"><Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" IsCancel="True" HorizontalAlignment="Left"/>
+    <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Style="{StaticResource Button.Primary}" IsDefault="True" HorizontalAlignment="Right"/></Grid>
   </StackPanel>
  </Border>
 </UserControl>

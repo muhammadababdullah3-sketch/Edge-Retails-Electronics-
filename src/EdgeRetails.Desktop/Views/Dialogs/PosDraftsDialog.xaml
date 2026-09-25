@@ -10,8 +10,9 @@
                     <TextBlock Text="Resume or cancel authoritative backend drafts." Margin="0,4,0,0" FontSize="12.5"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
-                <Button Content="âœ•" HorizontalAlignment="Right" Command="{Binding CloseCommand}"
-                        Style="{StaticResource Button.Text.Neutral}" />
+                <Button Content="✕" HorizontalAlignment="Right" Command="{Binding CloseCommand}"
+                        Style="{StaticResource Button.Text.Neutral}"
+                        IsCancel="True" />
             </Grid>
             <StackPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
                 <TextBlock Text="{Binding Message}" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,0,8" />
@@ -23,7 +24,9 @@
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="DRAFT" Binding="{Binding DraftNumber}" Width="120" />
                     <DataGridTextColumn Header="CUSTOMER" Binding="{Binding CustomerName}" Width="*" />
-                    <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="70" />
+                    <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="70"
+                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
                     <DataGridTextColumn Header="UPDATED" Binding="{Binding UpdatedAt, StringFormat={}{0:dd MMM HH:mm}}" Width="130" />
                     <DataGridTemplateColumn Header="ACTIONS" Width="180">
                         <DataGridTemplateColumn.CellTemplate>

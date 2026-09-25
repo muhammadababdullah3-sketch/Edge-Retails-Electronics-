@@ -80,7 +80,7 @@
                         BorderThickness="1"
                         CornerRadius="{StaticResource Radius.Card}"
                         Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="Loading authoritative catalogâ€¦"
+                    <TextBlock Text="Loading authoritative catalog…"
                                Foreground="{DynamicResource Brush.Text.Secondary}" />
                 </Border>
 
@@ -127,8 +127,12 @@
                                 <DataGridTextColumn Header="CATEGORY" Binding="{Binding Category}" Width="140" />
                                 <DataGridTextColumn Header="UNIT" Binding="{Binding BaseUnit}" Width="80" />
                                 <DataGridTextColumn Header="TRACKING" Binding="{Binding TrackingDisplay}" Width="120" />
-                                <DataGridTextColumn Header="SALE PRICE" Binding="{Binding PriceDisplay}" Width="120" />
-                                <DataGridTextColumn Header="MIN STOCK" Binding="{Binding MinimumStockDisplay}" Width="110" />
+                                <DataGridTextColumn Header="SALE PRICE" Binding="{Binding PriceDisplay}" Width="120"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                                <DataGridTextColumn Header="MIN STOCK" Binding="{Binding MinimumStockDisplay}" Width="110"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}" />
                                 <DataGridTextColumn Header="STATUS" Binding="{Binding StatusDisplay}" Width="90" />
                                 <DataGridTextColumn Header="SUPPLIERS" Binding="{Binding SupplierDisplay}" Width="135" />
                                 <DataGridTemplateColumn Header="ACTIONS" Width="210">
@@ -158,7 +162,7 @@
 
                         <controls:EmptyState Title="No products configured"
                                              Message="Create the first catalog product. Product creation does not create stock."
-                                             IconGeometry="{StaticResource Icon.Nav.Inventory}"
+                                             IconGeometry="{StaticResource Icon.Nav.ProductManagement}"
                                              Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <controls:EmptyState Title="No products match"
                                              Message="Change the search, category or active-state filter."

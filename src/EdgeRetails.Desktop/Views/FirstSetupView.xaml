@@ -117,6 +117,19 @@
                     TextWrapping="Wrap"
                     Foreground="{DynamicResource Brush.Text.Secondary}"/>
         </Border>
+        <Border Margin="0,14,0,0"
+                Padding="12"
+                Background="#1AEF4444"
+                BorderBrush="#EF4444"
+                BorderThickness="1"
+                CornerRadius="8"
+                Visibility="{Binding HasLicenseError, Converter={StaticResource BooleanToVisibilityConverter}}">
+         <TextBlock Text="{Binding LicenseErrorMessage}"
+                    FontSize="12"
+                    FontWeight="SemiBold"
+                    Foreground="#EF4444"
+                    TextWrapping="Wrap"/>
+        </Border>
        </StackPanel>
       </Border>
 

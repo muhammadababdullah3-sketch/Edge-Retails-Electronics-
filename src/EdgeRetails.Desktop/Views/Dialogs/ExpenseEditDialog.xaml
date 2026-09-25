@@ -3,7 +3,7 @@
  <Border Width="520" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid><TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/>
-    <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" HorizontalAlignment="Right"/></Grid>
+    <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" IsCancel="True" HorizontalAlignment="Right"/></Grid>
    <Grid Margin="0,16,0,0">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <StackPanel><TextBlock Text="Category" Margin="0,0,0,5" FontSize="12"/><ComboBox ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" Height="35"/></StackPanel>
@@ -20,8 +20,8 @@
     <StackPanel Grid.Column="2"><TextBlock Text="Staff Member" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding StaffMember, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    </Grid>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Note" Margin="0,0,0,5" FontSize="12"/><TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" Height="64" TextWrapping="Wrap" AcceptsReturn="True" Padding="10,7"/></StackPanel>
-   <Grid Margin="0,18,0,0"><Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" HorizontalAlignment="Left"/>
-    <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Style="{StaticResource Button.Warning.Compact}" HorizontalAlignment="Right" Height="38" Padding="18,0"/></Grid>
+   <Grid Margin="0,18,0,0"><Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" IsCancel="True" HorizontalAlignment="Left"/>
+    <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Style="{StaticResource Button.Warning.Compact}" IsDefault="True" HorizontalAlignment="Right" Height="38" Padding="18,0"/></Grid>
   </StackPanel>
  </Border>
 </UserControl>

@@ -22,6 +22,7 @@
     </StackPanel>
     <Button Content="✕" Command="{Binding CancelCommand}"
             Style="{StaticResource Button.Text.Neutral}"
+            IsCancel="True"
             HorizontalAlignment="Right" VerticalAlignment="Top"/>
    </Grid>
 

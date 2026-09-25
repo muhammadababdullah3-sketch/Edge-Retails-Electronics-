@@ -15,6 +15,7 @@
                 <Button HorizontalAlignment="Right"
                         Content="✕"
                         Command="{Binding CancelCommand}"
+                        IsCancel="True"
                         Style="{StaticResource Button.Text.Neutral}" />
             </Grid>
 
@@ -128,10 +129,12 @@
                 <Button Grid.Column="1"
                         Content="Cancel"
                         Command="{Binding CancelCommand}"
+                        IsCancel="True"
                         Style="{StaticResource Button.Neutral}" />
                 <Button Grid.Column="3"
                         Content="Issue Material"
                         Command="{Binding IssueMaterialCommand}"
+                        IsDefault="True"
                         Style="{StaticResource Button.Info.Compact}" />
             </Grid>
         </StackPanel>

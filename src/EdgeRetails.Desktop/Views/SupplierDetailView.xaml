@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="{DynamicResource Brush.Surface.Raised}">
-    <Grid MinWidth="760">
+    <Grid Width="760">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -159,14 +159,19 @@
 
                 <TabItem Header="Khata">
                     <DataGrid ItemsSource="{Binding Workspace.Statement}" AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Date" Binding="{Binding OccurredAt, StringFormat={}{0:dd MMM yyyy HH:mm}}" Width="145"/>
                             <DataGridTextColumn Header="Entry" Binding="{Binding EntryNumber}" Width="125"/>
                             <DataGridTextColumn Header="Type" Binding="{Binding EntryType}" Width="170"/>
                             <DataGridTextColumn Header="Reference" Binding="{Binding ReferenceType}" Width="120"/>
-                            <DataGridTextColumn Header="Effect" Binding="{Binding SignedAmount, StringFormat={}{0:N2}}" Width="100"/>
-                            <DataGridTextColumn Header="Running Balance" Binding="{Binding RunningBalance, StringFormat={}{0:N2}}" Width="130"/>
+                            <DataGridTextColumn Header="Effect" Binding="{Binding SignedAmount, StringFormat={}{0:N2}}" Width="100"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
+                            <DataGridTextColumn Header="Running Balance" Binding="{Binding RunningBalance, StringFormat={}{0:N2}}" Width="130"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"/>
                             <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
@@ -174,13 +179,16 @@
 
                 <TabItem Header="Payments / Advances">
                     <DataGrid ItemsSource="{Binding Workspace.Payments}" AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Payment" Binding="{Binding PaymentNumber}" Width="125"/>
                             <DataGridTextColumn Header="Date" Binding="{Binding PaidAt, StringFormat={}{0:dd MMM yyyy HH:mm}}" Width="145"/>
                             <DataGridTextColumn Header="Purpose" Binding="{Binding Purpose}" Width="95"/>
                             <DataGridTextColumn Header="Method" Binding="{Binding Method}" Width="105"/>
-                            <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="100"/>
+                            <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="100"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90"/>
                             <DataGridTemplateColumn Header="Action" Width="95">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -198,12 +206,15 @@
 
                 <TabItem Header="Refunds">
                     <DataGrid ItemsSource="{Binding Workspace.Refunds}" AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Refund" Binding="{Binding RefundNumber}" Width="125"/>
                             <DataGridTextColumn Header="Date" Binding="{Binding ReceivedAt, StringFormat={}{0:dd MMM yyyy HH:mm}}" Width="145"/>
                             <DataGridTextColumn Header="Method" Binding="{Binding Method}" Width="105"/>
-                            <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="100"/>
+                            <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="100"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90"/>
                             <DataGridTextColumn Header="Reference" Binding="{Binding ExternalReference}" Width="*"/>
                             <DataGridTemplateColumn Header="Action" Width="95">
@@ -222,6 +233,7 @@
 
                 <TabItem Header="Products Supplied">
                     <DataGrid ItemsSource="{Binding Workspace.SuppliedProducts}" AutoGenerateColumns="False"
+                              Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Product" Binding="{Binding ProductName}" Width="*"/>

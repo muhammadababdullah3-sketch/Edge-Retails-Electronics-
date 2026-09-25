@@ -15,29 +15,6 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
 
-        <!-- Segmented Button Gradients -->
-        <LinearGradientBrush x:Key="Gradient.Segmented.Normal" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Offset="0" Color="#0D9488" />
-            <GradientStop Offset="1" Color="#10B981" />
-        </LinearGradientBrush>
-
-        <LinearGradientBrush x:Key="Gradient.Segmented.Thaka" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Offset="0" Color="#7C3AED" />
-            <GradientStop Offset="1" Color="#635BFF" />
-        </LinearGradientBrush>
-
-        <LinearGradientBrush x:Key="Gradient.Divider.Normal" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Offset="0" Color="#00C7C4FF" />
-            <GradientStop Offset="0.5" Color="#FFC7C4FF" />
-            <GradientStop Offset="1" Color="#00C7C4FF" />
-        </LinearGradientBrush>
-
-        <LinearGradientBrush x:Key="Gradient.Divider.Thaka" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Offset="0" Color="#00C4B5FD" />
-            <GradientStop Offset="0.5" Color="#FFC4B5FD" />
-            <GradientStop Offset="1" Color="#00C4B5FD" />
-        </LinearGradientBrush>
-
         <!-- Stepper Button Style -->
         <Style x:Key="Pos.StepperButton" TargetType="Button">
             <Setter Property="Width" Value="28" />
@@ -68,6 +45,10 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -100,6 +81,9 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
                             </Trigger>
                         </ControlTemplate.Triggers>

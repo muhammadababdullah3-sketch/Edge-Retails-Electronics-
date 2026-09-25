@@ -14,9 +14,10 @@
                            FontSize="20"
                            FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
-                <Button Content="âœ•"
+                <Button Content="✕"
                         Command="{Binding CancelCommand}"
                         Style="{StaticResource Button.Text.Neutral}"
+                        IsCancel="True"
                         HorizontalAlignment="Right" />
             </Grid>
 
@@ -219,10 +220,12 @@
                 <Button Content="Cancel"
                         Command="{Binding CancelCommand}"
                         Style="{StaticResource Button.Neutral}"
+                        IsCancel="True"
                         HorizontalAlignment="Left" />
                 <Button Content="Save Product"
                         Command="{Binding SaveCommand}"
                         Style="{StaticResource Button.Primary}"
+                        IsDefault="True"
                         HorizontalAlignment="Right" />
             </Grid>
         </Grid>

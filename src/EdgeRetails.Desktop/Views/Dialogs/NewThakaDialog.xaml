@@ -54,6 +54,7 @@
                         FocusVisualStyle="{x:Null}"
                         ToolTip="Close"
                         AutomationProperties.Name="Close Dialog"
+                        IsCancel="True"
                         Command="{Binding CloseCommand}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
@@ -73,6 +74,11 @@
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                    <Setter TargetName="CloseBorder" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                    <Setter TargetName="CloseBorder" Property="BorderThickness" Value="1.5" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -176,10 +182,12 @@
                             Margin="0,0,10.5,0"
                             Content="Cancel"
                             Style="{StaticResource Button.Neutral}"
+                            IsCancel="True"
                             Command="{Binding CancelCommand}" />
                     <Button Width="130"
                             Content="Create Thaka"
                             Style="{StaticResource Button.Primary}"
+                            IsDefault="True"
                             Command="{Binding CreateThakaCommand}" />
                 </StackPanel>
             </Border>

@@ -8,6 +8,7 @@
                Foreground="{DynamicResource Brush.Text.Primary}"/>
     <Button Content="✕" Command="{Binding CancelCommand}"
             Style="{StaticResource Button.Text.Neutral}"
+            IsCancel="True"
             HorizontalAlignment="Right"/>
    </Grid>
    <TextBlock Text="{Binding Consequence}" Margin="0,18,0,0"
@@ -16,9 +17,11 @@
    <Grid Margin="0,22,0,0">
     <Button Content="Cancel" Command="{Binding CancelCommand}"
             Style="{StaticResource Button.Neutral}"
+            IsCancel="True"
             HorizontalAlignment="Left"/>
     <Button Content="{Binding ConfirmText}" Command="{Binding ConfirmCommand}"
             Style="{StaticResource Button.Warning.Compact}"
+            IsDefault="True"
             HorizontalAlignment="Right" Height="38" Padding="18,0"/>
    </Grid>
   </StackPanel>

@@ -37,6 +37,7 @@
                     <Button Content="✕"
                             Command="{Binding CancelCommand}"
                             Style="{StaticResource Button.Text.Neutral}"
+                            IsCancel="True"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top" />
                 </Grid>
@@ -138,10 +139,12 @@
                         <Button Content="Cancel"
                                 Command="{Binding CancelCommand}"
                                 Style="{StaticResource Button.Neutral}"
+                                IsCancel="True"
                                 Margin="0,0,8,0" />
                         <Button Content="Process Return"
                                 Command="{Binding ConfirmCommand}"
                                 Style="{StaticResource Button.Warning.Compact}"
+                                IsDefault="True"
                                 Height="38"
                                 Padding="18,0" />
                     </StackPanel>

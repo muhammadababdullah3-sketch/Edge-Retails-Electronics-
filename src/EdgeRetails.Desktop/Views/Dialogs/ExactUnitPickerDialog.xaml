@@ -11,8 +11,9 @@
                         <TextBlock Text="{Binding Subtitle}" Margin="0,4,0,0" FontSize="12.5"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
-                    <Button HorizontalAlignment="Right" Content="âœ•" Command="{Binding CancelCommand}"
-                            Style="{StaticResource Button.Text.Neutral}" />
+                    <Button HorizontalAlignment="Right" Content="✕" Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            IsCancel="True" />
                 </Grid>
                 <Grid Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
@@ -41,9 +42,12 @@
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                         HorizontalAlignment="Right" Margin="0,14,0,0">
                 <Button Content="Cancel" Command="{Binding CancelCommand}"
-                        Style="{StaticResource Button.Neutral}" Margin="0,0,8,0" />
+                        Style="{StaticResource Button.Neutral}"
+                        IsCancel="True"
+                        Margin="0,0,8,0" />
                 <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}"
-                        Style="{StaticResource Button.Primary}" />
+                        Style="{StaticResource Button.Primary}"
+                        IsDefault="True" />
             </StackPanel>
 
             <DataGrid ItemsSource="{Binding Units}" Style="{StaticResource Table.DataGrid}"
@@ -54,7 +58,9 @@
                     <DataGridTextColumn Header="SERIAL / IMEI" Binding="{Binding ManufacturerIdentity}" Width="200" IsReadOnly="True" />
                     <DataGridTextColumn Header="STATUS" Binding="{Binding Status}" Width="100" IsReadOnly="True" />
                     <DataGridTextColumn Header="PROVENANCE" Binding="{Binding Provenance}" Width="*" IsReadOnly="True" />
-                    <DataGridTextColumn Header="COST" Binding="{Binding CostDisplay}" Width="100" IsReadOnly="True" />
+                    <DataGridTextColumn Header="COST" Binding="{Binding CostDisplay}" Width="100" IsReadOnly="True"
+                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>

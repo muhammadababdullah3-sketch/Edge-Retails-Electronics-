@@ -298,7 +298,7 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
 
         Product.Name = item.Name;
         Product.Sku = item.Sku;
-        Product.Brand = string.IsNullOrWhiteSpace(item.Brand) ? "â€”" : item.Brand;
+        Product.Brand = string.IsNullOrWhiteSpace(item.Brand) ? "—" : item.Brand;
         Product.Model = item.Model ?? string.Empty;
         Product.Category = item.Category;
         Product.Unit = item.BaseUnit;

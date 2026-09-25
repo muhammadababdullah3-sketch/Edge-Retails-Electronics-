@@ -11,8 +11,9 @@
                         <TextBlock Text="{Binding RequirementDisplay}" Margin="0,4,0,0" FontSize="12.5"
                                    Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap" />
                     </StackPanel>
-                    <Button Content="âœ•" HorizontalAlignment="Right" Command="{Binding CancelCommand}"
-                            Style="{StaticResource Button.Text.Neutral}" />
+                    <Button Content="✕" HorizontalAlignment="Right" Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            IsCancel="True" />
                 </Grid>
                 <TextBlock Text="{Binding ValidationMessage}" Margin="0,10,0,0"
                            Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
@@ -20,14 +21,19 @@
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
                         Margin="0,14,0,0">
                 <Button Content="Cancel" Command="{Binding CancelCommand}"
-                        Style="{StaticResource Button.Neutral}" Margin="0,0,8,0" />
+                        Style="{StaticResource Button.Neutral}"
+                        IsCancel="True"
+                        Margin="0,0,8,0" />
                 <Button Content="Use Identities" Command="{Binding ConfirmCommand}"
-                        Style="{StaticResource Button.Primary}" />
+                        Style="{StaticResource Button.Primary}"
+                        IsDefault="True" />
             </StackPanel>
             <DataGrid ItemsSource="{Binding Rows}" Style="{StaticResource Table.DataGrid}"
                       AutoGenerateColumns="False" MinHeight="340">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="#" Binding="{Binding Sequence}" IsReadOnly="True" Width="50" />
+                    <DataGridTextColumn Header="#" Binding="{Binding Sequence}" IsReadOnly="True" Width="50"
+                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
                     <DataGridTextColumn Header="SERIAL NUMBER" Binding="{Binding SerialNumber, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />
                     <DataGridTextColumn Header="IMEI 1" Binding="{Binding Imei1, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />
                     <DataGridTextColumn Header="IMEI 2" Binding="{Binding Imei2, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />

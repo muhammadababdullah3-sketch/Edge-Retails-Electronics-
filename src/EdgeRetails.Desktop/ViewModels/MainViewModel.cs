@@ -101,6 +101,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _currentContent, value);
     }
 
+    public IToastService ToastService => _toastService;
+
     public ICommand ToggleSidebarCommand { get; }
 
     public void OnLoginSuccess(ISessionContext session)

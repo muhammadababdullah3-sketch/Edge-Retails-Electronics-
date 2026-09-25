@@ -46,6 +46,10 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="1.5" />
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
                                 <Setter Property="Cursor" Value="Arrow" />
@@ -84,6 +88,11 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="1.5" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -134,6 +143,7 @@
                 <Button Grid.Column="1"
                         Style="{StaticResource Button.CloseCross}"
                         Command="{Binding CancelCommand}"
+                        IsCancel="True"
                         ToolTip="Close"
                         VerticalAlignment="Top" />
             </Grid>
@@ -598,12 +608,14 @@
                         Content="Cancel"
                         Command="{Binding CancelCommand}"
                         Style="{StaticResource Button.Neutral}"
+                        IsCancel="True"
                         Height="40" />
 
                 <Button Grid.Column="2"
                         Content="Process Return"
                         Command="{Binding ProcessReturnCommand}"
                         Style="{StaticResource Button.Expense}"
+                        IsDefault="True"
                         Height="40" />
             </Grid>
         </Border>

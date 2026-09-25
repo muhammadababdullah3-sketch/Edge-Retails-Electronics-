@@ -63,7 +63,9 @@
                             <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="140" />
                             <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
                             <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="*" />
-                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
                         </DataGrid.Columns>
                     </DataGrid>
                     <DataGrid ItemsSource="{Binding Sales}"
@@ -75,9 +77,15 @@
                             <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="130" />
                             <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
                             <DataGridTextColumn Header="CUSTOMER" Binding="{Binding CustomerName}" Width="2*" />
-                            <DataGridTextColumn Header="QTY" Binding="{Binding QuantityDisplay}" Width="90" />
-                            <DataGridTextColumn Header="UNIT PRICE" Binding="{Binding UnitPriceDisplay}" Width="130" />
-                            <DataGridTextColumn Header="LINE TOTAL" Binding="{Binding LineTotalDisplay}" Width="140" />
+                            <DataGridTextColumn Header="QTY" Binding="{Binding QuantityDisplay}" Width="90"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                            <DataGridTextColumn Header="UNIT PRICE" Binding="{Binding UnitPriceDisplay}" Width="130"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                            <DataGridTextColumn Header="LINE TOTAL" Binding="{Binding LineTotalDisplay}" Width="140"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>

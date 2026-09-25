@@ -6,7 +6,9 @@
     Focusable="False">
     <Grid>
         <Border Background="{DynamicResource Brush.Overlay.Scrim}" />
-        <Border Width="{StaticResource Dimension.Drawer.Width}"
+        <Border Width="{Binding Content.DrawerWidth, FallbackValue=480, TargetNullValue=480}"
+                MinWidth="{StaticResource Dimension.Drawer.Width}"
+                MaxWidth="780"
                 HorizontalAlignment="Right"
                 Background="{DynamicResource Brush.Surface.Raised}"
                 BorderBrush="{DynamicResource Brush.Border.Default}"

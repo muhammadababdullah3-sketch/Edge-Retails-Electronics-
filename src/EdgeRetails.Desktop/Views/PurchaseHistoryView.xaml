@@ -76,8 +76,12 @@
                                 <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
                                 <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="2*" />
                                 <DataGridTextColumn Header="INVOICE" Binding="{Binding InvoiceNumber}" Width="160" />
-                                <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="100" />
-                                <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150" />
+                                <DataGridTextColumn Header="ITEMS" Binding="{Binding ItemCount}" Width="100"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                                <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalDisplay}" Width="150"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
                                 <DataGridTemplateColumn Header="ACTION" Width="120">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>

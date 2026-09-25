@@ -57,6 +57,8 @@ public sealed class FirstSetupViewModel : ViewModelBase
         ContinueCommand = new RelayCommand(() => _ = ContinueAsync());
         BackCommand = new RelayCommand(Back, () => Step != FirstSetupStep.License);
         StartCommand = new RelayCommand(Start, () => Step == FirstSetupStep.Ready);
+
+        TryAutoDetectLicense();
     }
 
     public event EventHandler? SetupCompleted;
@@ -93,6 +95,22 @@ public sealed class FirstSetupViewModel : ViewModelBase
         string.IsNullOrWhiteSpace(LicensePath)
             ? "Not selected"
             : "File selected · Verification pending";
+
+    private string? _licenseErrorMessage;
+
+    public string? LicenseErrorMessage
+    {
+        get => _licenseErrorMessage;
+        set
+        {
+            if (SetProperty(ref _licenseErrorMessage, value))
+            {
+                OnPropertyChanged(nameof(HasLicenseError));
+            }
+        }
+    }
+
+    public bool HasLicenseError => !string.IsNullOrWhiteSpace(LicenseErrorMessage);
 
     public string ShopName
     {
@@ -138,6 +156,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
         {
+            LicenseErrorMessage = "Selected license file does not exist.";
             _toastService.Show(
                 "Select an existing license file.",
                 ToastTone.Warning);
@@ -148,6 +167,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
         if (!string.Equals(extension, ".erlic", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(extension, ".lic", StringComparison.OrdinalIgnoreCase))
         {
+            LicenseErrorMessage = "License file must use canonical .erlic format (or legacy .lic).";
             _toastService.Show(
                 "License file must use canonical .erlic format (or legacy .lic).",
                 ToastTone.Warning);
@@ -155,6 +175,7 @@ public sealed class FirstSetupViewModel : ViewModelBase
         }
 
         LicensePath = filePath;
+        LicenseErrorMessage = null;
         OnPropertyChanged(nameof(LicenseFileName));
         OnPropertyChanged(nameof(LicenseStatus));
         return true;
@@ -174,6 +195,38 @@ public sealed class FirstSetupViewModel : ViewModelBase
         }
     }
 
+    private void TryAutoDetectLicense()
+    {
+        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var candidates = new List<string>
+        {
+            Path.Combine(commonAppData, "EdgeRetails", "license.erlic"),
+            Path.Combine(AppContext.BaseDirectory, "license.erlic"),
+            Path.Combine(Environment.CurrentDirectory, "license.erlic")
+        };
+
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        if (!string.IsNullOrEmpty(desktop))
+        {
+            candidates.Add(Path.Combine(desktop, "license.erlic"));
+        }
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(userProfile))
+        {
+            candidates.Add(Path.Combine(userProfile, "OneDrive", "Desktop", "license.erlic"));
+        }
+
+        foreach (var candidate in candidates.Distinct())
+        {
+            if (File.Exists(candidate))
+            {
+                TrySelectLicense(candidate);
+                break;
+            }
+        }
+    }
+
     private async Task ContinueAsync()
     {
         if (_isCompletingSetup)
@@ -185,12 +238,14 @@ public sealed class FirstSetupViewModel : ViewModelBase
         {
             if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
             {
+                LicenseErrorMessage = "Please browse and select a valid signed license file (.erlic) to continue.";
                 _toastService.Show(
                     "Select a license file before continuing.",
                     ToastTone.Warning);
                 return;
             }
 
+            LicenseErrorMessage = null;
             Step = FirstSetupStep.ShopSetup;
             return;
         }

@@ -60,7 +60,9 @@
                             <DataGridTextColumn Header="CATEGORY" Binding="{Binding Category}" Width="1.4*" />
                             <DataGridTextColumn Header="SUBCATEGORY" Binding="{Binding Subcategory}" Width="1.3*" />
                             <DataGridTextColumn Header="NOTE" Binding="{Binding Note}" Width="2*" />
-                            <DataGridTextColumn Header="AMOUNT" Binding="{Binding AmountDisplay}" Width="150" />
+                            <DataGridTextColumn Header="AMOUNT" Binding="{Binding AmountDisplay}" Width="150"
+                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
                             <DataGridTemplateColumn Header="ACTION" Width="100">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>

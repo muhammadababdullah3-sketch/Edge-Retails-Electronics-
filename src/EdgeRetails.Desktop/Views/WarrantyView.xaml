@@ -79,27 +79,28 @@
 
         <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2.4*"/>
-                <ColumnDefinition Width="1*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="360"/>
             </Grid.ColumnDefinitions>
 
             <DataGrid Grid.Column="0" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}"
                       AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
-                      BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1"
-                          VirtualizingPanel.IsVirtualizing="True"
-                          VirtualizingPanel.VirtualizationMode="Recycling"
-                          ScrollViewer.CanContentScroll="True">
+                      Style="{StaticResource Table.DataGrid}"
+                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      ScrollViewer.CanContentScroll="True">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="105"/>
-                    <DataGridTextColumn Header="Claim / Case" Binding="{Binding Number}" Width="125"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="85"/>
+                    <DataGridTextColumn Header="Claim / Case" Binding="{Binding Number}" Width="115"/>
                     <DataGridTextColumn Header="Product" Binding="{Binding ProductName}" Width="*"/>
-                    <DataGridTextColumn Header="Customer / Source" Binding="{Binding CustomerOrSource}" Width="150"/>
-                    <DataGridTextColumn Header="Supplier" Binding="{Binding SupplierName}" Width="140"/>
-                    <DataGridTextColumn Header="Tracking" Binding="{Binding TrackingCode}" Width="125"/>
-                    <DataGridTextColumn Header="Serial / IMEI" Binding="{Binding SerialNumber}" Width="125"/>
-                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="115"/>
-                    <DataGridTextColumn Header="Custody" Binding="{Binding Custody}" Width="105"/>
-                    <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="100"/>
+                    <DataGridTextColumn Header="Customer / Source" Binding="{Binding CustomerOrSource}" Width="130"/>
+                    <DataGridTextColumn Header="Supplier" Binding="{Binding SupplierName}" Width="120"/>
+                    <DataGridTextColumn Header="Tracking" Binding="{Binding TrackingCode}" Width="110"/>
+                    <DataGridTextColumn Header="Serial / IMEI" Binding="{Binding SerialNumber}" Width="110"/>
+                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="95"/>
+                    <DataGridTextColumn Header="Custody" Binding="{Binding Custody}" Width="90"/>
+                    <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="90"/>
                 </DataGrid.Columns>
             </DataGrid>
 
@@ -132,6 +133,7 @@
                                 Style="{StaticResource Button.Primary}" Margin="0,0,0,6"/>
                         <DataGrid ItemsSource="{Binding IntakeRows}" SelectedItem="{Binding SelectedIntakeRow}"
                                   AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  Style="{StaticResource Table.DataGrid}"
                                   Height="150" Margin="0,0,0,6"
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
@@ -139,7 +141,9 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Invoice" Binding="{Binding InvoiceNumber}" Width="90"/>
                                 <DataGridTextColumn Header="Product" Binding="{Binding ProductName}" Width="*"/>
-                                <DataGridTextColumn Header="Qty" Binding="{Binding BaseQuantity}" Width="50"/>
+                                <DataGridTextColumn Header="Qty" Binding="{Binding BaseQuantity}" Width="50"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
                                 <DataGridTextColumn Header="Warranty" Binding="{Binding WarrantyValidUntil}" Width="90"/>
                                 <DataGridTextColumn Header="Eligible" Binding="{Binding Eligible}" Width="60"/>
                             </DataGrid.Columns>

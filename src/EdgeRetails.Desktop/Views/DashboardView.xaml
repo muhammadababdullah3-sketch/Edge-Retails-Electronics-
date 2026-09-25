@@ -1,4 +1,4 @@
-﻿<UserControl
+<UserControl
     x:Class="EdgeRetails.Desktop.Views.DashboardView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -48,6 +48,10 @@
                                 <Setter TargetName="Root" Property="Opacity" Value="0.5" />
                                 <Setter Property="Cursor" Value="Arrow" />
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Brush.White}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="1.5" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -72,6 +76,8 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Root"
                                 Background="{TemplateBinding Background}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
                                 CornerRadius="0,0,10,10">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
@@ -82,6 +88,11 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource Brush.Thaka}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="1" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -113,6 +124,11 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="1" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

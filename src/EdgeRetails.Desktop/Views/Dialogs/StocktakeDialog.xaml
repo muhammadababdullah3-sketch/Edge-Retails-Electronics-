@@ -14,8 +14,9 @@
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
                         <TextBlock Text="{Binding StatusDisplay}" Margin="0,0,12,0"
                                    VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <Button Content="âœ•" Command="{Binding CloseCommand}"
-                                Style="{StaticResource Button.Text.Neutral}" />
+                        <Button Content="✕" Command="{Binding CloseCommand}"
+                                Style="{StaticResource Button.Text.Neutral}"
+                                IsCancel="True" />
                     </StackPanel>
                 </Grid>
                 <TextBlock Text="{Binding Message}" Margin="0,10,0,0"
@@ -39,8 +40,12 @@
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="PRODUCT" Binding="{Binding ProductName}" Width="2*" IsReadOnly="True" />
                     <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="130" IsReadOnly="True" />
-                    <DataGridTextColumn Header="EXPECTED" Binding="{Binding ExpectedDisplay}" Width="90" IsReadOnly="True" />
-                    <DataGridTextColumn Header="COUNT" Binding="{Binding CountedQuantityText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="90" />
+                    <DataGridTextColumn Header="EXPECTED" Binding="{Binding ExpectedDisplay}" Width="90" IsReadOnly="True"
+                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                    <DataGridTextColumn Header="COUNT" Binding="{Binding CountedQuantityText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="90"
+                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
                     <DataGridTextColumn Header="STATUS" Binding="{Binding CountStatusDisplay}" Width="150" IsReadOnly="True" />
                     <DataGridTemplateColumn Header="ACTION" Width="220">
                         <DataGridTemplateColumn.CellTemplate>

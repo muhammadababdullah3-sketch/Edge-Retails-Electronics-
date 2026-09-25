@@ -36,8 +36,9 @@ public sealed class SettingsUserRecord(string name, string role, bool isActive =
     public string Status => IsActive ? "Active" : "Inactive";
 }
 
-public sealed class SettingsCategoryRecord(string name, bool isActive = true) : ViewModelBase
+public sealed class SettingsCategoryRecord(string name, bool isActive = true, Guid? id = null) : ViewModelBase
 {
+    public Guid? Id { get; } = id;
     private string _name = name;
     private bool _isActive = isActive;
 
@@ -68,8 +69,9 @@ public sealed class SettingsCategoryRecord(string name, bool isActive = true) : 
     public void RefreshCount() => OnPropertyChanged(nameof(ProductCount));
 }
 
-public sealed class SettingsUnitRecord(string name, string symbol, bool isActive = true) : ViewModelBase
+public sealed class SettingsUnitRecord(string name, string symbol, bool isActive = true, Guid? id = null) : ViewModelBase
 {
+    public Guid? Id { get; } = id;
     private string _name = name;
     private string _symbol = symbol;
     private bool _isActive = isActive;

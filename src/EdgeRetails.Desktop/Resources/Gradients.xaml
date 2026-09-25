@@ -138,4 +138,24 @@
         <GradientStop Offset="0" Color="#FFE7D5" />
         <GradientStop Offset="1" Color="#FFF8F2" />
     </LinearGradientBrush>
+
+    <!-- POS Segmented Mode & Divider Gradients (UI-018 Centralization) -->
+    <LinearGradientBrush x:Key="Gradient.Segmented.Normal" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#0D9488" />
+        <GradientStop Offset="1" Color="#10B981" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Segmented.Thaka" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#7C3AED" />
+        <GradientStop Offset="1" Color="#635BFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Divider.Normal" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#00C7C4FF" />
+        <GradientStop Offset="0.5" Color="#FFC7C4FF" />
+        <GradientStop Offset="1" Color="#00C7C4FF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Gradient.Divider.Thaka" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#00C4B5FD" />
+        <GradientStop Offset="0.5" Color="#FFC4B5FD" />
+        <GradientStop Offset="1" Color="#00C4B5FD" />
+    </LinearGradientBrush>
 </ResourceDictionary>

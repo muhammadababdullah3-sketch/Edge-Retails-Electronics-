@@ -75,10 +75,18 @@
                           BorderThickness="0" MinHeight="300">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="PRODUCT" Binding="{Binding ProductName}" Width="2*" IsReadOnly="True" />
-                        <DataGridTextColumn Header="QTY" Binding="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="110" />
-                        <DataGridTextColumn Header="COST" Binding="{Binding Cost, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="130" />
-                        <DataGridTextColumn Header="SALE PRICE" Binding="{Binding SalePrice, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="140" />
-                        <DataGridTextColumn Header="TOTAL" Binding="{Binding LineTotalDisplay}" Width="150" IsReadOnly="True" />
+                        <DataGridTextColumn Header="QTY" Binding="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="110"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                        <DataGridTextColumn Header="COST" Binding="{Binding Cost, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="130"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                        <DataGridTextColumn Header="SALE PRICE" Binding="{Binding SalePrice, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="140"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                        <DataGridTextColumn Header="TOTAL" Binding="{Binding LineTotalDisplay}" Width="150" IsReadOnly="True"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
                         <DataGridTextColumn Header="TRACKING" Binding="{Binding SerializedIdentityStatusDisplay}" Width="120" IsReadOnly="True" />
                         <DataGridTemplateColumn Header="ACTION" Width="210">
                             <DataGridTemplateColumn.CellTemplate>

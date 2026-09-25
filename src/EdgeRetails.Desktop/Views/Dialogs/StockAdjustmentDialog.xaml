@@ -5,7 +5,7 @@
         <StackPanel>
             <Grid>
                 <TextBlock Text="Stock Adjustment" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
-                <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" HorizontalAlignment="Right" />
+                <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" IsCancel="True" HorizontalAlignment="Right" />
             </Grid>
             <TextBlock Text="{Binding ProductDisplay}" Margin="0,5,0,14" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
             <Border Padding="14" CornerRadius="8" Background="{DynamicResource Brush.Badge.Info.Background}">
@@ -23,8 +23,8 @@
             <TextBlock Text="Note" Margin="0,14,0,6" FontSize="12" />
             <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
             <Grid Margin="0,18,0,0">
-                <Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" HorizontalAlignment="Left" />
-                <Button Content="Apply Adjustment" Command="{Binding ApplyCommand}" Style="{StaticResource Button.Primary}" HorizontalAlignment="Right" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Style="{StaticResource Button.Neutral}" IsCancel="True" HorizontalAlignment="Left" />
+                <Button Content="Apply Adjustment" Command="{Binding ApplyCommand}" Style="{StaticResource Button.Primary}" IsDefault="True" HorizontalAlignment="Right" />
             </Grid>
         </StackPanel>
     </Border>

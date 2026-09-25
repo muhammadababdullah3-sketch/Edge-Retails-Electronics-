@@ -28,8 +28,8 @@
     <Color x:Key="Color.Light.BorderSoft">#ECEAF5</Color>
     <Color x:Key="Color.Light.TextPrimary">#0B2038</Color>
     <Color x:Key="Color.Light.TextSecondary">#40536A</Color>
-    <Color x:Key="Color.Light.TextMuted">#6F8098</Color>
-    <Color x:Key="Color.Light.TextSubtle">#8D9CB0</Color>
+    <Color x:Key="Color.Light.TextMuted">#526071</Color>
+    <Color x:Key="Color.Light.TextSubtle">#627285</Color>
 
     <Color x:Key="Color.Dark.AppBackground">#081224</Color>
     <Color x:Key="Color.Dark.Surface">#0B1730</Color>

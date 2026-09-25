@@ -42,6 +42,10 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -75,6 +79,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -529,12 +537,18 @@
                                             Width="110" />
                         <DataGridTextColumn Header="Material Value"
                                             Binding="{Binding MaterialValueFormatted}"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric}"
                                             Width="120" />
                         <DataGridTextColumn Header="Paid"
                                             Binding="{Binding PaidFormatted}"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric}"
                                             Width="100" />
                         <DataGridTextColumn Header="Balance"
                                             Binding="{Binding BalanceFormatted}"
+                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                            ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"
                                             Width="110" />
                         <DataGridTemplateColumn Header="Status" Width="100">
                             <DataGridTemplateColumn.CellTemplate>

@@ -165,6 +165,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
     }
 
     public SupplierDirectoryRecord Supplier { get; }
+    public double DrawerWidth => 760;
     public string Title => Supplier.Name;
     public string NotesDisplay => string.IsNullOrWhiteSpace(Supplier.Notes) ? "-" : Supplier.Notes;
     public IReadOnlyList<SupplierSettlementMethod> SettlementMethods { get; } =

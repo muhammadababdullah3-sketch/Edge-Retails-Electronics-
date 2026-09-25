@@ -326,14 +326,9 @@
                                 <!-- Items Count -->
                                 <DataGridTextColumn Header="ITEMS"
                                                     Binding="{Binding ItemsCountDisplay}"
-                                                    Width="1.1*">
-                                    <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
-                                            <Setter Property="FontSize" Value="13" />
-                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Muted}" />
-                                        </Style>
-                                    </DataGridTextColumn.ElementStyle>
-                                </DataGridTextColumn>
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}"
+                                                    Width="1.1*" />
 
                                 <!-- Payment Method -->
                                 <DataGridTextColumn Header="PAYMENT"
@@ -350,17 +345,9 @@
                                 <!-- Total Amount -->
                                 <DataGridTextColumn Header="TOTAL AMOUNT"
                                                     Binding="{Binding TotalAmountDisplay}"
-                                                    Width="1.5*">
-                                    <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
-                                            <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
-                                            <Setter Property="FontSize" Value="13.5" />
-                                            <Setter Property="FontWeight" Value="Bold" />
-                                            <Setter Property="HorizontalAlignment" Value="Right" />
-                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
-                                        </Style>
-                                    </DataGridTextColumn.ElementStyle>
-                                </DataGridTextColumn>
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"
+                                                    Width="1.5*" />
 
                                 <!-- Status Badge (PAID / PARTIAL / REFUNDED) -->
                                 <DataGridTemplateColumn Header="STATUS" Width="130">

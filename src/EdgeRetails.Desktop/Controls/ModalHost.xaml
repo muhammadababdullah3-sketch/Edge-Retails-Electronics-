@@ -12,9 +12,13 @@
                       HorizontalContentAlignment="Center"
                       VerticalContentAlignment="Center"
                       Focusable="False">
-            <ContentControl Content="{Binding Content}"
+            <ContentControl x:Name="ModalPresenter"
+                            Content="{Binding Content}"
                             HorizontalAlignment="Center"
-                            VerticalAlignment="Center" />
+                            VerticalAlignment="Center"
+                            KeyboardNavigation.TabNavigation="Cycle"
+                            KeyboardNavigation.ControlTabNavigation="Cycle"
+                            KeyboardNavigation.DirectionalNavigation="Cycle" />
         </ScrollViewer>
     </Grid>
 </UserControl>
