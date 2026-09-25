@@ -91,53 +91,6 @@
         <GradientStop Offset="0" Color="#EB7627" />
         <GradientStop Offset="1" Color="#C94708" />
     </LinearGradientBrush>
-    <!-- Fallback surface gradients. Light/Dark theme dictionaries override these keys at runtime. -->
-    <LinearGradientBrush x:Key="Gradient.Sidebar.Header" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FFFFFF" />
-        <GradientStop Offset="1" Color="#EEF3FF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Sidebar.Active" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#F0ECFF" />
-        <GradientStop Offset="1" Color="#E8F0FF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Sidebar.Footer" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#FFFFFF" />
-        <GradientStop Offset="1" Color="#F6F7FB" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Surface.Card" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FFFFFF" />
-        <GradientStop Offset="0.55" Color="#FAFBFF" />
-        <GradientStop Offset="1" Color="#F4F7FC" />
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="Gradient.Kpi.Brand" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E8E7FF" />
-        <GradientStop Offset="1" Color="#F7F8FF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Success" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E2FAF4" />
-        <GradientStop Offset="1" Color="#F7FFFC" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Info" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E6F1FF" />
-        <GradientStop Offset="1" Color="#F8FBFF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Payment" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E3FAFC" />
-        <GradientStop Offset="1" Color="#F7FFFD" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Warning" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FFF1CF" />
-        <GradientStop Offset="1" Color="#FFFAEF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Thaka" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#EFE8FF" />
-        <GradientStop Offset="1" Color="#FAF8FF" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="Gradient.Kpi.Expense" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FFE7D5" />
-        <GradientStop Offset="1" Color="#FFF8F2" />
-    </LinearGradientBrush>
 
     <!-- POS Segmented Mode & Divider Gradients (UI-018 Centralization) -->
     <LinearGradientBrush x:Key="Gradient.Segmented.Normal" StartPoint="0,0" EndPoint="1,0">

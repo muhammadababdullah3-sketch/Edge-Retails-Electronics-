@@ -140,8 +140,8 @@ public sealed class Sprint2ForensicAuditTests
 
         Assert.Contains("Width=\"1440\"", content);
         Assert.Contains("Height=\"900\"", content);
-        Assert.Contains("MinWidth=\"1366\"", content);
-        Assert.Contains("MinHeight=\"768\"", content);
+        Assert.Contains("MinWidth=\"1024\"", content);
+        Assert.Contains("MinHeight=\"640\"", content);
     }
 
     [Fact]

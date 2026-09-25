@@ -1,6 +1,7 @@
 <UserControl x:Class="EdgeRetails.Desktop.Views.SupplierDetailView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
     Background="{DynamicResource Brush.Surface.Raised}">
     <Grid Width="760">
         <Grid.RowDefinitions>
@@ -40,6 +41,9 @@
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="12"/>
             </Border>
+
+            <controls:LoadingState Grid.Row="1" Margin="20,24" Message="Loading supplier account and ledger..."
+                                   Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
             <TabControl Grid.Row="1" Margin="20,12,20,16">
                 <TabItem Header="Overview">

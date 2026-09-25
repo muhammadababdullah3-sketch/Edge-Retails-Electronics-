@@ -4,12 +4,12 @@
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
     Background="{DynamicResource Brush.App.Background}">
     <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="1320">
+        <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
             <Grid Margin="0,0,0,16">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Content="‹ Inventory" Command="{Binding BackCommand}" Style="{StaticResource Button.Text.Primary}" Margin="0,0,12,0" />
                     <TextBlock Text="/" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,0,12,0" />
-                    <TextBlock Text="{Binding Product.Name}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="{Binding Product.Name}" Style="{StaticResource Text.PageTitle}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="Stock Adjustment" Command="{Binding StockAdjustmentCommand}" Style="{StaticResource Button.Text.Primary}" Margin="0,0,12,0" />

@@ -9,15 +9,12 @@
         <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="{Binding IsDetailViewActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-            <StackPanel MaxWidth="1320">
+            <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
                 <Grid Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="Inventory" FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="24" FontWeight="Bold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Inventory" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Text="Stock control and movement audit"
-                                   Margin="0,3,0,0" FontSize="13"
-                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                                   Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="Physical Units" Command="{Binding ViewPhysicalUnitsCommand}"
@@ -51,7 +48,7 @@
                                 <ColumnDefinition Width="320" /><ColumnDefinition Width="12" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <controls:SearchBox Grid.Column="0" Height="36"
+                            <controls:SearchBox Grid.Column="0" IsCompact="True"
                                 Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                 Placeholder="Search product, brand, model or SKU..." />
                             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">

@@ -33,6 +33,8 @@
     <sys:Double x:Key="Dimension.Drawer.Wide">760</sys:Double>
     <sys:Double x:Key="Container.MaxWidth.Standard">1320</sys:Double>
     <sys:Double x:Key="Container.MaxWidth.Wide">1440</sys:Double>
+    <sys:Double x:Key="Container.MaxWidth.Detail">1240</sys:Double>
+    <sys:Double x:Key="Container.MaxWidth.Settings">1020</sys:Double>
 
     <Thickness x:Key="Padding.Control.Standard">14,0</Thickness>
     <Thickness x:Key="Padding.Input.Standard">10.5,0</Thickness>

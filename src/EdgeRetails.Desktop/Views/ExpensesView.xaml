@@ -4,13 +4,12 @@
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
     Background="{DynamicResource Brush.App.Background}">
     <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="1320">
+        <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
             <Grid Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Expenses" FontFamily="{StaticResource Font.Primary}" FontSize="24" FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Expenses" Style="{StaticResource Text.PageTitle}" />
                     <TextBlock Text="Track operating expenses separately from inventory purchases"
-                               Margin="0,3,0,0" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
+                               Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                 </StackPanel>
                 <Button Content="+ Add Expense" Command="{Binding AddExpenseCommand}"
                         Style="{StaticResource Button.Warning.Compact}" Height="38" Padding="18,0"

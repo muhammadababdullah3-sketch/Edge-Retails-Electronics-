@@ -18,6 +18,9 @@ public partial class SearchBox : UserControl
     public static readonly DependencyProperty IsReadOnlyProperty =
         DependencyProperty.Register(nameof(IsReadOnly), typeof(bool), typeof(SearchBox), new PropertyMetadata(false));
 
+    public static readonly DependencyProperty IsCompactProperty =
+        DependencyProperty.Register(nameof(IsCompact), typeof(bool), typeof(SearchBox), new PropertyMetadata(false));
+
     public SearchBox()
     {
         InitializeComponent();
@@ -39,5 +42,11 @@ public partial class SearchBox : UserControl
     {
         get => (bool)GetValue(IsReadOnlyProperty);
         set => SetValue(IsReadOnlyProperty, value);
+    }
+
+    public bool IsCompact
+    {
+        get => (bool)GetValue(IsCompactProperty);
+        set => SetValue(IsCompactProperty, value);
     }
 }

@@ -37,8 +37,7 @@
   </Grid.ColumnDefinitions>
 
   <StackPanel Grid.Column="0">
-   <TextBlock Text="Settings" FontSize="24" FontWeight="Bold"
-              Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,0,16"/>
+   <TextBlock Text="Settings" Style="{StaticResource Text.PageTitle}" Margin="0,0,0,16"/>
    <Button Content="Shop" Tag="{Binding IsShop}" Command="{Binding SelectSectionCommand}"
            CommandParameter="Shop" Style="{StaticResource Settings.NavButton}"/>
    <Button Content="Receipt" Tag="{Binding IsReceipt}" Command="{Binding SelectSectionCommand}"
@@ -59,7 +58,7 @@
 
   <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
                 HorizontalScrollBarVisibility="Disabled">
-   <StackPanel MaxWidth="1020">
+   <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Settings}">
 
     <Border Style="{StaticResource Card.Default}"
             Visibility="{Binding IsShop, Converter={StaticResource BooleanToVisibilityConverter}}">

@@ -84,7 +84,7 @@
                 </Style>
             </ScrollViewer.Style>
 
-            <StackPanel MaxWidth="1320" HorizontalAlignment="Stretch">
+            <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}" HorizontalAlignment="Stretch">
 
                 <!-- 2.1 Page Header Banner -->
                 <Grid Margin="0,0,0,16">
@@ -95,15 +95,9 @@
 
                     <!-- Title & Cashier Context -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="Sales History"
-                                   FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Sales History" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Margin="0,3,0,0"
-                                   FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="13"
-                                   Foreground="{DynamicResource Brush.Text.Muted}">
+                                   Style="{StaticResource Text.Body.Secondary}">
                             <Run Text="Cashier: " />
                             <Run Text="{Binding CashierContext, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" />
                             <Run Text=" · View and manage recorded customer transactions &amp; returns" />
@@ -186,9 +180,9 @@
 
                         <!-- Left: Search Box -->
                         <controls:SearchBox Grid.Column="0"
+                                            IsCompact="True"
                                             Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             Placeholder="Search invoice or customer..."
-                                            Height="36"
                                             MinWidth="300" />
 
                         <!-- Right: Date Filter Pill Buttons -->

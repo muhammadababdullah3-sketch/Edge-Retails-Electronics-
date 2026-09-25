@@ -11,18 +11,12 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="{Binding IsDetailViewActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-            <StackPanel MaxWidth="1380">
+            <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
                 <Grid Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="Product Management"
-                                   FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Product Management" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Text="Catalog master data, units, tracking policy and supplier relationships"
-                                   Margin="0,3,0,0"
-                                   FontSize="13"
-                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                                   Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="Categories"
@@ -54,7 +48,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <controls:SearchBox Grid.Column="0"
-                                            Height="36"
+                                            IsCompact="True"
                                             Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             Placeholder="Search SKU, name, brand, model or category..." />
                         <ComboBox Grid.Column="2"
@@ -73,33 +67,13 @@
                     </Grid>
                 </Border>
 
-                <Border Padding="16"
-                        Margin="0,0,0,14"
-                        Background="{DynamicResource Brush.Surface.Raised}"
-                        BorderBrush="{DynamicResource Brush.Border.Default}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.Card}"
-                        Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="Loading authoritative catalog…"
-                               Foreground="{DynamicResource Brush.Text.Secondary}" />
-                </Border>
+                <controls:LoadingState Margin="0,0,0,14"
+                                       Message="Loading authoritative catalog…"
+                                       Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                <Border Padding="16"
-                        Margin="0,0,0,14"
-                        BorderBrush="{DynamicResource Brush.Status.Danger}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.Card}"
-                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel>
-                        <TextBlock Text="Catalog unavailable"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding ErrorMessage}"
-                                   Margin="0,5,0,0"
-                                   TextWrapping="Wrap"
-                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
-                    </StackPanel>
-                </Border>
+                <controls:InlineError Margin="0,0,0,14"
+                                      Message="{Binding ErrorMessage}"
+                                      Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                 <Border Background="{DynamicResource Brush.Surface.Default}"
                         BorderBrush="{DynamicResource Brush.Border.Default}"

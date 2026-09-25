@@ -7,7 +7,12 @@
     Focusable="False">
     <UserControl.Style>
         <Style TargetType="UserControl">
-            <Setter Property="Height" Value="44" />
+            <Setter Property="Height" Value="{StaticResource Dimension.Search.Large}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Height" Value="{StaticResource Dimension.Search.Compact}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </UserControl.Style>
     <Border BorderThickness="1"

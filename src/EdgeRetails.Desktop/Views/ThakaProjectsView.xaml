@@ -98,7 +98,7 @@
                       HorizontalScrollBarVisibility="Disabled"
                       Focusable="False"
                       Padding="20">
-            <StackPanel>
+            <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
                 <!-- Header Banner: Title, Subtitle, Cashier Profile Context, and "+ New Thaka" Button -->
                 <Grid Margin="0,0,0,18">
                     <Grid.ColumnDefinitions>
@@ -108,16 +108,10 @@
 
                     <!-- Title & Subtitle -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding PageTitle}"
-                                   FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="22"
-                                   FontWeight="Bold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding PageTitle}" Style="{StaticResource Text.PageTitle.Dense}" />
                         <TextBlock Margin="0,4,0,0"
                                    Text="{Binding PageSubtitle}"
-                                   FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="13"
-                                   Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                   Style="{StaticResource Text.Body.Secondary}" />
                     </StackPanel>
 
                     <!-- Cashier Context & CTA -->
@@ -213,6 +207,7 @@
                         <!-- Search Box -->
                         <controls:SearchBox Grid.Column="0"
                                             Width="340"
+                                            IsCompact="True"
                                             Placeholder="Search customer, project or phone..."
                                             Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 

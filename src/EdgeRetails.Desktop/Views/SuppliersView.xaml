@@ -4,19 +4,18 @@
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
     Background="{DynamicResource Brush.App.Background}">
     <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="1320">
+        <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
             <Grid Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Suppliers / Wholesalers" FontFamily="{StaticResource Font.Primary}" FontSize="24" FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Suppliers / Wholesalers" Style="{StaticResource Text.PageTitle}" />
                     <TextBlock Text="Supplier directory linked to purchase activity"
-                               Margin="0,3,0,0" FontSize="13" Foreground="{DynamicResource Brush.Text.Muted}" />
+                               Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                 </StackPanel>
                 <Button Content="+ Add Supplier" Command="{Binding AddSupplierCommand}"
                         Style="{StaticResource Button.Primary}" Height="38" Padding="18,0" HorizontalAlignment="Right" />
             </Grid>
 
-            <controls:SearchBox Width="392" Height="36" HorizontalAlignment="Left" Margin="0,0,0,14"
+            <controls:SearchBox Width="392" IsCompact="True" HorizontalAlignment="Left" Margin="0,0,0,14"
                 Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                 Placeholder="Search supplier / phone / city..." />
 

@@ -9,15 +9,12 @@
         <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="{Binding IsNewPurchaseActive, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-            <StackPanel MaxWidth="1320">
+            <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
                 <Grid Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="Purchase History" FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="24" FontWeight="Bold"
-                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="Purchase History" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Text="Track supplier purchases, receiving and returns"
-                                   Margin="0,3,0,0" FontSize="13"
-                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                                   Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                     </StackPanel>
                     <Button Content="+ New Purchase" Command="{Binding NewPurchaseCommand}"
                             Style="{StaticResource Button.Primary}" Height="38"
@@ -44,7 +41,7 @@
                             <ColumnDefinition Width="12" />
                             <ColumnDefinition Width="200" />
                         </Grid.ColumnDefinitions>
-                        <controls:SearchBox Grid.Column="0" Height="36"
+                        <controls:SearchBox Grid.Column="0" IsCompact="True"
                             Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                             Placeholder="Search invoice or supplier..." />
                         <StackPanel Grid.Column="2" Orientation="Horizontal">

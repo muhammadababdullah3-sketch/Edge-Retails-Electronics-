@@ -36,19 +36,13 @@
     <ScrollViewer Padding="20"
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="1360">
+        <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
 
             <Grid Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Reports"
-                               FontFamily="{StaticResource Font.Primary}"
-                               FontSize="24"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Reports" Style="{StaticResource Text.PageTitle}" />
                     <TextBlock Text="{Binding PeriodLabel}"
-                               Margin="0,3,0,0"
-                               FontSize="13"
-                               Foreground="{DynamicResource Brush.Text.Muted}" />
+                               Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                 </StackPanel>
 
                 <Button Content="Refresh"
@@ -57,6 +51,9 @@
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center" />
             </Grid>
+
+            <controls:LoadingState Margin="0,0,0,16" Message="Loading financial report..."
+                                   Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
             <Border Style="{StaticResource Card.Default}"
                     Margin="0,0,0,16"

@@ -127,6 +127,12 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     public bool IsExpenseBreakdownVisible => IsMonthly;
     public bool IsThakaActivityVisible => IsMonthly;
     public bool ShowSecondaryKpis => !IsYearly;
+    private bool _isLoading;
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set => SetProperty(ref _isLoading, value);
+    }
 
     public DateTime SelectedDate
     {
@@ -246,6 +252,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         var selectedMonth = SelectedMonth.Number;
         var selectedYear = SelectedYear;
 
+        IsLoading = true;
         try
         {
             var snapshot = await _backendService.GetReportAsync(
@@ -274,6 +281,13 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
                 _toastService?.Show(
                     $"Reports could not be refreshed: {ex.Message}",
                     ToastTone.Danger);
+            }
+        }
+        finally
+        {
+            if (requestVersion == Volatile.Read(ref _refreshVersion))
+            {
+                IsLoading = false;
             }
         }
     }

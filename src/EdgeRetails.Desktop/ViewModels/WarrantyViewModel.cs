@@ -174,8 +174,16 @@ public sealed class WarrantyViewModel : ViewModelBase
     public bool IsLoading
     {
         get => _isLoading;
-        private set => SetProperty(ref _isLoading, value);
+        private set
+        {
+            if (SetProperty(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(IsEmpty));
+            }
+        }
     }
+
+    public bool IsEmpty => !IsLoading && Rows.Count == 0;
 
     public string ShopProductIdText
     {
@@ -594,6 +602,8 @@ public sealed class WarrantyViewModel : ViewModelBase
         {
             SelectedRow = null;
         }
+
+        OnPropertyChanged(nameof(IsEmpty));
     }
 
     private async Task LoadTimelineAsync()

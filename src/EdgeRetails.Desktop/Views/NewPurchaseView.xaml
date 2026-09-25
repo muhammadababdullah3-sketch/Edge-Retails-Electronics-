@@ -5,15 +5,12 @@
     Background="{DynamicResource Brush.App.Background}">
     <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="1320">
+        <StackPanel MaxWidth="{StaticResource Container.MaxWidth.Standard}">
             <Grid Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="New Purchase" FontFamily="{StaticResource Font.Primary}"
-                               FontSize="24" FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="New Purchase" Style="{StaticResource Text.PageTitle}" />
                     <TextBlock Text="Receive supplier stock into inventory"
-                               Margin="0,3,0,0" FontSize="13"
-                               Foreground="{DynamicResource Brush.Text.Muted}" />
+                               Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                 </StackPanel>
                 <Button Content="Back to Purchase History" Command="{Binding CancelCommand}"
                         Style="{StaticResource Button.Neutral}" HorizontalAlignment="Right" />
@@ -57,7 +54,7 @@
                         <ColumnDefinition Width="*" /><ColumnDefinition Width="12" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <controls:SearchBox Grid.Column="0" Height="36"
+                    <controls:SearchBox Grid.Column="0" IsCompact="True"
                         Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                         Placeholder="Search product, SKU or brand..." />
                     <ComboBox Grid.Column="2" ItemsSource="{Binding FilteredProducts}"

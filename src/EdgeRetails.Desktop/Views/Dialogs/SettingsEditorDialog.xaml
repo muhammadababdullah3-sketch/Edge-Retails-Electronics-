@@ -93,8 +93,10 @@
 
    <Grid Margin="0,20,0,0">
     <Button Content="Cancel" Command="{Binding CancelCommand}"
+            IsCancel="True"
             Style="{StaticResource Button.Neutral}" HorizontalAlignment="Left"/>
     <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}"
+            IsDefault="True"
             Style="{StaticResource Button.Primary}" HorizontalAlignment="Right"
             Height="38" Padding="18,0"/>
    </Grid>

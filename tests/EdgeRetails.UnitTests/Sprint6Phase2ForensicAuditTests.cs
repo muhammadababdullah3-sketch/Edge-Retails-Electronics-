@@ -54,8 +54,8 @@ public sealed class Sprint6Phase2ForensicAuditTests
 
         Assert.Contains("Width=\"1440\"", xaml);
         Assert.Contains("Height=\"900\"", xaml);
-        Assert.Contains("MinWidth=\"1366\"", xaml);
-        Assert.Contains("MinHeight=\"768\"", xaml);
+        Assert.Contains("MinWidth=\"1024\"", xaml);
+        Assert.Contains("MinHeight=\"640\"", xaml);
     }
 
     [Fact]
