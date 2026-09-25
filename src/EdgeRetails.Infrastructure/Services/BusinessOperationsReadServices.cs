@@ -544,7 +544,7 @@ public sealed class ReportingReadService : IReportingReadService
         };
 
     private static DateTimeOffset ToOffset(DateTime local) =>
-        new(local, TimeZoneInfo.Local.GetUtcOffset(local));
+        new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local)).ToUniversalTime();
 
     private static decimal Round(decimal value) =>
         decimal.Round(value, 2, MidpointRounding.AwayFromZero);

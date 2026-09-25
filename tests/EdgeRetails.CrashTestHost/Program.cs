@@ -1,10 +1,14 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text.Json;
+using EdgeRetails.Application.Production.Licensing;
 using EdgeRetails.Application.Production.Outbox;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Persistence;
+using EdgeRetails.Infrastructure.Production.Licensing;
 using EdgeRetails.Worker.Jobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +24,85 @@ public static class Program
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
         var scenario = GetArg(args, "--scenario") ?? "unknown";
+        if (string.Equals(scenario, "generate-license", StringComparison.OrdinalIgnoreCase))
+        {
+            var dest = GetArg(args, "--output") ?? "license.erlic";
+            var deviceProvider = new WindowsMachineIdentityProvider();
+            var deviceId = await deviceProvider.GetDeviceIdAsync();
+            Console.WriteLine($"Machine DeviceId: {deviceId}");
+
+            using var rsa = RSA.Create(2048);
+            var pubKeyPem = rsa.ExportSubjectPublicKeyInfoPem();
+
+            var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var keysDir = Path.Combine(commonAppData, "EdgeRetails", "keys");
+            Directory.CreateDirectory(keysDir);
+            var pubKeyFile = Path.Combine(keysDir, "license.pub");
+            await File.WriteAllTextAsync(pubKeyFile, pubKeyPem);
+            Console.WriteLine($"Public key written to: {pubKeyFile}");
+
+            var now = DateTimeOffset.UtcNow;
+            var expiry = now.AddYears(10);
+            var payload = new LicensePayload(
+                LicenseId: "ER-PROD-2026-001",
+                CustomerName: "Edge Retails Customer",
+                StoreName: "Edge Retails Electronics Hub",
+                Plan: "Enterprise",
+                IssueDate: now,
+                ExpiryDate: expiry,
+                DeviceId: deviceId,
+                MaxTerminals: 10,
+                EnabledModules: new[] { "Electronics", "pos", "purchasing", "inventory", "thaka", "warranty", "reports" });
+
+            var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var signature = rsa.SignData(payloadBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var envelope = new SignedLicenseEnvelope(
+                "RS256",
+                Convert.ToBase64String(payloadBytes),
+                Convert.ToBase64String(signature));
+
+            var envelopeJson = JsonSerializer.Serialize(envelope, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+
+            var targets = new List<string>
+            {
+                dest,
+                Path.Combine(commonAppData, "EdgeRetails", "license.erlic")
+            };
+
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            if (!string.IsNullOrEmpty(desktop))
+            {
+                targets.Add(Path.Combine(desktop, "license.erlic"));
+            }
+
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(userProfile))
+            {
+                targets.Add(Path.Combine(userProfile, "OneDrive", "Desktop", "license.erlic"));
+            }
+
+            foreach (var target in targets.Distinct())
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(target);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    await File.WriteAllTextAsync(target, envelopeJson);
+                    Console.WriteLine($"License written to: {target}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to write {target}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine("SUCCESS:LICENSE_GENERATED");
+            return 0;
+        }
+
         var dbConn = GetArg(args, "--db")
             ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
             ?? throw new InvalidOperationException("Missing --db argument or EDGE_RETAILS_TEST_DB environment variable.");

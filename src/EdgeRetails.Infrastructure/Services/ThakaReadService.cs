@@ -105,17 +105,17 @@ public sealed class ThakaReadService : IThakaReadService
                     FROM thaka.projects p
                     INNER JOIN parties.customers c ON c.id = p.customer_id
                     WHERE (
-                        @Search IS NULL
-                        OR p.project_number ILIKE '%' || @Search || '%'
-                        OR p.project_name ILIKE '%' || @Search || '%'
-                        OR c.name ILIKE '%' || @Search || '%'
-                        OR COALESCE(c.phone, '') ILIKE '%' || @Search || '%'
+                        cast(@Search as text) IS NULL
+                        OR p.project_number ILIKE '%' || cast(@Search as text) || '%'
+                        OR p.project_name ILIKE '%' || cast(@Search as text) || '%'
+                        OR c.name ILIKE '%' || cast(@Search as text) || '%'
+                        OR COALESCE(c.phone, '') ILIKE '%' || cast(@Search as text) || '%'
                     )
-                    AND (@Status IS NULL OR p.status = @Status)
+                    AND (cast(@Status as integer) IS NULL OR p.status = cast(@Status as integer))
                     AND (
-                        @BeforeStartedOn IS NULL
-                        OR p.started_on < @BeforeStartedOn
-                        OR (p.started_on = @BeforeStartedOn AND p.id < @BeforeProjectId)
+                        cast(@BeforeStartedOn as date) IS NULL
+                        OR p.started_on < cast(@BeforeStartedOn as date)
+                        OR (p.started_on = cast(@BeforeStartedOn as date) AND p.id < cast(@BeforeProjectId as uuid))
                     )
                     ORDER BY p.started_on DESC, p.id DESC
                     LIMIT @TakePlusOne
