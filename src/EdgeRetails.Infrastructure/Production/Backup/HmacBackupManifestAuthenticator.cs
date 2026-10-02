@@ -16,13 +16,20 @@ public sealed class HmacBackupManifestAuthenticator : IBackupManifestAuthenticat
 
     public async Task<string> ComputeAuthenticationAsync(BackupManifest manifest, CancellationToken cancellationToken = default)
     {
-        var raw = await _keyProvider.GetKeyAsync(cancellationToken);
+        var raw = _keyProvider is IVersionedBackupEncryptionKeyProvider versioned
+            ? manifest.KeyMetadata is not null
+                ? await versioned.GetVersionKeyAsync(manifest.KeyMetadata.KeyVersion, cancellationToken)
+                : await versioned.GetLegacyKeyAsync(cancellationToken)
+            : manifest.KeyMetadata is not null
+                ? throw new InvalidOperationException("Versioned backup authority is unavailable.")
+                : await _keyProvider.GetKeyAsync(cancellationToken);
         if (raw is null || raw.Length != 32)
         {
             throw new InvalidOperationException("Backup encryption key provider must return exactly 32 bytes.");
         }
 
         var baseKey = raw.ToArray();
+        if (_keyProvider is IVersionedBackupEncryptionKeyProvider) { CryptographicOperations.ZeroMemory(raw); }
         byte[]? macKey = null;
         try
         {

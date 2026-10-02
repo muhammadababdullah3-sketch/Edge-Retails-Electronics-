@@ -4,6 +4,7 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Operations;
 using EdgeRetails.Domain.Parties;
 using EdgeRetails.Domain.Purchasing;
 using EdgeRetails.Domain.Sales;
@@ -35,6 +36,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<ReceiptTemplateSettings> ReceiptTemplateSettings => Set<ReceiptTemplateSettings>();
 
     public DbSet<Unit> Units => Set<Unit>();
+    public DbSet<Company> Companies => Set<Company>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductUnit> ProductUnits => Set<ProductUnit>();
@@ -114,6 +116,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
         Set<DocumentNumberCounter>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<Terminal> Terminals => Set<Terminal>();
+    public DbSet<OperationOutcome> OperationOutcomes => Set<OperationOutcome>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

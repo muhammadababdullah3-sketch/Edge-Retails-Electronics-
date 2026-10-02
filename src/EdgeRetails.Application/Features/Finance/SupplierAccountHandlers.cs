@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
 
 namespace EdgeRetails.Application.Features.Finance;
@@ -42,7 +43,8 @@ public sealed class CreateSupplierPaymentHandler
         IClock clock,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _accounts = accounts;
         _parties = parties;
@@ -55,20 +57,23 @@ public sealed class CreateSupplierPaymentHandler
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<SupplierPaymentResult>> HandleAsync(
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public async Task<Result<SupplierPaymentResult>> HandleAsync(
         CreateSupplierPaymentCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty || command.SupplierId == Guid.Empty || command.Amount <= 0)
         {
-            return Task.FromResult(Result<SupplierPaymentResult>.Failure(
+            return Result<SupplierPaymentResult>.Failure(
                 "supplier.payment_invalid",
-                "Supplier, positive amount, and client operation id are required."));
+                "Supplier, positive amount, and client operation id are required.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var permission = command.Purpose == SupplierPaymentPurpose.Advance
                 ? PermissionKeys.SupplierAdvanceCreate
@@ -91,6 +96,17 @@ public sealed class CreateSupplierPaymentHandler
                     return Result<SupplierPaymentResult>.Failure(
                         "idempotency.payload_mismatch",
                         "Operation was previously submitted with a different supplier or amount.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "SupplierPayment",
+                        existing.Id,
+                        existing.PaymentNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
                 }
 
                 return Result<SupplierPaymentResult>.Success(
@@ -185,10 +201,34 @@ public sealed class CreateSupplierPaymentHandler
                 command.ClientOperationId,
                 $"{payment.PaymentNumber}; supplier={command.SupplierId:D}; amount={payment.Amount:0.00}; purpose={payment.Purpose}.");
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "SupplierPayment",
+                    payment.Id,
+                    payment.PaymentNumber,
+                    actorId: command.ActorId,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<SupplierPaymentResult>.Success(
                 new(payment.Id, payment.PaymentNumber, false));
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "SupplierPayment",
+                result.Error?.Code ?? "supplier.payment_failed",
+                result.Error?.Message ?? "Supplier payment failed.",
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task AddEntryAsync(

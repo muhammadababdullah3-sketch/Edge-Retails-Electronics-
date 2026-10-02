@@ -1,0 +1,225 @@
+<UserControl x:Class="EdgeRetails.Desktop.Views.Dialogs.PhysicalIntakeDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="880"
+    MaxHeight="680">
+    <Border Background="{DynamicResource Brush.Surface.Raised}"
+            BorderBrush="{DynamicResource Brush.Border.Default}"
+            BorderThickness="1"
+            CornerRadius="12"
+            Effect="{StaticResource Shadow.Card}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Border Grid.Row="0"
+                    Padding="20,14"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding Title}"
+                                   FontSize="16" TextWrapping="Wrap"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <TextBlock Text="{Binding ProductInfo}"
+                                   Margin="0,2,0,0"
+                                   FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                        <TextBlock Text="{Binding PurchaseInfo}"
+                                   Margin="0,1,0,0"
+                                   FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{StaticResource Brush.Brand.Primary}" />
+                        <TextBlock Text="{Binding TrackingPolicyInfo}"
+                                   Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Brush.Text.Muted}" />
+                        <TextBlock Text="{Binding ReceiptProgressInfo}"
+                                   Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Brush.Text.Primary}" />
+                    </StackPanel>
+                    <Button Content="✕"
+                            Grid.Column="1"
+                            Command="{Binding CloseCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            IsCancel="True"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top" />
+                </Grid>
+            </Border>
+
+            <!-- Content Area -->
+            <ScrollViewer Grid.Row="1"
+                          Padding="20,16"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <!-- Validation / Status Messages -->
+                    <Border Background="#FEE2E2" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="6"
+                            Padding="10,8" Margin="0,0,0,12"
+                            Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding ValidationMessage}" Foreground="#B91C1C" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </Border>
+
+                    <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="6"
+                            Padding="10,8" Margin="0,0,0,12"
+                            Visibility="{Binding HasPrintStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding PrintStatusMessage}" Foreground="#92400E" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </Border>
+
+                    <!-- Intake Input Section (Visible when not completed) -->
+                    <StackPanel Visibility="{Binding IntakeCompleted, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Intake Quantity:"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Brush.Text.Primary}"
+                                       Margin="0,0,12,0" />
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding EnteredQuantity, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="34"
+                                     VerticalContentAlignment="Center"
+                                     Padding="8,0"
+                                     FontFamily="{StaticResource Font.Numeric}"
+                                     FontSize="14" />
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding UnitDisplay}"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                        </Grid>
+
+                        <!-- Serial / IMEI Rows if Serialized -->
+                        <StackPanel Visibility="{Binding IsSerializedProduct, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Serial / IMEI Identification per Unit:"
+                                       FontWeight="Bold"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Brush.Text.Primary}"
+                                       Margin="0,0,0,6" />
+                            <Border BorderBrush="{DynamicResource Brush.Border.Default}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    MaxHeight="260"
+                                    Margin="0,0,0,14">
+                                <DataGrid ItemsSource="{Binding SerialRows}"
+                                          Style="{StaticResource Table.DataGrid}"
+                                          BorderThickness="0"
+                                          AutoGenerateColumns="False"
+                                          CanUserAddRows="False">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="#" Binding="{Binding Sequence}" IsReadOnly="True" Width="45"
+                                                            HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                            ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                                        <DataGridTextColumn Header="SERIAL NUMBER" Binding="{Binding SerialNumber, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />
+                                        <DataGridTextColumn Header="IMEI 1" Binding="{Binding Imei1, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />
+                                        <DataGridTextColumn Header="IMEI 2" Binding="{Binding Imei2, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="*" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Action Button to Commit Physical Intake -->
+                        <Button Content="Receive Physical Intake &amp; Allocate Identities"
+                                Command="{Binding ReceiveIntakeCommand}"
+                                Style="{StaticResource Button.Primary}"
+                                Height="40"
+                                Margin="0,4,0,16" />
+                    </StackPanel>
+
+                    <WrapPanel Margin="0,0,0,12">
+                        <Button Content="Export All PDFs" Command="{Binding ExportAllPdfCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,8" />
+                        <Button Content="Export Selected PDFs" Command="{Binding ExportSelectedPdfCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,8" />
+                        <Button Content="Reprint Selected PDFs" Command="{Binding ReprintSelectedPdfCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,0,8" />
+                    </WrapPanel>
+
+                    <!-- Committed Units & Production Sticker Printing Section -->
+                    <StackPanel Visibility="{Binding HasCommittedUnits, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="COMMITTED PHYSICAL IDENTITIES"
+                                           FontSize="12"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource Brush.Brand.Primary}" />
+                                <TextBlock Text="{Binding CommittedUnits.Count, StringFormat=' ({0} units)'}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource Brush.Text.Muted}" />
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="Print All Stickers"
+                                        Command="{Binding PrintAllCommand}"
+                                        Style="{StaticResource Button.Primary}"
+                                        Height="32"
+                                        Padding="14,0"
+                                        Margin="0,0,8,0" />
+                                <Button Content="Print Selected"
+                                        Command="{Binding PrintSelectedCommand}"
+                                        Style="{StaticResource Button.Neutral}"
+                                        Height="32"
+                                        Padding="12,0"
+                                        Margin="0,0,8,0" />
+                                <Button Content="Reprint"
+                                        Command="{Binding ReprintCommand}"
+                                        Style="{StaticResource Button.Warning.Compact}"
+                                        Height="32"
+                                        Padding="10,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Border BorderBrush="{DynamicResource Brush.Border.Default}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                MaxHeight="280">
+                            <DataGrid ItemsSource="{Binding CommittedUnits}"
+                                      Style="{StaticResource Table.DataGrid}"
+                                      BorderThickness="0"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False">
+                                <DataGrid.Columns>
+                                    <DataGridCheckBoxColumn Header="PRINT" Binding="{Binding IsSelected, Mode=TwoWay}" Width="55" />
+                                    <DataGridTextColumn Header="#" Binding="{Binding SequenceDisplay}" IsReadOnly="True" Width="75"
+                                                        HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                        ElementStyle="{StaticResource Table.TextCell.Numeric}" />
+                                    <DataGridTextColumn Header="TRACKING CODE (PHYSICAL SKU)" Binding="{Binding TrackingCode}" IsReadOnly="True" Width="2*"
+                                                        ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
+                                    <DataGridTextColumn Header="SERIAL NUMBER" Binding="{Binding SerialDisplay}" IsReadOnly="True" Width="*" />
+                                    <DataGridTextColumn Header="IMEI" Binding="{Binding ImeiDisplay}" IsReadOnly="True" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Footer -->
+            <Border Grid.Row="2"
+                    Padding="18,12"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <TextBlock Text="Code 128 barcode encodes full TrackingCode. Reprint preserves tracking code and never increments sequence."
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Brush.Text.Muted}"
+                               VerticalAlignment="Center" />
+                    <Button Content="Close"
+                            Command="{Binding PrintLaterCommand}"
+                            Style="{StaticResource Button.Neutral}"
+                            Height="34"
+                            Padding="20,0"
+                            HorizontalAlignment="Right" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

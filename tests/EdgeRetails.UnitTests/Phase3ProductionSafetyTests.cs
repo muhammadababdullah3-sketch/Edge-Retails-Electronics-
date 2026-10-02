@@ -395,6 +395,20 @@ public sealed class Phase3ProductionSafetyTests
             return Task.FromResult<IReadOnlyList<OutboxMessage>>(list);
         }
 
+        public Task<bool> TryClaimMessageAsync(Guid messageId, string workerId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
+        {
+            var message = _messages.FirstOrDefault(x => x.Id == messageId);
+            if (message is null || (message.Status != OutboxMessageStatus.Pending && message.Status != OutboxMessageStatus.Processing))
+            {
+                return Task.FromResult(false);
+            }
+            message.Status = OutboxMessageStatus.Processing;
+            message.LeaseOwner = workerId;
+            message.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(leaseDuration);
+            message.NextAttemptAt = message.LeaseExpiresAt;
+            return Task.FromResult(true);
+        }
+
         public Task MarkCompletedAsync(Guid messageId, DateTimeOffset completedAt, CancellationToken cancellationToken = default)
         {
             var msg = _messages.FirstOrDefault(x => x.Id == messageId);

@@ -2,6 +2,7 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
@@ -35,7 +36,10 @@ public sealed class ReverseThakaMaterialHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
-    private readonly IUnitOfWork _unitOfWork; public ReverseThakaMaterialHandler(
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public ReverseThakaMaterialHandler(
         IThakaRepository thaka,
         IInventoryRepository inventory,
         IInventoryCostAllocator costs,
@@ -46,7 +50,8 @@ public sealed class ReverseThakaMaterialHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _inventory = inventory;
@@ -59,20 +64,21 @@ public sealed class ReverseThakaMaterialHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<ReverseThakaMaterialResult>> HandleAsync(
+    public async Task<Result<ReverseThakaMaterialResult>> HandleAsync(
         ReverseThakaMaterialCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty ||
             string.IsNullOrWhiteSpace(command.Reason))
         {
-            return Task.FromResult(Result<ReverseThakaMaterialResult>.Failure(
+            return Result<ReverseThakaMaterialResult>.Failure(
                 "thaka.material_reversal_invalid",
-                "Material reversal requires operation id and reason."));
+                "Material reversal requires operation id and reason.");
         }
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -91,6 +97,17 @@ public sealed class ReverseThakaMaterialHandler
                 ct);
             if (byOperation is not null)
             {
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaMaterialReversal",
+                        byOperation.Id,
+                        byOperation.ReversalNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
+                }
+
                 return Result<ReverseThakaMaterialResult>.Success(new(
                     byOperation.Id,
                     byOperation.ReversalNumber,
@@ -191,6 +208,17 @@ public sealed class ReverseThakaMaterialHandler
                 command.ClientOperationId,
                 reversal.ReversalNumber);
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ThakaMaterialReversal",
+                    reversal.Id,
+                    reversal.ReversalNumber,
+                    actorId: command.ActorId,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<ReverseThakaMaterialResult>.Success(new(
                 reversal.Id,
@@ -199,6 +227,19 @@ public sealed class ReverseThakaMaterialHandler
                 reversal.RestoredCost,
                 false));
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "ThakaMaterialReversal",
+                result.Error!.Code,
+                result.Error.Message,
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task RestoreQuantityAsync(
@@ -307,7 +348,10 @@ public sealed class ReverseThakaPaymentHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
-    private readonly IUnitOfWork _unitOfWork; public ReverseThakaPaymentHandler(
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public ReverseThakaPaymentHandler(
         IThakaRepository thaka,
         ICashMovementService cashMovements,
         IOperationLock operationLock,
@@ -317,7 +361,8 @@ public sealed class ReverseThakaPaymentHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _cashMovements = cashMovements;
@@ -329,21 +374,22 @@ public sealed class ReverseThakaPaymentHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<ReverseThakaPaymentResult>> HandleAsync(
+    public async Task<Result<ReverseThakaPaymentResult>> HandleAsync(
         ReverseThakaPaymentCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty ||
             string.IsNullOrWhiteSpace(command.Reason))
         {
-            return Task.FromResult(Result<ReverseThakaPaymentResult>.Failure(
+            return Result<ReverseThakaPaymentResult>.Failure(
                 "thaka.payment_reversal_invalid",
-                "Payment reversal requires operation id and reason."));
+                "Payment reversal requires operation id and reason.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -359,8 +405,20 @@ public sealed class ReverseThakaPaymentHandler
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             var byOperation = await _thaka.GetPaymentReversalByOperationIdAsync(
                 command.ClientOperationId,
-                ct); if (byOperation is not null)
+                ct);
+            if (byOperation is not null)
             {
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaPaymentReversal",
+                        byOperation.Id,
+                        byOperation.ReversalNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
+                }
+
                 return Result<ReverseThakaPaymentResult>.Success(new(
                     byOperation.Id,
                     byOperation.ReversalNumber,
@@ -403,7 +461,8 @@ public sealed class ReverseThakaPaymentHandler
                 ReversedBy = command.ActorId,
                 ReversedAt = _clock.UtcNow
             };
-            _thaka.AddPaymentReversal(reversal); if (payment.PaymentMethod == ThakaPaymentMethod.Cash)
+            _thaka.AddPaymentReversal(reversal);
+            if (payment.PaymentMethod == ThakaPaymentMethod.Cash)
             {
                 var cash = await _cashMovements.RecordAsync(
                     new RecordCashMovementRequest(
@@ -432,6 +491,17 @@ public sealed class ReverseThakaPaymentHandler
                 command.ClientOperationId,
                 reversal.ReversalNumber);
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ThakaPaymentReversal",
+                    reversal.Id,
+                    reversal.ReversalNumber,
+                    actorId: command.ActorId,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<ReverseThakaPaymentResult>.Success(new(
                 reversal.Id,
@@ -439,5 +509,18 @@ public sealed class ReverseThakaPaymentHandler
                 reversal.Amount,
                 false));
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "ThakaPaymentReversal",
+                result.Error!.Code,
+                result.Error.Message,
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 }

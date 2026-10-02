@@ -1253,6 +1253,15 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
 {
     public Dictionary<Guid, Product> Products { get; } = new();
     public Dictionary<Guid, ProductUnit> ProductUnits { get; } = new();
+    public Dictionary<Guid, Company> Companies { get; } = new();
+    public Dictionary<Guid, Category> Categories { get; } = new();
+    private long _skuSequence;
+
+    public Task<string> AllocateNextSkuAsync(CancellationToken cancellationToken)
+    {
+        var seq = Interlocked.Increment(ref _skuSequence);
+        return Task.FromResult($"SKU-{seq:D6}");
+    }
 
     public Task<Product?> GetProductAsync(Guid productId, CancellationToken cancellationToken) =>
         Task.FromResult(Products.TryGetValue(productId, out var p) ? p : null);
@@ -1262,21 +1271,53 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
 
     public Task<Product?> GetProductBySkuAsync(string normalizedSku, CancellationToken cancellationToken) =>
         Task.FromResult(Products.Values.FirstOrDefault(p =>
-            string.Equals(p.Sku, normalizedSku, StringComparison.Ordinal)));
+            string.Equals(p.Sku, normalizedSku, StringComparison.OrdinalIgnoreCase)));
 
     public Task<IReadOnlyList<Product>> GetProductsAsync(bool includeInactive, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<Product>>(Products.Values
             .Where(p => includeInactive || p.IsActive)
             .ToList());
 
+    public Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken) =>
+        Task.FromResult(Companies.TryGetValue(companyId, out var c) ? c : null);
+
+    public Task<Company?> GetCompanyForUpdateAsync(Guid companyId, CancellationToken cancellationToken) =>
+        GetCompanyAsync(companyId, cancellationToken);
+
+    public Task<Company?> GetCompanyByCodeAsync(string normalizedCode, CancellationToken cancellationToken) =>
+        Task.FromResult(Companies.Values.FirstOrDefault(c =>
+            string.Equals(c.Code, normalizedCode, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<Company?> GetCompanyByNameAsync(string name, CancellationToken cancellationToken) =>
+        Task.FromResult(Companies.Values.FirstOrDefault(c =>
+            string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<IReadOnlyList<Company>> GetCompaniesAsync(bool includeInactive, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<Company>>(Companies.Values
+            .Where(c => includeInactive || c.IsActive)
+            .ToList());
+
+    public Task<bool> IsCompanyInUseByActiveProductAsync(Guid companyId, CancellationToken cancellationToken) =>
+        Task.FromResult(Products.Values.Any(p => p.IsActive && p.CompanyId == companyId));
+
     public Task<Category?> GetCategoryAsync(Guid categoryId, CancellationToken cancellationToken) =>
-        Task.FromResult<Category?>(new Category { Id = categoryId, Name = "Test Category", IsActive = true });
+        Task.FromResult<Category?>(Categories.TryGetValue(categoryId, out var c) ? c : new Category { Id = categoryId, Name = "Test Category", IdentitySymbol = "TC", IsActive = true });
 
     public Task<Category?> GetCategoryForUpdateAsync(Guid categoryId, CancellationToken cancellationToken) =>
         GetCategoryAsync(categoryId, cancellationToken);
 
+    public Task<Category?> GetCategoryByIdentitySymbolAsync(string normalizedSymbol, CancellationToken cancellationToken) =>
+        Task.FromResult(Categories.Values.FirstOrDefault(c =>
+            string.Equals(c.IdentitySymbol, normalizedSymbol, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<Category?> GetCategoryByNameAsync(string name, CancellationToken cancellationToken) =>
+        Task.FromResult(Categories.Values.FirstOrDefault(c =>
+            string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)));
+
     public Task<IReadOnlyList<Category>> GetCategoriesAsync(bool includeInactive, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<Category>>([]);
+        Task.FromResult<IReadOnlyList<Category>>(Categories.Values
+            .Where(c => includeInactive || c.IsActive)
+            .ToList());
 
     public Task<bool> IsCategoryInUseByActiveProductAsync(Guid categoryId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
@@ -1308,7 +1349,8 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
     public Task<IReadOnlyList<Product>> GetActiveProductsAsync(StocktakeScope scope, Guid? categoryId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<Product>>(Products.Values.ToList());
 
-    public void AddCategory(Category category) { }
+    public void AddCompany(Company company) => Companies[company.Id] = company;
+    public void AddCategory(Category category) => Categories[category.Id] = category;
     public void AddUnit(Unit unit) { }
     public void AddProduct(Product product) => Products[product.Id] = product;
     public void AddProductUnit(ProductUnit productUnit) => ProductUnits[productUnit.Id] = productUnit;
@@ -1367,8 +1409,50 @@ internal sealed class FakeInventoryRepository : IInventoryRepository
     public Task<bool> HasPurchaseItemConsumptionAsync(Guid purchaseItemId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
 
+    public Task<decimal> GetPurchaseItemReceivedBaseQuantityAsync(Guid purchaseItemId, CancellationToken cancellationToken) =>
+        Task.FromResult(Lots.Where(l => l.PurchaseItemId == purchaseItemId).Sum(l => l.ReceivedQuantity));
+
     public Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(Guid movementId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<InventoryLotConsumption>>(LotConsumptions.Where(c => c.MovementId == movementId).ToList());
+
+    public Task<InventoryMovement?> GetMovementByCorrelationIdAsync(Guid correlationId, CancellationToken cancellationToken) =>
+        Task.FromResult(Movements.FirstOrDefault(m => m.CorrelationId == correlationId));
+
+    public Task<IReadOnlyList<InventoryUnit>> GetUnitsForMovementAsync(Guid movementId, CancellationToken cancellationToken)
+    {
+        var unitIds = MovementUnits.Where(mu => mu.MovementId == movementId).Select(mu => mu.InventoryUnitId).ToHashSet();
+        var units = Units.Where(u => unitIds.Contains(u.Id))
+            .OrderBy(u => u.ItemSequence)
+            .ThenBy(u => u.CreatedAt)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<InventoryUnit>>(units);
+    }
+
+    public Task<IReadOnlyList<InventoryUnit>> GetUnitsByPurchaseItemAsync(Guid purchaseItemId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InventoryUnit>>(Units
+            .Where(u => u.SourcePurchaseItemId == purchaseItemId)
+            .OrderBy(u => u.ItemSequence)
+            .ThenBy(u => u.CreatedAt)
+            .ToList());
+
+    public Task<IReadOnlyList<Guid>> GetMovementUnitIdsByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken)
+    {
+        var movementIds = Movements
+            .Where(m => m.ReferenceType == referenceType && m.ReferenceId == referenceId)
+            .Select(m => m.Id)
+            .ToHashSet();
+
+        var unitIds = MovementUnits
+            .Where(mu => movementIds.Contains(mu.MovementId))
+            .Select(mu => mu.InventoryUnitId)
+            .Distinct()
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<Guid>>(unitIds);
+    }
 
     public Task<IReadOnlyList<InventoryUnit>> GetInventoryUnitsForUpdateAsync(Guid productId, IReadOnlyCollection<Guid> inventoryUnitIds, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<InventoryUnit>>(Units.Where(u => u.ProductId == productId && inventoryUnitIds.Contains(u.Id)).ToList());

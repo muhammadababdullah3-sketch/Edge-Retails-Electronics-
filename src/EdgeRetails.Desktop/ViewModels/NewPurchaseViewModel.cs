@@ -403,7 +403,9 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Purchase creation was rejected."),
+                ToastTone.Danger);
         }
     }
 
@@ -493,7 +495,9 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         catch (Exception ex)
         {
             _toastService?.Show(
-                $"Purchase backend data could not be loaded: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Purchase data could not be loaded. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }

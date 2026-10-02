@@ -34,6 +34,16 @@ public sealed record BackendSettingsSnapshot(
 
 public interface IBackendSettingsService
 {
+    bool SupportsCashierCreation => false;
+
+    Task<CreatedCashierDto> CreateCashierAsync(string displayName, string pin, Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+        => throw new BackendOperationException("identity.adapter_unavailable", "Cashier creation requires the authenticated Server adapter.");
+
+    Task<CashierCreationStatus> GetCashierCreationStatusAsync(Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+        => throw new BackendOperationException("identity.adapter_unavailable", "Cashier creation requires the authenticated Server adapter.");
+
     Task<BackendSettingsSnapshot> LoadAsync(
         CancellationToken cancellationToken = default);
 
@@ -51,6 +61,8 @@ public interface IBackendSettingsService
         bool autoPrintDefault,
         CancellationToken cancellationToken = default);
 }
+
+public sealed record CashierCreationStatus(string State, Guid? UserId);
 
 public sealed class BackendSettingsService : IBackendSettingsService
 {

@@ -207,3 +207,76 @@ public sealed class DiscardPreparedRestoreHandler
             correlationId));
     }
 }
+
+public sealed class RecoverRestorePreparationHandler
+{
+    private readonly IProductionAuthorization _authorization;
+    private readonly IPostgresBackupEngine _engine;
+    private readonly ProductionAuditCoordinator _audit;
+
+    public RecoverRestorePreparationHandler(
+        IProductionAuthorization authorization,
+        IPostgresBackupEngine engine,
+        ProductionAuditCoordinator audit)
+    {
+        _authorization = authorization;
+        _engine = engine;
+        _audit = audit;
+    }
+
+    public async Task<RestoreSessionSummary> HandleAsync(
+        Guid clientOperationId,
+        string? correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        await _authorization.EnsurePermissionAsync(ProductionPermissionNames.SettingsManage, cancellationToken);
+        try
+        {
+            var result = await _engine.RecoverRestorePreparationAsync(clientOperationId, cancellationToken);
+            if (result.State == RestoreSessionState.RecoveryRequired)
+            {
+                await _audit.AppendFailureBestEffortAsync(new ProductionAuditRecord(
+                    ProductionAuditEvents.RestoreRecoveryRequired,
+                    DateTimeOffset.UtcNow,
+                    "Restore",
+                    result.RestoreId.ToString(),
+                    "Preparation reconciliation could not prove staging ownership; recovery remains required.",
+                    correlationId));
+            }
+            else
+            {
+                _ = await _audit.AppendAfterSideEffectAsync(new ProductionAuditRecord(
+                    ProductionAuditEvents.RestorePreparationReconciled,
+                    DateTimeOffset.UtcNow,
+                    "Restore",
+                    result.RestoreId.ToString(),
+                    $"State={result.State}",
+                    correlationId));
+            }
+
+            return result;
+        }
+        catch (RestoreRecoveryRequiredException ex)
+        {
+            await _audit.AppendFailureBestEffortAsync(new ProductionAuditRecord(
+                ProductionAuditEvents.RestoreRecoveryRequired,
+                DateTimeOffset.UtcNow,
+                "Restore",
+                clientOperationId.ToString(),
+                ex.GetType().Name,
+                correlationId));
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await _audit.AppendFailureBestEffortAsync(new ProductionAuditRecord(
+                ProductionAuditEvents.RestoreFailed,
+                DateTimeOffset.UtcNow,
+                "Restore",
+                clientOperationId.ToString(),
+                $"PrepareRecovery:{ex.GetType().Name}",
+                correlationId));
+            throw;
+        }
+    }
+}

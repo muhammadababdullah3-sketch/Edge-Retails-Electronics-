@@ -324,7 +324,9 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
         catch (Exception ex) when (version == Volatile.Read(ref _backendRefreshVersion))
         {
             _toastService.Show(
-                $"Purchases could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Purchases could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
         finally

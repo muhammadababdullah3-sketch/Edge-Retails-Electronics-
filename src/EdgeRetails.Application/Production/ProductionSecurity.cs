@@ -52,6 +52,18 @@ public interface IProductionMaintenanceBarrier
 }
 
 /// <summary>
+/// Conditional state transition for operations that must not overwrite a newer recovery barrier.
+/// Implementations must compare and transition while holding the same exclusive cross-process lock.
+/// </summary>
+public interface IConditionalProductionMaintenanceBarrier : IProductionMaintenanceBarrier
+{
+    Task<IProductionMaintenanceLease> EnterExclusiveAsync(
+        ProductionMaintenanceState expectedCurrentState,
+        ProductionMaintenanceState state,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Integrity key for the cross-process production-maintenance state. This is a separate trust domain
 /// from license signing, update signing, recovery signing, restore-journal integrity and backup encryption.
 /// </summary>
@@ -121,6 +133,7 @@ public static class ProductionAuditEvents
     public const string RestoreDiscarded = "RESTORE_DISCARDED";
     public const string RestoreFailed = "RESTORE_FAILED";
     public const string RestoreRecoveryRequired = "RESTORE_RECOVERY_REQUIRED";
+    public const string RestorePreparationReconciled = "RESTORE_PREPARATION_RECONCILED";
     public const string LicenseImported = "LICENSE_IMPORTED";
     public const string LicenseReplaced = "LICENSE_REPLACED";
     public const string LicenseRejected = "LICENSE_REJECTED";

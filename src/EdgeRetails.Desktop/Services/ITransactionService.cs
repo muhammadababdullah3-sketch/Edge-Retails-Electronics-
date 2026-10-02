@@ -43,6 +43,9 @@ public sealed class SaleTransactionItem
     public string Sku { get; init; } = string.Empty;
     public string Brand { get; init; } = string.Empty;
     public decimal UnitPrice { get; init; }
+    public decimal ListUnitPrice { get; init; }
+    public decimal? PriceOverrideUnitPrice { get; init; }
+    public string? PriceOverrideReason { get; init; }
     public decimal Quantity { get; init; }
     public decimal Discount { get; init; }
     public decimal LineTotal { get; init; }
@@ -58,6 +61,7 @@ public sealed class SaleTransactionItem
 
 public sealed class SaleTransactionRecord
 {
+    public Guid? BackendSaleId { get; init; }
     public string InvoiceNumber { get; init; } = string.Empty;
     public DateTime Timestamp { get; init; } = DateTime.Now;
     public string CustomerName { get; init; } = "Walk-in Customer";
@@ -134,6 +138,7 @@ public sealed class SaleReturnRecord
 
 public sealed class RecordSaleReturnRequest
 {
+    public Guid ClientOperationId { get; init; }
     public string InvoiceNumber { get; init; } = string.Empty;
     public SaleReturnDisposition Disposition { get; init; }
     public string RefundMethod { get; init; } = "Cash Refund";

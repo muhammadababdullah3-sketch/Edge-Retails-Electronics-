@@ -4,6 +4,7 @@ using System.Windows.Input;
 using EdgeRetails.Desktop.Controls;
 using EdgeRetails.Desktop.Navigation;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Application.Production.Printing;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
@@ -157,7 +158,8 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
         decimal totalReturnedAmount = 0m,
         string? invoiceDisplayOverride = null,
         int? itemCountOverride = null,
-        decimal? totalAmountOverride = null)
+        decimal? totalAmountOverride = null,
+        Guid? businessDocumentId = null)
     {
         InvoiceNumber = invoiceNumber;
         _invoiceDisplayOverride = string.IsNullOrWhiteSpace(invoiceDisplayOverride)
@@ -174,12 +176,14 @@ public sealed class SaleTransactionItemViewModel : ViewModelBase
         _totalReturnedAmount = Math.Max(0m, totalReturnedAmount);
         _itemCountOverride = itemCountOverride;
         _totalAmountOverride = totalAmountOverride;
+        BusinessDocumentId = businessDocumentId;
 
         LineItems = new ObservableCollection<SaleLineItemViewModel>(lineItems);
         _paymentReceived = paymentReceived ?? TotalAmount;
     }
 
     public int InvoiceNumber { get; }
+    public Guid? BusinessDocumentId { get; }
     public string InvoiceDisplay => _invoiceDisplayOverride ?? $"#{InvoiceNumber}";
     public DateTime TransactionDate { get; }
     public string DateDisplay => TransactionDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
@@ -344,11 +348,14 @@ public sealed class SaleDetailViewModel : ViewModelBase
     private readonly IToastService? _toastService;
     private readonly IDialogService? _dialogService;
     private readonly ITransactionService _transactionService;
+    private readonly IProductionDocumentPrintService? _documentPrintService;
+    private readonly IWorkstationPrinterSettings? _printerSettings;
     private readonly Action? _onBack;
     private readonly Action? _onSaleUpdated;
 
     private SalesReturnViewModel? _activeReturnViewModel;
     private bool _isReturnDrawerOpen;
+    private bool _isPrintingReceipt;
 
     public SaleDetailViewModel(
         SaleTransactionItemViewModel sale,
@@ -358,7 +365,9 @@ public sealed class SaleDetailViewModel : ViewModelBase
         IDialogService? dialogService = null,
         Action? onBack = null,
         Action? onSaleUpdated = null,
-        ITransactionService? transactionService = null)
+        ITransactionService? transactionService = null,
+        IProductionDocumentPrintService? documentPrintService = null,
+        IWorkstationPrinterSettings? printerSettings = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
 
@@ -367,11 +376,15 @@ public sealed class SaleDetailViewModel : ViewModelBase
         _toastService = toastService;
         _dialogService = dialogService;
         _transactionService = transactionService ?? DemoTransactionService.Instance;
+        _documentPrintService = documentPrintService;
+        _printerSettings = printerSettings;
         _onBack = onBack;
         _onSaleUpdated = onSaleUpdated;
 
         BackCommand = new RelayCommand(GoBack);
-        PrintReceiptCommand = new RelayCommand(PrintReceipt);
+        PrintReceiptCommand = new RelayCommand(
+            async () => await PrintReceiptAsync(),
+            () => !IsPrintingReceipt);
         ReturnItemsCommand = new RelayCommand(OpenReturnDrawer, () => CanReturnItems);
         CloseReturnDrawerCommand = new RelayCommand(CloseReturnDrawer);
     }
@@ -411,6 +424,18 @@ public sealed class SaleDetailViewModel : ViewModelBase
         private set => SetProperty(ref _isReturnDrawerOpen, value);
     }
 
+    public bool IsPrintingReceipt
+    {
+        get => _isPrintingReceipt;
+        private set
+        {
+            if (SetProperty(ref _isPrintingReceipt, value))
+            {
+                ((RelayCommand)PrintReceiptCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
     public ICommand BackCommand { get; }
     public ICommand PrintReceiptCommand { get; }
     public ICommand ReturnItemsCommand { get; }
@@ -429,9 +454,68 @@ public sealed class SaleDetailViewModel : ViewModelBase
 
     public void PrintReceipt()
     {
-        _toastService?.Show(
-            $"Receipt print for Invoice #{InvoiceNumber} is a UI preview. Printer integration is deferred to Sprint 8.",
-            ToastTone.Info);
+        _ = PrintReceiptAsync();
+    }
+
+    public async Task PrintReceiptAsync(CancellationToken cancellationToken = default)
+    {
+        if (Sale.BusinessDocumentId is not Guid saleId || saleId == Guid.Empty ||
+            _documentPrintService is null || _printerSettings is null)
+        {
+            _toastService?.Show("This receipt is not available from the Server printing service.", ToastTone.Warning);
+            return;
+        }
+
+        try
+        {
+            IsPrintingReceipt = true;
+            var profile = await _printerSettings.GetReceiptProfileAsync(cancellationToken);
+            if (profile is null)
+            {
+                _toastService?.Show("Choose and save a receipt printer in Settings before printing.", ToastTone.Warning);
+                return;
+            }
+
+            // A receipt always opens the local preview before it can reach the Windows spooler,
+            // including profiles saved by an older Desktop version without this policy.
+            profile = profile with { ShowPreviewBeforePrint = true };
+
+            var result = await _documentPrintService.PrintAsync(
+                ProductionDocumentKind.PosSaleReceipt,
+                saleId,
+                profile,
+                isReprint: true,
+                cancellationToken);
+            if (result.Succeeded)
+            {
+                _toastService?.Show(
+                    result.AlreadyCompleted
+                        ? $"Invoice {Sale.InvoiceDisplay} was already printed. Use Reprint Receipt only if another copy is needed."
+                        : $"Receipt reprint submitted for Invoice {Sale.InvoiceDisplay}.",
+                    ToastTone.Success);
+                return;
+            }
+
+            var message = string.Equals(result.ErrorCode, "print.outcome_unknown", StringComparison.OrdinalIgnoreCase)
+                ? $"Receipt outcome is unknown for Invoice {Sale.InvoiceDisplay}. Check the physical printer before choosing Reprint Receipt again."
+                : result.ErrorCode is { Length: > 0 } errorCode
+                    ? DesktopErrorPresentation.ForCode(errorCode, "Receipt could not be printed.")
+                    : "Receipt could not be printed.";
+            _toastService?.Show(message, ToastTone.Warning);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Receipt could not be printed."),
+                ToastTone.Danger);
+        }
+        finally
+        {
+            IsPrintingReceipt = false;
+        }
     }
 
     public void OpenReturnDrawer()

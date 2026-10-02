@@ -66,7 +66,8 @@ public interface IBackendOperationsService
         int pageSize = 100,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeWorkId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        WarrantyWorkKind? beforeWorkKind = null);
 
     Task<IReadOnlyList<WarrantyEventDto>> GetWarrantyClaimTimelineAsync(
         Guid claimId,
@@ -286,7 +287,8 @@ public sealed class BackendOperationsService : IBackendOperationsService
         int pageSize = 100,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeWorkId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WarrantyWorkKind? beforeWorkKind = null)
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -297,7 +299,8 @@ public sealed class BackendOperationsService : IBackendOperationsService
             Math.Clamp(pageSize, 1, 200),
             beforeCreatedAt,
             beforeWorkId,
-            cancellationToken);
+            cancellationToken,
+            beforeWorkKind);
     }
 
     public async Task<IReadOnlyList<WarrantyEventDto>> GetWarrantyClaimTimelineAsync(

@@ -224,8 +224,11 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka settlement outcome could not be confirmed. Check operation status before retrying.");
+            ValidationMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         finally
         {

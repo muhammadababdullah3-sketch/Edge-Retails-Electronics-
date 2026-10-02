@@ -88,7 +88,8 @@ public sealed record PrintJobResult(
     string? ErrorMessage,
     string? PrintJobId = null,
     bool AlreadyCompleted = false,
-    bool AuditPersisted = true);
+    bool AuditPersisted = true,
+    Guid? InventoryUnitId = null);
 
 public sealed record PrintJobRecord(
     string PrintJobId,

@@ -16,6 +16,39 @@ public interface IFrontendPermissionService
         out string denialReason);
 }
 
+/// <summary>
+/// Desktop navigation is a presentation hint from the current server session.
+/// Server endpoint authorization still evaluates the live permission set.
+/// </summary>
+public sealed class BackendFrontendPermissionService : IFrontendPermissionService
+{
+    private readonly DemoFrontendPermissionService _permissionMap = new();
+
+    public bool CanNavigate(
+        ISessionContext sessionContext,
+        NavigationTarget target,
+        out string denialReason)
+    {
+        ArgumentNullException.ThrowIfNull(sessionContext);
+        if (sessionContext.UserId is null || sessionContext.SessionId is null)
+        {
+            denialReason = "Sign in to open this screen.";
+            return false;
+        }
+
+        return _permissionMap.CanNavigate(sessionContext, target, out denialReason);
+    }
+
+    public bool CanNavigate(
+        string roleName,
+        NavigationTarget target,
+        out string denialReason)
+    {
+        denialReason = "A verified Server session is required to open this screen.";
+        return false;
+    }
+}
+
 public sealed class DemoFrontendPermissionService : IFrontendPermissionService
 {
     public bool CanNavigate(

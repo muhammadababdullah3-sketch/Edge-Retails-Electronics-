@@ -279,7 +279,9 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
             if (requestVersion == Volatile.Read(ref _refreshVersion))
             {
                 _toastService?.Show(
-                    $"Reports could not be refreshed: {ex.Message}",
+                    DesktopErrorPresentation.ForException(
+                        ex,
+                        "Reports could not be refreshed. Check the connection and try again."),
                     ToastTone.Danger);
             }
         }

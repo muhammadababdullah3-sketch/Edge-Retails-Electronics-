@@ -18,6 +18,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly IFirstRunSetupState _setupState;
     private readonly IDemoIdentityService _identityService;
     private readonly IBackendIdentityService? _backendIdentityService;
+    private readonly DesktopApiClient? _apiClient;
     private readonly IBackendSetupService? _backendSetupService;
     private readonly IFrontendPermissionService _permissionService;
     private readonly PageViewModelFactory _pageFactory;
@@ -53,9 +54,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _toastService = toastService;
         _setupState = setupState ?? new DemoFirstRunSetupState(isSetupRequired: false);
         _identityService = identityService ?? new DemoIdentityService();
+        _apiClient = backendRuntime?.ApiClient;
         _backendIdentityService = backendRuntime is null
             ? null
-            : new BackendIdentityService(backendRuntime.ScopeFactory);
+            : new BackendIdentityService(backendRuntime.ApiClient);
+        if (_apiClient is not null)
+        {
+            _apiClient.SessionInvalidated += OnBackendSessionInvalidated;
+        }
         _backendSetupService = backendRuntime?.SetupService;
 
         var defaultSession = new DesignPreviewSessionContext();
@@ -66,9 +72,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _toastService,
             defaultSession,
             backendRuntime?.ScopeFactory,
-            backendRuntime?.PosCatalogGateway);
+            backendRuntime?.PosCatalogGateway,
+            backendRuntime?.ApiClient);
 
-        _permissionService = new DemoFrontendPermissionService();
+        _permissionService = backendRuntime is null
+            ? new DemoFrontendPermissionService()
+            : new BackendFrontendPermissionService();
         _navigationService = new NavigationService(
             _pageFactory,
             _permissionService,
@@ -197,22 +206,67 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Previous session could not be closed cleanly: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "The previous sign-in could not be closed cleanly."),
                 ToastTone.Warning);
+        }
+    }
+
+    private void OnBackendSessionInvalidated(
+        object? sender,
+        DesktopSessionInvalidatedEventArgs args)
+    {
+        void ReturnToLogin()
+        {
+            if (_activeSession?.SessionId != args.SessionId)
+            {
+                return;
+            }
+
+            _activeSession = null;
+            var anonymousSession = new DesignPreviewSessionContext();
+            _pageFactory.SetSessionContext(anonymousSession);
+            _navigationService.SetSessionContext(anonymousSession);
+            _shellViewModel?.Dispose();
+            _shellViewModel = null;
+            _dialogService.Close();
+            _drawerService.Close();
+            _navigationService.Reset();
+            ShowLogin();
+            var message = args.Code is "auth.terminal_revoked" or "auth.terminal_suspended"
+                ? "This terminal no longer has access. Contact an administrator before signing in again."
+                : "Your sign-in is no longer valid. Sign in again to continue.";
+            _toastService.Show(message, ToastTone.Warning);
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            ReturnToLogin();
+        }
+        else
+        {
+            dispatcher.BeginInvoke(ReturnToLogin);
         }
     }
 
     public void Dispose()
     {
+        if (_apiClient is not null)
+        {
+            _apiClient.SessionInvalidated -= OnBackendSessionInvalidated;
+        }
+
         if (_backendIdentityService is not null &&
             _activeSession is not null)
         {
             try
             {
-                _backendIdentityService
-                    .SignOutAsync(_activeSession)
-                    .GetAwaiter()
-                    .GetResult();
+                DesktopSessionShutdown.EndSession(
+                    _backendIdentityService,
+                    _activeSession,
+                    TimeSpan.FromSeconds(5));
             }
             catch
             {

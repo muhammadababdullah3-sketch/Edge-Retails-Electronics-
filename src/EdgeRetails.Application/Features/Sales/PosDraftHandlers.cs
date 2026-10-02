@@ -1,9 +1,11 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Sales;
+using System.Text.Json;
 
 namespace EdgeRetails.Application.Features.Sales;
 
@@ -21,7 +23,10 @@ public sealed record SavePosDraftCommand(
     Guid ActorId,
     string? TerminalId,
     string? Note,
-    IReadOnlyList<SavePosDraftItemInput> Items);
+    IReadOnlyList<SavePosDraftItemInput> Items,
+    Guid ClientOperationId = default,
+    Guid? RegisteredTerminalId = null,
+    Guid? SessionId = null);
 
 public sealed record SavePosDraftResult(
     Guid DraftId,
@@ -38,6 +43,8 @@ public sealed class SavePosDraftHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public SavePosDraftHandler(
         IPosDraftRepository drafts,
@@ -46,7 +53,9 @@ public sealed class SavePosDraftHandler
         IClock clock,
         IApplicationPermissionAuthorizer authorization,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _drafts = drafts;
         _catalog = catalog;
@@ -55,6 +64,8 @@ public sealed class SavePosDraftHandler
         _authorization = authorization;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result<SavePosDraftResult>> HandleAsync(
@@ -68,6 +79,18 @@ public sealed class SavePosDraftHandler
                 "Draft requires an actor and at least one item."));
         }
 
+        if (command.ClientOperationId != Guid.Empty &&
+            (_operationLock is null || _outcomeLedger is null))
+        {
+            return Task.FromResult(Result<SavePosDraftResult>.Failure(
+                "system.idempotency_unavailable",
+                "Draft save cannot proceed without an operation ledger."));
+        }
+
+        var fingerprint = command.ClientOperationId == Guid.Empty
+            ? null
+            : Fingerprint(command);
+
         return _transactions.ExecuteAsync(async ct =>
         {
             var permission = command.DraftId is null
@@ -79,6 +102,46 @@ public sealed class SavePosDraftHandler
                 return Result<SavePosDraftResult>.Failure(
                     authorization.Error!.Code,
                     authorization.Error.Message);
+            }
+
+            if (command.ClientOperationId != Guid.Empty)
+            {
+                await _operationLock!.AcquireAsync(command.ClientOperationId, ct);
+                var prior = await _outcomeLedger!.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (prior is not null)
+                {
+                    if (!string.Equals(prior.OperationType, "PosDraftSave", StringComparison.Ordinal) ||
+                        prior.ActorId != command.ActorId ||
+                        prior.TerminalId != command.RegisteredTerminalId ||
+                        !string.Equals(prior.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+                    {
+                        return Result<SavePosDraftResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "This operation ID was previously used for a different draft save.");
+                    }
+
+                    if (prior.State == OperationOutcomeState.Succeeded &&
+                        prior.EntityId is Guid savedDraftId)
+                    {
+                        var savedDraft = await _drafts.GetForUpdateAsync(savedDraftId, ct);
+                        if (savedDraft is null)
+                        {
+                            return Result<SavePosDraftResult>.Failure(
+                                "sales.draft_outcome_missing",
+                                "The committed draft could not be loaded safely.");
+                        }
+
+                        return Result<SavePosDraftResult>.Success(new SavePosDraftResult(
+                            savedDraft.Id,
+                            savedDraft.DraftNumber,
+                            savedDraft.Version,
+                            command.DraftId is null));
+                    }
+
+                    return Result<SavePosDraftResult>.Failure(
+                        "sales.draft_outcome_unknown",
+                        "The draft save outcome is not confirmed. Recheck it before retrying.");
+                }
             }
 
             PosDraft draft;
@@ -174,10 +237,35 @@ public sealed class SavePosDraftHandler
             }
 
             await _unitOfWork.SaveChangesAsync(ct);
+            if (command.ClientOperationId != Guid.Empty)
+            {
+                await _outcomeLedger!.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "PosDraftSave",
+                    draft.Id,
+                    draft.DraftNumber,
+                    actorId: command.ActorId,
+                    terminalId: command.RegisteredTerminalId,
+                    sessionId: command.SessionId,
+                    payloadFingerprint: fingerprint,
+                    cancellationToken: ct);
+            }
             return Result<SavePosDraftResult>.Success(
                 new(draft.Id, draft.DraftNumber, draft.Version, created));
         }, cancellationToken);
     }
+
+    private static string Fingerprint(SavePosDraftCommand command) =>
+        OperationPayloadFingerprint.ComputeSha256(JsonSerializer.Serialize(new
+        {
+            command.DraftId,
+            command.ExpectedVersion,
+            command.CustomerId,
+            command.ActorId,
+            command.TerminalId,
+            command.Note,
+            command.Items
+        }));
 
     private static string? Normalize(string? value)
     {

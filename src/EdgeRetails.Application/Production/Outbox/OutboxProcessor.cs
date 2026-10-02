@@ -23,15 +23,33 @@ public sealed class OutboxProcessor
 
     private readonly IOutboxRepository _repository;
     private readonly IReadOnlyDictionary<string, IOutboxEffectHandler> _handlers;
+    private readonly string _workerId;
+    private readonly TimeSpan _leaseDuration;
 
     public OutboxProcessor(
         IOutboxRepository repository,
         IEnumerable<IOutboxEffectHandler> handlers)
+        : this(repository, handlers, null, null)
+    {
+    }
+
+    public OutboxProcessor(
+        IOutboxRepository repository,
+        IEnumerable<IOutboxEffectHandler> handlers,
+        string? workerId,
+        TimeSpan? leaseDuration = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _handlers = (handlers ?? throw new ArgumentNullException(nameof(handlers)))
             .ToDictionary(h => h.EffectType, StringComparer.OrdinalIgnoreCase);
+        _workerId = !string.IsNullOrWhiteSpace(workerId)
+            ? workerId
+            : $"worker-{Guid.NewGuid():N}";
+        _leaseDuration = leaseDuration ?? TimeSpan.FromMinutes(2);
     }
+
+    public string WorkerId => _workerId;
+    public TimeSpan LeaseDuration => _leaseDuration;
 
     public async Task<int> ProcessPendingAsync(int batchSize = 20, CancellationToken cancellationToken = default)
     {
@@ -45,11 +63,31 @@ public sealed class OutboxProcessor
                 break;
             }
 
+            var leaseToken = Guid.NewGuid();
+            var claimed = await _repository.TryClaimMessageAsync(
+                message.Id,
+                _workerId,
+                leaseToken,
+                _leaseDuration,
+                cancellationToken);
+
+            if (!claimed)
+            {
+                continue;
+            }
+
+            message.Status = OutboxMessageStatus.Processing;
+            message.LeaseOwner = _workerId;
+            message.LeaseToken = leaseToken;
+            message.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(_leaseDuration);
+            message.NextAttemptAt = message.LeaseExpiresAt;
+
             if (!_handlers.TryGetValue(message.EffectType, out var handler))
             {
                 await _repository.MarkActionRequiredAsync(
                     message.Id,
                     $"No outbox effect handler registered for '{message.EffectType}'.",
+                    leaseToken,
                     cancellationToken);
                 continue;
             }
@@ -57,7 +95,7 @@ public sealed class OutboxProcessor
             try
             {
                 await handler.ExecuteAsync(message, cancellationToken);
-                await _repository.MarkCompletedAsync(message.Id, DateTimeOffset.UtcNow, cancellationToken);
+                await _repository.MarkCompletedAsync(message.Id, DateTimeOffset.UtcNow, leaseToken, cancellationToken);
                 processedCount++;
             }
             catch (NonRetryableOutboxEffectException ex)
@@ -65,6 +103,7 @@ public sealed class OutboxProcessor
                 await _repository.MarkActionRequiredAsync(
                     message.Id,
                     $"Non-retryable outbox effect error: {ex.Message}",
+                    leaseToken,
                     cancellationToken);
             }
             catch (Exception ex)
@@ -75,6 +114,7 @@ public sealed class OutboxProcessor
                     await _repository.MarkActionRequiredAsync(
                         message.Id,
                         $"Outbox effect failed after {attempt} attempts: {ex.Message}",
+                        leaseToken,
                         cancellationToken);
                 }
                 else
@@ -85,6 +125,7 @@ public sealed class OutboxProcessor
                         message.Id,
                         $"{ex.GetType().Name}: {ex.Message}",
                         nextAttempt,
+                        leaseToken,
                         cancellationToken);
                 }
             }

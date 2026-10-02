@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Parties;
 
@@ -14,7 +15,10 @@ public sealed record SaveCustomerCommand(
     bool IsActive,
     Guid ActorId,
     Guid CorrelationId,
-    string? Notes = null);
+    string? Notes = null,
+    Guid? ClientOperationId = null,
+    Guid? TerminalId = null,
+    Guid? SessionId = null);
 
 public sealed record SaveSupplierCommand(
     Guid? SupplierId,
@@ -26,7 +30,10 @@ public sealed record SaveSupplierCommand(
     Guid ActorId,
     Guid CorrelationId,
     string? Notes = null,
-    string? ExplicitDealerPrefix = null);
+    string? ExplicitDealerPrefix = null,
+    Guid? ClientOperationId = null,
+    Guid? TerminalId = null,
+    Guid? SessionId = null);
 
 public sealed class SaveCustomerHandler
 {
@@ -35,13 +42,19 @@ public sealed class SaveCustomerHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
-    private readonly IUnitOfWork _unitOfWork; public SaveCustomerHandler(
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public SaveCustomerHandler(
         IPartyRepository parties,
         IBusinessAuditWriter audit,
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _parties = parties;
         _audit = audit;
@@ -49,21 +62,25 @@ public sealed class SaveCustomerHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<Guid>> HandleAsync(
+    public async Task<Result<Guid>> HandleAsync(
         SaveCustomerCommand command,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(command.Name))
         {
-            return Task.FromResult(
-                Result<Guid>.Failure(
-                    "parties.customer_name_required",
-                    "Customer name is required."));
+            return Result<Guid>.Failure(
+                "parties.customer_name_required",
+                "Customer name is required.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "Customer.Save.v1", command.CustomerId?.ToString("D"), command.Name.Trim(),
+            Normalize(command.Phone), Normalize(command.Address), command.IsActive.ToString(), Normalize(command.Notes));
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -74,6 +91,22 @@ public sealed class SaveCustomerHandler
                 return Result<Guid>.Failure(
                     authorization.Error!.Code,
                     authorization.Error.Message);
+            }
+
+            var replay = await GetPartyReplayAsync(command.ClientOperationId, "Customer.Save.v1", fingerprint,
+                command.ActorId, command.TerminalId, command.SessionId, ct);
+            if (replay.Error is not null)
+            {
+                return Result<Guid>.Failure(replay.Error.Code, replay.Error.Message);
+            }
+            if (replay.EntityId is Guid replayId)
+            {
+                return Result<Guid>.Success(replayId);
+            }
+            if (command.ClientOperationId is Guid operationId)
+            {
+                await _outcomeLedger!.RecordPendingAsync(operationId, "Customer.Save.v1", command.ActorId,
+                    command.TerminalId, command.SessionId, fingerprint, ct);
             }
 
             Customer customer;
@@ -118,9 +151,57 @@ public sealed class SaveCustomerHandler
                 command.CorrelationId,
                 customer.Name);
 
+            if (command.ClientOperationId is Guid clientOperationId)
+            {
+                await _outcomeLedger!.RecordSuccessAsync(clientOperationId, "Customer.Save.v1", customer.Id,
+                    actorId: command.ActorId, terminalId: command.TerminalId, sessionId: command.SessionId,
+                    payloadFingerprint: fingerprint, cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(customer.Id);
         }, cancellationToken);
+        if (!result.IsSuccess && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(failedOperationId, "Customer.Save.v1",
+                result.Error?.Code ?? "customer.save_failed", result.Error?.Message ?? "Customer could not be saved.",
+                command.ActorId, command.TerminalId, command.SessionId, fingerprint, cancellationToken);
+        }
+        return result;
+    }
+
+    private async Task<(Guid? EntityId, Error? Error)> GetPartyReplayAsync(Guid? operationId, string operationType,
+        string fingerprint, Guid actorId, Guid? terminalId, Guid? sessionId, CancellationToken cancellationToken)
+    {
+        if (!operationId.HasValue)
+        {
+            return (null, null);
+        }
+        if (operationId.Value == Guid.Empty || _operationLock is null || _outcomeLedger is null)
+        {
+            return (null, new Error("operation.ledger_unavailable", "Party mutation replay protection is unavailable."));
+        }
+        await _operationLock.AcquireAsync(operationId.Value, cancellationToken);
+        var prior = await _outcomeLedger.GetOutcomeAsync(operationId.Value, cancellationToken);
+        if (prior is null)
+        {
+            return (null, null);
+        }
+        if (prior.OperationType != operationType || prior.PayloadFingerprint != fingerprint || prior.ActorId != actorId ||
+            (prior.TerminalId.HasValue && prior.TerminalId != terminalId) ||
+            (prior.SessionId.HasValue && prior.SessionId != sessionId))
+        {
+            return (null, new Error("idempotency.payload_mismatch", "Operation identity was already used with a different party payload or actor."));
+        }
+        if (prior.State == OperationOutcomeState.Succeeded && prior.EntityId is Guid entityId)
+        {
+            return (entityId, null);
+        }
+        if (prior.State == OperationOutcomeState.Failed)
+        {
+            return (null, new Error(prior.ErrorCode ?? "party.save_failed", prior.ErrorMessage ?? "The original party operation failed."));
+        }
+        return (null, new Error("operation.outcome_unknown", "The previous party operation has no final result. Resolve its status before retrying."));
     }
 
     private static string? Normalize(string? value)
@@ -139,6 +220,9 @@ public sealed class SaveSupplierHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISequenceHighWaterService _highWaterService;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public SaveSupplierHandler(
         IPartyRepository parties,
@@ -148,7 +232,10 @@ public sealed class SaveSupplierHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ISequenceHighWaterService? highWaterService = null,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _parties = parties;
         _traceability = traceability;
@@ -158,21 +245,27 @@ public sealed class SaveSupplierHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _highWaterService = highWaterService ?? NullSequenceHighWaterService.Instance;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<Guid>> HandleAsync(
+    public async Task<Result<Guid>> HandleAsync(
         SaveSupplierCommand command,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(command.Name))
         {
-            return Task.FromResult(
-                Result<Guid>.Failure(
-                    "parties.supplier_name_required",
-                    "Supplier name is required."));
+            return Result<Guid>.Failure(
+                "parties.supplier_name_required",
+                "Supplier name is required.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "Supplier.Save.v1", command.SupplierId?.ToString("D"), command.Name.Trim(),
+            Normalize(command.Phone), Normalize(command.City), Normalize(command.Address), command.IsActive.ToString(),
+            Normalize(command.Notes), Normalize(command.ExplicitDealerPrefix));
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -183,6 +276,21 @@ public sealed class SaveSupplierHandler
                 return Result<Guid>.Failure(
                     authorization.Error!.Code,
                     authorization.Error.Message);
+            }
+
+            var replay = await GetSupplierReplayAsync(command, fingerprint, ct);
+            if (replay.Error is not null)
+            {
+                return Result<Guid>.Failure(replay.Error.Code, replay.Error.Message);
+            }
+            if (replay.EntityId is Guid replayId)
+            {
+                return Result<Guid>.Success(replayId);
+            }
+            if (command.ClientOperationId is Guid operationId)
+            {
+                await _outcomeLedger!.RecordPendingAsync(operationId, "Supplier.Save.v1", command.ActorId,
+                    command.TerminalId, command.SessionId, fingerprint, ct);
             }
 
             Supplier supplier;
@@ -226,9 +334,57 @@ public sealed class SaveSupplierHandler
                 command.CorrelationId,
                 supplier.Name);
 
+            if (command.ClientOperationId is Guid clientOperationId)
+            {
+                await _outcomeLedger!.RecordSuccessAsync(clientOperationId, "Supplier.Save.v1", supplier.Id,
+                    actorId: command.ActorId, terminalId: command.TerminalId, sessionId: command.SessionId,
+                    payloadFingerprint: fingerprint, cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(supplier.Id);
         }, cancellationToken);
+        if (!result.IsSuccess && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(failedOperationId, "Supplier.Save.v1",
+                result.Error?.Code ?? "supplier.save_failed", result.Error?.Message ?? "Supplier could not be saved.",
+                command.ActorId, command.TerminalId, command.SessionId, fingerprint, cancellationToken);
+        }
+        return result;
+    }
+
+    private async Task<(Guid? EntityId, Error? Error)> GetSupplierReplayAsync(
+        SaveSupplierCommand command, string fingerprint, CancellationToken cancellationToken)
+    {
+        if (!command.ClientOperationId.HasValue)
+        {
+            return (null, null);
+        }
+        if (command.ClientOperationId.Value == Guid.Empty || _operationLock is null || _outcomeLedger is null)
+        {
+            return (null, new Error("operation.ledger_unavailable", "Supplier mutation replay protection is unavailable."));
+        }
+        await _operationLock.AcquireAsync(command.ClientOperationId.Value, cancellationToken);
+        var prior = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId.Value, cancellationToken);
+        if (prior is null)
+        {
+            return (null, null);
+        }
+        if (prior.OperationType != "Supplier.Save.v1" || prior.PayloadFingerprint != fingerprint || prior.ActorId != command.ActorId ||
+            (prior.TerminalId.HasValue && prior.TerminalId != command.TerminalId) ||
+            (prior.SessionId.HasValue && prior.SessionId != command.SessionId))
+        {
+            return (null, new Error("idempotency.payload_mismatch", "Operation identity was already used with a different supplier payload or actor."));
+        }
+        if (prior.State == OperationOutcomeState.Succeeded && prior.EntityId is Guid entityId)
+        {
+            return (entityId, null);
+        }
+        if (prior.State == OperationOutcomeState.Failed)
+        {
+            return (null, new Error(prior.ErrorCode ?? "supplier.save_failed", prior.ErrorMessage ?? "The original supplier operation failed."));
+        }
+        return (null, new Error("operation.outcome_unknown", "The previous supplier operation has no final result. Resolve its status before retrying."));
     }
 
     private async Task<string> AllocateDealerCodeAsync(
@@ -253,8 +409,15 @@ public sealed class SaveSupplierHandler
             _traceability.AddSupplierCodeSequence(sequence);
         }
 
+        var machineVal = _highWaterService.GetDealerPrefixHighWater(prefix);
+        if (machineVal > sequence.NextValue)
+        {
+            sequence.NextValue = machineVal;
+        }
+
         var dealerCode = TraceabilityCodeRules.BuildDealerCode(prefix, sequence.NextValue);
         sequence.NextValue = checked(sequence.NextValue + 1);
+        _highWaterService.RecordDealerPrefixHighWater(prefix, sequence.NextValue);
         return dealerCode;
     }
 

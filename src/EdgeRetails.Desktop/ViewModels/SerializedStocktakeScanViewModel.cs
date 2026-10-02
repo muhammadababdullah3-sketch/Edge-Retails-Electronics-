@@ -124,11 +124,15 @@ public sealed class SerializedStocktakeScanViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            Message = $"{ex.Code}: {ex.Message}";
+            Message = DesktopErrorPresentation.ForException(
+                ex,
+                "The stocktake scan was rejected.");
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            Message = DesktopErrorPresentation.ForException(
+                ex,
+                "The stocktake scan could not be recorded.");
         }
         finally
         {

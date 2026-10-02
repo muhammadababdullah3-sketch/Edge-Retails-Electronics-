@@ -3,6 +3,7 @@ using EdgeRetails.Worker;
 using EdgeRetails.Worker.Jobs;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddWindowsService(options => options.ServiceName = "EdgeRetailsWorker");
 
 var commonConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "EdgeRetails", "config.json");
 if (File.Exists(commonConfig))

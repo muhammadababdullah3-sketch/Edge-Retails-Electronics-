@@ -54,6 +54,8 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
 
     public async Task<BackupCreateResult> CreateAsync(BackupCreateRequest request, CancellationToken cancellationToken = default)
     {
+        var keyMetadata = _protector is IVersionedBackupProtector versionedProtector
+            ? await versionedProtector.GetCurrentMetadataAsync(cancellationToken) : null;
         Directory.CreateDirectory(request.BackupDirectory);
         _ = BackupArtifactPathSafety.ResolveOwnedBackupPath(request.BackupDirectory, "probe.erbak");
         var backupId = Guid.NewGuid();
@@ -82,7 +84,11 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
             var list = await _runner.RunAsync(_pgRestore, new[] { "--list", plainTemp }, null, cancellationToken);
             EnsureSuccess("pg_restore --list", list);
 
-            await _protector.ProtectAsync(plainTemp, protectedTemp, cancellationToken);
+            if (_protector is IVersionedBackupProtector versioned)
+            {
+                await versioned.ProtectVersionAsync(plainTemp, protectedTemp, keyMetadata, cancellationToken);
+            }
+            else { await _protector.ProtectAsync(plainTemp, protectedTemp, cancellationToken); }
             TryDelete(plainTemp);
             File.Move(protectedTemp, fullPath, overwrite: false);
 
@@ -94,7 +100,8 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
                 backupId, request.Connection.Database, fileName, hash, info.Length, DateTimeOffset.UtcNow,
                 serverVersion, pgDumpVersion, request.ApplicationVersion, request.SchemaVersion, _protector.ProtectionName)
             {
-                FormatVersion = 2
+                FormatVersion = 2,
+                KeyMetadata = keyMetadata
             };
             var authentication = await _manifestAuthenticator.ComputeAuthenticationAsync(manifest, cancellationToken);
             var envelope = new BackupManifestEnvelope(manifest, authentication);
@@ -135,6 +142,9 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
     public Task<IReadOnlyList<BackupManifest>> ReadHistoryAsync(string backupDirectory, CancellationToken cancellationToken = default)
         => _history.ReadHistoryAsync(backupDirectory, cancellationToken);
 
+    public Task<BackupHistoryDiagnostics> ReadDiagnosticsAsync(string backupDirectory, CancellationToken cancellationToken = default)
+        => _history.ReadDiagnosticsAsync(backupDirectory, cancellationToken);
+
     public async Task<RestoreSessionToken> PrepareRestoreAsync(RestorePrepareRequest request, CancellationToken cancellationToken = default)
     {
         var currentMaintenanceState = await _maintenanceBarrier.GetStateAsync(cancellationToken);
@@ -143,9 +153,9 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
             throw new ProductionMaintenanceException(currentMaintenanceState);
         }
 
-        await using var maintenanceLease = await _maintenanceBarrier.EnterExclusiveAsync(
-            ProductionMaintenanceState.RestorePreparing,
-            cancellationToken);
+        var conditionalBarrier = _maintenanceBarrier as IConditionalProductionMaintenanceBarrier
+            ?? throw new InvalidOperationException("Restore preparation requires an atomic conditional maintenance barrier.");
+
         var maintenanceConnection = await _maintenanceConnectionProvider.GetAsync(cancellationToken);
         ValidateMaintenanceEndpoint(request.RuntimeConnection, maintenanceConnection);
         var backupPath = Path.GetFullPath(request.BackupFilePath);
@@ -206,14 +216,77 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
         }
 
         var originalOid = await RequireDatabaseOidAsync(maintenanceConnection, request.RuntimeConnection.Database, cancellationToken);
-        var restoreId = Guid.NewGuid();
+        var clientOperationId = request.ClientOperationId is { } suppliedOperationId && suppliedOperationId != Guid.Empty
+            ? suppliedOperationId
+            : Guid.NewGuid();
+        var restoreId = RestoreIdForOperation(clientOperationId);
+        var existing = await _restoreSessions.GetJournalByOperationIdAsync(clientOperationId, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.ClientOperationId != clientOperationId)
+            {
+                throw new InvalidDataException("Restore operation lookup returned an unbound journal.");
+            }
+
+            EnsureSamePrepareRequest(existing, request.RuntimeConnection.Database, backupPath, actualHash);
+            if (existing.RestoreId != restoreId)
+            {
+                throw new InvalidDataException("Restore operation is bound to an unexpected restore identity.");
+            }
+
+            if (existing.State == RestoreSessionState.Prepared)
+            {
+                return new RestoreSessionToken(existing.RestoreId);
+            }
+
+            throw new RestoreRecoveryRequiredException(
+                "Restore preparation already has a journaled outcome. Reconcile it by client operation ID before retrying.",
+                new InvalidOperationException($"Restore session state is {existing.State}."));
+        }
+
+        var stagingDb = PostgresRecoveryDatabaseName.Create("rst", request.RuntimeConnection.Database, restoreId);
+        var session = new RestoreSessionRecord(
+            restoreId,
+            request.RuntimeConnection.Database,
+            stagingDb,
+            originalOid,
+            0,
+            backupPath,
+            actualHash,
+            DateTimeOffset.UtcNow,
+            RestoreSessionState.Preparing,
+            ClientOperationId: clientOperationId);
+        await _restoreSessions.CreateAsync(session, cancellationToken);
+
+        // The durable intent must exist before both the cross-process barrier and any PostgreSQL staging effect.
+        await using var maintenanceLease = await conditionalBarrier.EnterExclusiveAsync(
+            ProductionMaintenanceState.Normal,
+            ProductionMaintenanceState.RestorePreparing,
+            cancellationToken);
         var tempRoot = CreateOperationTempRoot("restore", restoreId);
         var plainTemp = Path.Combine(tempRoot, "database.dump");
-        var stagingDb = PostgresRecoveryDatabaseName.Create("rst", request.RuntimeConnection.Database, restoreId);
-
         try
         {
-            await _protector.UnprotectAsync(backupPath, plainTemp, cancellationToken);
+            var lockedOriginalOid = await RequireDatabaseOidAsync(
+                maintenanceConnection,
+                request.RuntimeConnection.Database,
+                cancellationToken);
+            if (lockedOriginalOid != originalOid)
+            {
+                throw new InvalidOperationException("Production database identity changed while restore preparation was acquiring its maintenance barrier.");
+            }
+
+            var lockedBackupHash = await ComputeSha256Async(backupPath, cancellationToken);
+            if (!TryFixedTimeHexEquals(lockedBackupHash, actualHash))
+            {
+                throw new InvalidDataException("Backup artifact changed while restore preparation was acquiring its maintenance barrier.");
+            }
+
+            if (_protector is IVersionedBackupProtector versioned)
+            {
+                await versioned.UnprotectVersionAsync(backupPath, plainTemp, manifest.KeyMetadata, cancellationToken);
+            }
+            else { await _protector.UnprotectAsync(backupPath, plainTemp, cancellationToken); }
             var list = await _runner.RunAsync(_pgRestore, new[] { "--list", plainTemp }, null, cancellationToken);
             EnsureSuccess("pg_restore --list", list);
 
@@ -227,54 +300,119 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
             }, PasswordEnvironment(maintenanceConnection), cancellationToken);
             EnsureSuccess("createdb", create);
 
+            await SetRestoreDatabaseMarkerAsync(maintenanceConnection, stagingDb, restoreId, cancellationToken);
+            var stagingOid = await RequireDatabaseOidAsync(maintenanceConnection, stagingDb, cancellationToken);
+            session = session with { StagingDatabaseOid = stagingOid };
+            await _restoreSessions.UpdateAsync(session, cancellationToken);
+
+            var restore = await _runner.RunAsync(_pgRestore, new[]
+            {
+                "--no-password", "--exit-on-error", "--verbose",
+                "--host", maintenanceConnection.Host,
+                "--port", maintenanceConnection.Port.ToString(),
+                "--username", maintenanceConnection.Username,
+                "--dbname", stagingDb, plainTemp
+            }, PasswordEnvironment(maintenanceConnection), cancellationToken);
+            EnsureSuccess("pg_restore", restore);
+
+            var probe = await QueryScalarAsync(maintenanceConnection, stagingDb, "SELECT 1;", cancellationToken);
+            if (probe?.Trim() != "1")
+            {
+                throw new InvalidDataException("Restored staging database did not pass the SQL readiness probe.");
+            }
+
+            await _stagingValidator.ValidateAsync(new RestoreStagingValidationContext(
+                request.RuntimeConnection, maintenanceConnection, stagingDb, manifest, restoreId), cancellationToken);
+
+            session = session with { State = RestoreSessionState.Prepared };
+            await _restoreSessions.UpdateAsync(session, cancellationToken);
+            await maintenanceLease.SetExitStateAsync(
+                ProductionMaintenanceState.RestorePreparing,
+                CancellationToken.None);
+            return new RestoreSessionToken(restoreId);
+        }
+        catch
+        {
+            var reconciled = false;
             try
             {
-                var restore = await _runner.RunAsync(_pgRestore, new[]
-                {
-                    "--no-password", "--exit-on-error", "--verbose",
-                    "--host", maintenanceConnection.Host,
-                    "--port", maintenanceConnection.Port.ToString(),
-                    "--username", maintenanceConnection.Username,
-                    "--dbname", stagingDb, plainTemp
-                }, PasswordEnvironment(maintenanceConnection), cancellationToken);
-                EnsureSuccess("pg_restore", restore);
-
-                var probe = await QueryScalarAsync(maintenanceConnection, stagingDb, "SELECT 1;", cancellationToken);
-                if (probe?.Trim() != "1")
-                {
-                    throw new InvalidDataException("Restored staging database did not pass the SQL readiness probe.");
-                }
-
-                await _stagingValidator.ValidateAsync(new RestoreStagingValidationContext(
-                    request.RuntimeConnection, maintenanceConnection, stagingDb, manifest, restoreId), cancellationToken);
-
-                var stagingOid = await RequireDatabaseOidAsync(maintenanceConnection, stagingDb, cancellationToken);
-                var session = new RestoreSessionRecord(
-                    restoreId,
-                    request.RuntimeConnection.Database,
-                    stagingDb,
-                    originalOid,
-                    stagingOid,
-                    backupPath,
-                    actualHash,
-                    DateTimeOffset.UtcNow,
-                    RestoreSessionState.Prepared);
-                await _restoreSessions.CreateAsync(session, cancellationToken);
-                await maintenanceLease.SetExitStateAsync(
-                    ProductionMaintenanceState.RestorePreparing,
-                    CancellationToken.None);
-                return new RestoreSessionToken(restoreId);
+                reconciled = await TryRemoveOwnedIncompleteStagingAsync(maintenanceConnection, session, CancellationToken.None);
             }
             catch
             {
-                await maintenanceLease.SetExitStateAsync(
-                    ProductionMaintenanceState.Normal,
-                    CancellationToken.None);
-                await DropDatabaseBestEffortAsync(maintenanceConnection, stagingDb, CancellationToken.None);
-                throw;
+                reconciled = false;
             }
+
+            session = session with { State = reconciled ? RestoreSessionState.Discarded : RestoreSessionState.RecoveryRequired };
+            await maintenanceLease.SetExitStateAsync(
+                reconciled ? ProductionMaintenanceState.Normal : ProductionMaintenanceState.RecoveryRequired,
+                CancellationToken.None);
+            await _restoreSessions.UpdateAsync(session, CancellationToken.None);
+            throw;
         }
         finally { TryDelete(plainTemp); TryDeleteDirectory(tempRoot); }
+    }
+
+    public async Task<RestoreSessionSummary> RecoverRestorePreparationAsync(
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (clientOperationId == Guid.Empty)
+        {
+            throw new ArgumentException("Client operation ID must be nonempty.", nameof(clientOperationId));
+        }
+
+        var session = await _restoreSessions.GetJournalByOperationIdAsync(clientOperationId, cancellationToken)
+            ?? throw new InvalidOperationException("Restore operation is unknown or no longer available.");
+        if (session.State != RestoreSessionState.Preparing)
+        {
+            if (session.State == RestoreSessionState.RecoveryRequired)
+            {
+                throw new RestoreRecoveryRequiredException(
+                    "Restore preparation requires operator recovery; automatic reconciliation was refused.",
+                    new InvalidOperationException("Session is already marked RecoveryRequired."));
+            }
+
+            return ToSafeSummary(session);
+        }
+
+        var barrierState = await _maintenanceBarrier.GetStateAsync(cancellationToken);
+        if (barrierState is not (ProductionMaintenanceState.Normal or ProductionMaintenanceState.RestorePreparing))
+        {
+            throw new ProductionMaintenanceException(barrierState);
+        }
+
+        var maintenance = await _maintenanceConnectionProvider.GetAsync(cancellationToken);
+        if (!string.Equals(session.StagingDatabase,
+            PostgresRecoveryDatabaseName.Create("rst", session.TargetDatabase, session.RestoreId),
+            StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Restore preparation journal staging identity is invalid.");
+        }
+
+        var conditionalBarrier = _maintenanceBarrier as IConditionalProductionMaintenanceBarrier
+            ?? throw new InvalidOperationException("Restore preparation recovery requires an atomic conditional maintenance barrier.");
+        await using var lease = await conditionalBarrier.EnterExclusiveAsync(
+            barrierState,
+            ProductionMaintenanceState.RestorePreparing,
+            cancellationToken);
+        var cleaned = false;
+        try
+        {
+            cleaned = await TryRemoveOwnedIncompleteStagingAsync(maintenance, session, CancellationToken.None);
+        }
+        catch
+        {
+            cleaned = false;
+        }
+
+        session = session with { State = cleaned ? RestoreSessionState.Discarded : RestoreSessionState.RecoveryRequired };
+        await lease.SetExitStateAsync(
+            cleaned ? ProductionMaintenanceState.Normal : ProductionMaintenanceState.RecoveryRequired,
+            CancellationToken.None);
+        await _restoreSessions.UpdateAsync(session, CancellationToken.None);
+
+        return ToSafeSummary(session);
     }
 
     public async Task<RestoreCutoverResult> CutoverAsync(
@@ -288,7 +426,10 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
             throw new ProductionMaintenanceException(currentMaintenanceState);
         }
 
-        await using var maintenanceLease = await _maintenanceBarrier.EnterExclusiveAsync(
+        var conditionalBarrier = _maintenanceBarrier as IConditionalProductionMaintenanceBarrier
+            ?? throw new InvalidOperationException("Restore cutover requires an atomic conditional maintenance barrier.");
+        await using var maintenanceLease = await conditionalBarrier.EnterExclusiveAsync(
+            ProductionMaintenanceState.RestorePreparing,
             ProductionMaintenanceState.RestoreCutover,
             cancellationToken);
         await maintenanceLease.SetExitStateAsync(
@@ -454,6 +595,86 @@ public sealed class PostgresBackupEngine : IPostgresBackupEngine
     private async Task<RestoreSessionRecord> RequireSessionAsync(RestoreSessionToken token, CancellationToken cancellationToken)
         => await _restoreSessions.GetAsync(token.RestoreId, cancellationToken)
             ?? throw new InvalidOperationException("Restore session is unknown or no longer available.");
+
+    private async Task<bool> TryRemoveOwnedIncompleteStagingAsync(
+        PostgresMaintenanceDescriptor maintenance,
+        RestoreSessionRecord session,
+        CancellationToken cancellationToken)
+    {
+        if (!await DatabaseExistsAsync(maintenance, session.StagingDatabase, cancellationToken))
+        {
+            return true;
+        }
+
+        var marker = await QueryScalarAsync(maintenance, maintenance.MaintenanceDatabase,
+            $"SELECT COALESCE(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname = {SqlLiteral(session.StagingDatabase)};",
+            cancellationToken);
+        if (!string.Equals(marker?.Trim(), RestoreDatabaseMarker(session.RestoreId), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var actualOid = await RequireDatabaseOidAsync(maintenance, session.StagingDatabase, cancellationToken);
+        if (session.StagingDatabaseOid != 0 && session.StagingDatabaseOid != actualOid)
+        {
+            return false;
+        }
+
+        await DropDatabaseAsync(maintenance, session.StagingDatabase, cancellationToken);
+        return !await DatabaseExistsAsync(maintenance, session.StagingDatabase, cancellationToken);
+    }
+
+    private async Task SetRestoreDatabaseMarkerAsync(
+        PostgresMaintenanceDescriptor maintenance,
+        string database,
+        Guid restoreId,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(maintenance, maintenance.MaintenanceDatabase,
+            $"COMMENT ON DATABASE {SqlIdentifier(database)} IS {SqlLiteral(RestoreDatabaseMarker(restoreId))};",
+            cancellationToken);
+    }
+
+    private static string RestoreDatabaseMarker(Guid restoreId)
+        => $"EdgeRetails restore staging {restoreId:N}";
+
+    private static Guid RestoreIdForOperation(Guid clientOperationId)
+    {
+        var input = Encoding.UTF8.GetBytes($"EdgeRetails.RestoreOperation.v1:{clientOperationId:N}");
+        try
+        {
+            var hash = SHA256.HashData(input);
+            try
+            {
+                return new Guid(hash.AsSpan(0, 16));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(hash);
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(input);
+        }
+    }
+
+    private static void EnsureSamePrepareRequest(
+        RestoreSessionRecord session,
+        string targetDatabase,
+        string backupPath,
+        string verifiedSha256)
+    {
+        if (!string.Equals(session.TargetDatabase, targetDatabase, StringComparison.Ordinal) ||
+            !string.Equals(session.BackupFilePath, backupPath, PathComparison) ||
+            !TryFixedTimeHexEquals(session.VerifiedSha256, verifiedSha256))
+        {
+            throw new InvalidOperationException("Restore client operation ID is already bound to a different prepare request.");
+        }
+    }
+
+    private static RestoreSessionSummary ToSafeSummary(RestoreSessionRecord session)
+        => new(session.RestoreId, session.ClientOperationId, session.State, session.PreparedAtUtc, session.CompletedAtUtc);
 
     private static void ValidatePreparedSession(PostgresConnectionDescriptor runtimeConnection, RestoreSessionRecord session)
     {

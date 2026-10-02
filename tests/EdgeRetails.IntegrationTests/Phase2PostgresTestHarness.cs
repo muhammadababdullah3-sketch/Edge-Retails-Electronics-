@@ -18,13 +18,17 @@ using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
 using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Persistence;
+using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 
 namespace EdgeRetails.IntegrationTests;
 
 internal static class Phase2PostgresTestHarness
 {
+    private static readonly object SequenceFixtureInitialization = new();
     public static ServiceProvider BuildProvider()
     {
         var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
@@ -36,7 +40,47 @@ internal static class Phase2PostgresTestHarness
 
         var services = new ServiceCollection();
         services.AddEdgeRetailsInfrastructure(connectionString);
+        var root = AttestOwnedPostgresRoot(connectionString);
+        var authorityRoot = Path.Combine(root, "harness-highwater");
+        var manifest = Path.Combine(authorityRoot, "highwater.manifest");
+        lock (SequenceFixtureInitialization)
+        {
+            // A fresh runner directory establishes an explicit new fixture. Once
+            // created, loss of its artifacts is an error, never a reinitialization.
+            if (!Directory.Exists(authorityRoot))
+            {
+                Directory.CreateDirectory(authorityRoot);
+                MachineSequenceHighWaterService.InitializeOwnedFixture(manifest, new OwnedSequenceAuthorityCustody(authorityRoot));
+            }
+        }
+        var custody = new OwnedSequenceAuthorityCustody(authorityRoot);
+        services.RemoveAll<ISequenceHighWaterService>();
+        services.AddSingleton<ISequenceHighWaterService>(new MachineSequenceHighWaterService(manifest, custody));
         return services.BuildServiceProvider();
+    }
+
+    private static string AttestOwnedPostgresRoot(string connectionString)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(connectionString);
+        var root = Path.GetFullPath(Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT")
+            ?? throw new InvalidOperationException("An owned PostgreSQL runner root is required."));
+        var prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
+        if (connection.Host != "127.0.0.1" || connection.Port < 55000 || connection.Port > 65535
+            || !(connection.Database?.StartsWith("edge_retails_", StringComparison.Ordinal) ?? false)
+            || !root.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("PostgreSQL fixture authority is outside the approved isolated runner.");
+        }
+        using var pg = new NpgsqlConnection(connectionString);
+        pg.Open();
+        using var query = new NpgsqlCommand("SHOW data_directory", pg);
+        if (query.ExecuteScalar() is not string actual
+            || !Path.GetFullPath(actual).Equals(Path.Combine(root, "data"), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("PostgreSQL server does not match its owned runner root.");
+        }
+        return root;
     }
 
     public static async Task EnsureReceiptConfigurationAsync(EdgeRetailsDbContext db)
@@ -79,7 +123,7 @@ internal static class Phase2PostgresTestHarness
         var product = new Product
         {
             Name = "Product-" + suffix,
-            Sku = "SKU-" + suffix[..12],
+            Sku = ("SKU-" + suffix[..12]).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Quantity,
             DefaultSalePrice = defaultSalePrice,
@@ -136,7 +180,7 @@ internal static class Phase2PostgresTestHarness
         var product = new Product
         {
             Name = "Serialized Product-" + suffix,
-            Sku = "SP-" + suffix[..12],
+            Sku = ("SP-" + suffix[..12]).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Serialized,
             SerialTrackingEnabled = true,

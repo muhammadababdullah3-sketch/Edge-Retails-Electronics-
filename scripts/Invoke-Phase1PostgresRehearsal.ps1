@@ -78,6 +78,13 @@ try {
     $connectionString = "Host=127.0.0.1;Port=$Port;Database=$testDb;Username=$adminUser;Password=$adminPassword"
     $env:EDGE_RETAILS_TEST_DB = $connectionString
 
+    $serverVersionNum = & (Join-Path $PgBin 'psql.exe') -h 127.0.0.1 -p $Port -U $adminUser -d $testDb -tA -c 'SHOW server_version_num'
+    if ($LASTEXITCODE -ne 0 -or [int]$serverVersionNum -lt 180000 -or [int]$serverVersionNum -ge 190000) {
+        throw "Phase 1 protected regression requires PostgreSQL 18; server_version_num was '$serverVersionNum'."
+    }
+    Write-Output 'Provider = PostgreSQL 18 / Npgsql'
+    Write-Output "PostgreSQL server_version_num = $serverVersionNum"
+
     Write-Output 'PHASE1_PG_APPLY_MIGRATIONS'
     & dotnet ef database update --project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project .\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --connection $connectionString
     if ($LASTEXITCODE -ne 0) {
@@ -85,7 +92,7 @@ try {
     }
 
     Write-Output 'PHASE1_PG_RUN_INTEGRATION_TESTS'
-    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests" --no-restore
+    & dotnet test .\tests\EdgeRetails.IntegrationTests\EdgeRetails.IntegrationTests.csproj -c Release --filter "FullyQualifiedName~Phase1PostgresIntegrationTests|FullyQualifiedName~SerializedSalesPurchasingPostgresTests|FullyQualifiedName~SalesPurchasingTransactionalPostgresTests|FullyQualifiedName~ShopHolderOperationalPostgresTests|FullyQualifiedName~ArchitectureDependencyTests|FullyQualifiedName~Phase1HostileGoldenTracePostgresTests" --no-restore
     if ($LASTEXITCODE -ne 0) {
         throw "Phase 1 integration tests failed with exit code $LASTEXITCODE."
     }

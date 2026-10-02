@@ -21,9 +21,12 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     private readonly decimal _subtotal;
     private readonly decimal _discountAmount;
     private readonly Func<string?>? _preCommitValidation;
+    private readonly Func<Task<string?>>? _preCommitAsyncValidation;
     private readonly Guid _clientOperationId;
     private readonly Guid? _draftId;
     private readonly long? _draftVersion;
+    private RecordSaleRequest? _submittedRequest;
+    private bool _outcomeUncertain;
 
     private decimal _totalToPay;
     private PaymentMethod _paymentMethod = PaymentMethod.Cash;
@@ -42,6 +45,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
 
     public event Action? RequestCloseRequested;
     public Action<SaleTransactionRecord>? OnSaleCompleted { get; set; }
+    public Action<bool>? OnCheckoutCancelled { get; set; }
 
     public CompleteSaleViewModel(
         decimal totalToPay = 0m,
@@ -56,6 +60,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         decimal subtotal = 0m,
         decimal discountAmount = 0m,
         Func<string?>? preCommitValidation = null,
+        Func<Task<string?>>? preCommitAsyncValidation = null,
         Guid? clientOperationId = null,
         Guid? draftId = null,
         long? draftVersion = null)
@@ -71,6 +76,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         _subtotal = subtotal > 0m ? subtotal : totalToPay;
         _discountAmount = Math.Max(0m, discountAmount);
         _preCommitValidation = preCommitValidation;
+        _preCommitAsyncValidation = preCommitAsyncValidation;
         _clientOperationId = clientOperationId ?? Guid.CreateVersion7();
         _draftId = draftId;
         _draftVersion = draftVersion;
@@ -93,7 +99,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         AddCashCommand = new RelayCommand<object?>(AddCash);
 
         CompleteSaleCommand = new RelayCommand(async () => await CompleteSaleAsync(), () => CanComplete);
-        CancelCommand = new RelayCommand(Cancel, () => !IsProcessing);
+        CancelCommand = new RelayCommand(Cancel, () => !IsProcessing && !_outcomeUncertain);
 
         // Set initial total
         TotalToPay = totalToPay;
@@ -260,6 +266,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(IsNotProcessing));
                 OnPropertyChanged(nameof(CanComplete));
+                OnPropertyChanged(nameof(IsPaymentEditable));
                 ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
                 ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             }
@@ -267,6 +274,8 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     }
 
     public bool IsNotProcessing => !IsProcessing;
+    public bool IsPaymentEditable => !IsProcessing && _submittedRequest is null;
+    public string CompleteActionLabel => _outcomeUncertain ? "Check Sale Status" : "Complete Sale";
 
     public string? ValidationMessage
     {
@@ -344,6 +353,12 @@ public sealed class CompleteSaleViewModel : ViewModelBase
                 return false;
             }
 
+            // A response-loss retry must use the original payment and cart payload.
+            if (_submittedRequest is not null)
+            {
+                return true;
+            }
+
             if (TotalToPay <= 0m)
             {
                 return false;
@@ -414,14 +429,26 @@ public sealed class CompleteSaleViewModel : ViewModelBase
 
         try
         {
-            var stockValidation = _preCommitValidation?.Invoke();
+            var stockValidation = _submittedRequest is null
+                ? _preCommitValidation?.Invoke()
+                : null;
             if (!string.IsNullOrWhiteSpace(stockValidation))
             {
                 ValidationMessage = stockValidation;
                 return;
             }
 
-            var request = new RecordSaleRequest
+            if (_submittedRequest is null && _preCommitAsyncValidation is not null)
+            {
+                stockValidation = await _preCommitAsyncValidation();
+                if (!string.IsNullOrWhiteSpace(stockValidation))
+                {
+                    ValidationMessage = stockValidation;
+                    return;
+                }
+            }
+
+            var request = _submittedRequest ?? new RecordSaleRequest
             {
                 ClientOperationId = _clientOperationId,
                 DraftId = _draftId,
@@ -442,6 +469,8 @@ public sealed class CompleteSaleViewModel : ViewModelBase
                 Items = _items
             };
 
+            _submittedRequest = request;
+            OnPropertyChanged(nameof(IsPaymentEditable));
             var record = await _transactionService.RecordTransactionAsync(request);
 
             CompletedTransaction = record;
@@ -456,9 +485,18 @@ public sealed class CompleteSaleViewModel : ViewModelBase
             _dialogService?.Close();
             RequestCloseRequested?.Invoke();
         }
+        catch (BackendOperationException ex) when (ex.Code == "sales.outcome_unknown")
+        {
+            _outcomeUncertain = true;
+            OnPropertyChanged(nameof(CompleteActionLabel));
+            ValidationMessage = $"Sale result is unknown. Keep this checkout open and use the same sale action to check status or retry. Operation: {_clientOperationId:D}.";
+            ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+        }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Sale could not be completed. Review the payment and try again.");
         }
         finally
         {
@@ -468,12 +506,13 @@ public sealed class CompleteSaleViewModel : ViewModelBase
 
     public void Cancel()
     {
-        if (IsProcessing)
+        if (IsProcessing || _outcomeUncertain)
         {
             return;
         }
 
         DialogResult = false;
+        OnCheckoutCancelled?.Invoke(_submittedRequest is not null);
         _dialogService?.Close();
         RequestCloseRequested?.Invoke();
     }

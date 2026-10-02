@@ -2,6 +2,7 @@ using Npgsql;
 
 namespace EdgeRetails.IntegrationTests;
 
+[Collection("Phase2PostgresIntegration")]
 public sealed class ShopHolderOperationalPostgresTests
 {
     [Fact]

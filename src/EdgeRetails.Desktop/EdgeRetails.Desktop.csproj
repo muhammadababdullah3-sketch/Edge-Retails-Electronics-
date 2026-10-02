@@ -16,6 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="EdgeRetails.Desktop.PerformanceTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\EdgeLogo.png" />
     <Resource Include="Assets\EdgeAppIcon.png" />
     <Resource Include="Assets\EdgeRetails.ico" />

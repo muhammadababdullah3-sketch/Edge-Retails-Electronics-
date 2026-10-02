@@ -23,7 +23,7 @@ public sealed class InventoryOverviewReadService : IInventoryOverviewReadService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var take = Math.Clamp(query.PageSize, 1, 200);
+        var take = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500);
         var search = query.Search?.Trim();
         var category = query.Category?.Trim();
         var brand = query.Brand?.Trim();
@@ -112,7 +112,7 @@ public sealed class InventoryOverviewReadService : IInventoryOverviewReadService
         DateTimeOffset? beforeOccurredAt = null,
         Guid? beforeMovementId = null)
     {
-        var take = Math.Clamp(pageSize, 1, 500);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
 
         var query =
             from movement in _db.InventoryMovements.AsNoTracking()

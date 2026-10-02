@@ -5,12 +5,20 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath = "C:\Program Files\Edge Retails",
-    [switch]$RegisterWorker = $true,
-    [switch]$RegisterServer = $false,
+    [switch]$RegisterWorker,
+    [switch]$RegisterServer,
     [int]$ServerPort = 7150
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $RegisterWorker -and -not $RegisterServer) {
+    throw "Select at least one explicit role: -RegisterWorker and/or -RegisterServer."
+}
+
+if ($RegisterServer -and $ServerPort -ne 7150) {
+    throw "The single-machine Shop Server is restricted to loopback port 7150."
+}
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -46,13 +54,18 @@ if ($RegisterWorker) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure failure recovery on EdgeRetailsWorker." }
 
     Write-Host "    Starting EdgeRetailsWorker..." -ForegroundColor Gray
-    Start-Service -Name "EdgeRetailsWorker" -ErrorAction SilentlyContinue
+    Start-Service -Name "EdgeRetailsWorker" -ErrorAction Stop
+    $workerService = Get-Service -Name "EdgeRetailsWorker"
+    $workerService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+    if ($workerService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        throw "EdgeRetailsWorker did not reach the Running state."
+    }
     Write-Host "    EdgeRetailsWorker registered successfully." -ForegroundColor Green
 }
 
 if ($RegisterServer) {
     $serverExe = Join-Path $InstallPath "server\EdgeRetails.Server.exe"
-    Write-Host "`n>>> Configuring LAN Shop Server Service..." -ForegroundColor Yellow
+    Write-Host "`n>>> Configuring loopback Shop Server Service..." -ForegroundColor Yellow
     if (-not (Test-Path $serverExe -PathType Leaf)) {
         throw "Server executable not found at expected path: $serverExe"
     }
@@ -66,20 +79,21 @@ if ($RegisterServer) {
     }
 
     Write-Host "    Creating service 'EdgeRetailsServer' with binary path '$serverExe'..." -ForegroundColor Gray
-    & sc.exe create EdgeRetailsServer binPath= "`"$serverExe`"" start= auto DisplayName= "Edge Retails LAN Shop Server"
+    & sc.exe create EdgeRetailsServer binPath= "`"$serverExe`"" start= auto DisplayName= "Edge Retails Shop Server"
     if ($LASTEXITCODE -ne 0) { throw "Failed to create EdgeRetailsServer service." }
 
     Write-Host "    Configuring crash recovery policy..." -ForegroundColor Gray
     & sc.exe failure EdgeRetailsServer reset= 86400 actions= restart/60000/restart/60000/restart/60000
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure failure recovery on EdgeRetailsServer." }
 
-    Write-Host "    Configuring inbound firewall rule for TCP port $ServerPort..." -ForegroundColor Gray
-    try {
-        New-NetFirewallRule -DisplayName "Edge Retails LAN Server (HTTPS)" -Direction Inbound -LocalPort $ServerPort -Protocol TCP -Action Allow -ErrorAction SilentlyContinue | Out-Null
-    } catch { }
-
     Write-Host "    Starting EdgeRetailsServer..." -ForegroundColor Gray
-    Start-Service -Name "EdgeRetailsServer" -ErrorAction SilentlyContinue
+    Start-Service -Name "EdgeRetailsServer" -ErrorAction Stop
+    $serverService = Get-Service -Name "EdgeRetailsServer"
+    $serverService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+    if ($serverService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        throw "EdgeRetailsServer did not reach the Running state."
+    }
+    Write-Host "    Loopback-only binding required; no inbound firewall rule is created." -ForegroundColor Gray
     Write-Host "    EdgeRetailsServer registered successfully." -ForegroundColor Green
 }
 

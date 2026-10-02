@@ -2,13 +2,15 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Domain.Catalog;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
 public enum CatalogReferenceKind
 {
     Category,
-    Unit
+    Unit,
+    Company
 }
 
 public sealed record CatalogReferenceRowViewModel(
@@ -35,6 +37,7 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
     private string _decimalPlacesText = "0";
     private bool _isBusy;
     private string? _errorMessage;
+    private bool _isSymbolManuallyEdited;
 
     public CatalogReferenceManagerViewModel(
         CatalogReferenceKind kind,
@@ -61,8 +64,24 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
 
     public ObservableCollection<CatalogReferenceRowViewModel> Rows { get; }
     public bool IsUnitMode => _kind == CatalogReferenceKind.Unit;
-    public bool IsCategoryMode => !IsUnitMode;
-    public string Title => IsUnitMode ? "Manage Units" : "Manage Categories";
+    public bool IsCategoryMode => _kind == CatalogReferenceKind.Category;
+    public bool IsCompanyMode => _kind == CatalogReferenceKind.Company;
+    public bool HasSymbol => true;
+    public string SymbolLabel => _kind switch
+    {
+        CatalogReferenceKind.Company => "Company Code (2 letters, e.g. PK)",
+        CatalogReferenceKind.Category => "Category Symbol (1-4 letters, e.g. F, B)",
+        _ => "Symbol"
+    };
+
+    public string Title => _kind switch
+    {
+        CatalogReferenceKind.Unit => "Manage Units",
+        CatalogReferenceKind.Category => "Manage Categories",
+        CatalogReferenceKind.Company => "Manage Companies",
+        _ => "Manage References"
+    };
+
     public string EditorTitle => _editingId.HasValue ? "Edit" : "New";
 
     public CatalogReferenceRowViewModel? SelectedRow
@@ -73,6 +92,7 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
             if (SetProperty(ref _selectedRow, value) && value is not null)
             {
                 _editingId = value.Id;
+                _isSymbolManuallyEdited = true;
                 Name = value.Name;
                 Symbol = value.Symbol;
                 DecimalPlacesText = value.DisplayDecimalPlaces.ToString(CultureInfo.InvariantCulture);
@@ -84,13 +104,38 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
     public string Name
     {
         get => _name;
-        set => SetProperty(ref _name, value ?? string.Empty);
+        set
+        {
+            if (SetProperty(ref _name, value ?? string.Empty))
+            {
+                if (!_editingId.HasValue && !_isSymbolManuallyEdited)
+                {
+                    if (IsCategoryMode)
+                    {
+                        Symbol = TraceabilityCodeRules.SuggestCategorySymbol(_name, sym => Rows.Any(r => string.Equals(r.Symbol, sym, StringComparison.OrdinalIgnoreCase)));
+                    }
+                    else if (IsCompanyMode)
+                    {
+                        Symbol = TraceabilityCodeRules.SuggestCompanyCode(_name, code => Rows.Any(r => string.Equals(r.Symbol, code, StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+            }
+        }
     }
 
     public string Symbol
     {
         get => _symbol;
-        set => SetProperty(ref _symbol, value ?? string.Empty);
+        set
+        {
+            if (SetProperty(ref _symbol, value ?? string.Empty))
+            {
+                if (!_editingId.HasValue && !string.IsNullOrWhiteSpace(value))
+                {
+                    _isSymbolManuallyEdited = true;
+                }
+            }
+        }
     }
 
     public string DecimalPlacesText
@@ -156,6 +201,18 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
                         unit.IsActive));
                 }
             }
+            else if (IsCompanyMode)
+            {
+                foreach (var company in snapshot.Companies.OrderBy(x => x.Name))
+                {
+                    Rows.Add(new CatalogReferenceRowViewModel(
+                        company.Id,
+                        company.Name,
+                        company.Code,
+                        0,
+                        company.IsActive));
+                }
+            }
             else
             {
                 foreach (var category in snapshot.Categories.OrderBy(x => x.Name))
@@ -163,7 +220,7 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
                     Rows.Add(new CatalogReferenceRowViewModel(
                         category.Id,
                         category.Name,
-                        string.Empty,
+                        category.IdentitySymbol,
                         0,
                         category.IsActive));
                 }
@@ -171,11 +228,15 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
         }
         catch (BackendCatalogOperationException ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog references could not be loaded. Refresh and try again.");
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Catalog references could not be loaded: {ex.Message}";
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog references could not be loaded. Refresh and try again.");
         }
         finally
         {
@@ -186,6 +247,7 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
     private void BeginNew()
     {
         _editingId = null;
+        _isSymbolManuallyEdited = false;
         SelectedRow = null;
         Name = string.Empty;
         Symbol = string.Empty;
@@ -204,7 +266,9 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
         ErrorMessage = null;
         if (string.IsNullOrWhiteSpace(Name))
         {
-            ErrorMessage = IsUnitMode ? "Unit name is required." : "Category name is required.";
+            ErrorMessage = IsUnitMode
+                ? "Unit name is required."
+                : (IsCompanyMode ? "Company name is required." : "Category name is required.");
             return;
         }
 
@@ -227,9 +291,14 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
                 await _service.SaveUnitAsync(_editingId, Name, Symbol, decimals);
                 _toastService.Show("Unit saved.", ToastTone.Success);
             }
+            else if (IsCompanyMode)
+            {
+                await _service.SaveCompanyAsync(_editingId, Name, string.IsNullOrWhiteSpace(Symbol) ? null : Symbol);
+                _toastService.Show("Company saved.", ToastTone.Success);
+            }
             else
             {
-                await _service.SaveCategoryAsync(_editingId, Name);
+                await _service.SaveCategoryAsync(_editingId, Name, string.IsNullOrWhiteSpace(Symbol) ? null : Symbol);
                 _toastService.Show("Category saved.", ToastTone.Success);
             }
 
@@ -243,14 +312,25 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
             ErrorMessage = ex.Code switch
             {
                 "catalog.category_duplicate" => "A category with this name already exists.",
+                "catalog.category_symbol_duplicate" => "This category symbol is already assigned to another category.",
+                "catalog.category_symbol_invalid" => "Category symbol must be 1 to 4 uppercase alphanumeric characters.",
+                "catalog.category_symbol_immutable" => "Category symbol cannot be modified once in use by active products.",
+                "catalog.company_duplicate" => "A company with this name already exists.",
+                "catalog.company_code_duplicate" => "This company code is already assigned to another company.",
+                "catalog.company_code_invalid" => "Company code must be 2 uppercase Latin letters (A-Z).",
+                "catalog.company_code_immutable" => "Company code cannot be modified once in use by active products.",
                 "catalog.unit_duplicate" => "A unit with this name or symbol already exists.",
-                _ => ex.Message
+                _ => DesktopErrorPresentation.ForException(
+                    ex,
+                    "Catalog reference save was rejected.")
             };
             _toastService.Show(ErrorMessage, ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Catalog reference save failed: {ex.Message}";
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog reference save failed. Check the connection and try again.");
             _toastService.Show(ErrorMessage, ToastTone.Danger);
         }
         finally
@@ -274,6 +354,10 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
             {
                 await _service.SetUnitActiveAsync(row.Id, !row.IsActive);
             }
+            else if (IsCompanyMode)
+            {
+                await _service.SetCompanyActiveAsync(row.Id, !row.IsActive);
+            }
             else
             {
                 await _service.SetCategoryActiveAsync(row.Id, !row.IsActive);
@@ -292,13 +376,18 @@ public sealed class CatalogReferenceManagerViewModel : ViewModelBase
             {
                 "catalog.unit_in_use" => "This unit is in use. Reconfigure active products before deactivating it.",
                 "catalog.category_in_use" => "This category is in use. Reassign active products before deactivating it.",
-                _ => ex.Message
+                "catalog.company_in_use" => "This company is in use. Reassign active products before deactivating it.",
+                _ => DesktopErrorPresentation.ForException(
+                    ex,
+                    "Catalog reference update was rejected.")
             };
             _toastService.Show(ErrorMessage, ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Catalog reference update failed: {ex.Message}";
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog reference update failed. Check the connection and try again.");
             _toastService.Show(ErrorMessage, ToastTone.Danger);
         }
         finally

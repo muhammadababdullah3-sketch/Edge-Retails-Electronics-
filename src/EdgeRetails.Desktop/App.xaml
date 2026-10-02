@@ -147,6 +147,10 @@
                 <dialogs:SerializedPurchaseIntakeDialog />
             </DataTemplate>
 
+            <DataTemplate DataType="{x:Type viewModels:PhysicalIntakeViewModel}">
+                <dialogs:PhysicalIntakeDialog />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type viewModels:PriceCheckViewModel}">
                 <dialogs:PriceCheckDialog />
             </DataTemplate>
@@ -189,6 +193,10 @@
 
             <DataTemplate DataType="{x:Type viewModels:ConfirmationDialogViewModel}">
                 <dialogs:ConfirmationDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:TypedRestoreConfirmationViewModel}">
+                <dialogs:TypedRestoreConfirmationDialog />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type viewModels:CompleteSaleViewModel}">

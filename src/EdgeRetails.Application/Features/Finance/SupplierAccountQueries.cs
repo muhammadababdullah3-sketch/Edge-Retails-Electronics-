@@ -26,6 +26,7 @@ public sealed record SupplierKhataEntryDto(
     string ReferenceType,
     Guid? ReferenceId,
     DateTimeOffset OccurredAt,
+    DateTimeOffset CreatedAt,
     Guid ActorId,
     Guid? ClientOperationId,
     string? Note);
@@ -84,5 +85,11 @@ public interface ISupplierAccountReadService
         DateTimeOffset? beforeOccurredAt = null,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeEntryId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? beforePaymentPaidAt = null,
+        Guid? beforePaymentId = null,
+        DateTimeOffset? beforeRefundReceivedAt = null,
+        Guid? beforeRefundId = null,
+        string? beforeProductName = null,
+        Guid? beforeProductId = null);
 }

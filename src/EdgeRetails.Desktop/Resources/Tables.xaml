@@ -34,6 +34,10 @@
                 <Setter Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
                 <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
             </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Trigger>
         </Style.Triggers>
     </Style>
 
@@ -71,6 +75,10 @@
                 <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource Brush.Selection.Border}" />
                 <Setter Property="BorderThickness" Value="0" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                <Setter Property="BorderThickness" Value="1" />
             </Trigger>
         </Style.Triggers>
     </Style>

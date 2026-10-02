@@ -3,7 +3,7 @@
 **Document Identifier:** `ER-OPS-INS-01`  
 **Phase:** Phase 6 — Final Certification & Long-Term Maintenance  
 **Canonical Architecture SHA-256:** `12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673`  
-**Deployment Model:** Standalone POS Station / Local LAN Shop Server & Satellite Terminals  
+**Deployment Model:** Single Shop installation with a loopback-only Shop Server
 **Installer Technologies:** WiX Toolset v4 MSI (`EdgeRetails.Setup`) & WiX Burn Bootstrapper (`EdgeRetails.Bootstrapper`)
 
 ---
@@ -20,7 +20,7 @@
   - RAM: 8 GB physical memory (16 GB recommended for LAN Shop Server)
   - Storage: Minimum 10 GiB available storage on the system drive for operational databases, backups, and diagnostic logging
   - Display: 1920x1080 resolution recommended (1366x768 minimum)
-  - Network: Gigabit Ethernet or 5GHz Wi-Fi (for multi-terminal LAN server topology)
+  - Network: The Shop Server listens only on loopback; LAN terminals are not part of this deployment.
 
 ### 1.2 PostgreSQL 18.x Database Engine
 - Edge Retails requires **PostgreSQL 18.x** running as a local or LAN service.
@@ -48,7 +48,7 @@ To ensure total data protection across upgrades, reinstallations, and uninstalls
 |     ├── worker\                                                                                   |
 |     │   └── EdgeRetails.Worker.exe (Background Outbox & Backup Worker)                             |
 |     └── server\                                                                                   |
-|         └── EdgeRetails.Server.exe (LAN Shop Server)                                              |
+|         └── EdgeRetails.Server.exe (loopback-only Shop Server)                                    |
 |     - Overwritten during version upgrades.                                                        |
 |     - Removed completely on uninstall.                                                            |
 |     - Contains ZERO database files, user data, licenses, or logs.                                 |
@@ -158,9 +158,9 @@ if (Test-Path "C:\Program Files\Edge Retails\EdgeRetails.Desktop.exe") {
 
 Service registration is operational and manual by design, giving administrators explicit control over the node role (e.g. standalone workstation vs. dedicated LAN server host vs. satellite client terminal). 
 
-Administrators can use the automated PowerShell helper scripts located in the `scripts\` repository folder (or run the equivalent `sc.exe` commands below):
-- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker` (for Standalone / Host nodes)
-- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker -RegisterServer` (for LAN Server Host nodes)
+Administrators can use the automated PowerShell helper scripts located in the `scripts\` repository folder:
+- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker` (explicitly register the background Worker)
+- `scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker:$false -RegisterServer -ServerPort 7150` (for the single-machine loopback Shop Server)
 - `scripts\Unregister-EdgeRetailsServices.ps1` (for service removal / decommission)
 - `scripts\Test-EdgeRetailsServices.ps1` (for runtime service diagnostics)
 
@@ -181,25 +181,16 @@ sc.exe failure EdgeRetailsWorker reset= 86400 actions= restart/60000/restart/600
 net start EdgeRetailsWorker
 ```
 
-### 5.2 Register LAN Shop Server Service (`EdgeRetails.Server`)
-For multi-terminal deployments where the host machine acts as the shop server:
+### 5.2 Register the loopback Shop Server Service (`EdgeRetails.Server`)
+The Shop Server is a local API for the Desktop on the same machine. It binds to `127.0.0.1:7150`; do not add an inbound LAN firewall rule.
+The installed service binary is `C:\Program Files\Edge Retails\server\EdgeRetails.Server.exe`; registration must use this installed Release path.
 
 ```powershell
-# Register LAN Server Service
-sc.exe create EdgeRetailsServer `
-    binPath= "C:\Program Files\Edge Retails\server\EdgeRetails.Server.exe" `
-    start= auto `
-    DisplayName= "Edge Retails LAN Shop Server"
+# Run directly from an elevated PowerShell window after installing the Release package.
+.\scripts\Register-EdgeRetailsServices.ps1 -RegisterWorker:$false -RegisterServer -ServerPort 7150
 
-# Configure failure recovery
-sc.exe failure EdgeRetailsServer reset= 86400 actions= restart/60000/restart/60000/restart/60000
-
-# Configure firewall rule to allow terminal connections on port 7150
-New-NetFirewallRule -DisplayName "Edge Retails LAN Server (HTTPS)" `
-    -Direction Inbound -LocalPort 7150 -Protocol TCP -Action Allow
-
-# Start the server service
-net start EdgeRetailsServer
+# Verify binaries, automatic startup, loopback binding, and HTTP readiness.
+.\scripts\Test-EdgeRetailsServices.ps1
 ```
 
 ### 5.3 Service Unregistration & Cleanup

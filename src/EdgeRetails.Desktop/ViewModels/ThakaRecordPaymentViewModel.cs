@@ -226,8 +226,11 @@ public sealed class ThakaRecordPaymentViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka payment outcome could not be confirmed. Check operation status before retrying.");
+            ValidationMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         finally
         {

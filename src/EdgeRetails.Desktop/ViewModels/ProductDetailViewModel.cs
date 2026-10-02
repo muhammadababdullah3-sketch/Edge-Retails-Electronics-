@@ -26,9 +26,14 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
     private readonly ITransactionService? _transactionService;
     private readonly IBackendPurchasingInventoryService? _backendService;
     private readonly IBackendProductManagementService? _catalogService;
+    private readonly IBackendStockAdjustmentService? _stockAdjustmentService;
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly Action _close;
+    private readonly IBackendLabelService? _labelService;
+    private readonly Func<string?> _chooseExportFolder;
+    private bool _isLabelBusy;
+    private string? _labelStatusMessage;
     private string _selectedTab = "Overview";
 
     public ProductDetailViewModel(
@@ -37,7 +42,10 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
         IToastService toastService,
         Action close,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendProductManagementService? catalogService = null)
+        IBackendProductManagementService? catalogService = null,
+        IBackendStockAdjustmentService? stockAdjustmentService = null,
+        IBackendLabelService? labelService = null,
+        Func<string?>? chooseExportFolder = null)
     {
         Product = product;
         _dialogService = dialogService;
@@ -45,6 +53,9 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
         _close = close;
         _backendService = backendService;
         _catalogService = catalogService;
+        _stockAdjustmentService = stockAdjustmentService;
+        _labelService = labelService ?? backendService as IBackendLabelService;
+        _chooseExportFolder = chooseExportFolder ?? LabelExportFolderPicker.Choose;
         _inventoryService = ResolvePreviewInventoryService(backendService);
         _retailState = ResolvePreviewRetailState(backendService);
         _transactionService = ResolvePreviewTransactionService(backendService);
@@ -56,6 +67,9 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
         BackCommand = new RelayCommand(close);
         EditProductCommand = new RelayCommand(() => _ = OpenEditProductAsync());
         StockAdjustmentCommand = new RelayCommand(OpenAdjustment);
+        PrintProductLabelCommand = new RelayCommand(() => _ = RunProductLabelAsync(false, false), CanOutputLabel);
+        ReprintProductLabelCommand = new RelayCommand(() => _ = RunProductLabelAsync(true, false), CanOutputLabel);
+        ExportProductLabelPdfCommand = new RelayCommand(() => _ = RunProductLabelAsync(false, true), CanOutputLabel);
 
         if (_backendService is null &&
             _inventoryService is not null &&
@@ -123,6 +137,69 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
     public ICommand BackCommand { get; }
     public ICommand EditProductCommand { get; }
     public ICommand StockAdjustmentCommand { get; }
+    public ICommand PrintProductLabelCommand { get; }
+    public ICommand ReprintProductLabelCommand { get; }
+    public ICommand ExportProductLabelPdfCommand { get; }
+    public string? LabelStatusMessage
+    {
+        get => _labelStatusMessage;
+        private set => SetProperty(ref _labelStatusMessage, value);
+    }
+
+    private bool CanOutputLabel() => !_isLabelBusy && _labelService is not null
+        && Product.BackendProductUnitId is Guid id && id != Guid.Empty;
+
+    private async Task RunProductLabelAsync(bool isReprint, bool export)
+    {
+        if (!CanOutputLabel()) { return; }
+        var unitId = Product.BackendProductUnitId!.Value;
+        _isLabelBusy = true;
+        NotifyLabelCommands();
+        try
+        {
+            if (export)
+            {
+                var folder = _chooseExportFolder();
+                if (string.IsNullOrWhiteSpace(folder)) { return; }
+                var output = await _labelService!.ExportLabelPdfAsync([], [unitId], folder!, isReprint);
+                LabelStatusMessage = output.IsSuccess
+                    ? $"Product label PDFs and manifest saved in {folder}."
+                    : $"Label export failed: {output.Error?.Message}. Product identity is unchanged.";
+            }
+            else
+            {
+                var output = await _labelService!.PrintProductLabelAsync(unitId, null, isReprint);
+                if (!output.IsSuccess || output.Value is null)
+                {
+                    LabelStatusMessage = $"Product label failed: {output.Error?.Message}. Product identity is unchanged.";
+                    return;
+                }
+                var job = output.Value;
+                LabelStatusMessage = job.Succeeded
+                    ? job.AuditPersisted
+                        ? "Product label submitted to Windows. Check the physical printer."
+                        : "Product label submitted to Windows, but its audit receipt could not be recorded. Check the printer before reprinting."
+                    : "Product label submission failed or is unconfirmed. Check the physical printer before reprinting; product identity is unchanged.";
+            }
+        }
+        catch (Exception ex)
+        {
+            LabelStatusMessage = DesktopErrorPresentation.ForException(ex,
+                "Label output could not be confirmed. Check the printer or export folder before retrying; product identity is unchanged.");
+        }
+        finally
+        {
+            _isLabelBusy = false;
+            NotifyLabelCommands();
+        }
+    }
+
+    private void NotifyLabelCommands()
+    {
+        ((RelayCommand)PrintProductLabelCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ReprintProductLabelCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ExportProductLabelPdfCommand).NotifyCanExecuteChanged();
+    }
 
     private void SelectTab(string tab)
     {
@@ -163,17 +240,21 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
         }
         catch (BackendCatalogOperationException ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Product details could not be loaded."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService.Show($"Product editor could not be opened: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Product editor could not be opened."),
+                ToastTone.Danger);
         }
     }
 
     private void OpenAdjustment()
     {
-        if (_backendService is not null)
+        if (_backendService is not null && _stockAdjustmentService is null)
         {
             _toastService.Show(
                 "Stock adjustment is blocked until the authoritative backend adjustment flow is attached.",
@@ -181,7 +262,12 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _dialogService.Show(new StockAdjustmentViewModel(Product, _toastService, _dialogService.Close));
+        _dialogService.Show(new StockAdjustmentViewModel(
+            Product,
+            _toastService,
+            _dialogService.Close,
+            _stockAdjustmentService,
+            () => _ = RefreshBackendAsync()));
     }
 
     private void OnStateChanged(object? sender, EventArgs e)
@@ -368,7 +454,9 @@ public sealed class ProductDetailViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Product history could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Product history could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }

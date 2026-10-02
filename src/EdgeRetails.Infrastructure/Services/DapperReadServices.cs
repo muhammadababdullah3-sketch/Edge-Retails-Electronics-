@@ -15,6 +15,16 @@ public sealed class SalesReadService : ISalesReadService
 {
     private readonly EdgeRetailsDbContext _db;
 
+    private sealed record SalesHistorySqlRow(
+        Guid SaleId,
+        string InvoiceNumber,
+        DateTime CompletedAt,
+        string CustomerName,
+        decimal GrandTotal,
+        int PaymentMethod,
+        int ItemCount,
+        decimal ReturnedAmount);
+
     public SalesReadService(EdgeRetailsDbContext db) => _db = db;
 
     public async Task<IReadOnlyList<SalesHistoryRowDto>> GetHistoryAsync(
@@ -63,7 +73,7 @@ public sealed class SalesReadService : ISalesReadService
 
         return await WithConnectionAsync(async (connection, transaction) =>
         {
-            var rows = await connection.QueryAsync<SalesHistoryRowDto>(
+            var rows = await connection.QueryAsync<SalesHistorySqlRow>(
                 new CommandDefinition(
                     sql,
                     new
@@ -74,11 +84,19 @@ public sealed class SalesReadService : ISalesReadService
                         SearchLike = query.Search is null ? null : $"%{query.Search}%",
                         query.BeforeCompletedAt,
                         query.BeforeSaleId,
-                        query.PageSize
+                        PageSize = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500)
                     },
                     transaction,
                     cancellationToken: cancellationToken));
-            return rows.ToArray();
+            return rows.Select(row => new SalesHistoryRowDto(
+                row.SaleId,
+                row.InvoiceNumber,
+                new DateTimeOffset(DateTime.SpecifyKind(row.CompletedAt, DateTimeKind.Utc)),
+                row.CustomerName,
+                row.GrandTotal,
+                (SalePaymentMethod)row.PaymentMethod,
+                row.ItemCount,
+                row.ReturnedAmount)).ToArray();
         }, cancellationToken);
     }
 
@@ -257,7 +275,7 @@ public sealed class SalesReadService : ISalesReadService
                         SearchLike = query.Search is null ? null : $"%{query.Search}%",
                         query.BeforeQuotationDate,
                         query.BeforeQuotationId,
-                        query.PageSize
+                        PageSize = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500)
                     },
                     transaction,
                     cancellationToken: cancellationToken));
@@ -386,7 +404,7 @@ public sealed class SalesReadService : ISalesReadService
                         query.ToUtc,
                         query.BeforeCreatedAt,
                         query.BeforeReturnId,
-                        query.PageSize
+                        PageSize = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500)
                     },
                     transaction,
                     cancellationToken: cancellationToken));
@@ -500,7 +518,7 @@ public sealed class PurchasingReadService : IPurchasingReadService
                         SearchLike = query.Search is null ? null : $"%{query.Search}%",
                         query.BeforePurchaseDate,
                         query.BeforePurchaseId,
-                        query.PageSize
+                        PageSize = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500)
                     },
                     transaction,
                     cancellationToken: cancellationToken));
@@ -526,7 +544,8 @@ public sealed class PurchasingReadService : IPurchasingReadService
                 p.grand_total AS GrandTotal,
                 p.status AS Status,
                 p.settlement_mode AS SettlementMode,
-                p.created_at AS CreatedAt
+                p.created_at AS CreatedAt,
+                s.dealer_code AS SupplierCode
             FROM purchasing.purchases p
             INNER JOIN parties.suppliers s ON s.id = p.supplier_id
             WHERE p.id = @PurchaseId;
@@ -561,7 +580,15 @@ public sealed class PurchasingReadService : IPurchasingReadService
                     INNER JOIN inventory.lot_bucket_balances lb ON lb.lot_id = l.id
                     WHERE l.purchase_item_id = pi.id
                       AND lb.stock_bucket = 1
-                ), 0) AS EligibleBaseReturnQuantity
+                ), 0) AS EligibleBaseReturnQuantity,
+                COALESCE((
+                    SELECT sum(l.received_quantity)
+                    FROM inventory.lots l
+                    WHERE l.purchase_item_id = pi.id
+                ), 0) AS ReceivedBaseQuantity,
+                cp.tracking_mode AS TrackingMode,
+                cp.serial_tracking_enabled AS SerialTrackingEnabled,
+                cp.imei_tracking_enabled AS ImeiTrackingEnabled
             FROM purchasing.purchase_items pi
             INNER JOIN catalog.product_units pu ON pu.id = pi.product_unit_id
             INNER JOIN catalog.units u ON u.id = pu.unit_id
@@ -603,12 +630,14 @@ public sealed class PurchasingReadService : IPurchasingReadService
                     transaction,
                     cancellationToken: cancellationToken))).ToArray();
 
-            var returns = (await connection.QueryAsync<PurchaseReturnSummaryDto>(
+            var returns = (await connection.QueryAsync<PurchaseReturnSummaryDbRow>(
                 new CommandDefinition(
                     returnsSql,
                     new { query.PurchaseId },
                     transaction,
-                    cancellationToken: cancellationToken))).ToArray();
+                    cancellationToken: cancellationToken)))
+                .Select(row => new PurchaseReturnSummaryDto(row.PurchaseReturnId, row.ReturnNumber,
+                    ToUtcOffset(row.CreatedAt), row.Reason, row.SupplierReturnValue, row.InventoryCostRemoved)).ToArray();
 
             return new PurchaseDocumentDto(
                 header.PurchaseId,
@@ -623,9 +652,10 @@ public sealed class PurchasingReadService : IPurchasingReadService
                 header.GrandTotal,
                 header.Status,
                 header.SettlementMode,
-                header.CreatedAt,
+                ToUtcOffset(header.CreatedAt),
                 items,
-                returns);
+                returns,
+                header.SupplierCode);
         }, cancellationToken);
     }
 
@@ -679,7 +709,7 @@ public sealed class PurchasingReadService : IPurchasingReadService
                         query.ToUtc,
                         query.BeforeCreatedAt,
                         query.BeforeReturnId,
-                        query.PageSize
+                        PageSize = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500)
                     },
                     transaction,
                     cancellationToken: cancellationToken));
@@ -697,6 +727,47 @@ public sealed class PurchasingReadService : IPurchasingReadService
                 row.SupplierReturnValue,
                 row.InventoryCostRemoved)).ToArray();
         }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CommittedInventoryUnitDto>> GetUnitsForPurchaseItemAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken)
+    {
+        var units = await _db.InventoryUnits.AsNoTracking()
+            .Where(u => u.SourcePurchaseItemId == purchaseItemId)
+            .OrderBy(u => u.ItemSequence)
+            .ThenBy(u => u.CreatedAt)
+            .ThenBy(u => u.Id)
+            .Take(500)
+            .Select(u => new CommittedInventoryUnitDto(
+                u.Id,
+                u.TrackingCode ?? string.Empty,
+                u.ItemSequence ?? 0,
+                u.SerialNumber,
+                u.Imei1,
+                u.Imei2,
+                u.AcquisitionCost))
+            .ToListAsync(cancellationToken);
+
+        if (units.Count == 0)
+        {
+            units = await (from piu in _db.PurchaseItemUnits.AsNoTracking()
+                           join u in _db.InventoryUnits.AsNoTracking() on piu.InventoryUnitId equals u.Id
+                           where piu.PurchaseItemId == purchaseItemId
+                           orderby u.ItemSequence, u.CreatedAt, u.Id
+                           select new CommittedInventoryUnitDto(
+                               u.Id,
+                               u.TrackingCode ?? string.Empty,
+                               u.ItemSequence ?? 0,
+                               u.SerialNumber,
+                               u.Imei1,
+                               u.Imei2,
+                               u.AcquisitionCost))
+                .Take(500)
+                .ToListAsync(cancellationToken);
+        }
+
+        return units;
     }
 
     private Task<T> WithConnectionAsync<T>(
@@ -720,6 +791,14 @@ public sealed class PurchasingReadService : IPurchasingReadService
         decimal SupplierReturnValue,
         decimal InventoryCostRemoved);
 
+    private sealed record PurchaseReturnSummaryDbRow(
+        Guid PurchaseReturnId,
+        string ReturnNumber,
+        DateTime CreatedAt,
+        string Reason,
+        decimal SupplierReturnValue,
+        decimal InventoryCostRemoved);
+
     private sealed record PurchaseHeaderRow(
         Guid PurchaseId,
         string PurchaseNumber,
@@ -733,7 +812,8 @@ public sealed class PurchasingReadService : IPurchasingReadService
         decimal GrandTotal,
         EdgeRetails.Domain.Purchasing.PurchaseStatus Status,
         EdgeRetails.Domain.Purchasing.PurchaseSettlementMode SettlementMode,
-        DateTimeOffset CreatedAt);
+        DateTime CreatedAt,
+        string? SupplierCode);
 }
 
 internal static class DbReadConnection

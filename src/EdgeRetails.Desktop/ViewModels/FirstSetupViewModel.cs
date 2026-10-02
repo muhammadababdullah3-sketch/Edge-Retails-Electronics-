@@ -329,7 +329,9 @@ public sealed class FirstSetupViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Warning);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Initial setup could not be completed."),
+                ToastTone.Warning);
         }
         finally
         {

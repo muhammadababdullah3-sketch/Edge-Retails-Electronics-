@@ -23,11 +23,17 @@ public interface IBackendSalesHistoryService
 
 public sealed class BackendSalesHistoryService : IBackendSalesHistoryService
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IServiceScopeFactory? _scopeFactory;
+    private readonly DesktopApiClient? _apiClient;
 
     public BackendSalesHistoryService(IServiceScopeFactory scopeFactory)
     {
         _scopeFactory = scopeFactory;
+    }
+
+    public BackendSalesHistoryService(DesktopApiClient apiClient)
+    {
+        _apiClient = apiClient;
     }
 
     public async Task<BackendSalesHistoryPage> GetPageAsync(
@@ -39,18 +45,38 @@ public sealed class BackendSalesHistoryService : IBackendSalesHistoryService
         CancellationToken cancellationToken = default)
     {
         var (fromUtc, toUtc) = GetBounds(period);
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var reads = scope.ServiceProvider.GetRequiredService<ISalesReadService>();
         var take = Math.Clamp(pageSize, 1, 200);
-        var rows = (await reads.GetHistoryAsync(
-            new GetSalesHistoryQuery(
-                fromUtc,
-                toUtc,
-                string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
-                take,
-                beforeCompletedAt,
-                beforeSaleId),
-            cancellationToken)).ToArray();
+        SalesHistoryRowDto[] rows;
+        if (_apiClient is not null)
+        {
+            var query = $"/api/sales?fromUtc={Uri.EscapeDataString(fromUtc.ToString("O"))}" +
+                $"&toUtc={Uri.EscapeDataString(toUtc.ToString("O"))}&pageSize={take}";
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query += $"&search={Uri.EscapeDataString(search.Trim())}";
+            }
+            if (beforeCompletedAt is not null && beforeSaleId is not null)
+            {
+                query += $"&beforeCompletedAt={Uri.EscapeDataString(beforeCompletedAt.Value.ToString("O"))}" +
+                    $"&beforeSaleId={beforeSaleId.Value:D}";
+            }
+
+            rows = await _apiClient.GetAsync<SalesHistoryRowDto[]>(query, cancellationToken);
+        }
+        else
+        {
+            await using var scope = _scopeFactory!.CreateAsyncScope();
+            var reads = scope.ServiceProvider.GetRequiredService<ISalesReadService>();
+            rows = (await reads.GetHistoryAsync(
+                new GetSalesHistoryQuery(
+                    fromUtc,
+                    toUtc,
+                    string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                    take,
+                    beforeCompletedAt,
+                    beforeSaleId),
+                cancellationToken)).ToArray();
+        }
 
         var hasMore = rows.Length == take;
         var last = rows.LastOrDefault();

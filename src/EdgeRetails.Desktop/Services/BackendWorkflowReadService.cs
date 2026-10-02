@@ -141,6 +141,7 @@ public interface IBackendWorkflowReadService
         Guid? customerId,
         string? note,
         IReadOnlyList<BackendPosDraftItemInput> items,
+        Guid clientOperationId,
         CancellationToken cancellationToken = default);
 
     Task CancelDraftAsync(
@@ -153,6 +154,7 @@ public interface IBackendWorkflowReadService
 
     Task<BackendStocktakeSnapshot> StartFullShopStocktakeAsync(
         string? note,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default);
 
     Task RecordStocktakeCountAsync(
@@ -176,6 +178,7 @@ public interface IBackendWorkflowReadService
 
     Task PostStocktakeAsync(
         Guid stocktakeId,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default);
 
     Task CancelStocktakeAsync(
@@ -263,6 +266,7 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
         Guid? customerId,
         string? note,
         IReadOnlyList<BackendPosDraftItemInput> items,
+        Guid clientOperationId,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -281,7 +285,8 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
                     x.ProductUnitId,
                     x.Quantity,
                     x.InventoryUnitId))
-                    .ToArray()),
+                    .ToArray(),
+                ClientOperationId: clientOperationId),
             cancellationToken);
 
         if (!result.IsSuccess || result.Value is null)
@@ -324,6 +329,7 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
 
     public async Task<BackendStocktakeSnapshot> StartFullShopStocktakeAsync(
         string? note,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -341,7 +347,10 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
                     StocktakeScope.FullShop,
                     null,
                     actor,
-                    string.IsNullOrWhiteSpace(note) ? null : note.Trim()),
+                    string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+                    clientOperationId is { } operationId && operationId != Guid.Empty
+                        ? operationId
+                        : Guid.CreateVersion7()),
                 cancellationToken);
             if (!created.IsSuccess || created.Value == Guid.Empty)
             {
@@ -442,6 +451,7 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
 
     public async Task PostStocktakeAsync(
         Guid stocktakeId,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -449,7 +459,11 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
         await EnsureInventoryManageAsync(scope.ServiceProvider, actor, cancellationToken);
         var handler = scope.ServiceProvider.GetRequiredService<PostStocktakeHandler>();
         var result = await handler.HandleAsync(
-            new PostStocktakeCommand(stocktakeId, actor, null),
+            new PostStocktakeCommand(
+                stocktakeId,
+                actor,
+                null,
+                clientOperationId is { } op && op != Guid.Empty ? op : Guid.CreateVersion7()),
             cancellationToken);
         EnsureSuccess(result, "Stocktake could not be posted.");
     }

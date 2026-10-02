@@ -11,6 +11,7 @@ using Xunit;
 
 namespace EdgeRetails.IntegrationTests;
 
+[Collection("Phase2PostgresIntegration")]
 public sealed class Phase1PostgresIntegrationTests
 {
     private static ServiceProvider BuildProvider()
@@ -41,7 +42,7 @@ public sealed class Phase1PostgresIntegrationTests
         var product = new Product
         {
             Name = "Product-" + suffix,
-            Sku = "SKU-" + suffix,
+            Sku = ("SKU-" + suffix).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Quantity,
             DefaultSalePrice = 1000m,
@@ -114,7 +115,7 @@ public sealed class Phase1PostgresIntegrationTests
         var product = new Product
         {
             Name = "Serialized Product-" + suffix,
-            Sku = "SER-" + suffix,
+            Sku = ("SER-" + suffix).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Serialized,
             SerialTrackingEnabled = true,
@@ -234,7 +235,7 @@ public sealed class Phase1PostgresIntegrationTests
         var product = new Product
         {
             Name = "Air Conditioner-" + suffix,
-            Sku = "AC-" + suffix,
+            Sku = ("AC-" + suffix).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Serialized,
             SerialTrackingEnabled = true,

@@ -13,12 +13,30 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
 
     public Phase4WorkflowReadService(EdgeRetailsDbContext db) => _db = db;
 
+    public Task<IReadOnlyList<ExactInventoryUnitDto>> GetExactUnitsAsync(
+        Guid productId,
+        InventoryUnitStatus? status,
+        Guid? sourcePurchaseItemId,
+        CancellationToken cancellationToken) =>
+        GetExactUnitsAsync(productId, status, sourcePurchaseItemId, 100, cancellationToken);
+
     public async Task<IReadOnlyList<ExactInventoryUnitDto>> GetExactUnitsAsync(
         Guid productId,
         InventoryUnitStatus? status,
         Guid? sourcePurchaseItemId,
+        int pageSize,
+        CancellationToken cancellationToken)
+        => await GetExactUnitsAsync(productId, status, sourcePurchaseItemId, pageSize, null, cancellationToken);
+
+    public async Task<IReadOnlyList<ExactInventoryUnitDto>> GetExactUnitsAsync(
+        Guid productId,
+        InventoryUnitStatus? status,
+        Guid? sourcePurchaseItemId,
+        int pageSize,
+        Guid? beforeUnitId,
         CancellationToken cancellationToken)
     {
+        var take = Math.Clamp(pageSize <= 0 ? 100 : pageSize, 1, 500);
         var query = _db.InventoryUnits
             .AsNoTracking()
             .Where(x => x.ProductId == productId);
@@ -33,10 +51,14 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
             query = query.Where(x => x.SourcePurchaseItemId == sourcePurchaseItemId.Value);
         }
 
+        if (beforeUnitId is Guid cursorId)
+        {
+            query = query.Where(x => x.Id.CompareTo(cursorId) > 0);
+        }
+
         var units = await query
-            .OrderBy(x => x.TrackingCode)
-            .ThenBy(x => x.SerialNumber)
-            .ThenBy(x => x.Id)
+            .OrderBy(x => x.Id)
+            .Take(take)
             .ToArrayAsync(cancellationToken);
 
         return await ProjectUnitsAsync(units, cancellationToken);
@@ -55,6 +77,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
         var upper = term.ToUpperInvariant();
         var digits = new string(term.Where(char.IsDigit).ToArray());
 
+        // 1. TrackingCode / Physical SKU
         var trackingIds = await _db.InventoryUnits
             .AsNoTracking()
             .Where(x => x.TrackingCode != null && x.TrackingCode.ToUpper() == upper)
@@ -68,19 +91,33 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                 cancellationToken);
         }
 
-        var manufacturerIds = await _db.InventoryUnits
+        // 2. Serial Number
+        var serialIds = await _db.InventoryUnits
             .AsNoTracking()
-            .Where(x =>
-                (x.SerialNumber != null && x.SerialNumber.ToUpper() == upper) ||
-                (digits.Length > 0 && x.Imei1 == digits) ||
-                (digits.Length > 0 && x.Imei2 == digits))
+            .Where(x => x.SerialNumber != null && x.SerialNumber.ToUpper() == upper)
             .Select(x => x.Id)
             .ToArrayAsync(cancellationToken);
-        if (manufacturerIds.Length > 0)
+        if (serialIds.Length > 0)
         {
             return await BuildInventoryUnitMatchesAsync(
-                manufacturerIds,
-                ScannerResolutionNamespace.ManufacturerSerialOrImei,
+                serialIds,
+                ScannerResolutionNamespace.SerialNumber,
+                cancellationToken);
+        }
+
+        // 3. IMEI (authoritative ScannerResolutionNamespace.ManufacturerSerialOrImei tier)
+        var imeiIds = digits.Length > 0
+            ? await _db.InventoryUnits
+                .AsNoTracking()
+                .Where(x => x.Imei1 == digits || x.Imei2 == digits)
+                .Select(x => x.Id)
+                .ToArrayAsync(cancellationToken)
+            : Array.Empty<Guid>();
+        if (imeiIds.Length > 0)
+        {
+            return await BuildInventoryUnitMatchesAsync(
+                imeiIds,
+                ScannerResolutionNamespace.Imei,
                 cancellationToken);
         }
 
@@ -315,7 +352,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
         ScannerResolutionNamespace resolutionNamespace,
         CancellationToken cancellationToken)
     {
-        return await (
+        var units = await (
             from inventoryUnit in _db.InventoryUnits.AsNoTracking()
             join product in _db.Products.AsNoTracking()
                 on inventoryUnit.ProductId equals product.Id
@@ -335,28 +372,85 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                   productUnit.CanSell &&
                   productUnit.IsDefaultSaleUnit
             orderby inventoryUnit.Id
-            select new ScannerProductMatchDto(
+            select new
+            {
+                InventoryUnit = inventoryUnit,
+                Product = product,
+                ProductUnit = productUnit,
+                CategoryName = category == null ? "Uncategorized" : category.Name,
+                UnitSymbol = unit.Symbol,
+                SellableStock = stock == null ? 0m : stock.SellableQty
+            })
+            .ToArrayAsync(cancellationToken);
+
+        if (units.Length == 0)
+        {
+            return Array.Empty<ScannerProductMatchDto>();
+        }
+
+        var sourceItemIds = units
+            .Where(x => x.InventoryUnit.SourcePurchaseItemId != null)
+            .Select(x => x.InventoryUnit.SourcePurchaseItemId!.Value)
+            .Distinct()
+            .ToArray();
+
+        var provenance = sourceItemIds.Length == 0
+            ? new Dictionary<Guid, (string PurchaseNumber, string SupplierName, Guid SupplierId)>()
+            : await (
+                from item in _db.PurchaseItems.AsNoTracking()
+                join purchase in _db.Purchases.AsNoTracking()
+                    on item.PurchaseId equals purchase.Id
+                join supplier in _db.Suppliers.AsNoTracking()
+                    on purchase.SupplierId equals supplier.Id
+                where sourceItemIds.Contains(item.Id)
+                select new
+                {
+                    item.Id,
+                    purchase.PurchaseNumber,
+                    SupplierName = supplier.Name,
+                    purchase.SupplierId
+                })
+                .ToDictionaryAsync(
+                    x => x.Id,
+                    x => (x.PurchaseNumber, x.SupplierName, x.SupplierId),
+                    cancellationToken);
+
+        return units.Select(x =>
+        {
+            var u = x.InventoryUnit;
+            var prov = u.SourcePurchaseItemId is Guid sourceId && provenance.TryGetValue(sourceId, out var p)
+                ? (p.PurchaseNumber, p.SupplierName, (Guid?)p.SupplierId)
+                : ((string?)null, (string?)null, (Guid?)null);
+
+            var isSellable = u.Status == InventoryUnitStatus.InStock;
+
+            return new ScannerProductMatchDto(
                 resolutionNamespace,
-                product.Id,
-                productUnit.Id,
-                product.Name,
-                product.Sku,
-                product.Brand,
-                category == null ? "Uncategorized" : category.Name,
-                unit.Symbol,
-                stock == null ? 0m : stock.SellableQty,
+                x.Product.Id,
+                x.ProductUnit.Id,
+                x.Product.Name,
+                x.Product.Sku,
+                x.Product.Brand,
+                x.CategoryName,
+                x.UnitSymbol,
+                x.SellableStock,
                 decimal.Round(
-                    product.DefaultSalePrice * productUnit.FactorToBaseUnit,
+                    x.Product.DefaultSalePrice * x.ProductUnit.FactorToBaseUnit,
                     2,
                     MidpointRounding.AwayFromZero),
-                product.TrackingMode == TrackingMode.Serialized,
-                inventoryUnit.Id,
-                inventoryUnit.TrackingCode,
-                inventoryUnit.SerialNumber,
-                inventoryUnit.Imei1,
-                inventoryUnit.Imei2,
-                inventoryUnit.Status))
-            .ToArrayAsync(cancellationToken);
+                x.Product.TrackingMode == TrackingMode.Serialized,
+                u.Id,
+                u.TrackingCode,
+                u.SerialNumber,
+                u.Imei1,
+                u.Imei2,
+                u.Status,
+                IsSellable: isSellable,
+                SupplierName: prov.Item2,
+                PurchaseNumber: prov.Item1,
+                SourcePurchaseItemId: u.SourcePurchaseItemId,
+                SupplierId: prov.Item3);
+        }).ToArray();
     }
 
     private async Task<IReadOnlyList<ScannerProductMatchDto>> BuildProductMatchesAsync(
@@ -438,9 +532,6 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     cancellationToken);
 
         return units
-            .OrderBy(x => x.TrackingCode)
-            .ThenBy(x => x.SerialNumber)
-            .ThenBy(x => x.Id)
             .Select(x =>
             {
                 products.TryGetValue(x.ProductId, out var product);

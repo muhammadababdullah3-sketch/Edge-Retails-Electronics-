@@ -364,7 +364,9 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
             _backendUnavailable = true;
             NotifyBackendState();
             _toastService?.Show(
-                $"Thaka projects could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Thaka projects could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }

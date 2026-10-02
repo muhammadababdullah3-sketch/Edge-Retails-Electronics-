@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
@@ -48,6 +49,7 @@ public sealed class CreateSaleReturnHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IWarrantyRepository? _warranty;
 
     public CreateSaleReturnHandler(
         ISalesRepository sales,
@@ -61,7 +63,9 @@ public sealed class CreateSaleReturnHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWarrantyRepository? warranty = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _sales = sales;
         _inventory = inventory;
@@ -75,9 +79,13 @@ public sealed class CreateSaleReturnHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _warranty = warranty;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<CreateSaleReturnResult>> HandleAsync(
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public async Task<Result<CreateSaleReturnResult>> HandleAsync(
         CreateSaleReturnCommand command,
         CancellationToken cancellationToken)
     {
@@ -85,19 +93,19 @@ public sealed class CreateSaleReturnHandler
             command.Lines.Count == 0 ||
             string.IsNullOrWhiteSpace(command.ReasonCode))
         {
-            return Task.FromResult(Result<CreateSaleReturnResult>.Failure(
+            return Result<CreateSaleReturnResult>.Failure(
                 "sales.return_invalid",
-                "Sale return requires operation id, reason and at least one item."));
+                "Sale return requires operation id, reason and at least one item.");
         }
 
         if (command.Lines.GroupBy(x => x.SaleItemId).Any(g => g.Count() > 1))
         {
-            return Task.FromResult(Result<CreateSaleReturnResult>.Failure(
+            return Result<CreateSaleReturnResult>.Failure(
                 "sales.return_duplicate_item",
-                "A sale item may appear only once in a return."));
+                "A sale item may appear only once in a return.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.CreatedBy,
@@ -117,6 +125,24 @@ public sealed class CreateSaleReturnHandler
                 ct);
             if (existing is not null)
             {
+                if (existing.SaleId != command.SaleId)
+                {
+                    return Result<CreateSaleReturnResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted for a different sale.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "SaleReturn",
+                        existing.Id,
+                        existing.ReturnNumber,
+                        actorId: command.CreatedBy,
+                        cancellationToken: ct);
+                }
+
                 return Result<CreateSaleReturnResult>.Success(new(
                     existing.Id,
                     existing.ReturnNumber,
@@ -155,6 +181,24 @@ public sealed class CreateSaleReturnHandler
                     .OrderBy(x => x))
                 {
                     await _resourceLock.AcquireAsync("product", productId, ct);
+                }
+
+                foreach (var saleItemId in command.Lines
+                    .Select(x => x.SaleItemId)
+                    .Distinct()
+                    .OrderBy(x => x))
+                {
+                    await _resourceLock.AcquireAsync("sale-item", saleItemId, ct);
+                    await _resourceLock.AcquireAsync("warranty-sale-item", saleItemId, ct);
+                }
+
+                foreach (var inventoryUnitId in command.Lines
+                    .SelectMany(x => x.InventoryUnitIds)
+                    .Distinct()
+                    .OrderBy(x => x))
+                {
+                    await _resourceLock.AcquireAsync("inventory-unit", inventoryUnitId, ct);
+                    await _resourceLock.AcquireAsync("warranty-unit", inventoryUnitId, ct);
                 }
 
                 var saleReturn = new SaleReturn
@@ -199,6 +243,19 @@ public sealed class CreateSaleReturnHandler
                         return Result<CreateSaleReturnResult>.Failure(
                             "sales.return_exceeds_original",
                             "Return quantity exceeds the remaining sold quantity.");
+                    }
+
+                    if (_warranty is not null)
+                    {
+                        var activeWarrantyQty = await _warranty.GetActiveClaimedQuantityAsync(item.Id, ct);
+                        var terminallyRemovedQty = await _warranty.GetTerminallyRemovedQuantityAsync(item.Id, ct);
+                        var warrantyBlockedQty = QuantityMath.RoundQuantity(activeWarrantyQty + terminallyRemovedQty);
+                        if (cumulativeQty > QuantityMath.RoundQuantity(item.BaseQuantity - warrantyBlockedQty))
+                        {
+                            return Result<CreateSaleReturnResult>.Failure(
+                                "sales.return_unit_active_warranty",
+                                "Return quantity exceeds remaining quantity available outside warranty claims.");
+                        }
                     }
 
                     if (await _inventory.IsProductBlockedByCountingStocktakeAsync(
@@ -403,6 +460,17 @@ public sealed class CreateSaleReturnHandler
                     command.ClientOperationId,
                     $"Return {saleReturn.ReturnNumber}; sale {sale.InvoiceNumber}; refund {saleReturn.RefundAmount:0.00}; method {command.RefundMethod}.");
 
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "SaleReturn",
+                        saleReturn.Id,
+                        saleReturn.ReturnNumber,
+                        actorId: command.CreatedBy,
+                        cancellationToken: ct);
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
 
                 return Result<CreateSaleReturnResult>.Success(new(
@@ -416,6 +484,19 @@ public sealed class CreateSaleReturnHandler
                 return Result<CreateSaleReturnResult>.Failure(ex.Code, ex.Message);
             }
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "SaleReturn",
+                result.Error?.Code ?? "sales.return_failed",
+                result.Error?.Message ?? "Sale return failed.",
+                actorId: command.CreatedBy,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)>>
@@ -462,6 +543,26 @@ public sealed class CreateSaleReturnHandler
             throw new BusinessRuleException(
                 "sales.return_serial_not_eligible",
                 "One or more serialized units are not currently eligible for return.");
+        }
+
+        if (_warranty is not null)
+        {
+            foreach (var unit in units)
+            {
+                if (await _warranty.HasActiveClaimForUnitAsync(unit.Id, ct))
+                {
+                    throw new BusinessRuleException(
+                        "sales.return_unit_active_warranty",
+                        "One or more serialized units have an active warranty claim and cannot be returned.");
+                }
+
+                if (await _warranty.IsUnitTerminallyResolvedAsync(unit.Id, ct))
+                {
+                    throw new BusinessRuleException(
+                        "sales.return_unit_warranty_resolved",
+                        "One or more serialized units have already received terminal warranty resolution and cannot be returned.");
+                }
+            }
         }
 
         return units

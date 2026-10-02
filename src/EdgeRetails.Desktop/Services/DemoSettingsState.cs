@@ -111,6 +111,9 @@ public sealed class SettingsBackupRecord
     public required string Type { get; init; }
     public required string Status { get; init; }
     public required string Size { get; init; }
+    public Guid? BackupId { get; init; }
+    public string? Protection { get; init; }
+    public string? PostgreSqlVersion { get; init; }
     public string TimestampDisplay => Timestamp.ToString("dd MMM yyyy hh:mm tt");
     public string Summary => $"{TimestampDisplay} · {Type} · {Size}";
 }

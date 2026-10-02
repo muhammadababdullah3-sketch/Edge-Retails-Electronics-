@@ -14,8 +14,16 @@ public interface ICatalogRepository
     Task<Product?> GetProductForUpdateAsync(Guid productId, CancellationToken cancellationToken);
     Task<Product?> GetProductBySkuAsync(string normalizedSku, CancellationToken cancellationToken);
     Task<IReadOnlyList<Product>> GetProductsAsync(bool includeInactive, CancellationToken cancellationToken);
+    Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
+    Task<Company?> GetCompanyForUpdateAsync(Guid companyId, CancellationToken cancellationToken);
+    Task<Company?> GetCompanyByCodeAsync(string normalizedCode, CancellationToken cancellationToken);
+    Task<Company?> GetCompanyByNameAsync(string name, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Company>> GetCompaniesAsync(bool includeInactive, CancellationToken cancellationToken);
+    Task<bool> IsCompanyInUseByActiveProductAsync(Guid companyId, CancellationToken cancellationToken);
     Task<Category?> GetCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
     Task<Category?> GetCategoryForUpdateAsync(Guid categoryId, CancellationToken cancellationToken);
+    Task<Category?> GetCategoryByIdentitySymbolAsync(string normalizedSymbol, CancellationToken cancellationToken);
+    Task<Category?> GetCategoryByNameAsync(string name, CancellationToken cancellationToken);
     Task<IReadOnlyList<Category>> GetCategoriesAsync(bool includeInactive, CancellationToken cancellationToken);
     Task<bool> IsCategoryInUseByActiveProductAsync(Guid categoryId, CancellationToken cancellationToken);
     Task<Unit?> GetUnitAsync(Guid unitId, CancellationToken cancellationToken);
@@ -32,6 +40,7 @@ public interface ICatalogRepository
         StocktakeScope scope,
         Guid? categoryId,
         CancellationToken cancellationToken);
+    void AddCompany(Company company);
     void AddCategory(Category category);
     void AddUnit(Unit unit);
     void AddProduct(Product product);
@@ -69,6 +78,9 @@ public interface IInventoryRepository
     Task<bool> HasPurchaseItemConsumptionAsync(
         Guid purchaseItemId,
         CancellationToken cancellationToken);
+    Task<decimal> GetPurchaseItemReceivedBaseQuantityAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(
         Guid movementId,
         CancellationToken cancellationToken);
@@ -86,6 +98,19 @@ public interface IInventoryRepository
         CancellationToken cancellationToken);
     Task<bool> IsProductBlockedByCountingStocktakeAsync(
         Guid productId,
+        CancellationToken cancellationToken);
+    Task<InventoryMovement?> GetMovementByCorrelationIdAsync(
+        Guid correlationId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<InventoryUnit>> GetUnitsForMovementAsync(
+        Guid movementId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<InventoryUnit>> GetUnitsByPurchaseItemAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<Guid>> GetMovementUnitIdsByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
         CancellationToken cancellationToken);
     void AddStockBalance(StockBalance balance);
     void AddCostState(ProductCostState costState);

@@ -1,16 +1,76 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 
 namespace EdgeRetails.Application.Features.Inventory;
 
+internal static class StocktakeOperationOutcome
+{
+    public static async Task<Result?> BeginAsync(
+        Guid operationId,
+        string operationType,
+        Guid actorId,
+        string payload,
+        IOperationLock? operationLock,
+        IOperationOutcomeLedger? ledger,
+        CancellationToken cancellationToken)
+    {
+        if (operationId == Guid.Empty || ledger is null)
+            return null;
+        if (operationLock is not null)
+            await operationLock.AcquireAsync(operationId, cancellationToken);
+
+        var existing = await ledger.GetOutcomeAsync(operationId, cancellationToken);
+        if (existing is null)
+            return null;
+
+        var fingerprint = Fingerprint(operationType, payload);
+        if (existing.State == OperationOutcomeState.Succeeded &&
+            existing.OperationType == operationType &&
+            string.Equals(existing.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+            return Result.Success();
+
+        return Result.Failure(
+            "inventory.stocktake_operation_conflict",
+            "This stocktake operation id is already associated with another or unresolved operation.");
+    }
+
+    public static Task CompleteAsync(
+        Guid operationId,
+        string operationType,
+        Guid stocktakeId,
+        Guid actorId,
+        string payload,
+        IOperationOutcomeLedger? ledger,
+        CancellationToken cancellationToken) =>
+        operationId == Guid.Empty || ledger is null
+            ? Task.CompletedTask
+            : ledger.RecordSuccessAsync(
+                operationId,
+                operationType,
+                stocktakeId,
+                stocktakeId.ToString("D"),
+                actorId: actorId,
+                payloadFingerprint: Fingerprint(operationType, payload),
+                cancellationToken: cancellationToken);
+
+    public static string Fingerprint(string operationType, string payload) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{operationType}|{payload}")));
+}
+
 public sealed record CreateStocktakeCommand(
     StocktakeScope Scope,
     Guid? CategoryId,
     Guid ActorId,
-    string? Note);
+    string? Note,
+    Guid ClientOperationId = default);
 
 public sealed class CreateStocktakeHandler
 {
@@ -18,17 +78,26 @@ public sealed class CreateStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CreateStocktakeHandler(
         IInventoryRepository inventory,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IApplicationPermissionAuthorizer? authorizer = null,
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IOperationLock? operationLock = null)
     {
         _inventory = inventory;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _authorizer = authorizer;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -37,11 +106,47 @@ public sealed class CreateStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.InventoryManage,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             if (command.Scope == StocktakeScope.Category && command.CategoryId is null)
             {
                 return Result<Guid>.Failure(
                     "inventory.stocktake_category_required",
                     "Category is required for a category stocktake.");
+            }
+
+            var payload = $"{command.Scope}|{command.CategoryId:D}|{command.Note?.Trim()}";
+            var payloadFingerprint = StocktakeOperationOutcome.Fingerprint("CreateStocktake", payload);
+            if (command.ClientOperationId != Guid.Empty && _outcomeLedger is not null)
+            {
+                if (_operationLock is not null)
+                    await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+
+                var existingOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (existingOutcome is not null)
+                {
+                    if (existingOutcome.State == OperationOutcomeState.Succeeded &&
+                        existingOutcome.OperationType == "CreateStocktake" &&
+                        string.Equals(existingOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal) &&
+                        existingOutcome.EntityId.HasValue)
+                    {
+                        return Result<Guid>.Success(existingOutcome.EntityId.Value);
+                    }
+
+                    return Result<Guid>.Failure(
+                        "inventory.stocktake_operation_conflict",
+                        "This stocktake operation id is already associated with another or unresolved operation.");
+                }
             }
 
             var existing = await _inventory.GetOpenStocktakeForUpdateAsync(ct);
@@ -62,13 +167,26 @@ public sealed class CreateStocktakeHandler
             };
 
             _inventory.AddStocktake(stocktake);
+
+            if (_outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "CreateStocktake",
+                    stocktake.Id,
+                    stocktake.Id.ToString("D"),
+                    actorId: command.ActorId,
+                    payloadFingerprint: payloadFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(stocktake.Id);
         }, cancellationToken);
     }
 }
 
-public sealed record StartStocktakeCommand(Guid StocktakeId);
+public sealed record StartStocktakeCommand(Guid StocktakeId, Guid ActorId = default, Guid ClientOperationId = default);
 
 public sealed class StartStocktakeHandler
 {
@@ -78,6 +196,8 @@ public sealed class StartStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public StartStocktakeHandler(
         ICatalogRepository catalog,
@@ -85,7 +205,9 @@ public sealed class StartStocktakeHandler
         IResourceLock resourceLock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -93,6 +215,8 @@ public sealed class StartStocktakeHandler
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -101,6 +225,12 @@ public sealed class StartStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            var payload = command.StocktakeId.ToString("D");
+            var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
+                "Stocktake.Start", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
+            if (replay is { } completedReplay)
+                return completedReplay;
+
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
             if (stocktake is null)
             {
@@ -150,6 +280,8 @@ public sealed class StartStocktakeHandler
             }
 
             stocktake.Start(_clock.UtcNow);
+            await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
+                "Stocktake.Start", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
@@ -161,7 +293,8 @@ public sealed record RecordStocktakeCountCommand(
     Guid ProductId,
     decimal CountedSellableQty,
     Guid ActorId,
-    string? ReviewNote);
+    string? ReviewNote,
+    Guid ClientOperationId = default);
 
 public sealed class RecordStocktakeCountHandler
 {
@@ -170,19 +303,25 @@ public sealed class RecordStocktakeCountHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public RecordStocktakeCountHandler(
         ICatalogRepository catalog,
         IInventoryRepository inventory,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -191,6 +330,12 @@ public sealed class RecordStocktakeCountHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            var payload = $"{command.StocktakeId:D}|{command.ProductId:D}|{command.CountedSellableQty}|{command.ReviewNote?.Trim()}";
+            var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
+                "Stocktake.Count", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
+            if (replay is { } completedReplay)
+                return completedReplay;
+
             if (command.CountedSellableQty < 0)
             {
                 return Result.Failure(
@@ -238,6 +383,8 @@ public sealed class RecordStocktakeCountHandler
             item.CountedAt = _clock.UtcNow;
             item.ReviewNote = command.ReviewNote?.Trim();
 
+            await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
+                "Stocktake.Count", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
@@ -250,7 +397,8 @@ public sealed record RecordSerializedStocktakeCommand(
     IReadOnlyCollection<Guid> FoundInventoryUnitIds,
     IReadOnlyCollection<string> UnexpectedIdentitySnapshots,
     Guid ActorId,
-    string? ReviewNote);
+    string? ReviewNote,
+    Guid ClientOperationId = default);
 
 public sealed class RecordSerializedStocktakeHandler
 {
@@ -259,19 +407,25 @@ public sealed class RecordSerializedStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public RecordSerializedStocktakeHandler(
         ICatalogRepository catalog,
         IInventoryRepository inventory,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -280,6 +434,12 @@ public sealed class RecordSerializedStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            var payload = $"{command.StocktakeId:D}|{command.ProductId:D}|{string.Join(',', command.FoundInventoryUnitIds.Order())}|{string.Join('|', command.UnexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{command.ReviewNote?.Trim()}";
+            var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
+                "Stocktake.SerializedCount", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
+            if (replay is { } completedReplay)
+                return completedReplay;
+
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
             if (stocktake is null || stocktake.Status != StocktakeStatus.Counting)
             {
@@ -388,6 +548,8 @@ public sealed class RecordSerializedStocktakeHandler
             item.CountedAt = _clock.UtcNow;
             item.ReviewNote = command.ReviewNote?.Trim();
 
+            await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
+                "Stocktake.SerializedCount", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
@@ -397,7 +559,7 @@ public sealed class RecordSerializedStocktakeHandler
         unit.SerialNumber ?? unit.Imei1 ?? unit.Id.ToString();
 }
 
-public sealed record ReviewStocktakeCommand(Guid StocktakeId);
+public sealed record ReviewStocktakeCommand(Guid StocktakeId, Guid ActorId = default, Guid ClientOperationId = default);
 
 public sealed class ReviewStocktakeHandler
 {
@@ -405,17 +567,23 @@ public sealed class ReviewStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public ReviewStocktakeHandler(
         IInventoryRepository inventory,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _inventory = inventory;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -424,6 +592,12 @@ public sealed class ReviewStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            var payload = command.StocktakeId.ToString("D");
+            var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
+                "Stocktake.Review", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
+            if (replay is { } completedReplay)
+                return completedReplay;
+
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
             if (stocktake is null || stocktake.Status != StocktakeStatus.Counting)
             {
@@ -441,6 +615,8 @@ public sealed class ReviewStocktakeHandler
             }
 
             stocktake.MoveToReview(_clock.UtcNow);
+            await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
+                "Stocktake.Review", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
@@ -450,7 +626,55 @@ public sealed class ReviewStocktakeHandler
 public sealed record PostStocktakeCommand(
     Guid StocktakeId,
     Guid ActorId,
-    IReadOnlyDictionary<Guid, decimal>? PositiveVarianceUnitCosts);
+    IReadOnlyDictionary<Guid, decimal>? PositiveVarianceUnitCosts = null,
+    Guid ClientOperationId = default);
+
+public static class StocktakeFingerprintHelper
+{
+    public static string Compute(
+        Stocktake stocktake,
+        IReadOnlyList<StocktakeItem> items,
+        IReadOnlyDictionary<Guid, IReadOnlyList<StocktakeUnitCheck>> unitChecksByItemId,
+        IReadOnlyDictionary<Guid, decimal>? positiveVarianceUnitCosts)
+    {
+        var sb = new StringBuilder();
+        sb.Append(stocktake.Id.ToString("D")).Append('|');
+        sb.Append(stocktake.Scope.ToString()).Append('|');
+        if (stocktake.CategoryId.HasValue)
+        {
+            sb.Append(stocktake.CategoryId.Value.ToString("D")).Append('|');
+        }
+
+        foreach (var item in items.OrderBy(x => x.ProductId))
+        {
+            sb.Append(item.ProductId.ToString("D")).Append(':');
+            sb.Append(item.ExpectedSellableQty.ToString("0.######", CultureInfo.InvariantCulture)).Append(':');
+            sb.Append((item.CountedSellableQty ?? 0m).ToString("0.######", CultureInfo.InvariantCulture)).Append(':');
+
+            if (unitChecksByItemId.TryGetValue(item.Id, out var checks) && checks.Count > 0)
+            {
+                var checkTokens = checks
+                    .OrderBy(c => c.InventoryUnitId ?? Guid.Empty)
+                    .ThenBy(c => c.IdentitySnapshot, StringComparer.OrdinalIgnoreCase)
+                    .Select(c => $"{c.InventoryUnitId?.ToString("D") ?? "none"}_{(int)c.Result}_{c.IdentitySnapshot.Trim()}");
+                sb.Append(string.Join(",", checkTokens));
+            }
+
+            sb.Append(';');
+        }
+
+        if (positiveVarianceUnitCosts is { Count: > 0 })
+        {
+            sb.Append('|');
+            var costTokens = positiveVarianceUnitCosts
+                .OrderBy(kv => kv.Key)
+                .Select(kv => $"{kv.Key:D}:{kv.Value.ToString("0.######", CultureInfo.InvariantCulture)}");
+            sb.Append(string.Join(",", costTokens));
+        }
+
+        return OperationPayloadFingerprint.ComputeSha256(sb.ToString());
+    }
+}
 
 public sealed class PostStocktakeHandler
 {
@@ -460,6 +684,8 @@ public sealed class PostStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public PostStocktakeHandler(
         ICatalogRepository catalog,
@@ -467,7 +693,9 @@ public sealed class PostStocktakeHandler
         IInventoryCostAllocator costAllocator,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -475,23 +703,94 @@ public sealed class PostStocktakeHandler
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result> HandleAsync(
+    public async Task<Result> HandleAsync(
         PostStocktakeCommand command,
         CancellationToken cancellationToken)
     {
-        return _transactions.ExecuteAsync(async ct =>
+        if (command.ClientOperationId == Guid.Empty)
         {
+            return Result.Failure(
+                "inventory.client_operation_id_required",
+                "Client operation id is required.");
+        }
+
+        string? payloadFingerprint = null;
+
+        var result = await _transactions.ExecuteAsync(async ct =>
+        {
+            if (_operationLock is not null)
+            {
+                await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            }
+
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
-            if (stocktake is null || stocktake.Status != StocktakeStatus.Review)
+            if (stocktake is null)
+            {
+                return Result.Failure(
+                    "inventory.stocktake_not_found",
+                    "Stocktake was not found.");
+            }
+
+            var items = await _inventory.GetStocktakeItemsAsync(stocktake.Id, ct);
+            var unitChecksByItemId = new Dictionary<Guid, IReadOnlyList<StocktakeUnitCheck>>();
+            foreach (var item in items)
+            {
+                var checks = await _inventory.GetStocktakeUnitChecksAsync(item.Id, ct);
+                unitChecksByItemId[item.Id] = checks;
+            }
+
+            payloadFingerprint = StocktakeFingerprintHelper.Compute(
+                stocktake,
+                items,
+                unitChecksByItemId,
+                command.PositiveVarianceUnitCosts);
+
+            if (_outcomeLedger is not null)
+            {
+                var existingOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (existingOutcome is not null)
+                {
+                    if (!string.IsNullOrEmpty(existingOutcome.PayloadFingerprint) &&
+                        !string.Equals(existingOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal))
+                    {
+                        return Result.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with a different payload.");
+                    }
+
+                    if (existingOutcome.State == OperationOutcomeState.Succeeded)
+                    {
+                        return Result.Success();
+                    }
+
+                    if (existingOutcome.State == OperationOutcomeState.Failed)
+                    {
+                        return Result.Failure(
+                            existingOutcome.ErrorCode ?? "inventory.stocktake_failed",
+                            existingOutcome.ErrorMessage ?? "Stocktake reconciliation previously failed.");
+                    }
+                }
+            }
+            else
+            {
+                var existingMovement = await _inventory.GetMovementByCorrelationIdAsync(command.ClientOperationId, ct);
+                if (existingMovement is not null)
+                {
+                    return Result.Success();
+                }
+            }
+
+            if (stocktake.Status != StocktakeStatus.Review)
             {
                 return Result.Failure(
                     "inventory.stocktake_not_in_review",
                     "Stocktake must be in review before posting.");
             }
 
-            var items = await _inventory.GetStocktakeItemsAsync(stocktake.Id, ct);
             if (items.Any(x => x.CountedSellableQty is null))
             {
                 return Result.Failure(
@@ -530,7 +829,10 @@ public sealed class PostStocktakeHandler
                         "Inventory changed after the stocktake snapshot. Review the stocktake again.");
                 }
 
-                var unitChecks = await _inventory.GetStocktakeUnitChecksAsync(item.Id, ct);
+                var unitChecks = unitChecksByItemId.TryGetValue(item.Id, out var existingChecks)
+                    ? existingChecks
+                    : await _inventory.GetStocktakeUnitChecksAsync(item.Id, ct);
+
                 if (unitChecks.Any(x =>
                         x.Result is StocktakeUnitCheckResult.Unexpected or
                             StocktakeUnitCheckResult.WrongStatus))
@@ -555,7 +857,7 @@ public sealed class PostStocktakeHandler
                     ReferenceId = stocktake.Id,
                     ActorId = command.ActorId,
                     OccurredAt = _clock.UtcNow,
-                    CorrelationId = stocktake.Id,
+                    CorrelationId = command.ClientOperationId,
                     Reason = "PHYSICAL_COUNT",
                     Note = item.ReviewNote
                 };
@@ -717,13 +1019,40 @@ public sealed class PostStocktakeHandler
             }
 
             stocktake.MarkPosted(_clock.UtcNow);
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "Stocktake",
+                    stocktake.Id,
+                    stocktake.Id.ToString("D"),
+                    actorId: command.ActorId,
+                    payloadFingerprint: payloadFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "Stocktake",
+                result.Error?.Code ?? "inventory.stocktake_failed",
+                result.Error?.Message ?? "Stocktake reconciliation failed.",
+                actorId: command.ActorId,
+                payloadFingerprint: payloadFingerprint,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 }
 
-public sealed record CancelStocktakeCommand(Guid StocktakeId);
+public sealed record CancelStocktakeCommand(Guid StocktakeId, Guid ActorId = default, Guid ClientOperationId = default);
 
 public sealed class CancelStocktakeHandler
 {
@@ -731,17 +1060,23 @@ public sealed class CancelStocktakeHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CancelStocktakeHandler(
         IInventoryRepository inventory,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _inventory = inventory;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -750,6 +1085,12 @@ public sealed class CancelStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            var payload = command.StocktakeId.ToString("D");
+            var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
+                "Stocktake.Cancel", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
+            if (replay is { } completedReplay)
+                return completedReplay;
+
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
             if (stocktake is null)
             {
@@ -767,6 +1108,8 @@ public sealed class CancelStocktakeHandler
                 return Result.Failure(ex.Code, ex.Message);
             }
 
+            await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
+                "Stocktake.Cancel", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);

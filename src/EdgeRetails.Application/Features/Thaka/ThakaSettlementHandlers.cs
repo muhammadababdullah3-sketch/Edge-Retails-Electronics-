@@ -2,8 +2,10 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Thaka;
+using System.Globalization;
 
 namespace EdgeRetails.Application.Features.Thaka;
 
@@ -34,6 +36,7 @@ public sealed class SettleThakaHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public SettleThakaHandler(
         IThakaRepository thaka,
@@ -45,7 +48,8 @@ public sealed class SettleThakaHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _cashMovements = cashMovements;
@@ -57,9 +61,10 @@ public sealed class SettleThakaHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<SettleThakaResult>> HandleAsync(
+    public async Task<Result<SettleThakaResult>> HandleAsync(
         SettleThakaCommand command,
         CancellationToken cancellationToken)
     {
@@ -67,13 +72,20 @@ public sealed class SettleThakaHandler
             command.SettlementDiscount < 0 ||
             command.FinalPaymentAmount < 0)
         {
-            return Task.FromResult(Result<SettleThakaResult>.Failure(
+            return Result<SettleThakaResult>.Failure(
                 "thaka.settlement_invalid",
-                "Settlement values are invalid."));
+                "Settlement values are invalid.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
+            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "ThakaSettlement",
+                command.ProjectId.ToString("D"),
+                Money(command.SettlementDiscount).ToString("0.00", CultureInfo.InvariantCulture),
+                Money(command.FinalPaymentAmount).ToString("0.00", CultureInfo.InvariantCulture),
+                command.PaymentMethod.ToString(),
+                Normalize(command.PaymentReference));
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
                 PermissionKeys.ThakaManage,
@@ -91,6 +103,30 @@ public sealed class SettleThakaHandler
                 ct);
             if (existing is not null)
             {
+                var savedOutcome = _outcomeLedger is null
+                    ? null
+                    : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (_outcomeLedger is not null &&
+                    (savedOutcome is not { State: OperationOutcomeState.Succeeded, OperationType: "ThakaSettlement" } ||
+                     !string.Equals(savedOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal)))
+                {
+                    return Result<SettleThakaResult>.Failure(
+                        "thaka.operation_id_conflict",
+                        "This operation id is already associated with another or unresolved settlement.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaSettlement",
+                        existing.Id,
+                        existing.SettlementNumber,
+                        actorId: command.ActorId,
+                        payloadFingerprint: payloadFingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result<SettleThakaResult>.Success(new(
                     existing.Id,
                     existing.SettlementNumber,
@@ -195,6 +231,18 @@ public sealed class SettleThakaHandler
                 command.ClientOperationId,
                 $"{settlement.SettlementNumber}: discount {discount:0.00}");
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ThakaSettlement",
+                    settlement.Id,
+                    settlement.SettlementNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: payloadFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<SettleThakaResult>.Success(new(
                 settlement.Id,
@@ -203,6 +251,24 @@ public sealed class SettleThakaHandler
                 expectedPayment,
                 false));
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "ThakaSettlement",
+                result.Error!.Code,
+                result.Error.Message,
+                actorId: command.ActorId,
+                payloadFingerprint: OperationPayloadFingerprint.ComputeSha256(
+                    "ThakaSettlement", command.ProjectId.ToString("D"),
+                    Money(command.SettlementDiscount).ToString("0.00", CultureInfo.InvariantCulture),
+                    Money(command.FinalPaymentAmount).ToString("0.00", CultureInfo.InvariantCulture),
+                    command.PaymentMethod.ToString(), Normalize(command.PaymentReference)),
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private static string? Normalize(string? value)

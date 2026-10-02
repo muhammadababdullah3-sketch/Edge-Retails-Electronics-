@@ -63,6 +63,10 @@ public interface IApplicationGateway
         CreatePurchaseCommand command,
         CancellationToken cancellationToken = default);
 
+    Task<Result<ReceiveProductIntakeResult>> ReceiveProductIntakeAsync(
+        ReceiveProductIntakeCommand command,
+        CancellationToken cancellationToken = default);
+
     Task<Result<CreatePurchaseReturnResult>> CreatePurchaseReturnAsync(
         CreatePurchaseReturnCommand command,
         CancellationToken cancellationToken = default);
@@ -94,4 +98,12 @@ public sealed record OperationStatusResult(
     string? OperationType,
     Guid? EntityId,
     string? DocumentNumber,
-    bool WasCommitted);
+    bool WasCommitted,
+    string? PayloadFingerprint = null,
+    DateTimeOffset? Timestamp = null,
+    string? Status = null,
+    string? ErrorCode = null,
+    string? ErrorMessage = null)
+{
+    public string EffectiveStatus => Status ?? (WasCommitted ? "Succeeded" : (Found ? "Pending" : "NotFound"));
+}

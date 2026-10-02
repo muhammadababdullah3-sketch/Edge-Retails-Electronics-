@@ -53,7 +53,8 @@ public sealed class Sprint9Phase2DemoAuthorityTests
 
         Assert.Contains("new BackendSettingsService(", factory);
         Assert.Contains("() => _sessionContext.UserId", factory);
-        Assert.Contains("_settingsService)", factory);
+        Assert.Contains("_settingsService,", factory);
+        Assert.Contains("_backupRestoreService)", factory);
         Assert.Contains("IBackendSettingsService", vm);
         Assert.Contains("_backendService.LoadAsync()", vm);
         Assert.Contains("_backendService.SaveShopAsync(", vm);
@@ -89,7 +90,8 @@ public sealed class Sprint9Phase2DemoAuthorityTests
         Assert.Contains("SaveShopAsync(", service);
         Assert.Contains("SaveReceiptTemplateAsync(", service);
         Assert.Contains("No backup was started.", vm);
-        Assert.Contains("No restore was prepared or executed.", vm);
+        Assert.Contains("No restore is prepared.", vm);
+        Assert.Contains("_backupRestoreService.PrepareRestoreAsync(", vm);
         Assert.Contains("No license state was changed.", vm);
         Assert.Contains("#if DEBUG", vm);
         Assert.Contains("DemoSettingsState.Instance", vm);

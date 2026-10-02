@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using EdgeRetails.Application.Production.Outbox;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure.Persistence;
@@ -69,18 +70,41 @@ public sealed class Phase3CrashRestartIntegrationTests
         using var process = new Process { StartInfo = psi };
         process.Start();
 
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        var output = new StringBuilder();
         var ready = false;
-        while (!process.HasExited)
+        try
         {
-            var line = await process.StandardOutput.ReadLineAsync();
-            if (line is not null && line.Contains("READY:CRASH_BEFORE_COMMIT", StringComparison.Ordinal))
+            while (!process.HasExited)
             {
-                ready = true;
-                break;
+                var line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(90));
+                if (line is null)
+                {
+                    break;
+                }
+
+                output.AppendLine(line);
+                if (line.Contains("READY:CRASH_BEFORE_COMMIT", StringComparison.Ordinal))
+                {
+                    ready = true;
+                    break;
+                }
             }
         }
+        catch (TimeoutException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            var error = await stderrTask;
+            throw new Xunit.Sdk.XunitException(
+                $"Crash host did not reach READY:CRASH_BEFORE_COMMIT within 90 seconds. Output:\n{output}\nError:\n{error}");
+        }
 
-        Assert.True(ready, "Child process failed to reach READY:CRASH_BEFORE_COMMIT checkpoint before exiting.");
+        if (!ready)
+        {
+            var error = await stderrTask;
+            Assert.Fail($"Child process failed to reach READY:CRASH_BEFORE_COMMIT before exiting. Output:\n{output}\nError:\n{error}");
+        }
 
         // Hard process termination while transaction is active and uncommitted
         process.Kill(entireProcessTree: true);
@@ -142,19 +166,28 @@ public sealed class Phase3CrashRestartIntegrationTests
         using var process = new Process { StartInfo = psi };
         process.Start();
 
-        var committedBeforeAck = false;
-        while (!process.HasExited)
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        try
         {
-            var line = await process.StandardOutput.ReadLineAsync();
-            if (line is not null && line.Contains("READY:COMMITTED_BEFORE_ACK", StringComparison.Ordinal))
-            {
-                committedBeforeAck = true;
-                break;
-            }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90));
+        }
+        catch (TimeoutException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            var timedOutOutput = await stdoutTask;
+            var timedOutError = await stderrTask;
+            throw new Xunit.Sdk.XunitException(
+                $"Crash host did not exit within 90 seconds. Output:\n{timedOutOutput}\nError:\n{timedOutError}");
         }
 
-        await process.WaitForExitAsync();
-        Assert.True(committedBeforeAck, "Child process failed to reach READY:COMMITTED_BEFORE_ACK checkpoint.");
+        var output = await stdoutTask;
+        var error = await stderrTask;
+        Assert.True(
+            output.Contains("READY:COMMITTED_BEFORE_ACK", StringComparison.Ordinal),
+            $"Child process failed to reach READY:COMMITTED_BEFORE_ACK. Output:\n{output}\nError:\n{error}");
+        Assert.True(string.IsNullOrWhiteSpace(error), $"Crash host wrote to stderr:\n{error}");
 
         // Assert that committed business state survived the abrupt termination
         using (var provider = Phase2PostgresTestHarness.BuildProvider())

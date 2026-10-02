@@ -11,7 +11,7 @@ namespace EdgeRetails.Infrastructure.Production.Backup;
 /// Cooperative cross-process maintenance barrier for Desktop/Worker. The durable state is
 /// HMAC-authenticated so a valid-looking Normal JSON file cannot bypass RecoveryRequired.
 /// </summary>
-public sealed class FileProductionMaintenanceBarrier : IProductionMaintenanceBarrier
+public sealed class FileProductionMaintenanceBarrier : IConditionalProductionMaintenanceBarrier
 {
     private const long MaximumStateBytes = 16 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -33,22 +33,7 @@ public sealed class FileProductionMaintenanceBarrier : IProductionMaintenanceBar
         ProductionMaintenanceState state,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        FileStream stream;
-        try
-        {
-            stream = new FileStream(
-                _lockPath,
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.None,
-                1,
-                FileOptions.Asynchronous | FileOptions.WriteThrough);
-        }
-        catch (IOException ex)
-        {
-            throw new InvalidOperationException("Another production maintenance operation is already active.", ex);
-        }
+        var stream = await AcquireLockAsync(cancellationToken);
 
         try
         {
@@ -62,12 +47,44 @@ public sealed class FileProductionMaintenanceBarrier : IProductionMaintenanceBar
         }
     }
 
+    public async Task<IProductionMaintenanceLease> EnterExclusiveAsync(
+        ProductionMaintenanceState expectedCurrentState,
+        ProductionMaintenanceState state,
+        CancellationToken cancellationToken = default)
+    {
+        var stream = await AcquireLockAsync(cancellationToken);
+        try
+        {
+            var actual = await ReadPersistedStateAsync(cancellationToken);
+            if (actual != expectedCurrentState)
+            {
+                throw new ProductionMaintenanceException(actual);
+            }
+
+            await WriteStateAsync(state, cancellationToken);
+            return new Lease(this, stream);
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
+    }
+
     public async Task<ProductionMaintenanceState> GetStateAsync(CancellationToken cancellationToken = default)
     {
         var lockHeld = IsLockHeld();
+        var value = await ReadPersistedStateAsync(cancellationToken);
+        return lockHeld && value == ProductionMaintenanceState.Normal
+            ? ProductionMaintenanceState.RestoreCutover
+            : value;
+    }
+
+    private async Task<ProductionMaintenanceState> ReadPersistedStateAsync(CancellationToken cancellationToken)
+    {
         if (!File.Exists(_statePath))
         {
-            return lockHeld ? ProductionMaintenanceState.RestoreCutover : ProductionMaintenanceState.Normal;
+            return ProductionMaintenanceState.Normal;
         }
 
         try
@@ -130,10 +147,7 @@ public sealed class FileProductionMaintenanceBarrier : IProductionMaintenanceBar
                 }
 
                 var state = JsonSerializer.Deserialize<StateFile>(payload, JsonOptions);
-                var value = state?.State ?? ProductionMaintenanceState.RecoveryRequired;
-                return lockHeld && value == ProductionMaintenanceState.Normal
-                    ? ProductionMaintenanceState.RestoreCutover
-                    : value;
+                return state?.State ?? ProductionMaintenanceState.RecoveryRequired;
             }
             finally
             {
@@ -148,6 +162,25 @@ public sealed class FileProductionMaintenanceBarrier : IProductionMaintenanceBar
         catch
         {
             return ProductionMaintenanceState.RecoveryRequired;
+        }
+    }
+
+    private async Task<FileStream> AcquireLockAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            return new FileStream(
+                _lockPath,
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                1,
+                FileOptions.Asynchronous | FileOptions.WriteThrough);
+        }
+        catch (IOException ex)
+        {
+            throw new InvalidOperationException("Another production maintenance operation is already active.", ex);
         }
     }
 

@@ -1,5 +1,8 @@
+using System.IO;
 using EdgeRetails.Desktop.Services;
 using EdgeRetails.Desktop.ViewModels;
+using EdgeRetails.Application.Production.Printing;
+using EdgeRetails.Infrastructure.Production.Printing;
 
 namespace EdgeRetails.Desktop.Navigation;
 
@@ -10,16 +13,22 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
     private readonly IDialogService _dialogService;
     private readonly IDrawerService _drawerService;
     private readonly IToastService _toastService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private readonly ITransactionService _transactionService;
     private readonly IBackendPurchasingInventoryService? _purchasingInventoryService;
+    private readonly IBackendStockAdjustmentService? _stockAdjustmentService;
     private readonly IBackendProductManagementService? _productManagementService;
     private readonly IBackendThakaService? _backendThakaService;
     private readonly IBackendBusinessOperationsService? _businessOperationsService;
     private readonly IBackendOperationsService? _operationsService;
     private readonly IBackendSalesHistoryService? _backendSalesHistoryService;
     private readonly IBackendWorkflowReadService? _workflowReadService;
+    private readonly IBackendWorkflowReadService? _posWorkflowReadService;
     private readonly IBackendDashboardService? _dashboardService;
     private readonly IBackendSettingsService? _settingsService;
+    private readonly IBackendBackupRestoreService? _backupRestoreService;
+    private readonly IWorkstationPrinterSettings _workstationPrinterSettings;
+    private readonly IProductionDocumentPrintService? _documentPrintService;
     private readonly IPosCatalogGateway? _posCatalogGateway;
     private ISessionContext _sessionContext;
     private INavigationService? _navigationService;
@@ -40,7 +49,10 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
         IToastService toastService,
         ISessionContext? sessionContext = null,
         Microsoft.Extensions.DependencyInjection.IServiceScopeFactory? backendScopeFactory = null,
-        IPosCatalogGateway? posCatalogGateway = null)
+        IPosCatalogGateway? posCatalogGateway = null,
+        DesktopApiClient? apiClient = null,
+        IClientOperationIntentStore? operationIntents = null,
+        IWorkstationPrinterSettings? workstationPrinterSettings = null)
     {
         ArgumentNullException.ThrowIfNull(themeService);
         ArgumentNullException.ThrowIfNull(dialogService);
@@ -51,53 +63,75 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
         _dialogService = dialogService;
         _drawerService = drawerService;
         _toastService = toastService;
+        _workstationPrinterSettings = workstationPrinterSettings ?? CreateWorkstationPrinterSettings();
+        _documentPrintService = apiClient is null ? null : new RemoteProductionDocumentPrintService(apiClient);
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _sessionContext = sessionContext ?? new DesignPreviewSessionContext();
         _posCatalogGateway = posCatalogGateway;
-        _transactionService = CreateTransactionService(backendScopeFactory);
-        _purchasingInventoryService = backendScopeFactory is null
+        _transactionService = CreateTransactionService(backendScopeFactory, apiClient);
+        _purchasingInventoryService = apiClient is not null
+            ? new RemotePurchasingInventoryService(apiClient, () => _sessionContext.UserId, _operationIntents)
+            : backendScopeFactory is null
+                ? null
+                : new BackendPurchasingInventoryService(
+                    backendScopeFactory,
+                    () => _sessionContext.UserId);
+        _stockAdjustmentService = apiClient is null
             ? null
-            : new BackendPurchasingInventoryService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _productManagementService = backendScopeFactory is null
-            ? null
-            : new BackendProductManagementService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _backendThakaService = backendScopeFactory is null
-            ? null
-            : new BackendThakaService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _businessOperationsService = backendScopeFactory is null
-            ? null
-            : new BackendBusinessOperationsService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _operationsService = backendScopeFactory is null
-            ? null
-            : new BackendOperationsService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _backendSalesHistoryService = backendScopeFactory is null
-            ? null
-            : new BackendSalesHistoryService(backendScopeFactory);
-        _workflowReadService = backendScopeFactory is null
-            ? null
-            : new BackendWorkflowReadService(
-                backendScopeFactory,
-                () => _sessionContext.UserId);
-        _dashboardService = backendScopeFactory is null
+            : new RemoteStockAdjustmentService(apiClient, () => _sessionContext.UserId);
+        _productManagementService = apiClient is not null
+            ? new RemoteProductManagementService(apiClient, () => _sessionContext.UserId)
+            : backendScopeFactory is null
+                ? null
+                : new BackendProductManagementService(
+                    backendScopeFactory,
+                    () => _sessionContext.UserId);
+        _backendThakaService = apiClient is not null
+            ? new RemoteBackendThakaService(apiClient, _operationIntents)
+            : backendScopeFactory is null
+                ? null
+                : new BackendThakaService(backendScopeFactory, () => _sessionContext.UserId);
+        _businessOperationsService = apiClient is not null
+            ? new RemoteBackendBusinessOperationsService(apiClient)
+            : backendScopeFactory is null
+                ? null
+                : new BackendBusinessOperationsService(backendScopeFactory, () => _sessionContext.UserId);
+        _operationsService = apiClient is not null
+            ? new RemoteBackendOperationsService(apiClient)
+            : backendScopeFactory is null
+                ? null
+                : new BackendOperationsService(backendScopeFactory, () => _sessionContext.UserId);
+        _backendSalesHistoryService = apiClient is not null
+            ? new BackendSalesHistoryService(apiClient)
+            : backendScopeFactory is null
+                ? null
+                : new BackendSalesHistoryService(backendScopeFactory);
+        _workflowReadService = apiClient is not null
+            ? new RemoteStocktakeWorkflowService(apiClient, _operationIntents)
+            : backendScopeFactory is null
+                ? null
+                : new BackendWorkflowReadService(backendScopeFactory, () => _sessionContext.UserId);
+        _posWorkflowReadService = apiClient is null
+            ? _workflowReadService
+            : new RemotePosWorkflowService(apiClient);
+        _dashboardService = apiClient is not null
+            ? new RemoteBackendDashboardService(apiClient, _backendThakaService!)
+            : backendScopeFactory is null
             ? null
             : new BackendDashboardService(
                 _businessOperationsService!,
                 _backendThakaService!,
                 backendScopeFactory);
-        _settingsService = backendScopeFactory is null
+        _settingsService = apiClient is not null
+            ? new RemoteBackendSettingsService(apiClient, () => _sessionContext.UserId)
+            : backendScopeFactory is null
             ? null
             : new BackendSettingsService(
                 backendScopeFactory,
                 () => _sessionContext.UserId);
+        _backupRestoreService = apiClient is not null
+            ? new RemoteBackupRestoreService(apiClient, _operationIntents)
+            : null;
     }
 
     public void SetNavigationService(INavigationService navigationService)
@@ -129,7 +163,10 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _sessionContext,
                 _posCatalogGateway,
                 _businessOperationsService,
-                _workflowReadService),
+                _posWorkflowReadService,
+                _documentPrintService,
+                _workstationPrinterSettings,
+                _operationIntents),
 
             NavigationTarget.SalesHistory => new SalesHistoryViewModel(
                 _sessionContext,
@@ -138,7 +175,9 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _drawerService,
                 _dialogService,
                 _transactionService,
-                _backendSalesHistoryService),
+                _backendSalesHistoryService,
+                _documentPrintService,
+                _workstationPrinterSettings),
 
             NavigationTarget.ThakaProjects => GetOrCreateThakaProjects(),
             NavigationTarget.ThakaWorkspace => CreateThakaWorkspace(),
@@ -160,7 +199,9 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                     _dialogService,
                     _purchasingInventoryService,
                     _productManagementService,
-                    _workflowReadService),
+                    _workflowReadService,
+                    _stockAdjustmentService,
+                    _operationIntents),
             NavigationTarget.Expenses => _expensesViewModel ??= new ExpensesViewModel(
                 _toastService,
                 _dialogService,
@@ -186,7 +227,11 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _themeService,
                 _dialogService,
                 _toastService,
-                _settingsService),
+                _settingsService,
+                _backupRestoreService)
+            {
+                WorkstationPrinterSettings = _workstationPrinterSettings
+            },
 
 #if DEBUG
             NavigationTarget.Sprint1Verification => new Sprint1VerificationViewModel(
@@ -282,13 +327,16 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
     }
 
     private ITransactionService CreateTransactionService(
-        Microsoft.Extensions.DependencyInjection.IServiceScopeFactory? backendScopeFactory)
+        Microsoft.Extensions.DependencyInjection.IServiceScopeFactory? backendScopeFactory,
+        DesktopApiClient? apiClient)
     {
         if (backendScopeFactory is not null)
         {
             return new BackendTransactionService(
                 backendScopeFactory,
-                () => _sessionContext.UserId);
+                () => _sessionContext.UserId,
+                apiClient ?? throw new InvalidOperationException("Production POS requires the Server API client."),
+                _operationIntents);
         }
 
 #if DEBUG
@@ -297,5 +345,17 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
         throw new InvalidOperationException(
             "Production runtime requires a registered backend scope factory for transactions.");
 #endif
+    }
+
+    private static IWorkstationPrinterSettings CreateWorkstationPrinterSettings()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localAppData))
+        {
+            throw new InvalidOperationException("Local application data is unavailable for workstation printer settings.");
+        }
+
+        var profilePath = Path.Combine(localAppData, "EdgeRetails", "printer-profiles.json");
+        return new WindowsWorkstationPrinterSettings(new JsonPrinterProfileStore(profilePath));
     }
 }

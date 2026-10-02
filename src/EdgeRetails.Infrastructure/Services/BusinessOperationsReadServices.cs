@@ -25,6 +25,82 @@ public sealed class ExpenseReadService : IExpenseReadService
             .Select(x => new ExpenseCategoryDto(x.Id, x.Name))
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ExpenseSubcategoryDto>> GetSubcategoriesAsync(
+        CancellationToken cancellationToken) =>
+        await _db.ExpenseSubcategories
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Name)
+            .Select(x => new ExpenseSubcategoryDto(x.Id, x.CategoryId, x.Name))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ExpenseRowDto>> GetExpensesPageAsync(
+        GetExpensesPageQuery query,
+        CancellationToken cancellationToken)
+    {
+        var dbQuery = (
+            from expense in _db.Expenses.AsNoTracking()
+            join category in _db.ExpenseCategories.AsNoTracking()
+                on expense.CategoryId equals category.Id
+            join subcategoryJoin in _db.ExpenseSubcategories.AsNoTracking()
+                on expense.SubcategoryId equals subcategoryJoin.Id into subcategoryGroup
+            from subcategory in subcategoryGroup.DefaultIfEmpty()
+            join user in _db.Users.AsNoTracking()
+                on expense.CreatedBy equals user.Id
+            where expense.Status == ExpenseStatus.Posted
+            select new { expense, category, subcategory, user });
+
+        if (query.FromDate.HasValue)
+        {
+            dbQuery = dbQuery.Where(x => x.expense.ExpenseDate >= query.FromDate.Value);
+        }
+
+        if (query.ToDate.HasValue)
+        {
+            dbQuery = dbQuery.Where(x => x.expense.ExpenseDate <= query.ToDate.Value);
+        }
+
+        if (query.CategoryId.HasValue)
+        {
+            dbQuery = dbQuery.Where(x => x.expense.CategoryId == query.CategoryId.Value);
+        }
+
+        if (query.BeforeExpenseDate.HasValue && query.BeforeExpenseId.HasValue)
+        {
+            dbQuery = dbQuery.Where(x =>
+                x.expense.ExpenseDate < query.BeforeExpenseDate.Value ||
+                (x.expense.ExpenseDate == query.BeforeExpenseDate.Value &&
+                 x.expense.Id < query.BeforeExpenseId.Value));
+        }
+        else if (query.BeforeExpenseDate.HasValue)
+        {
+            dbQuery = dbQuery.Where(x => x.expense.ExpenseDate < query.BeforeExpenseDate.Value);
+        }
+
+        var take = Math.Clamp(query.PageSize <= 0 ? 50 : query.PageSize, 1, 500);
+
+        return await dbQuery
+            .OrderByDescending(x => x.expense.ExpenseDate)
+            .ThenByDescending(x => x.expense.Id)
+            .Take(take)
+            .Select(x => new ExpenseRowDto(
+                x.expense.Id,
+                x.expense.ExpenseNumber,
+                x.expense.CategoryId,
+                x.category.Name,
+                x.expense.SubcategoryId,
+                x.subcategory == null ? null : x.subcategory.Name,
+                x.expense.ExpenseDate,
+                x.expense.Amount,
+                x.expense.PaymentMethod,
+                x.expense.Description,
+                x.expense.Reference,
+                x.expense.Status,
+                x.expense.CreatedBy,
+                x.user.DisplayName))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ExpenseRowDto>> GetExpensesAsync(
         CancellationToken cancellationToken)
     {
@@ -38,7 +114,7 @@ public sealed class ExpenseReadService : IExpenseReadService
             join user in _db.Users.AsNoTracking()
                 on expense.CreatedBy equals user.Id
             where expense.Status == ExpenseStatus.Posted
-            orderby expense.ExpenseDate descending, expense.CreatedAt descending
+            orderby expense.ExpenseDate descending, expense.CreatedAt descending, expense.Id descending
             select new ExpenseRowDto(
                 expense.Id,
                 expense.ExpenseNumber,
@@ -54,6 +130,7 @@ public sealed class ExpenseReadService : IExpenseReadService
                 expense.Status,
                 expense.CreatedBy,
                 user.DisplayName))
+            .Take(500)
             .ToListAsync(cancellationToken);
     }
 }
@@ -67,9 +144,11 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
     public async Task<IReadOnlyList<CustomerDirectoryDto>> GetCustomersAsync(
         string? search,
         int pageSize = 100,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? beforeName = null,
+        Guid? beforeCustomerId = null)
     {
-        var take = Math.Clamp(pageSize, 1, 200);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
         var query = _db.Customers.AsNoTracking()
             .Where(x => x.IsActive && !x.IsWalkIn);
 
@@ -79,6 +158,13 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
             query = query.Where(x =>
                 x.Name.Contains(term) ||
                 (x.Phone != null && x.Phone.Contains(term)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(beforeName) && beforeCustomerId is Guid cursorId)
+        {
+            query = query.Where(x =>
+                x.Name.CompareTo(beforeName) > 0 ||
+                (x.Name == beforeName && x.Id.CompareTo(cursorId) > 0));
         }
 
         var rows = await query
@@ -136,9 +222,11 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
     public async Task<IReadOnlyList<SupplierDirectoryDto>> GetSuppliersAsync(
         string? search,
         int pageSize = 100,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? beforeName = null,
+        Guid? beforeSupplierId = null)
     {
-        var take = Math.Clamp(pageSize, 1, 200);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
         var query = _db.Suppliers.AsNoTracking()
             .Where(x => x.IsActive);
 
@@ -149,6 +237,13 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
                 x.Name.Contains(term) ||
                 (x.Phone != null && x.Phone.Contains(term)) ||
                 (x.City != null && x.City.Contains(term)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(beforeName) && beforeSupplierId is Guid cursorId)
+        {
+            query = query.Where(x =>
+                x.Name.CompareTo(beforeName) > 0 ||
+                (x.Name == beforeName && x.Id.CompareTo(cursorId) > 0));
         }
 
         var rows = await query

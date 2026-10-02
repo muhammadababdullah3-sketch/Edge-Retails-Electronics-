@@ -2,8 +2,10 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Thaka;
+using System.Globalization;
 
 namespace EdgeRetails.Application.Features.Thaka;
 
@@ -33,6 +35,7 @@ public sealed class RecordThakaPaymentHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public RecordThakaPaymentHandler(
         IThakaRepository thaka,
@@ -44,7 +47,8 @@ public sealed class RecordThakaPaymentHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _cashMovements = cashMovements;
@@ -56,21 +60,29 @@ public sealed class RecordThakaPaymentHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<RecordThakaPaymentResult>> HandleAsync(
+    public async Task<Result<RecordThakaPaymentResult>> HandleAsync(
         RecordThakaPaymentCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty || command.Amount <= 0)
         {
-            return Task.FromResult(Result<RecordThakaPaymentResult>.Failure(
+            return Result<RecordThakaPaymentResult>.Failure(
                 "thaka.payment_invalid",
-                "Payment requires operation id and positive amount."));
+                "Payment requires operation id and positive amount.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
+            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "ThakaPayment",
+                command.ProjectId.ToString("D"),
+                Money(command.Amount).ToString("0.00", CultureInfo.InvariantCulture),
+                command.PaymentMethod.ToString(),
+                Normalize(command.Reference),
+                Normalize(command.Note));
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
                 PermissionKeys.ThakaManage,
@@ -88,7 +100,31 @@ public sealed class RecordThakaPaymentHandler
                 ct);
             if (existing is not null)
             {
+                var savedOutcome = _outcomeLedger is null
+                    ? null
+                    : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (_outcomeLedger is not null &&
+                    (savedOutcome is not { State: OperationOutcomeState.Succeeded, OperationType: "ThakaPayment" } ||
+                     !string.Equals(savedOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal)))
+                {
+                    return Result<RecordThakaPaymentResult>.Failure(
+                        "thaka.operation_id_conflict",
+                        "This operation id is already associated with another or unresolved payment.");
+                }
+
                 var existingBalance = await GetBalanceAsync(existing.ProjectId, ct);
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaPayment",
+                        existing.Id,
+                        existing.ReceiptNumber,
+                        actorId: command.ActorId,
+                        payloadFingerprint: payloadFingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result<RecordThakaPaymentResult>.Success(new(
                     existing.Id,
                     existing.ReceiptNumber,
@@ -155,6 +191,18 @@ public sealed class RecordThakaPaymentHandler
                 command.ClientOperationId,
                 $"{payment.ReceiptNumber}: {payment.Amount:0.00}");
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ThakaPayment",
+                    payment.Id,
+                    payment.ReceiptNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: payloadFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<RecordThakaPaymentResult>.Success(new(
                 payment.Id,
@@ -162,6 +210,22 @@ public sealed class RecordThakaPaymentHandler
                 Money(balanceBefore - amount),
                 false));
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "ThakaPayment",
+                result.Error!.Code,
+                result.Error.Message,
+                actorId: command.ActorId,
+                payloadFingerprint: OperationPayloadFingerprint.ComputeSha256(
+                    "ThakaPayment", command.ProjectId.ToString("D"), Money(command.Amount).ToString("0.00", CultureInfo.InvariantCulture),
+                    command.PaymentMethod.ToString(), Normalize(command.Reference), Normalize(command.Note)),
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<decimal> GetBalanceAsync(

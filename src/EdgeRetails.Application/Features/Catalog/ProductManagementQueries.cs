@@ -2,7 +2,9 @@ using EdgeRetails.Domain.Catalog;
 
 namespace EdgeRetails.Application.Features.Catalog;
 
-public sealed record CatalogCategoryDto(Guid Id, string Name, bool IsActive);
+public sealed record CatalogCategoryDto(Guid Id, string Name, string IdentitySymbol = "", bool IsActive = true);
+
+public sealed record CatalogCompanyDto(Guid Id, string Name, string Code, bool IsActive);
 
 public sealed record CatalogUnitDto(
     Guid Id,
@@ -53,7 +55,11 @@ public sealed record ProductManagementRowDto(
     bool IsActive,
     long Version,
     IReadOnlyList<ProductUnitDto> ProductUnits,
-    IReadOnlyList<SupplierProductLinkDto> SupplierProducts);
+    IReadOnlyList<SupplierProductLinkDto> SupplierProducts,
+    Guid? CompanyId = null,
+    string? Company = null,
+    string? CompanyCode = null,
+    string? ModelCode = null);
 
 public sealed record ProductManagementPageQuery(
     bool IncludeInactive = false,
@@ -80,6 +86,10 @@ public interface IProductManagementReadService
 
     Task<ProductManagementRowDto?> GetProductBySkuAsync(
         string sku,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CatalogCompanyDto>> GetCompaniesAsync(
+        bool includeInactive,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<CatalogCategoryDto>> GetCategoriesAsync(

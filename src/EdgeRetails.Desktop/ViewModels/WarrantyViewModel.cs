@@ -339,11 +339,15 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (OperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Warranty search was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Warranty intake search failed: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Warranty intake search failed."),
+                ToastTone.Danger);
         }
         finally
         {
@@ -432,13 +436,13 @@ public sealed class WarrantyViewModel : ViewModelBase
         catch (OperationException ex)
         {
             _toastService?.Show(
-                $"{ex.Code}: {ex.Message} The same ClientOperationId is retained for a safe retry.",
+                $"{DesktopErrorPresentation.ForException(ex, "The warranty claim was rejected.")} The same ClientOperationId is retained for a safe retry.",
                 ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService?.Show(
-                $"Warranty claim outcome could not be confirmed: {ex.Message}. The same ClientOperationId is retained for retry.",
+                $"{DesktopErrorPresentation.ForException(ex, "Warranty claim outcome could not be confirmed.")} The same ClientOperationId is retained for retry.",
                 ToastTone.Danger);
         }
         finally
@@ -513,14 +517,18 @@ public sealed class WarrantyViewModel : ViewModelBase
             Summary = null;
             _allRows.Clear();
             Rows.Clear();
-            StatusMessage = $"{ex.Code}: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Warranty authority rejected the request.");
         }
         catch (Exception ex)
         {
             Summary = null;
             _allRows.Clear();
             Rows.Clear();
-            StatusMessage = $"Warranty authority unavailable: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Warranty authority is unavailable. Check the connection and try again.");
         }
         finally
         {
@@ -567,11 +575,15 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (OperationException ex) when (version == Volatile.Read(ref _searchVersion))
         {
-            StatusMessage = $"{ex.Code}: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Warranty search was rejected.");
         }
         catch (Exception ex) when (version == Volatile.Read(ref _searchVersion))
         {
-            StatusMessage = $"Warranty search failed: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Warranty search failed. Check the connection and try again.");
         }
     }
 
@@ -625,7 +637,9 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Warranty history could not be loaded: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Warranty history could not be loaded."),
+                ToastTone.Danger);
         }
     }
 
@@ -703,11 +717,15 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (OperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.", ToastTone.Danger);
+            _toastService?.Show(
+                $"{DesktopErrorPresentation.ForException(ex, "The replacement was rejected.")} The same ClientOperationId is retained for safe retry.",
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Customer replacement outcome could not be confirmed: {ex.Message}. The same ClientOperationId is retained for retry.", ToastTone.Danger);
+            _toastService?.Show(
+                $"{DesktopErrorPresentation.ForException(ex, "Customer replacement outcome could not be confirmed.")} The same ClientOperationId is retained for retry.",
+                ToastTone.Danger);
         }
         finally
         {
@@ -795,11 +813,15 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (OperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Shop Stock warranty request was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Shop Stock warranty send failed: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Shop Stock warranty send failed."),
+                ToastTone.Danger);
         }
         finally
         {
@@ -893,11 +915,15 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         catch (OperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.", ToastTone.Danger);
+            _toastService?.Show(
+                $"{DesktopErrorPresentation.ForException(ex, "Shop Stock warranty receipt was rejected.")} The same ClientOperationId is retained for safe retry.",
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Shop Stock warranty receipt outcome could not be confirmed: {ex.Message}. The same ClientOperationId is retained for retry.", ToastTone.Danger);
+            _toastService?.Show(
+                $"{DesktopErrorPresentation.ForException(ex, "Shop Stock warranty receipt outcome could not be confirmed.")} The same ClientOperationId is retained for retry.",
+                ToastTone.Danger);
         }
         finally
         {
@@ -978,13 +1004,13 @@ public sealed class WarrantyViewModel : ViewModelBase
         catch (OperationException ex)
         {
             _toastService?.Show(
-                $"{ex.Code}: {ex.Message}. The same ClientOperationId is retained for safe retry.",
+                $"{DesktopErrorPresentation.ForException(ex, "Warranty operation was rejected.")} The same ClientOperationId is retained for safe retry.",
                 ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService?.Show(
-                $"Warranty operation outcome could not be confirmed: {ex.Message}. The same ClientOperationId is retained for retry.",
+                $"{DesktopErrorPresentation.ForException(ex, "Warranty operation outcome could not be confirmed.")} The same ClientOperationId is retained for retry.",
                 ToastTone.Danger);
         }
         finally

@@ -184,6 +184,20 @@ public sealed class LocalApplicationGateway : IApplicationGateway
         return await handler.HandleAsync(command, cancellationToken);
     }
 
+    public async Task<Result<ReceiveProductIntakeResult>> ReceiveProductIntakeAsync(
+        ReceiveProductIntakeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var guard = CheckCanMutate<ReceiveProductIntakeResult>();
+        if (!guard.IsSuccess)
+        {
+            return guard;
+        }
+
+        var handler = GetService<ReceiveProductIntakeHandler>();
+        return await handler.HandleAsync(command, cancellationToken);
+    }
+
     public async Task<Result<CreatePurchaseReturnResult>> CreatePurchaseReturnAsync(
         CreatePurchaseReturnCommand command,
         CancellationToken cancellationToken = default)

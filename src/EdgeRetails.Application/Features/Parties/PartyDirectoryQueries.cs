@@ -25,10 +25,14 @@ public interface IPartyDirectoryReadService
     Task<IReadOnlyList<CustomerDirectoryDto>> GetCustomersAsync(
         string? search,
         int pageSize = 100,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? beforeName = null,
+        Guid? beforeCustomerId = null);
 
     Task<IReadOnlyList<SupplierDirectoryDto>> GetSuppliersAsync(
         string? search,
         int pageSize = 100,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? beforeName = null,
+        Guid? beforeSupplierId = null);
 }

@@ -265,11 +265,15 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka operation was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka operation failed."),
+                ToastTone.Danger);
         }
     }
 
@@ -321,7 +325,9 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         catch (Exception ex)
         {
             _toastService?.Show(
-                $"Thaka workspace could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Thaka workspace could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }

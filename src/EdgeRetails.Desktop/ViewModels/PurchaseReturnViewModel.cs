@@ -259,11 +259,17 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Purchase return was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Purchase return outcome could not be confirmed. Check operation status before retrying."),
+                ToastTone.Danger);
         }
     }
 

@@ -21,6 +21,7 @@ using Xunit;
 
 namespace EdgeRetails.IntegrationTests;
 
+[Collection("Phase2PostgresIntegration")]
 public sealed class Phase2TransactionalPostgresTests
 {
     [Fact]

@@ -2,10 +2,12 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Operations;
 using EdgeRetails.Domain.Thaka;
 
 namespace EdgeRetails.Application.Features.Thaka;
@@ -17,7 +19,8 @@ public sealed record CreateThakaProjectCommand(
     string? Note,
     DateOnly StartedOn,
     Guid ActorId,
-    Guid CorrelationId);
+    Guid CorrelationId,
+    Guid ClientOperationId = default);
 
 public sealed record IssueThakaMaterialLineInput(
     Guid ProductId,
@@ -57,6 +60,8 @@ public sealed class CreateThakaProjectHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationLock? _operationLock;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CreateThakaProjectHandler(
         IThakaRepository thaka,
@@ -66,7 +71,9 @@ public sealed class CreateThakaProjectHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _parties = parties;
@@ -76,6 +83,8 @@ public sealed class CreateThakaProjectHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _operationLock = operationLock;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -100,6 +109,36 @@ public sealed class CreateThakaProjectHandler
                 return Result<Guid>.Failure(
                     authorization.Error!.Code,
                     authorization.Error.Message);
+            }
+
+            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "CreateThakaProject",
+                command.CustomerId.ToString("D"),
+                command.ProjectName.Trim(),
+                Normalize(command.SiteAddress),
+                Normalize(command.Note),
+                command.StartedOn.ToString("yyyy-MM-dd"),
+                command.ActorId.ToString("D"));
+            if (command.ClientOperationId != Guid.Empty)
+            {
+                if (_operationLock is not null)
+                    await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+                if (_outcomeLedger is not null)
+                {
+                    var saved = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                    if (saved is not null)
+                    {
+                        if (saved is { State: OperationOutcomeState.Succeeded, OperationType: "CreateThakaProject", EntityId: Guid savedProjectId } &&
+                            string.Equals(saved.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal))
+                        {
+                            return Result<Guid>.Success(savedProjectId);
+                        }
+
+                        return Result<Guid>.Failure(
+                            "thaka.operation_id_conflict",
+                            "This operation id is already associated with another or unresolved Thaka project operation.");
+                    }
+                }
             }
 
             var customer = await _parties.GetCustomerAsync(command.CustomerId, ct);
@@ -128,6 +167,18 @@ public sealed class CreateThakaProjectHandler
                 command.ActorId,
                 command.CorrelationId,
                 project.ProjectNumber);
+
+            if (_outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "CreateThakaProject",
+                    project.Id,
+                    project.ProjectNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: payloadFingerprint,
+                    cancellationToken: ct);
+            }
 
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(project.Id);
@@ -166,7 +217,8 @@ public sealed class IssueThakaMaterialHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
         _catalog = catalog;
@@ -180,27 +232,30 @@ public sealed class IssueThakaMaterialHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<IssueThakaMaterialResult>> HandleAsync(
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public async Task<Result<IssueThakaMaterialResult>> HandleAsync(
         IssueThakaMaterialCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty || command.Lines.Count == 0)
         {
-            return Task.FromResult(Result<IssueThakaMaterialResult>.Failure(
+            return Result<IssueThakaMaterialResult>.Failure(
                 "thaka.issue_invalid",
-                "Material issue requires operation id and at least one item."));
+                "Material issue requires operation id and at least one item.");
         }
         if (command.Lines.GroupBy(x => new { x.ProductId, x.ProductUnitId })
             .Any(x => x.Count() > 1))
         {
-            return Task.FromResult(Result<IssueThakaMaterialResult>.Failure(
+            return Result<IssueThakaMaterialResult>.Failure(
                 "thaka.issue_duplicate_line",
-                "The same product and unit may appear only once."));
+                "The same product and unit may appear only once.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -219,6 +274,17 @@ public sealed class IssueThakaMaterialHandler
                 ct);
             if (existing is not null)
             {
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaMaterialIssue",
+                        existing.Id,
+                        existing.ChallanNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
+                }
+
                 return Result<IssueThakaMaterialResult>.Success(new(
                     existing.Id,
                     existing.ChallanNumber,
@@ -449,6 +515,17 @@ public sealed class IssueThakaMaterialHandler
                     command.ClientOperationId,
                     $"{issue.ChallanNumber}: {issue.TotalCharge:0.00}");
 
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ThakaMaterialIssue",
+                        issue.Id,
+                        issue.ChallanNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
                 return Result<IssueThakaMaterialResult>.Success(new(
                     issue.Id,
@@ -462,6 +539,19 @@ public sealed class IssueThakaMaterialHandler
                 return Result<IssueThakaMaterialResult>.Failure(ex.Code, ex.Message);
             }
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "ThakaMaterialIssue",
+                result.Error?.Code ?? "thaka.issue_failed",
+                result.Error?.Message ?? "Thaka material issue failed.",
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<decimal> ConsumeSerializedAsync(

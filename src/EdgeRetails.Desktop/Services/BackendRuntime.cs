@@ -1,8 +1,9 @@
-using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Features.Sales;
-using EdgeRetails.Application.Production;
+using EdgeRetails.Application.Features.Terminals;
+using EdgeRetails.Application.Gateways;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure;
+using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
@@ -35,7 +36,13 @@ public interface IPosCatalogGateway
 
 public sealed class BackendPosCatalogGateway : IPosCatalogGateway
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly DesktopApiClient? _apiClient;
+    private readonly IServiceScopeFactory? _scopeFactory;
+
+    public BackendPosCatalogGateway(DesktopApiClient apiClient)
+    {
+        _apiClient = apiClient;
+    }
 
     public BackendPosCatalogGateway(IServiceScopeFactory scopeFactory)
     {
@@ -47,12 +54,24 @@ public sealed class BackendPosCatalogGateway : IPosCatalogGateway
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var reads = scope.ServiceProvider.GetRequiredService<IPosCatalogReadService>();
-        var rows = await reads.GetSellableCatalogAsync(
-            search,
-            Math.Clamp(pageSize, 1, 200),
-            cancellationToken);
+        IReadOnlyList<PosCatalogProductDto> rows;
+        if (_apiClient is not null)
+        {
+            var query = $"/api/sales/catalog?pageSize={Math.Clamp(pageSize, 1, 200)}";
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query += $"&search={Uri.EscapeDataString(search.Trim())}";
+            }
+
+            rows = await _apiClient.GetAsync<PosCatalogProductDto[]>(query, cancellationToken);
+        }
+        else
+        {
+            await using var scope = _scopeFactory!.CreateAsyncScope();
+            var reads = scope.ServiceProvider.GetRequiredService<IPosCatalogReadService>();
+            rows = await reads.GetSellableCatalogAsync(
+                search, Math.Clamp(pageSize, 1, 200), cancellationToken);
+        }
 
         return rows.Select(row => new PosCatalogGatewayItem(
             row.ProductId,
@@ -72,13 +91,18 @@ public sealed class BackendRuntime : IDisposable
 {
     private readonly ServiceProvider _provider;
 
-    private BackendRuntime(ServiceProvider provider)
+    private BackendRuntime(ServiceProvider provider, DesktopApiClient apiClient)
     {
         _provider = provider;
+        ApiClient = apiClient;
+        RemoteGateway = provider.GetRequiredService<RemoteApplicationGateway>();
         ScopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
-        PosCatalogGateway = new BackendPosCatalogGateway(ScopeFactory);
-        SetupService = new BackendSetupService(ScopeFactory);
+        PosCatalogGateway = new BackendPosCatalogGateway(ApiClient);
+        SetupService = new RemoteBackendSetupService(ApiClient);
     }
+
+    public DesktopApiClient ApiClient { get; }
+    public RemoteApplicationGateway RemoteGateway { get; }
 
     public IServiceScopeFactory ScopeFactory { get; }
 
@@ -89,60 +113,63 @@ public sealed class BackendRuntime : IDisposable
     public async Task<BackendStartupState> CheckStartupAsync(
         CancellationToken cancellationToken = default)
     {
-        await using var scope = ScopeFactory.CreateAsyncScope();
-        var readiness = scope.ServiceProvider
-            .GetRequiredService<IDatabaseReadinessService>();
-        var result = await readiness.CheckAsync(cancellationToken);
-
-        if (!result.IsReady)
-        {
-            return new BackendStartupState(
-                false,
-                false,
-                result.FailureReason,
-                result.PendingMigrations);
-        }
-
-        ProductionMaintenanceState maintenanceState;
         try
         {
-            maintenanceState = await scope.ServiceProvider
-                .GetRequiredService<IProductionMaintenanceBarrier>()
-                .GetStateAsync(cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch
-        {
-            return new BackendStartupState(
-                false,
-                false,
-                "Production maintenance/recovery state could not be verified safely.",
-                Array.Empty<string>());
-        }
+            var version = await ApiClient.GetAsync<ServerVersion>(
+                "/api/system/version", cancellationToken);
+            if (!TerminalProtocol.IsCompatible(version.ProtocolVersion) ||
+                !string.Equals(version.ProtocolVersion, TerminalProtocol.CurrentProtocolVersion, StringComparison.Ordinal))
+            {
+                return new BackendStartupState(false, false,
+                    "The local Server protocol is incompatible with this Desktop version.", []);
+            }
 
-        if (maintenanceState != ProductionMaintenanceState.Normal)
-        {
-            return new BackendStartupState(
-                false,
-                false,
-                maintenanceState == ProductionMaintenanceState.RecoveryRequired
-                    ? "Restore recovery is required before setup, login, or business activity."
-                    : $"A restore operation is active ({maintenanceState}); normal startup is blocked.",
-                Array.Empty<string>());
+            var readiness = await ApiClient.GetAsync<ServerReady>(
+                "/api/system/ready", cancellationToken);
+            if (!string.Equals(readiness.Status, "Ready", StringComparison.Ordinal) ||
+                !readiness.CanConnect || readiness.HasPendingMigrations)
+            {
+                return new BackendStartupState(false, false,
+                    "The local Server did not report a ready database state.", []);
+            }
+
+            var terminalSecret = Environment.GetEnvironmentVariable("EDGE_RETAILS_TERMINAL_SECRET");
+            if (string.IsNullOrWhiteSpace(terminalSecret))
+            {
+                return new BackendStartupState(false, false,
+                    "Terminal authentication is not configured. Set EDGE_RETAILS_TERMINAL_SECRET for this installation.", []);
+            }
+
+            var terminalCode = Environment.GetEnvironmentVariable("EDGE_RETAILS_TERMINAL_CODE");
+            if (string.IsNullOrWhiteSpace(terminalCode))
+            {
+                terminalCode = "LOCAL";
+            }
+
+            var registered = await ApiClient.PostAsync<RegisterTerminalCommand, RegisterTerminalResult>(
+                "/api/terminals/register",
+                new RegisterTerminalCommand(
+                    terminalCode, Environment.MachineName, null,
+                    TerminalProtocol.CurrentProtocolVersion, null, terminalSecret),
+                cancellationToken);
+            if (registered.Status != TerminalStatus.Active)
+            {
+                return new BackendStartupState(false, false,
+                    $"Terminal is {registered.Status}. Access must be restored on the Server.", []);
+            }
+
+            ApiClient.SetTerminalContext(registered.TerminalId, terminalSecret);
+            RemoteGateway.SetTerminalContext(registered.TerminalId, terminalSecret);
+
+            var setup = await ApiClient.GetAsync<ServerSetupState>(
+                "/api/setup/state", cancellationToken);
+            return new BackendStartupState(true, setup.IsSetupRequired, null, []);
         }
-
-        var installation = scope.ServiceProvider
-            .GetRequiredService<IInstallationStateReadService>();
-        var state = await installation.GetAsync(cancellationToken);
-
-        return new BackendStartupState(
-            true,
-            state?.SetupStatus != SetupStatus.Complete,
-            null,
-            Array.Empty<string>());
+        catch (DesktopApiException ex)
+        {
+            return new BackendStartupState(false, false,
+                $"[{ex.Code}] {ex.Message}", []);
+        }
     }
 
     public static string ResolveConnectionString()
@@ -226,24 +253,87 @@ public sealed class BackendRuntime : IDisposable
         return null;
     }
 
-    public static BackendRuntime CreateFromEnvironment()
+    public static BackendRuntime CreateFromEnvironment(Action<IServiceCollection>? configureServices = null)
     {
-        var connectionString = ResolveConnectionString();
+        var serverUrl = Environment.GetEnvironmentVariable("EDGE_RETAILS_SERVER_URL");
+        DesktopApiClient? apiClient = null;
+        ServiceProvider? provider = null;
+        var apiHttpClient = new HttpClient(
+            new DesktopSessionForwardingHandler(
+                () => apiClient?.CurrentSessionId,
+                (sessionId, code) => apiClient?.InvalidateSessionIfMatches(sessionId, code)))
+        {
+            BaseAddress = new Uri(string.IsNullOrWhiteSpace(serverUrl)
+                ? "http://127.0.0.1:7150"
+                : serverUrl.Trim(), UriKind.Absolute),
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+        try
+        {
+            apiClient = new DesktopApiClient(apiHttpClient, ownsClient: true);
+            var services = CreateRemoteDesktopServiceCollection();
+            services.AddSingleton(apiClient);
+            services.AddSingleton(_ => new RemoteApplicationGateway(apiHttpClient));
+            services.AddSingleton<IApplicationGateway>(sp =>
+                sp.GetRequiredService<RemoteApplicationGateway>());
+            configureServices?.Invoke(services);
 
+            provider = services.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateScopes = true,
+                ValidateOnBuild = true
+            });
+
+            return new BackendRuntime(provider, apiClient);
+        }
+        catch
+        {
+            provider?.Dispose();
+            if (apiClient is null)
+            {
+                apiHttpClient.Dispose();
+            }
+            else
+            {
+                apiClient.Dispose();
+            }
+            throw;
+        }
+    }
+
+    public static ServiceCollection CreateDesktopServiceCollection(string connectionString)
+    {
         var services = new ServiceCollection();
+        // Transitional Phase 3 composition: PageViewModelFactory still creates DB-backed
+        // purchasing, product, Thaka, business operations, sales history, workflow, dashboard,
+        // and settings adapters. Wave 2/3 must replace those adapters before removing this
+        // Desktop Infrastructure/connection-string dependency. POS catalog and mutations use HTTP.
         services.AddEdgeRetailsInfrastructure(connectionString);
 
-        var provider = services.BuildServiceProvider(new ServiceProviderOptions
-        {
-            ValidateScopes = true,
-            ValidateOnBuild = true
-        });
+        // Production Desktop explicitly overrides simulated engines with WPF print engines:
+        services.AddSingleton<EdgeRetails.Application.Production.Printing.IPhysicalStickerPrintEngine, EdgeRetails.Desktop.Production.Printing.WpfPhysicalStickerPrintEngine>();
+        services.AddSingleton<EdgeRetails.Application.Production.Printing.IProductionPrintEngine, EdgeRetails.Desktop.Production.Printing.WpfProductionPrintEngine>();
 
-        return new BackendRuntime(provider);
+        return services;
+    }
+
+    public static ServiceCollection CreateRemoteDesktopServiceCollection()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<EdgeRetails.Application.Production.Printing.IPhysicalStickerPrintEngine,
+            EdgeRetails.Desktop.Production.Printing.WpfPhysicalStickerPrintEngine>();
+        services.AddSingleton<EdgeRetails.Application.Production.Printing.IProductionPrintEngine,
+            EdgeRetails.Desktop.Production.Printing.WpfProductionPrintEngine>();
+        return services;
     }
 
     public void Dispose()
     {
+        ApiClient.Dispose();
         _provider.Dispose();
     }
+
+    private sealed record ServerVersion(string ProtocolVersion);
+    private sealed record ServerReady(string Status, bool CanConnect, bool HasPendingMigrations);
+    private sealed record ServerSetupState(bool IsSetupRequired);
 }

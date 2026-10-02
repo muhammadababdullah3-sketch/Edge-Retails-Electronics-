@@ -8,6 +8,7 @@ using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.Warranty;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EdgeRetails.Infrastructure.Repositories;
 
@@ -56,6 +57,53 @@ public sealed class CatalogRepository : ICatalogRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<Company?> GetCompanyAsync(
+        Guid companyId,
+        CancellationToken cancellationToken) =>
+        _db.Companies.SingleOrDefaultAsync(x => x.Id == companyId, cancellationToken);
+
+    public Task<Company?> GetCompanyForUpdateAsync(
+        Guid companyId,
+        CancellationToken cancellationToken) =>
+        _db.Companies
+            .FromSqlInterpolated(
+                $"SELECT * FROM catalog.companies WHERE id = {companyId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<Company?> GetCompanyByCodeAsync(
+        string normalizedCode,
+        CancellationToken cancellationToken) =>
+        _db.Companies.SingleOrDefaultAsync(
+            x => x.Code == normalizedCode,
+            cancellationToken);
+
+    public Task<Company?> GetCompanyByNameAsync(
+        string name,
+        CancellationToken cancellationToken) =>
+        _db.Companies.SingleOrDefaultAsync(
+            x => x.Name.ToLower() == name.ToLower(),
+            cancellationToken);
+
+    public async Task<IReadOnlyList<Company>> GetCompaniesAsync(
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.Companies.AsQueryable();
+        if (!includeInactive)
+        {
+            query = query.Where(x => x.IsActive);
+        }
+
+        return await query.OrderBy(x => x.Name).ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> IsCompanyInUseByActiveProductAsync(
+        Guid companyId,
+        CancellationToken cancellationToken) =>
+        _db.Products.AnyAsync(
+            x => x.IsActive && x.CompanyId == companyId,
+            cancellationToken);
+
     public Task<Category?> GetCategoryAsync(
         Guid categoryId,
         CancellationToken cancellationToken) =>
@@ -68,6 +116,20 @@ public sealed class CatalogRepository : ICatalogRepository
             .FromSqlInterpolated(
                 $"SELECT * FROM catalog.categories WHERE id = {categoryId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<Category?> GetCategoryByIdentitySymbolAsync(
+        string normalizedSymbol,
+        CancellationToken cancellationToken) =>
+        _db.Categories.SingleOrDefaultAsync(
+            x => x.IdentitySymbol == normalizedSymbol,
+            cancellationToken);
+
+    public Task<Category?> GetCategoryByNameAsync(
+        string name,
+        CancellationToken cancellationToken) =>
+        _db.Categories.SingleOrDefaultAsync(
+            x => x.Name.ToLower() == name.ToLower(),
+            cancellationToken);
 
     public async Task<IReadOnlyList<Category>> GetCategoriesAsync(
         bool includeInactive,
@@ -176,6 +238,9 @@ public sealed class CatalogRepository : ICatalogRepository
             .OrderBy(x => x.Id)
             .ToListAsync(cancellationToken);
     }
+
+    public void AddCompany(Company company) =>
+        _db.Companies.Add(company);
 
     public void AddCategory(Category category) =>
         _db.Categories.Add(category);
@@ -323,6 +388,13 @@ public sealed class InventoryRepository : IInventoryRepository
                consumption.Quantity > 0
          select consumption.Id).AnyAsync(cancellationToken);
 
+    public async Task<decimal> GetPurchaseItemReceivedBaseQuantityAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken) =>
+        await _db.InventoryLots
+            .Where(x => x.PurchaseItemId == purchaseItemId)
+            .SumAsync(x => (decimal?)x.ReceivedQuantity, cancellationToken) ?? 0m;
+
     public async Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(
         Guid movementId,
         CancellationToken cancellationToken) =>
@@ -377,6 +449,44 @@ public sealed class InventoryRepository : IInventoryRepository
                (stocktake.Status == StocktakeStatus.Counting ||
                 stocktake.Status == StocktakeStatus.Review)
          select item.Id).AnyAsync(cancellationToken);
+
+    public Task<InventoryMovement?> GetMovementByCorrelationIdAsync(
+        Guid correlationId,
+        CancellationToken cancellationToken) =>
+        _db.InventoryMovements
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.CorrelationId == correlationId, cancellationToken);
+
+    public async Task<IReadOnlyList<InventoryUnit>> GetUnitsForMovementAsync(
+        Guid movementId,
+        CancellationToken cancellationToken) =>
+        await (from mu in _db.InventoryMovementUnits.AsNoTracking()
+               join u in _db.InventoryUnits.AsNoTracking() on mu.InventoryUnitId equals u.Id
+               where mu.MovementId == movementId
+               orderby u.ItemSequence, u.CreatedAt
+               select u)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<InventoryUnit>> GetUnitsByPurchaseItemAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken) =>
+        await _db.InventoryUnits
+            .AsNoTracking()
+            .Where(x => x.SourcePurchaseItemId == purchaseItemId)
+            .OrderBy(x => x.ItemSequence)
+            .ThenBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> GetMovementUnitIdsByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken) =>
+        await (from m in _db.InventoryMovements.AsNoTracking()
+               join mu in _db.InventoryMovementUnits.AsNoTracking() on m.Id equals mu.MovementId
+               where m.ReferenceType == referenceType && m.ReferenceId == referenceId
+               select mu.InventoryUnitId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
 
     public void AddStockBalance(StockBalance balance) => _db.StockBalances.Add(balance);
     public void AddCostState(ProductCostState costState) => _db.ProductCostStates.Add(costState);

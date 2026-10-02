@@ -239,8 +239,12 @@ public sealed class LoginViewModel : ViewModelBase
             return;
         }
 
+        var pinToVerify = _pin;
         IsSigningIn = true;
         HasError = false;
+        HelperText = "Signing in…";
+        Pin = string.Empty;
+        NotifyPinStateChanged();
 
         try
         {
@@ -251,7 +255,7 @@ public sealed class LoginViewModel : ViewModelBase
 
                 if (_identityService.VerifyPin(
                         _selectedAccount.AccountId,
-                        _pin))
+                        pinToVerify))
                 {
                     session = new UserSessionContext(
                         _selectedAccount.DisplayName,
@@ -264,7 +268,7 @@ public sealed class LoginViewModel : ViewModelBase
             {
                 var authenticated = await _backendIdentityService.AuthenticateAsync(
                     _selectedAccount.AccountId,
-                    _pin);
+                    pinToVerify);
 
                 session = new UserSessionContext(
                     authenticated.DisplayName,
@@ -294,7 +298,16 @@ public sealed class LoginViewModel : ViewModelBase
         catch (Exception ex)
         {
             HasError = true;
-            HelperText = $"Sign in unavailable: {ex.Message}";
+            if (ex is DesktopApiException { Code: "network.timeout" })
+            {
+                HelperText = "Sign in timed out. Check the Server connection and try again.";
+            }
+            else
+            {
+                HelperText = DesktopErrorPresentation.ForException(
+                    ex,
+                    "Sign in is unavailable. Check the Server connection and try again.");
+            }
             IsSigningIn = false;
             Pin = string.Empty;
             NotifyPinStateChanged();
@@ -336,7 +349,9 @@ public sealed class LoginViewModel : ViewModelBase
         catch (Exception ex)
         {
             HasError = true;
-            HelperText = $"Accounts unavailable: {ex.Message}";
+            HelperText = DesktopErrorPresentation.ForException(
+                ex,
+                "Accounts could not be loaded. Check the Server connection and try again.");
         }
     }
 

@@ -43,7 +43,7 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
         new(_fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
 
     private PostStocktakeHandler CreatePostStocktakeHandler() =>
-        new(_fakes.Catalog, _fakes.Inventory, _fakes.CostAllocator, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
+        new(_fakes.Catalog, _fakes.Inventory, _fakes.CostAllocator, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock, _fakes.OperationLock, _fakes.OutcomeLedger);
 
     private CancelStocktakeHandler CreateCancelStocktakeHandler() =>
         new(_fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);

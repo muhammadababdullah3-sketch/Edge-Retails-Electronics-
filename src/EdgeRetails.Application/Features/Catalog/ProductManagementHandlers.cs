@@ -8,20 +8,22 @@ namespace EdgeRetails.Application.Features.Catalog;
 
 public sealed record ProductCatalogInput(
     string Name,
-    string Sku,
-    string? Brand,
-    string? Model,
-    Guid? CategoryId,
-    Guid BaseUnitId,
-    TrackingMode TrackingMode,
-    bool SerialTrackingEnabled,
-    bool ImeiTrackingEnabled,
-    decimal? ReferencePurchaseCost,
-    decimal DefaultSalePrice,
-    decimal MinimumStockLevel,
-    int DefaultWarrantyMonths,
-    string? AttributesJson,
-    int AttributesSchemaVersion);
+    string? Sku = null,
+    string? Brand = null,
+    string? Model = null,
+    Guid? CategoryId = null,
+    Guid? CompanyId = null,
+    string? ModelCode = null,
+    Guid BaseUnitId = default,
+    TrackingMode TrackingMode = TrackingMode.Quantity,
+    bool SerialTrackingEnabled = false,
+    bool ImeiTrackingEnabled = false,
+    decimal? ReferencePurchaseCost = null,
+    decimal DefaultSalePrice = 0m,
+    decimal MinimumStockLevel = 0m,
+    int DefaultWarrantyMonths = 0,
+    string? AttributesJson = null,
+    int AttributesSchemaVersion = 1);
 
 public sealed record CreateProductCommand(
     Guid ActorId,
@@ -52,70 +54,92 @@ public sealed record SetSupplierProductActiveCommand(
 
 public sealed record ProductMutationResult(Guid ProductId, long Version);
 
+public sealed record NormalizedProductCatalogData(
+    string Sku,
+    string? ModelCode,
+    Guid? CompanyId);
+
 internal static class ProductCatalogCommandRules
 {
-    public static async Task<Result<string>> ValidateAndNormalizeAsync(
+    public static async Task<Result<NormalizedProductCatalogData>> ValidateAndNormalizeAsync(
         ICatalogRepository catalog,
         ProductCatalogInput input,
         Guid? existingProductId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(input.Name))
+        var name = System.Text.RegularExpressions.Regex.Replace(input.Name?.Trim() ?? string.Empty, @"\s+", " ");
+        if (string.IsNullOrWhiteSpace(name))
         {
-            return Result<string>.Failure(
+            return Result<NormalizedProductCatalogData>.Failure(
                 "catalog.product_name_required",
                 "Product name is required.");
         }
 
-        string normalizedSku;
-        try
+        if (existingProductId is null)
         {
-            normalizedSku = TraceabilityCodeRules.NormalizeSku(input.Sku);
-        }
-        catch (BusinessRuleException ex)
-        {
-            return Result<string>.Failure(ex.Code, ex.Message);
+            if (input.CategoryId is null || input.CategoryId == Guid.Empty)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(
+                    "catalog.category_required",
+                    "Category is required for product creation.");
+            }
         }
 
-        var duplicate = await catalog.GetProductBySkuAsync(normalizedSku, cancellationToken);
-        if (duplicate is not null && duplicate.Id != existingProductId)
+        Category? category = null;
+        if (input.CategoryId is Guid categoryId && categoryId != Guid.Empty)
         {
-            return Result<string>.Failure(
-                "catalog.sku_duplicate",
-                "SKU is already assigned to another product.");
+            category = await catalog.GetCategoryAsync(categoryId, cancellationToken);
+            if (category is null || !category.IsActive)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(
+                    "catalog.category_unavailable",
+                    "Selected category is unavailable.");
+            }
+        }
+
+        Company? company = null;
+        if (input.CompanyId is Guid compId && compId != Guid.Empty)
+        {
+            company = await catalog.GetCompanyAsync(compId, cancellationToken);
+            if (company is null || !company.IsActive)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(
+                    "catalog.company_unavailable",
+                    "Selected company is unavailable.");
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(input.Brand))
+        {
+            company = await catalog.GetCompanyByNameAsync(input.Brand.Trim(), cancellationToken);
+        }
+
+        if (input.BaseUnitId == Guid.Empty)
+        {
+            return Result<NormalizedProductCatalogData>.Failure(
+                "catalog.base_unit_unavailable",
+                "Selected base unit is unavailable.");
         }
 
         var baseUnit = await catalog.GetUnitAsync(input.BaseUnitId, cancellationToken);
         if (baseUnit is null || !baseUnit.IsActive)
         {
-            return Result<string>.Failure(
+            return Result<NormalizedProductCatalogData>.Failure(
                 "catalog.base_unit_unavailable",
                 "Selected base unit is unavailable.");
-        }
-
-        if (input.CategoryId is Guid categoryId)
-        {
-            var category = await catalog.GetCategoryAsync(categoryId, cancellationToken);
-            if (category is null || !category.IsActive)
-            {
-                return Result<string>.Failure(
-                    "catalog.category_unavailable",
-                    "Selected category is unavailable.");
-            }
         }
 
         if (input.ReferencePurchaseCost < 0m ||
             input.DefaultSalePrice < 0m ||
             input.MinimumStockLevel < 0m)
         {
-            return Result<string>.Failure(
+            return Result<NormalizedProductCatalogData>.Failure(
                 "catalog.price_or_threshold_negative",
                 "Prices and minimum stock level cannot be negative.");
         }
 
         if (input.DefaultWarrantyMonths < 0)
         {
-            return Result<string>.Failure(
+            return Result<NormalizedProductCatalogData>.Failure(
                 "catalog.warranty_months_negative",
                 "Default warranty months cannot be negative.");
         }
@@ -136,18 +160,67 @@ internal static class ProductCatalogCommandRules
         }
         catch (BusinessRuleException ex)
         {
-            return Result<string>.Failure(ex.Code, ex.Message);
+            return Result<NormalizedProductCatalogData>.Failure(ex.Code, ex.Message);
         }
 
-        return Result<string>.Success(normalizedSku);
+        string? normalizedModelCode = null;
+        if (!string.IsNullOrWhiteSpace(input.ModelCode))
+        {
+            try
+            {
+                normalizedModelCode = TraceabilityCodeRules.NormalizeModelCode(input.ModelCode);
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(ex.Code, ex.Message);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(input.Model))
+        {
+            normalizedModelCode = TraceabilityCodeRules.SuggestModelCode(input.Model);
+        }
+
+        string normalizedSku;
+        if (company is not null && category is not null && !string.IsNullOrWhiteSpace(normalizedModelCode))
+        {
+            normalizedSku = TraceabilityCodeRules.BuildProductCode(company.Code, category.IdentitySymbol, normalizedModelCode);
+        }
+        else if (!string.IsNullOrWhiteSpace(input.Sku))
+        {
+            try
+            {
+                normalizedSku = TraceabilityCodeRules.NormalizeSku(input.Sku);
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(ex.Code, ex.Message);
+            }
+        }
+        else
+        {
+            normalizedSku = TraceabilityCodeRules.SuggestProductCode(input.Brand, name, input.Model, category?.Name);
+        }
+
+        var duplicate = await catalog.GetProductBySkuAsync(normalizedSku, cancellationToken);
+        if (duplicate is not null && duplicate.Id != existingProductId)
+        {
+            return Result<NormalizedProductCatalogData>.Failure(
+                "catalog.sku_duplicate",
+                $"SKU '{normalizedSku}' is already assigned to another product.");
+        }
+
+        return Result<NormalizedProductCatalogData>.Success(
+            new NormalizedProductCatalogData(normalizedSku, normalizedModelCode, company?.Id ?? input.CompanyId));
     }
 
-    public static void Apply(Product product, ProductCatalogInput input, string normalizedSku)
+    public static void Apply(Product product, ProductCatalogInput input, NormalizedProductCatalogData normalized)
     {
-        product.Name = input.Name.Trim();
-        product.Sku = normalizedSku;
+        product.Name = System.Text.RegularExpressions.Regex.Replace(input.Name.Trim(), @"\s+", " ");
+        product.Sku = normalized.Sku;
         product.Brand = NormalizeOptional(input.Brand);
         product.Model = NormalizeOptional(input.Model);
+        product.ModelCode = normalized.ModelCode;
+        product.CompanyId = normalized.CompanyId;
         product.CategoryId = input.CategoryId;
         product.BaseUnitId = input.BaseUnitId;
         product.TrackingMode = input.TrackingMode;
@@ -292,6 +365,70 @@ public sealed class UpdateProductHandler
                     "Product was changed by another operation. Refresh and try again.");
             }
 
+            var incomingSku = !string.IsNullOrWhiteSpace(command.Product.Sku)
+                ? command.Product.Sku
+                : product.Sku;
+
+            if (!string.IsNullOrWhiteSpace(incomingSku))
+            {
+                try
+                {
+                    var normalizedIncomingSku = TraceabilityCodeRules.NormalizeSku(incomingSku);
+                    if (!string.Equals(product.Sku, normalizedIncomingSku, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                        {
+                            return Result<ProductMutationResult>.Failure(
+                                "catalog.sku_immutable",
+                                "Product SKU is permanent and cannot be modified once stock or inventory history exists.");
+                        }
+                    }
+                }
+                catch (BusinessRuleException ex)
+                {
+                    return Result<ProductMutationResult>.Failure(ex.Code, ex.Message);
+                }
+            }
+
+            var incomingModelCode = !string.IsNullOrWhiteSpace(command.Product.ModelCode)
+                ? TraceabilityCodeRules.NormalizeModelCode(command.Product.ModelCode)
+                : (!string.IsNullOrWhiteSpace(command.Product.Model)
+                    ? TraceabilityCodeRules.SuggestModelCode(command.Product.Model)
+                    : product.ModelCode);
+
+            if (!string.IsNullOrWhiteSpace(product.ModelCode) &&
+                !string.Equals(product.ModelCode, incomingModelCode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                {
+                    return Result<ProductMutationResult>.Failure(
+                        "catalog.model_code_immutable",
+                        "Product ModelCode is permanent and cannot be modified once stock or inventory history exists.");
+                }
+            }
+
+            if (product.CompanyId.HasValue && command.Product.CompanyId.HasValue &&
+                product.CompanyId.Value != command.Product.CompanyId.Value)
+            {
+                if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                {
+                    return Result<ProductMutationResult>.Failure(
+                        "catalog.company_immutable",
+                        "Product company cannot be modified once stock or inventory history exists.");
+                }
+            }
+
+            if (product.CategoryId.HasValue && command.Product.CategoryId.HasValue &&
+                product.CategoryId.Value != command.Product.CategoryId.Value)
+            {
+                if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                {
+                    return Result<ProductMutationResult>.Failure(
+                        "catalog.category_immutable",
+                        "Product category cannot be modified once stock or inventory history exists.");
+                }
+            }
+
             if (product.BaseUnitId != command.Product.BaseUnitId)
             {
                 return Result<ProductMutationResult>.Failure(
@@ -314,7 +451,7 @@ public sealed class UpdateProductHandler
 
             var validation = await ProductCatalogCommandRules.ValidateAndNormalizeAsync(
                 _catalog,
-                command.Product,
+                command.Product with { Sku = incomingSku },
                 product.Id,
                 ct);
             if (!validation.IsSuccess || validation.Value is null)

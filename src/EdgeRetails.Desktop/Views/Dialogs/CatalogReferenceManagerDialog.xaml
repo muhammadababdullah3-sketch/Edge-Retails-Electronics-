@@ -37,7 +37,7 @@
                           MinHeight="400">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="NAME" Binding="{Binding Name}" Width="*" />
-                        <DataGridTextColumn Header="SYMBOL" Binding="{Binding Symbol}" Width="85" />
+                        <DataGridTextColumn Header="SYMBOL / CODE" Binding="{Binding Symbol}" Width="110" />
                         <DataGridTextColumn Header="STATUS" Binding="{Binding StatusDisplay}" Width="85" />
                         <DataGridTemplateColumn Header="ACTION" Width="90">
                             <DataGridTemplateColumn.CellTemplate>
@@ -73,11 +73,15 @@
                                  Style="{StaticResource Input.TextBox}" />
 
                         <StackPanel Margin="0,12,0,0"
-                                    Visibility="{Binding IsUnitMode, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="Symbol" Margin="0,0,0,5" FontSize="12" />
+                                    Visibility="{Binding HasSymbol, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="{Binding SymbolLabel}" Margin="0,0,0,5" FontSize="12" />
                             <TextBox Text="{Binding Symbol, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource Input.TextBox}" />
-                            <TextBlock Text="Display decimal places" Margin="0,12,0,5" FontSize="12" />
+                        </StackPanel>
+
+                        <StackPanel Margin="0,12,0,0"
+                                    Visibility="{Binding IsUnitMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Display decimal places" Margin="0,0,0,5" FontSize="12" />
                             <TextBox Text="{Binding DecimalPlacesText, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource Input.TextBox}" />
                         </StackPanel>

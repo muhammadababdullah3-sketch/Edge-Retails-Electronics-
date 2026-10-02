@@ -55,6 +55,7 @@ public sealed class PurchaseItemRecord
     public decimal? BackendEligibleReturnQuantity { get; set; }
     public required PosProductItemViewModel Product { get; init; }
     public decimal PurchasedQuantity { get; init; }
+    public decimal? ReceivedQuantity { get; init; }
     public decimal UsedQuantity { get; set; }
     public decimal ReturnedQuantity { get; set; }
     public decimal Cost { get; init; }
@@ -79,6 +80,7 @@ public sealed class PurchaseRecord
     public bool IsVoided { get; init; }
     public required string PurchaseNumber { get; init; }
     public required string Supplier { get; init; }
+    public string? SupplierCode { get; init; }
     public required string InvoiceNumber { get; init; }
     public DateTime Date { get; init; }
     public string Note { get; init; } = string.Empty;

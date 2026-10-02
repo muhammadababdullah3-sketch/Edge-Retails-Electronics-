@@ -77,7 +77,11 @@ public sealed record PurchaseDocumentLineDto(
     decimal EffectiveLineCost,
     decimal SalePriceAtPurchase,
     decimal ReturnedBaseQuantity,
-    decimal EligibleBaseReturnQuantity);
+    decimal EligibleBaseReturnQuantity,
+    decimal? ReceivedBaseQuantity = null,
+    EdgeRetails.Domain.Catalog.TrackingMode? TrackingMode = null,
+    bool SerialTrackingEnabled = false,
+    bool ImeiTrackingEnabled = false);
 
 public sealed record PurchaseReturnSummaryDto(
     Guid PurchaseReturnId,
@@ -102,7 +106,8 @@ public sealed record PurchaseDocumentDto(
     PurchaseSettlementMode SettlementMode,
     DateTimeOffset CreatedAt,
     IReadOnlyList<PurchaseDocumentLineDto> Items,
-    IReadOnlyList<PurchaseReturnSummaryDto> Returns);
+    IReadOnlyList<PurchaseReturnSummaryDto> Returns,
+    string? SupplierCode = null);
 
 public sealed record GetPurchaseDocumentQuery(Guid PurchaseId);
 public sealed record GetPurchaseDetailQuery(Guid PurchaseId);
@@ -150,6 +155,10 @@ public interface IPurchasingReadService
 
     Task<IReadOnlyList<PurchaseReturnHistoryRowDto>> GetReturnHistoryAsync(
         GetPurchaseReturnHistoryQuery query,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CommittedInventoryUnitDto>> GetUnitsForPurchaseItemAsync(
+        Guid purchaseItemId,
         CancellationToken cancellationToken);
 }
 

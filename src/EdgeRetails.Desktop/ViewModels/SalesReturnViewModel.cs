@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
 
@@ -137,6 +138,7 @@ public sealed class SalesReturnViewModel : ViewModelBase
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
     private readonly ITransactionService _transactionService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private readonly DemoRetailState? _previewRetailState;
 
     private ReturnDisposition _selectedDisposition = ReturnDisposition.CustomerChangedMind;
@@ -152,7 +154,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
         IToastService? toastService = null,
         IDrawerService? drawerService = null,
         IDialogService? dialogService = null,
-        ITransactionService? transactionService = null)
+        ITransactionService? transactionService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
 
@@ -161,6 +164,7 @@ public sealed class SalesReturnViewModel : ViewModelBase
         _onClose = onClose;
         _toastService = toastService;
         _transactionService = ResolveTransactionService(transactionService);
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _previewRetailState = ResolvePreviewRetailState(transactionService);
 
         ReasonOptions = new ReadOnlyCollection<ReturnReasonOptionViewModel>(
@@ -334,8 +338,31 @@ public sealed class SalesReturnViewModel : ViewModelBase
                 })
                 .ToArray();
 
+            var operationKey = GetOperationKey();
+            var operationPayload = JsonSerializer.Serialize(new
+            {
+                InvoiceNumber = Sale.InvoiceDisplay,
+                Disposition = MapDisposition(SelectedDisposition),
+                RefundMethod,
+                Notes = ReturnNotes.Trim(),
+                TotalRefundAmount = TotalReturnAmount,
+                Items = requestItems
+                    .OrderBy(item => item.ProductId, StringComparer.Ordinal)
+                    .ThenBy(item => item.Sku, StringComparer.Ordinal)
+                    .Select(item => new
+                    {
+                        item.ProductId,
+                        item.Sku,
+                        item.Quantity,
+                        item.RefundAmount
+                    })
+                    .ToArray()
+            });
+            var operationId = _operationIntents.GetOrCreate(operationKey, operationPayload);
+
             var request = new RecordSaleReturnRequest
             {
+                ClientOperationId = operationId,
                 InvoiceNumber = Sale.InvoiceDisplay,
                 Disposition = MapDisposition(SelectedDisposition),
                 RefundMethod = RefundMethod,
@@ -345,6 +372,7 @@ public sealed class SalesReturnViewModel : ViewModelBase
             };
 
             var record = await _transactionService.RecordReturnAsync(request);
+            _operationIntents.Complete(operationKey, operationId);
 #if DEBUG
             _previewRetailState?.ApplySaleReturnStock(record);
 #endif
@@ -388,7 +416,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The sale return could not be confirmed. Check operation status before retrying.");
         }
         finally
         {
@@ -433,6 +463,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
         OnPropertyChanged(nameof(TotalReturnQuantityDisplay));
         Validate();
     }
+
+    private string GetOperationKey() =>
+        $"sales:return:{Sale.InvoiceNumber}:{Sale.InvoiceDisplay}";
 
     private void Validate()
     {

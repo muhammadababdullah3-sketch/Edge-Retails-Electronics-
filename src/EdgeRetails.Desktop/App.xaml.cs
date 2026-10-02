@@ -1,7 +1,10 @@
 using System.Windows;
+using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Desktop.Navigation;
+using EdgeRetails.Desktop.Production.Printing;
 using EdgeRetails.Desktop.Services;
 using EdgeRetails.Desktop.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop;
 
@@ -21,10 +24,12 @@ public partial class App : System.Windows.Application
         DispatcherUnhandledException += (s, args) =>
         {
             MessageBox.Show(
-                $"An unexpected application error occurred:\n\n{args.Exception.Message}",
+                "An unexpected application error occurred. Restart Edge Retails and check local diagnostics if it continues.",
                 "Application Error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            args.Handled = true;
+            Shutdown();
         };
 
         _themeService = new ThemeService();
@@ -73,7 +78,7 @@ public partial class App : System.Windows.Application
         {
             try
             {
-                _backendRuntime = BackendRuntime.CreateFromEnvironment();
+                _backendRuntime = BackendRuntime.CreateFromEnvironment(ConfigureDesktopServices);
             }
             catch (Exception ex)
             {
@@ -93,10 +98,42 @@ public partial class App : System.Windows.Application
         var setupRequired = forceSetupPreview;
         if (_backendRuntime is not null)
         {
-            var startup = await _backendRuntime.CheckStartupAsync();
+            BackendStartupState startup;
+            try
+            {
+                startup = await _backendRuntime.CheckStartupAsync();
+            }
+            catch (Exception ex)
+            {
+                var failure = StartupFailureClassifier.Classify(ex);
+                MessageBox.Show(
+                    $"[{failure.Code}] {failure.Title}\n\n{failure.ErrorMessage}\n\n{failure.RemediationGuidance}",
+                    $"Edge Retails — {failure.Title}",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                _backendRuntime.Dispose();
+                _backendRuntime = null;
+                Shutdown();
+                return;
+            }
 
             if (!startup.IsReady)
             {
+                if (startup.FailureReason is not null &&
+                    (startup.FailureReason.StartsWith("[", StringComparison.Ordinal) ||
+                     startup.FailureReason.StartsWith("Terminal", StringComparison.Ordinal)))
+                {
+                    MessageBox.Show(
+                        startup.FailureReason,
+                        "Edge Retails — Local Server unavailable",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    _backendRuntime.Dispose();
+                    _backendRuntime = null;
+                    Shutdown();
+                    return;
+                }
+
                 var failure = StartupFailureClassifier.ClassifyDatabaseFailure(
                     startup.FailureReason,
                     startup.PendingMigrations);
@@ -146,5 +183,12 @@ public partial class App : System.Windows.Application
         _backendRuntime?.Dispose();
 
         base.OnExit(e);
+    }
+
+    public static void ConfigureDesktopServices(IServiceCollection services)
+    {
+        // Explicitly override simulated print engines with WPF production implementations:
+        services.AddSingleton<IPhysicalStickerPrintEngine, WpfPhysicalStickerPrintEngine>();
+        services.AddSingleton<IProductionPrintEngine, WpfProductionPrintEngine>();
     }
 }

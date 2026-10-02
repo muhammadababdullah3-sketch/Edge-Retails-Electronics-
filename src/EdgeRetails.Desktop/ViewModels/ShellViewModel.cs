@@ -166,7 +166,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         _clock.Tick -= OnClockTick;
     }
 
-    private static NavigationItemViewModel CreateNavigationItem(
+    private NavigationItemViewModel CreateNavigationItem(
         string title,
         NavigationTarget target,
         string iconResourceKey)
@@ -175,7 +175,12 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
             ?? throw new InvalidOperationException(
                 $"Navigation icon resource '{iconResourceKey}' was not found.");
 
-        return new NavigationItemViewModel(title, target, icon);
+        return NavigationItemViewModel.CreateForSession(
+            title,
+            target,
+            icon,
+            _sessionContext,
+            _permissionService);
     }
 
     private void Navigate(NavigationTarget target)

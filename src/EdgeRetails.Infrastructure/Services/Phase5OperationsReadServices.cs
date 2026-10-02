@@ -23,9 +23,15 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
         DateTimeOffset? beforeOccurredAt = null,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeEntryId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? beforePaymentPaidAt = null,
+        Guid? beforePaymentId = null,
+        DateTimeOffset? beforeRefundReceivedAt = null,
+        Guid? beforeRefundId = null,
+        string? beforeProductName = null,
+        Guid? beforeProductId = null)
     {
-        var take = Math.Clamp(pageSize, 1, 200);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
 
         var statementQuery = _db.SupplierAccountEntries.AsNoTracking()
             .Where(x => x.SupplierId == supplierId);
@@ -56,8 +62,9 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
                     (x.OccurredAt < oldest.OccurredAt ||
                      (x.OccurredAt == oldest.OccurredAt && x.CreatedAt < oldest.CreatedAt) ||
                      (x.OccurredAt == oldest.OccurredAt && x.CreatedAt == oldest.CreatedAt && x.Id < oldest.Id)))
-                .Select(x => (decimal?)x.SignedAmount)
-                .SumAsync(cancellationToken) ?? 0m;
+                .SumAsync(
+                    x => x.Direction == SupplierAccountDirection.IncreasePayable ? x.Amount : -x.Amount,
+                    cancellationToken);
         }
 
         var running = openingBalance;
@@ -79,6 +86,7 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
                     entry.ReferenceType,
                     entry.ReferenceId,
                     entry.OccurredAt,
+                    entry.CreatedAt,
                     entry.ActorId,
                     entry.ClientOperationId,
                     entry.Note);
@@ -90,7 +98,7 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
             .GroupBy(_ => 1)
             .Select(group => new
             {
-                Balance = group.Sum(x => x.SignedAmount),
+                Balance = group.Sum(x => x.Direction == SupplierAccountDirection.IncreasePayable ? x.Amount : -x.Amount),
                 GrossPurchased = group.Where(x => x.EntryType == SupplierAccountEntryType.Purchase).Sum(x => x.Amount),
                 PurchaseReturnCredits = group.Where(x => x.EntryType == SupplierAccountEntryType.PurchaseReturnCredit).Sum(x => x.Amount),
                 PurchaseVoidReversals = group.Where(x => x.EntryType == SupplierAccountEntryType.PurchaseVoidReversal).Sum(x => x.Amount),
@@ -111,8 +119,15 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
         var netPaid = decimal.Round(aggregate?.NetPaid ?? 0m, 2);
         var netRefunds = decimal.Round(aggregate?.NetRefunds ?? 0m, 2);
 
-        var payments = await _db.SupplierPayments.AsNoTracking()
-            .Where(x => x.SupplierId == supplierId)
+        var paymentsQuery = _db.SupplierPayments.AsNoTracking()
+            .Where(x => x.SupplierId == supplierId);
+        if (beforePaymentPaidAt is DateTimeOffset paymentAt && beforePaymentId is Guid paymentId)
+        {
+            paymentsQuery = paymentsQuery.Where(x =>
+                x.PaidAt < paymentAt ||
+                (x.PaidAt == paymentAt && x.Id.CompareTo(paymentId) < 0));
+        }
+        var payments = await paymentsQuery
             .OrderByDescending(x => x.PaidAt)
             .ThenByDescending(x => x.Id)
             .Take(take)
@@ -128,8 +143,15 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
                 x.Note))
             .ToListAsync(cancellationToken);
 
-        var refunds = await _db.SupplierRefunds.AsNoTracking()
-            .Where(x => x.SupplierId == supplierId)
+        var refundsQuery = _db.SupplierRefunds.AsNoTracking()
+            .Where(x => x.SupplierId == supplierId);
+        if (beforeRefundReceivedAt is DateTimeOffset refundAt && beforeRefundId is Guid refundId)
+        {
+            refundsQuery = refundsQuery.Where(x =>
+                x.ReceivedAt < refundAt ||
+                (x.ReceivedAt == refundAt && x.Id.CompareTo(refundId) < 0));
+        }
+        var refunds = await refundsQuery
             .OrderByDescending(x => x.ReceivedAt)
             .ThenByDescending(x => x.Id)
             .Take(take)
@@ -146,7 +168,7 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
                 x.Note))
             .ToListAsync(cancellationToken);
 
-        var products = await (
+        var productsQuery = (
             from supplierProduct in _db.SupplierProducts.AsNoTracking()
             join product in _db.Products.AsNoTracking()
                 on supplierProduct.ProductId equals product.Id
@@ -157,7 +179,14 @@ public sealed class SupplierAccountReadService : ISupplierAccountReadService
                 product.Id,
                 product.Name,
                 product.Sku,
-                supplierProduct.IsActive))
+                supplierProduct.IsActive));
+        if (!string.IsNullOrWhiteSpace(beforeProductName) && beforeProductId is Guid cursorProductId)
+        {
+            productsQuery = productsQuery.Where(x =>
+                x.ProductName.CompareTo(beforeProductName) > 0 ||
+                (x.ProductName == beforeProductName && x.ProductId.CompareTo(cursorProductId) > 0));
+        }
+        var products = await productsQuery
             .Take(take)
             .ToListAsync(cancellationToken);
 
@@ -255,17 +284,20 @@ public sealed class WarrantyReadService : IWarrantyReadService
         int pageSize = 100,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeWorkId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WarrantyWorkKind? beforeWorkKind = null)
     {
-        var take = Math.Clamp(pageSize, 1, 200);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
         var term = search?.Trim();
 
         var claimsBase = _db.WarrantyClaims.AsNoTracking();
-        if (beforeCreatedAt is DateTimeOffset cursorAt && beforeWorkId is Guid cursorId)
+        if (beforeCreatedAt is DateTimeOffset cursorAt && beforeWorkId is Guid cursorId && beforeWorkKind is WarrantyWorkKind cursorKind)
         {
             claimsBase = claimsBase.Where(x =>
                 x.ReceivedAt < cursorAt ||
-                (x.ReceivedAt == cursorAt && x.Id < cursorId));
+                (x.ReceivedAt == cursorAt &&
+                    (cursorKind > WarrantyWorkKind.CustomerClaim ||
+                     (cursorKind == WarrantyWorkKind.CustomerClaim && x.Id < cursorId))));
         }
 
         if (!string.IsNullOrWhiteSpace(term))
@@ -362,11 +394,13 @@ public sealed class WarrantyReadService : IWarrantyReadService
             .ToListAsync(cancellationToken);
 
         var caseBase = _db.ShopStockWarrantyCases.AsNoTracking();
-        if (beforeCreatedAt is DateTimeOffset caseCursorAt && beforeWorkId is Guid caseCursorId)
+        if (beforeCreatedAt is DateTimeOffset caseCursorAt && beforeWorkId is Guid caseCursorId && beforeWorkKind is WarrantyWorkKind caseCursorKind)
         {
             caseBase = caseBase.Where(x =>
                 x.CreatedAt < caseCursorAt ||
-                (x.CreatedAt == caseCursorAt && x.Id < caseCursorId));
+                (x.CreatedAt == caseCursorAt &&
+                    (caseCursorKind < WarrantyWorkKind.ShopStock ||
+                     (caseCursorKind == WarrantyWorkKind.ShopStock && x.Id < caseCursorId))));
         }
 
         if (!string.IsNullOrWhiteSpace(term))

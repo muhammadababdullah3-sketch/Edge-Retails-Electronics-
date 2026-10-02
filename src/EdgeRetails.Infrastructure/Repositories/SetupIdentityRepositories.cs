@@ -102,7 +102,36 @@ public sealed class IdentityReadRepository : IIdentityReadRepository
         CancellationToken cancellationToken) =>
         _db.Roles
             .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == roleId, cancellationToken); public async Task<IReadOnlySet<string>> GetEffectivePermissionKeysAsync(
+            .SingleOrDefaultAsync(x => x.Id == roleId, cancellationToken);
+
+    public async Task<IReadOnlyList<Role>> GetRolesAsync(
+        CancellationToken cancellationToken = default) =>
+        await _db.Roles
+            .AsNoTracking()
+            .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<string>> GetRolePermissionKeysAsync(
+        Guid roleId,
+        CancellationToken cancellationToken = default) =>
+        await (
+            from rolePermission in _db.RolePermissions
+            join permission in _db.Permissions
+                on rolePermission.PermissionId equals permission.Id
+            where rolePermission.RoleId == roleId && permission.IsActive
+            orderby permission.Key
+            select permission.Key)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Permission>> GetPermissionsAsync(
+        CancellationToken cancellationToken = default) =>
+        await _db.Permissions
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Key)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlySet<string>> GetEffectivePermissionKeysAsync(
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -111,6 +140,15 @@ public sealed class IdentityReadRepository : IIdentityReadRepository
             .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
 
         if (user is null || user.Status != UserStatus.Active)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var role = await _db.Roles
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == user.RoleId, cancellationToken);
+
+        if (role is null || !role.IsActive)
         {
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
@@ -146,6 +184,85 @@ public sealed class IdentityReadRepository : IIdentityReadRepository
     }
 }
 
+public sealed class IdentityCredentialRecoveryRepository
+    : IIdentityCredentialRecoveryRepository
+{
+    private static readonly string[] RecoveryActions =
+    [
+        "USER_PIN_RECOVERY_SUCCEEDED",
+        "USER_PIN_RECOVERY_AUTHORIZATION_CONSUMED"
+    ];
+
+    private readonly EdgeRetailsDbContext _db;
+
+    public IdentityCredentialRecoveryRepository(EdgeRetailsDbContext db) => _db = db;
+
+    public async Task<IReadOnlyList<PinRecoveryTarget>> GetActiveOwnerTargetsAsync(
+        CancellationToken cancellationToken) =>
+        await (
+            from user in _db.Users.AsNoTracking()
+            join role in _db.Roles.AsNoTracking() on user.RoleId equals role.Id
+            where user.Status == UserStatus.Active && role.IsActive && role.Name == "Owner"
+            orderby user.DisplayName, user.Id
+            select new PinRecoveryTarget(user.Id, user.DisplayName))
+            .ToListAsync(cancellationToken);
+
+    public Task<User?> GetUserForRecoveryUpdateAsync(
+        Guid userId,
+        CancellationToken cancellationToken) =>
+        _db.Users.SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
+
+    public Task<bool> HasRecoveryOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken) =>
+        _db.BusinessAuditEvents.AnyAsync(
+            x => x.CorrelationId == operationId && RecoveryActions.Contains(x.Action),
+            cancellationToken);
+
+    public async Task RevokeActiveSessionsAsync(
+        Guid userId,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken)
+    {
+        var sessions = await _db.UserSessions
+            .Where(x => x.UserId == userId && !x.IsRevoked && x.EndedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var session in sessions)
+        {
+            session.IsRevoked = true;
+            session.EndedAt = revokedAt;
+        }
+    }
+
+    public async Task<bool> TrySaveRecoveryChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // SaveChanges is atomic. Drop stale user/session/audit state before
+            // the handler writes a separate, safe denial audit event.
+            _db.ChangeTracker.Clear();
+            return false;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException
+        {
+            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "ux_business_events_pin_recovery_consumed_nonce" or
+                "ux_business_events_pin_recovery_success_operation"
+        })
+        {
+            // A concurrent request attempted to consume or complete the same signed nonce.
+            // The failed SaveChanges is atomic; discard every stale mutation.
+            _db.ChangeTracker.Clear();
+            return false;
+        }
+    }
+}
+
 public sealed class IdentitySessionRepository : IIdentitySessionRepository
 {
     private readonly EdgeRetailsDbContext _db;
@@ -157,6 +274,13 @@ public sealed class IdentitySessionRepository : IIdentitySessionRepository
 
     public void AddSession(UserSession session) =>
         _db.UserSessions.Add(session);
+
+    public Task<UserSession?> GetSessionAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken) =>
+        _db.UserSessions
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
 
     public Task<UserSession?> GetSessionForUpdateAsync(
         Guid sessionId,

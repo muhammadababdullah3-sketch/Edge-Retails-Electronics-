@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
@@ -14,7 +15,9 @@ public sealed record CompleteSaleLineInput(
     Guid ProductUnitId,
     decimal EnteredQuantity,
     decimal ExpectedUnitPrice,
-    IReadOnlyList<Guid> InventoryUnitIds);
+    IReadOnlyList<Guid> InventoryUnitIds,
+    decimal? PriceOverrideUnitPrice = null,
+    string? PriceOverrideReason = null);
 
 public sealed record CompleteSaleCommand(
     Guid ClientOperationId,
@@ -40,7 +43,10 @@ internal sealed record PreparedSaleLine(
     Product Product,
     ProductUnit ProductUnit,
     TransactionQuantitySnapshot Quantity,
+    decimal ListUnitPrice,
     decimal UnitPrice,
+    string? PriceOverrideReason,
+    Guid? PriceOverrideBy,
     decimal GrossLineTotal,
     IReadOnlyList<InventoryUnit> SerializedUnits);
 
@@ -62,6 +68,7 @@ public sealed class CompleteSaleHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CompleteSaleHandler(
         ISalesRepository sales,
@@ -79,7 +86,8 @@ public sealed class CompleteSaleHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _sales = sales;
         _quotations = quotations;
@@ -97,28 +105,29 @@ public sealed class CompleteSaleHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<CompleteSaleResult>> HandleAsync(
+    public async Task<Result<CompleteSaleResult>> HandleAsync(
         CompleteSaleCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty || command.Lines.Count == 0)
         {
-            return Task.FromResult(Result<CompleteSaleResult>.Failure(
+            return Result<CompleteSaleResult>.Failure(
                 "sales.invalid_request",
-                "Sale requires an operation id and at least one item."));
+                "Sale requires an operation id and at least one item.");
         }
 
         if (command.Lines.GroupBy(x => new { x.ProductId, x.ProductUnitId })
             .Any(g => g.Count() > 1))
         {
-            return Task.FromResult(Result<CompleteSaleResult>.Failure(
+            return Result<CompleteSaleResult>.Failure(
                 "sales.duplicate_line",
-                "The same product and unit may appear only once in the cart."));
+                "The same product and unit may appear only once in the cart.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.CashierUserId,
@@ -138,11 +147,23 @@ public sealed class CompleteSaleHandler
                 ct);
             if (existing is not null)
             {
-                if (existing.CustomerId != command.CustomerId)
+                if (!await MatchesExistingSalePayloadAsync(existing, command, ct))
                 {
                     return Result<CompleteSaleResult>.Failure(
                         "idempotency.payload_mismatch",
-                        "Operation was previously submitted with a different customer.");
+                        "Operation was previously submitted with different sale details.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "Sale",
+                        existing.Id,
+                        existing.InvoiceNumber,
+                        actorId: command.CashierUserId,
+                        sessionId: command.SessionId,
+                        cancellationToken: ct);
                 }
 
                 var payment = await _sales.GetSalePaymentAsync(existing.Id, ct);
@@ -160,6 +181,17 @@ public sealed class CompleteSaleHandler
                 .OrderBy(x => x))
             {
                 await _resourceLock.AcquireAsync("product", productId, ct);
+            }
+
+            var serializedUnitIds = command.Lines
+                .SelectMany(x => x.InventoryUnitIds)
+                .Distinct()
+                .OrderBy(x => x)
+                .ToArray();
+
+            foreach (var unitId in serializedUnitIds)
+            {
+                await _resourceLock.AcquireAsync("inventory-unit", unitId, ct);
             }
 
             try
@@ -257,6 +289,7 @@ public sealed class CompleteSaleHandler
                     products,
                     quotation,
                     quotationItems,
+                    command.CashierUserId,
                     ct);
 
                 foreach (var group in prepared.GroupBy(x => x.Product.Id))
@@ -398,7 +431,10 @@ public sealed class CompleteSaleHandler
                         EnteredQuantity = line.Quantity.EnteredQuantity,
                         FactorToBaseSnapshot = line.Quantity.FactorToBaseSnapshot,
                         BaseQuantity = line.Quantity.BaseQuantity,
+                        ListUnitPriceSnapshot = line.ListUnitPrice,
                         UnitPrice = line.UnitPrice,
+                        PriceOverrideReason = line.PriceOverrideReason,
+                        PriceOverrideBy = line.PriceOverrideBy,
                         GrossLineTotal = line.GrossLineTotal,
                         AllocatedInvoiceDiscount = allocatedDiscount,
                         NetLineTotal = netLineTotal,
@@ -481,6 +517,18 @@ public sealed class CompleteSaleHandler
                     command.ClientOperationId,
                     $"Invoice {sale.InvoiceNumber}; total {sale.GrandTotal:0.00}; payment {command.PaymentMethod}.");
 
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "Sale",
+                        sale.Id,
+                        sale.InvoiceNumber,
+                        actorId: command.CashierUserId,
+                        sessionId: command.SessionId,
+                        cancellationToken: ct);
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
 
                 return Result<CompleteSaleResult>.Success(new(
@@ -495,6 +543,20 @@ public sealed class CompleteSaleHandler
                 return Result<CompleteSaleResult>.Failure(ex.Code, ex.Message);
             }
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "Sale",
+                result.Error?.Code ?? "sale.failed",
+                result.Error?.Message ?? "Sale completion failed.",
+                actorId: command.CashierUserId,
+                sessionId: command.SessionId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<IReadOnlyList<PreparedSaleLine>> PrepareLinesAsync(
@@ -502,6 +564,7 @@ public sealed class CompleteSaleHandler
         IReadOnlyDictionary<Guid, Product> products,
         Quotation? quotation,
         IReadOnlyList<QuotationItem> quotationItems,
+        Guid cashierUserId,
         CancellationToken ct)
     {
         var result = new List<PreparedSaleLine>(inputs.Count);
@@ -556,6 +619,20 @@ public sealed class CompleteSaleHandler
                 authoritativePrice = matchingQuoteItems[0].QuotedUnitPrice;
             }
 
+            if (input.PriceOverrideUnitPrice is null && !string.IsNullOrWhiteSpace(input.PriceOverrideReason))
+            {
+                throw new BusinessRuleException(
+                    "sales.price_override_reason_without_price",
+                    "A price override reason requires an override price.");
+            }
+
+            if (input.PriceOverrideUnitPrice is decimal negativePrice && negativePrice < 0m)
+            {
+                throw new BusinessRuleException(
+                    "sales.price_override_invalid",
+                    "Final override price cannot be negative.");
+            }
+
             if (Money(input.ExpectedUnitPrice) != authoritativePrice)
             {
                 throw new BusinessRuleException(
@@ -563,12 +640,47 @@ public sealed class CompleteSaleHandler
                     $"Price changed for '{product.Name}'. Recalculate the cart.");
             }
 
+            var finalUnitPrice = authoritativePrice;
+            string? overrideReason = null;
+            Guid? overrideBy = null;
+            if (input.PriceOverrideUnitPrice is decimal requestedOverride)
+            {
+                var reason = input.PriceOverrideReason?.Trim();
+                if (string.IsNullOrWhiteSpace(reason))
+                {
+                    throw new BusinessRuleException(
+                        "sales.price_override_reason_required",
+                        "A reason is required for a one-sale price override.");
+                }
+
+                if (reason.Length > 500)
+                {
+                    throw new BusinessRuleException(
+                        "sales.price_override_reason_too_long",
+                        "Price override reason must be 500 characters or fewer.");
+                }
+
+                var permission = await _authorization.AuthorizeAsync(
+                    cashierUserId,
+                    PermissionKeys.SalesPriceOverride,
+                    ct);
+                if (!permission.IsSuccess)
+                {
+                    throw new BusinessRuleException(
+                        permission.Error?.Code ?? "authorization.denied",
+                        permission.Error?.Message ?? "Price override permission is required.");
+                }
+
+                finalUnitPrice = Money(requestedOverride);
+                overrideReason = reason;
+                overrideBy = cashierUserId;
+            }
+
             IReadOnlyList<InventoryUnit> serializedUnits = Array.Empty<InventoryUnit>();
             if (product.TrackingMode == TrackingMode.Serialized)
             {
                 if (!QuantityMath.IsWhole(quantity.BaseQuantity) ||
-                    input.InventoryUnitIds.Count != decimal.ToInt32(quantity.BaseQuantity) ||
-                    input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
+                    input.InventoryUnitIds.Count != decimal.ToInt32(quantity.BaseQuantity))
                 {
                     throw new BusinessRuleException(
                         "sales.serial_count_mismatch",
@@ -608,17 +720,129 @@ public sealed class CompleteSaleHandler
                     $"Product '{product.Name}' is not serialized.");
             }
 
+            if (input.PriceOverrideUnitPrice is not null)
+            {
+                var belowCurrentCost = product.TrackingMode == TrackingMode.Serialized
+                    ? serializedUnits.Any(unit => finalUnitPrice < Money(unit.AcquisitionCost))
+                    : await IsBelowCurrentCostAsync(
+                        product.Id,
+                        productUnit.FactorToBaseUnit,
+                        finalUnitPrice,
+                        ct);
+                if (belowCurrentCost)
+                {
+                    var belowCostPermission = await _authorization.AuthorizeAsync(
+                        cashierUserId,
+                        PermissionKeys.SalesPriceOverrideBelowCost,
+                        ct);
+                    if (!belowCostPermission.IsSuccess)
+                    {
+                        throw new BusinessRuleException(
+                            belowCostPermission.Error?.Code ?? "authorization.denied",
+                            belowCostPermission.Error?.Message ?? "Below-cost price override permission is required.");
+                    }
+                }
+            }
+
             result.Add(new PreparedSaleLine(
                 input,
                 product,
                 productUnit,
                 quantity,
                 authoritativePrice,
-                Money(quantity.EnteredQuantity * authoritativePrice),
+                finalUnitPrice,
+                overrideReason,
+                overrideBy,
+                Money(quantity.EnteredQuantity * finalUnitPrice),
                 serializedUnits));
         }
 
         return result;
+    }
+
+    private async Task<bool> IsBelowCurrentCostAsync(
+        Guid productId,
+        decimal factorToBaseUnit,
+        decimal finalUnitPrice,
+        CancellationToken cancellationToken)
+    {
+        var baseUnitCost = await _costs.GetCurrentUnitCostAsync(productId, cancellationToken);
+        return baseUnitCost is null ||
+               finalUnitPrice < Money(baseUnitCost.Value * factorToBaseUnit);
+    }
+
+    private async Task<bool> MatchesExistingSalePayloadAsync(
+        Sale sale,
+        CompleteSaleCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (sale.CustomerId != command.CustomerId ||
+            sale.CashierUserId != command.CashierUserId ||
+            sale.SessionId != command.SessionId ||
+            sale.InvoiceDiscount != Money(command.InvoiceDiscount))
+        {
+            return false;
+        }
+
+        var payment = await _sales.GetSalePaymentAsync(sale.Id, cancellationToken);
+        if (payment is null ||
+            payment.Method != command.PaymentMethod ||
+            payment.AmountTendered != Money(command.AmountTendered))
+        {
+            return false;
+        }
+
+        // An operation ID selects one canonical result. On a concurrent retry, retain the
+        // reference stored by the winning request rather than turning the replay into a second
+        // payment or rejecting an otherwise identical sale.
+
+        var persistedItems = (await _sales.GetSaleItemsAsync(sale.Id, cancellationToken))
+            .OrderBy(x => x.ProductId)
+            .ThenBy(x => x.ProductUnitId)
+            .ToArray();
+        var requestedItems = command.Lines
+            .OrderBy(x => x.ProductId)
+            .ThenBy(x => x.ProductUnitId)
+            .ToArray();
+        if (persistedItems.Length != requestedItems.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < persistedItems.Length; index++)
+        {
+            var persisted = persistedItems[index];
+            var requested = requestedItems[index];
+            var requestedReason = requested.PriceOverrideUnitPrice is null
+                ? null
+                : requested.PriceOverrideReason?.Trim();
+            var requestedFinalPrice = requested.PriceOverrideUnitPrice is decimal overridePrice
+                ? Money(overridePrice)
+                : Money(requested.ExpectedUnitPrice);
+
+            if (persisted.ProductId != requested.ProductId ||
+                persisted.ProductUnitId != requested.ProductUnitId ||
+                persisted.EnteredQuantity != requested.EnteredQuantity ||
+                persisted.ListUnitPriceSnapshot != Money(requested.ExpectedUnitPrice) ||
+                persisted.UnitPrice != requestedFinalPrice ||
+                !string.Equals(persisted.PriceOverrideReason, requestedReason, StringComparison.Ordinal) ||
+                persisted.PriceOverrideBy != (requested.PriceOverrideUnitPrice is null ? null : command.CashierUserId))
+            {
+                return false;
+            }
+
+            var selectedUnitIds = (await _sales.GetSaleItemUnitsAsync(persisted.Id, cancellationToken))
+                .Select(x => x.InventoryUnitId)
+                .OrderBy(x => x)
+                .ToArray();
+            var requestedUnitIds = requested.InventoryUnitIds.OrderBy(x => x).ToArray();
+            if (!selectedUnitIds.SequenceEqual(requestedUnitIds))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task<decimal> ConsumeSerializedAsync(

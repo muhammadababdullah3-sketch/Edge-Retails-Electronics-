@@ -57,7 +57,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
     }
 
     [Fact]
-    public async Task CreateProduct_NormalizesSku_CreatesBaseUnit_AndDoesNotNeedInventoryAuthority()
+    public async Task CreateProduct_AllocatesPermanentSku_CreatesBaseUnit_AndDoesNotNeedInventoryAuthority()
     {
         var unitId = Guid.NewGuid();
         var handler = new CreateProductHandler(
@@ -69,12 +69,12 @@ public sealed class Sprint9Phase3ProductCatalogTests
         var result = await handler.HandleAsync(
             new CreateProductCommand(
                 Guid.NewGuid(),
-                ValidInput(unitId) with { Sku = "  ab-1  " }),
+                ValidInput(unitId)),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         var product = Assert.Single(_catalog.Products.Values);
-        Assert.Equal("AB-1", product.Sku);
+        Assert.Equal("PH-1", product.Sku);
         Assert.Equal("Acme", product.Brand);
         Assert.Equal("M1", product.Model);
         Assert.Equal(5m, product.MinimumStockLevel);
@@ -89,18 +89,8 @@ public sealed class Sprint9Phase3ProductCatalogTests
     }
 
     [Fact]
-    public async Task CreateProduct_DuplicateNormalizedSku_IsRejectedByBackendAuthority()
+    public async Task CreateProduct_MissingCategory_IsRejectedByBackendAuthority()
     {
-        var existing = new Product
-        {
-            Name = "Existing",
-            Sku = "AB-1",
-            BaseUnitId = Guid.NewGuid(),
-            IsActive = true,
-            Version = 1
-        };
-        _catalog.Products[existing.Id] = existing;
-
         var handler = new CreateProductHandler(
             _catalog,
             _authorization,
@@ -110,12 +100,12 @@ public sealed class Sprint9Phase3ProductCatalogTests
         var result = await handler.HandleAsync(
             new CreateProductCommand(
                 Guid.NewGuid(),
-                ValidInput(Guid.NewGuid()) with { Sku = " ab-1 " }),
+                ValidInput(Guid.NewGuid()) with { CategoryId = null }),
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("catalog.sku_duplicate", result.Error?.Code);
-        Assert.Single(_catalog.Products);
+        Assert.Equal("catalog.category_required", result.Error?.Code);
+        Assert.Empty(_catalog.Products);
     }
 
     [Fact]
@@ -305,6 +295,8 @@ public sealed class Sprint9Phase3ProductCatalogTests
         return File.ReadAllText(path);
     }
 
+    private static readonly Guid DefaultCategoryId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     private Product SeedProduct(long version)
     {
         var product = new Product
@@ -313,6 +305,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             Sku = "PH-1",
             Brand = "Acme",
             Model = "M1",
+            CategoryId = DefaultCategoryId,
             BaseUnitId = Guid.NewGuid(),
             TrackingMode = TrackingMode.Quantity,
             DefaultSalePrice = 2000m,
@@ -330,7 +323,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             Sku: "PH-1",
             Brand: "Acme",
             Model: "M1",
-            CategoryId: null,
+            CategoryId: DefaultCategoryId,
             BaseUnitId: unitId,
             TrackingMode: TrackingMode.Quantity,
             SerialTrackingEnabled: false,

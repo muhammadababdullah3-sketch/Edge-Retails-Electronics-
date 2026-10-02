@@ -54,8 +54,8 @@ public sealed class ProductManagementReadService : IProductManagementReadService
             request.BeforeProductId is Guid beforeProductId)
         {
             query = query.Where(x =>
-                x.Name.CompareTo(request.BeforeName) < 0 ||
-                (x.Name == request.BeforeName && x.Id.CompareTo(beforeProductId) < 0));
+                x.Name.CompareTo(request.BeforeName) > 0 ||
+                (x.Name == request.BeforeName && x.Id.CompareTo(beforeProductId) > 0));
         }
 
         var take = Math.Clamp(request.PageSize, 1, 200);
@@ -103,6 +103,22 @@ public sealed class ProductManagementReadService : IProductManagementReadService
         return (await ProjectAsync([product], cancellationToken)).Single();
     }
 
+    public async Task<IReadOnlyList<CatalogCompanyDto>> GetCompaniesAsync(
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.Companies.AsNoTracking();
+        if (!includeInactive)
+        {
+            query = query.Where(x => x.IsActive);
+        }
+
+        return await query
+            .OrderBy(x => x.Name)
+            .Select(x => new CatalogCompanyDto(x.Id, x.Name, x.Code, x.IsActive))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<CatalogCategoryDto>> GetCategoriesAsync(
         bool includeInactive,
         CancellationToken cancellationToken)
@@ -115,7 +131,7 @@ public sealed class ProductManagementReadService : IProductManagementReadService
 
         return await query
             .OrderBy(x => x.Name)
-            .Select(x => new CatalogCategoryDto(x.Id, x.Name, x.IsActive))
+            .Select(x => new CatalogCategoryDto(x.Id, x.Name, x.IdentitySymbol, x.IsActive))
             .ToListAsync(cancellationToken);
     }
 
@@ -161,6 +177,20 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                await _db.InventoryUnits.AsNoTracking()
                    .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
                await _db.InventoryLots.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.SupplierProducts.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.PurchaseItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.SaleItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.PurchaseReturnItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.SaleReturnItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.WarrantyClaimItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
+               await _db.ShopStockWarrantyCases.AsNoTracking()
                    .AnyAsync(x => x.ProductId == productId, cancellationToken);
     }
 
@@ -179,11 +209,20 @@ public sealed class ProductManagementReadService : IProductManagementReadService
             .Select(x => x.CategoryId!.Value)
             .Distinct()
             .ToArray();
+        var companyIds = products
+            .Where(x => x.CompanyId.HasValue)
+            .Select(x => x.CompanyId!.Value)
+            .Distinct()
+            .ToArray();
         var unitIds = products.Select(x => x.BaseUnitId).Distinct().ToArray();
 
         var categories = await _db.Categories
             .AsNoTracking()
             .Where(x => categoryIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var companies = await _db.Companies
+            .AsNoTracking()
+            .Where(x => companyIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         var units = await _db.Units
             .AsNoTracking()
@@ -245,9 +284,13 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                            categories.TryGetValue(categoryId, out var categoryEntity)
                 ? categoryEntity.Name
                 : "Uncategorized";
+            var company = product.CompanyId is Guid compId &&
+                          companies.TryGetValue(compId, out var companyEntity)
+                ? companyEntity
+                : null;
             var baseUnit = units.TryGetValue(product.BaseUnitId, out var baseUnitEntity)
                 ? baseUnitEntity.Symbol
-                : "â€”";
+                : "—";
 
             return new ProductManagementRowDto(
                 product.Id,
@@ -271,7 +314,11 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                 product.IsActive,
                 product.Version,
                 mappedUnits ?? Array.Empty<ProductUnitDto>(),
-                mappedLinks ?? Array.Empty<SupplierProductLinkDto>());
+                mappedLinks ?? Array.Empty<SupplierProductLinkDto>(),
+                product.CompanyId,
+                company?.Name,
+                company?.Code,
+                product.ModelCode);
         }).ToArray();
     }
 }

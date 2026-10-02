@@ -107,7 +107,9 @@ public sealed class SupplierEditViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Supplier details could not be loaded."),
+                ToastTone.Danger);
         }
     }
 }
@@ -281,12 +283,16 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         catch (OperationException ex)
         {
             Workspace = null;
-            StatusMessage = $"{ex.Code}: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Supplier account access was rejected.");
         }
         catch (Exception ex)
         {
             Workspace = null;
-            StatusMessage = $"Supplier account authority unavailable: {ex.Message}";
+            StatusMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Supplier account authority is unavailable. Check the connection and try again.");
         }
         finally
         {
@@ -350,12 +356,14 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                 _pendingSettlementOperationId = null;
             }
 
-            _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Supplier payment was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Outcome is uncertain. Retry will reuse the same operation identity. {ex.Message}",
+                $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
                 ToastTone.Danger);
         }
     }
@@ -391,12 +399,14 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         catch (OperationException ex)
         {
             _pendingRefundOperationId = null;
-            _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Supplier refund was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Outcome is uncertain. Retry will reuse the same operation identity. {ex.Message}",
+                $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
                 ToastTone.Danger);
         }
     }
@@ -434,12 +444,14 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         catch (OperationException ex)
         {
             _pendingPaymentReversals.Remove(payment.PaymentId);
-            _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Payment reversal was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Outcome is uncertain. Retry this payment reversal to reuse its operation identity. {ex.Message}",
+                $"Outcome is uncertain. Check operation status before retrying; this payment reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
                 ToastTone.Danger);
         }
     }
@@ -477,12 +489,14 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         catch (OperationException ex)
         {
             _pendingRefundReversals.Remove(refund.RefundId);
-            _toastService.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Refund reversal was rejected."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Outcome is uncertain. Retry this refund reversal to reuse its operation identity. {ex.Message}",
+                $"Outcome is uncertain. Check operation status before retrying; this refund reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
                 ToastTone.Danger);
         }
     }
@@ -658,7 +672,9 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Suppliers could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Suppliers could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
         finally
@@ -703,7 +719,11 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex) when (version == Volatile.Read(ref _searchVersion))
         {
-            _toastService.Show($"Suppliers search failed: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Supplier search failed. Check the connection and try again."),
+                ToastTone.Danger);
         }
     }
 

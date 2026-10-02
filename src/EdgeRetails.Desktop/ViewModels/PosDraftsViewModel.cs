@@ -80,7 +80,9 @@ public sealed class PosDraftsViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            Message = DesktopErrorPresentation.ForException(
+                ex,
+                "POS drafts could not be loaded. Check the connection and try again.");
         }
         finally
         {
@@ -115,11 +117,15 @@ public sealed class PosDraftsViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            Message = $"{ex.Code}: {ex.Message}";
+            Message = DesktopErrorPresentation.ForException(
+                ex,
+                "The draft cancellation was rejected.");
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            Message = DesktopErrorPresentation.ForException(
+                ex,
+                "Draft cancellation failed. Check operation status before retrying.");
         }
         finally
         {

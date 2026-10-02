@@ -20,6 +20,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
     private ProductDetailViewModel? _currentProductDetail;
     private bool _isDetailViewActive;
     private CancellationTokenSource? _productPageSearchCts;
+    private CancellationTokenSource? _refreshCts;
     private long _productPageSearchVersion;
     private const int ProductPageSize = 200;
 
@@ -39,6 +40,9 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         StatusFilters = ["All", "Active", "Inactive"];
 
         AddProductCommand = new RelayCommand(OpenAddProduct, CanMutate);
+        ManageCompaniesCommand = new RelayCommand(
+            () => OpenCatalogReferenceManager(CatalogReferenceKind.Company),
+            CanMutate);
         ManageCategoriesCommand = new RelayCommand(
             () => OpenCatalogReferenceManager(CatalogReferenceKind.Category),
             CanMutate);
@@ -117,6 +121,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
                 {
                     add.NotifyCanExecuteChanged();
                 }
+                (ManageCompaniesCommand as RelayCommand)?.NotifyCanExecuteChanged();
                 (ManageCategoriesCommand as RelayCommand)?.NotifyCanExecuteChanged();
                 (ManageUnitsCommand as RelayCommand)?.NotifyCanExecuteChanged();
             }
@@ -160,6 +165,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
     }
 
     public ICommand AddProductCommand { get; }
+    public ICommand ManageCompaniesCommand { get; }
     public ICommand ManageCategoriesCommand { get; }
     public ICommand ManageUnitsCommand { get; }
     public ICommand EditProductCommand { get; }
@@ -170,6 +176,10 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        Interlocked.Exchange(ref _refreshCts, null)?.Cancel();
+        var searchCts = Interlocked.Exchange(ref _productPageSearchCts, null);
+        searchCts?.Cancel();
+        searchCts?.Dispose();
         CurrentProductDetail?.Dispose();
         CurrentProductDetail = null;
     }
@@ -193,26 +203,40 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        var cts = new CancellationTokenSource();
+        if (Interlocked.CompareExchange(ref _refreshCts, cts, null) is not null)
+        {
+            cts.Dispose();
+            return;
+        }
+
         IsLoading = true;
         ErrorMessage = null;
         try
         {
-            _snapshot = await _catalogService.GetSnapshotAsync(cancellationToken: CancellationToken.None);
+            _snapshot = await _catalogService.GetSnapshotAsync(cancellationToken: cts.Token);
             RebuildCategoryFilter();
-            await LoadCurrentProductPageAsync(CancellationToken.None);
+            await LoadCurrentProductPageAsync(cts.Token);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
         }
         catch (BackendCatalogOperationException ex)
         {
-            ErrorMessage = ex.Code == "authorization.denied"
-                ? "You do not have permission to manage the catalog."
-                : ex.Message;
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The catalog could not be loaded. Refresh and try again.");
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Catalog could not be loaded: {ex.Message}";
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The catalog could not be loaded. Refresh and try again.");
         }
         finally
         {
+            Interlocked.CompareExchange(ref _refreshCts, null, cts);
+            cts.Dispose();
             IsLoading = false;
             NotifyState();
             if (AddProductCommand is RelayCommand add)
@@ -323,7 +347,9 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex) when (version == Volatile.Read(ref _productPageSearchVersion))
         {
-            ErrorMessage = $"Catalog search failed: {ex.Message}";
+            ErrorMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog search failed. Check the connection and try again.");
             NotifyState();
         }
     }
@@ -490,15 +516,19 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         }
         catch (BackendCatalogOperationException ex)
         {
-            var message = ex.Code == "concurrency.stale_product"
-                ? "Product changed elsewhere. Refresh and try again."
-                : ex.Message;
+            var message = DesktopErrorPresentation.ForException(
+                ex,
+                "Product status could not be changed. Refresh and try again.");
             _toastService.Show(message, ToastTone.Danger);
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            _toastService.Show($"Catalog status change failed: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Catalog status change failed. Check the connection and try again."),
+                ToastTone.Danger);
         }
     }
 }

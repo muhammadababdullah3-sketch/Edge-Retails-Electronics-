@@ -34,17 +34,31 @@ public interface IBackendIdentityService
 
 public sealed class BackendIdentityService : IBackendIdentityService
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IServiceScopeFactory? _scopeFactory;
+    private readonly DesktopApiClient? _apiClient;
 
     public BackendIdentityService(IServiceScopeFactory scopeFactory)
     {
         _scopeFactory = scopeFactory;
     }
 
+    public BackendIdentityService(DesktopApiClient apiClient)
+    {
+        _apiClient = apiClient;
+    }
+
     public async Task<IReadOnlyList<BackendLoginAccount>> GetAccountsAsync(
         CancellationToken cancellationToken = default)
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
+        if (_apiClient is not null)
+        {
+            var accounts = await _apiClient.GetAsync<LoginAccountDto[]>(
+                "/api/auth/accounts", cancellationToken);
+            return accounts.Select(x => new BackendLoginAccount(
+                x.UserId, x.DisplayName, x.RoleName, x.Initials, x.IsPrimary)).ToArray();
+        }
+
+        await using var scope = _scopeFactory!.CreateAsyncScope();
         var handler = scope.ServiceProvider
             .GetRequiredService<GetLoginAccountsHandler>();
         var rows = await handler.HandleAsync(cancellationToken);
@@ -66,7 +80,47 @@ public sealed class BackendIdentityService : IBackendIdentityService
             throw new InvalidOperationException("Selected account is not a persistent backend user.");
         }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
+        if (_apiClient is not null)
+        {
+            ServerAuthenticatedUserDto authenticated;
+            try
+            {
+                authenticated = await _apiClient.PostAsync<AuthenticateUserCommand, ServerAuthenticatedUserDto>(
+                    "/api/auth/login",
+                    new AuthenticateUserCommand(userId, pin, Guid.CreateVersion7()),
+                    cancellationToken);
+            }
+            catch (DesktopApiException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            {
+                throw new UnauthorizedAccessException(ex.Message, ex);
+            }
+
+            _apiClient.SetSession(authenticated.SessionId);
+            try
+            {
+                var session = await _apiClient.GetAsync<ServerSessionDto>(
+                    "/api/auth/session", cancellationToken);
+                if (session.UserId != authenticated.UserId || session.SessionId != authenticated.SessionId)
+                {
+                    throw new UnauthorizedAccessException("Server session identity changed during sign in.");
+                }
+
+                return new BackendAuthenticatedSession(
+                    session.UserId,
+                    session.SessionId,
+                    session.DisplayName,
+                    session.RoleName,
+                    authenticated.Initials,
+                    new HashSet<string>(session.Permissions, StringComparer.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                _apiClient.SetSession(null);
+                throw;
+            }
+        }
+
+        await using var scope = _scopeFactory!.CreateAsyncScope();
         var handler = scope.ServiceProvider
             .GetRequiredService<AuthenticateUserHandler>();
         var result = await handler.HandleAsync(
@@ -100,7 +154,24 @@ public sealed class BackendIdentityService : IBackendIdentityService
             return;
         }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
+        if (_apiClient is not null)
+        {
+            try
+            {
+                await _apiClient.PostAsync<EndUserSessionCommand, LogoutResult>(
+                    "/api/auth/logout",
+                    new EndUserSessionCommand(userId, sessionId, Guid.CreateVersion7()),
+                    cancellationToken);
+            }
+            finally
+            {
+                _apiClient.ClearSessionIfMatches(sessionId);
+            }
+
+            return;
+        }
+
+        await using var scope = _scopeFactory!.CreateAsyncScope();
         var handler = scope.ServiceProvider
             .GetRequiredService<EndUserSessionHandler>();
         var result = await handler.HandleAsync(
@@ -116,4 +187,22 @@ public sealed class BackendIdentityService : IBackendIdentityService
                 result.Error?.Message ?? "User session could not be closed.");
         }
     }
+
+    // HTTP permission arrays need a concrete JSON collection type. The
+    // Application response keeps its IReadOnlySet contract inside the Server.
+    private sealed record ServerAuthenticatedUserDto(
+        Guid UserId,
+        Guid SessionId,
+        string DisplayName,
+        string RoleName,
+        string Initials);
+
+    private sealed record ServerSessionDto(
+        Guid UserId,
+        Guid SessionId,
+        string DisplayName,
+        string RoleName,
+        string[] Permissions);
+
+    private sealed record LogoutResult(bool Success);
 }

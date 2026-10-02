@@ -50,6 +50,10 @@ public sealed record BackupManifest(
     string Protection)
 {
     public int FormatVersion { get; init; } = 2;
+
+    // Omit absent metadata so previously authenticated V2 manifests keep their exact canonical serialization.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public BackupKeyMetadata? KeyMetadata { get; init; }
 }
 
 public sealed record BackupManifestEnvelope(BackupManifest Manifest, string Authentication);
@@ -59,6 +63,9 @@ public sealed record BackupHistoryIssue(string ManifestFileName, string Code);
 public sealed record BackupHistoryDiagnostics(
     IReadOnlyList<BackupManifest> ValidBackups,
     IReadOnlyList<BackupHistoryIssue> Issues);
+
+/// <summary>Aggregate issue information suitable for operator-facing APIs.</summary>
+public sealed record BackupHistoryIssueCount(string Code, int Count);
 
 public sealed record BackupRetentionPolicy(int? MaximumBackupCount, TimeSpan? MaximumBackupAge);
 
@@ -79,7 +86,8 @@ public sealed record RestorePrepareRequest(
     PostgresConnectionDescriptor RuntimeConnection,
     string BackupFilePath,
     string ManifestFilePath,
-    string? CorrelationId);
+    string? CorrelationId,
+    Guid? ClientOperationId = null);
 
 /// <summary>
 /// Opaque capability returned to callers. It intentionally contains no database names or paths.
@@ -94,7 +102,8 @@ public enum RestoreSessionState
     Completed,
     Discarded,
     RolledBack,
-    RecoveryRequired
+    RecoveryRequired,
+    Preparing
 }
 
 public sealed record RestoreSessionRecord(
@@ -109,7 +118,16 @@ public sealed record RestoreSessionRecord(
     RestoreSessionState State,
     string? PreservedDatabase = null,
     string? FailedRestoredDatabase = null,
-    DateTimeOffset? CompletedAtUtc = null);
+    DateTimeOffset? CompletedAtUtc = null,
+    Guid? ClientOperationId = null);
+
+/// <summary>Safe restore journal metadata. Contains no database names, backup paths, or credentials.</summary>
+public sealed record RestoreSessionSummary(
+    Guid RestoreId,
+    Guid? ClientOperationId,
+    RestoreSessionState State,
+    DateTimeOffset PreparedAtUtc,
+    DateTimeOffset? CompletedAtUtc);
 
 public sealed record RestoreCutoverResult(
     Guid RestoreId,
@@ -126,6 +144,12 @@ public interface IRestoreSessionStore
 {
     Task CreateAsync(RestoreSessionRecord session, CancellationToken cancellationToken = default);
     Task<RestoreSessionRecord?> GetAsync(Guid restoreId, CancellationToken cancellationToken = default);
+    Task<RestoreSessionRecord?> GetJournalByOperationIdAsync(Guid clientOperationId, CancellationToken cancellationToken = default)
+        => Task.FromResult<RestoreSessionRecord?>(null);
+    Task<RestoreSessionSummary?> GetSummaryByOperationIdAsync(Guid clientOperationId, CancellationToken cancellationToken = default)
+        => Task.FromResult<RestoreSessionSummary?>(null);
+    Task<IReadOnlyList<RestoreSessionSummary>> ListRecoverableAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<RestoreSessionSummary>>(Array.Empty<RestoreSessionSummary>());
     Task UpdateAsync(RestoreSessionRecord session, CancellationToken cancellationToken = default);
 }
 
@@ -133,7 +157,11 @@ public interface IPostgresBackupEngine
 {
     Task<BackupCreateResult> CreateAsync(BackupCreateRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<BackupManifest>> ReadHistoryAsync(string backupDirectory, CancellationToken cancellationToken = default);
+    async Task<BackupHistoryDiagnostics> ReadDiagnosticsAsync(string backupDirectory, CancellationToken cancellationToken = default)
+        => new(await ReadHistoryAsync(backupDirectory, cancellationToken), Array.Empty<BackupHistoryIssue>());
     Task<RestoreSessionToken> PrepareRestoreAsync(RestorePrepareRequest request, CancellationToken cancellationToken = default);
+    Task<RestoreSessionSummary> RecoverRestorePreparationAsync(Guid clientOperationId, CancellationToken cancellationToken = default)
+        => Task.FromException<RestoreSessionSummary>(new NotSupportedException("Restore preparation recovery is not supported by this backup engine."));
     Task<RestoreCutoverResult> CutoverAsync(
         PostgresConnectionDescriptor runtimeConnection,
         RestoreSessionToken token,

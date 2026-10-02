@@ -5,9 +5,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
 
-public sealed record BackendCatalogCategory(Guid Id, string Name, bool IsActive)
+public sealed record BackendCatalogCategory(Guid Id, string Name, string IdentitySymbol = "", bool IsActive = true)
 {
-    public override string ToString() => Name;
+    public override string ToString() => string.IsNullOrWhiteSpace(IdentitySymbol) ? Name : $"{Name} ({IdentitySymbol})";
+}
+
+public sealed record BackendCatalogCompany(Guid Id, string Name, string Code, bool IsActive)
+{
+    public override string ToString() => string.IsNullOrWhiteSpace(Code) ? Name : $"{Name} ({Code})";
 }
 
 public sealed record BackendCatalogUnit(
@@ -63,15 +68,21 @@ public sealed record BackendProductManagementItem(
     bool IsActive,
     long Version,
     IReadOnlyList<BackendProductUnitConfiguration> ProductUnits,
-    IReadOnlyList<BackendSupplierProductLink> SupplierProducts)
+    IReadOnlyList<BackendSupplierProductLink> SupplierProducts,
+    Guid? CompanyId = null,
+    string? CompanyName = null,
+    string? CompanyCode = null,
+    string? ModelCode = null)
 {
     public string TrackingDisplay => TrackingMode switch
     {
         TrackingMode.Quantity => "Quantity",
         TrackingMode.Length => "Length",
-        TrackingMode.Serialized when ImeiTrackingEnabled && SerialTrackingEnabled => "Serial + IMEI",
-        TrackingMode.Serialized when ImeiTrackingEnabled => "IMEI",
-        TrackingMode.Serialized => "Serial",
+        TrackingMode.Container => "Container / Pack",
+        TrackingMode.IndividualPiece when ImeiTrackingEnabled && SerialTrackingEnabled => "Piece (Serial + IMEI)",
+        TrackingMode.IndividualPiece when ImeiTrackingEnabled => "Piece (IMEI)",
+        TrackingMode.IndividualPiece when SerialTrackingEnabled => "Piece (Serial)",
+        TrackingMode.IndividualPiece => "Individual Piece",
         _ => TrackingMode.ToString()
     };
 
@@ -87,7 +98,11 @@ public sealed record BackendProductManagementSnapshot(
     IReadOnlyList<BackendProductManagementItem> Products,
     IReadOnlyList<BackendCatalogCategory> Categories,
     IReadOnlyList<BackendCatalogUnit> Units,
-    IReadOnlyList<BackendSupplierOption> Suppliers);
+    IReadOnlyList<BackendSupplierOption> Suppliers,
+    IReadOnlyList<BackendCatalogCompany> Companies = null!)
+{
+    public IReadOnlyList<BackendCatalogCompany> Companies { get; init; } = Companies ?? Array.Empty<BackendCatalogCompany>();
+}
 
 public sealed record BackendProductCatalogRequest(
     string Name,
@@ -104,7 +119,9 @@ public sealed record BackendProductCatalogRequest(
     decimal MinimumStockLevel,
     int DefaultWarrantyMonths,
     string? AttributesJson,
-    int AttributesSchemaVersion);
+    int AttributesSchemaVersion,
+    Guid? CompanyId = null,
+    string? ModelCode = null);
 
 public sealed class BackendCatalogOperationException : Exception
 {
@@ -159,9 +176,21 @@ public interface IBackendProductManagementService
         bool isActive,
         CancellationToken cancellationToken = default);
 
+    Task SaveCompanyAsync(
+        Guid? companyId,
+        string name,
+        string? code = null,
+        CancellationToken cancellationToken = default);
+
+    Task SetCompanyActiveAsync(
+        Guid companyId,
+        bool isActive,
+        CancellationToken cancellationToken = default);
+
     Task SaveCategoryAsync(
         Guid? categoryId,
         string name,
+        string? identitySymbol = null,
         CancellationToken cancellationToken = default);
 
     Task SetCategoryActiveAsync(
@@ -205,6 +234,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
         var productRows = await reads.GetProductsPageAsync(
             new ProductManagementPageQuery(IncludeInactive: true, PageSize: 200),
             cancellationToken);
+        var companyRows = await reads.GetCompaniesAsync(true, cancellationToken);
         var categoryRows = await reads.GetCategoriesAsync(true, cancellationToken);
         var unitRows = await reads.GetUnitsAsync(true, cancellationToken);
 
@@ -224,6 +254,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
                     await saveCategoryHandler.HandleAsync(new SaveCategoryCommand(actor, null, "General Electronics"), cancellationToken);
                 }
 
+                companyRows = await reads.GetCompaniesAsync(true, cancellationToken);
                 categoryRows = await reads.GetCategoriesAsync(true, cancellationToken);
                 unitRows = await reads.GetUnitsAsync(true, cancellationToken);
             }
@@ -233,7 +264,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
 
         return new BackendProductManagementSnapshot(
             productRows.Select(Map).ToArray(),
-            categoryRows.Select(x => new BackendCatalogCategory(x.Id, x.Name, x.IsActive)).ToArray(),
+            categoryRows.Select(x => new BackendCatalogCategory(x.Id, x.Name, x.IdentitySymbol, x.IsActive)).ToArray(),
             unitRows.Select(x => new BackendCatalogUnit(
                 x.Id,
                 x.Name,
@@ -243,7 +274,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             supplierRows
                 .Where(x => x.IsActive)
                 .Select(x => new BackendSupplierOption(x.Id, x.Name))
-                .ToArray());
+                .ToArray(),
+            companyRows.Select(x => new BackendCatalogCompany(x.Id, x.Name, x.Code, x.IsActive)).ToArray());
     }
 
     public async Task<IReadOnlyList<BackendProductManagementItem>> GetProductsPageAsync(
@@ -390,16 +422,46 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
         return await ReadRequiredAsync(scope.ServiceProvider, productId, cancellationToken);
     }
 
+    public async Task SaveCompanyAsync(
+        Guid? companyId,
+        string name,
+        string? code = null,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<SaveCompanyHandler>();
+        var result = await handler.HandleAsync(
+            new SaveCompanyCommand(actor, companyId, name, code),
+            cancellationToken);
+        EnsureSuccess(result.IsSuccess, result.Error);
+    }
+
+    public async Task SetCompanyActiveAsync(
+        Guid companyId,
+        bool isActive,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<SetCompanyActiveHandler>();
+        var result = await handler.HandleAsync(
+            new SetCompanyActiveCommand(actor, companyId, isActive),
+            cancellationToken);
+        EnsureSuccess(result.IsSuccess, result.Error);
+    }
+
     public async Task SaveCategoryAsync(
         Guid? categoryId,
         string name,
+        string? identitySymbol = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
         var handler = scope.ServiceProvider.GetRequiredService<SaveCategoryHandler>();
         var result = await handler.HandleAsync(
-            new SaveCategoryCommand(actor, categoryId, name),
+            new SaveCategoryCommand(actor, categoryId, name, identitySymbol),
             cancellationToken);
         EnsureSuccess(result.IsSuccess, result.Error);
     }
@@ -564,6 +626,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             request.Brand,
             request.Model,
             request.CategoryId,
+            request.CompanyId,
+            request.ModelCode,
             request.BaseUnitId,
             request.TrackingMode,
             request.SerialTrackingEnabled,
@@ -575,7 +639,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             request.AttributesJson,
             request.AttributesSchemaVersion);
 
-    private static BackendProductManagementItem Map(ProductManagementRowDto row) =>
+    internal static BackendProductManagementItem Map(ProductManagementRowDto row) =>
         new(
             row.ProductId,
             row.Sku,
@@ -614,7 +678,11 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
                 x.SupplierId,
                 x.SupplierName,
                 x.IsActive,
-                x.Version)).ToArray());
+                x.Version)).ToArray(),
+            row.CompanyId,
+            row.Company,
+            row.CompanyCode,
+            row.ModelCode);
 
     private Guid RequireActor() =>
         _actorUserId() is Guid actor && actor != Guid.Empty

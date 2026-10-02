@@ -30,6 +30,17 @@
                 <controls:KpiCard Grid.Column="4" Height="98" Title="Sale Price" Value="{Binding PriceDisplay}" Tone="Success" IconGeometry="{StaticResource Icon.Nav.POS}" />
             </Grid>
             <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
+                <StackPanel>
+                    <WrapPanel>
+                        <Button Content="Print Product Label" Command="{Binding PrintProductLabelCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,8" />
+                        <Button Content="Reprint Product Label" Command="{Binding ReprintProductLabelCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,8" />
+                        <Button Content="Export Label PDFs" Command="{Binding ExportProductLabelPdfCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,0,8" />
+                    </WrapPanel>
+                    <TextBlock Text="Product labels use the existing unit barcode when available. Exact-unit labels are available from the committed purchase intake." TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Text="{Binding LabelStatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
                 <Grid>
                     <TextBlock Text="{Binding MinimumStockDisplay, StringFormat=Minimum Stock: {0}}" VerticalAlignment="Center" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

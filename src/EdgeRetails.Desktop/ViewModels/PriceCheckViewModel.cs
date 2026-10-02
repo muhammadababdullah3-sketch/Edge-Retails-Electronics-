@@ -23,6 +23,15 @@ public sealed class PriceCheckViewModel
         : $"{Match.SellableStock:0.##} {Match.UnitSymbol} available";
     public string TrackingDisplay => Match.IsSerialized ? "Serialized / exact-unit" : "Quantity tracked";
     public string UnitDisplay => Match.UnitSymbol;
+    public bool HasExactUnit => Match.InventoryUnitId is not null;
+    public string ExactIdentityDisplay => string.Join(" · ", new[]
+    {
+        Match.TrackingCode,
+        Match.SerialNumber,
+        Match.Imei1,
+        Match.Imei2
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string ExactUnitStatusDisplay => Match.UnitStatus?.ToString() ?? string.Empty;
     public string ResolutionDisplay => Match.Namespace.ToString();
     public ICommand CloseCommand { get; }
 }

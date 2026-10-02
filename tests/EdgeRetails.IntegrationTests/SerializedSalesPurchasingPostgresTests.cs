@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.IntegrationTests;
 
+[Collection("Phase2PostgresIntegration")]
 public sealed class SerializedSalesPurchasingPostgresTests
 {
     [Fact]
@@ -172,21 +173,7 @@ public sealed class SerializedSalesPurchasingPostgresTests
         Assert.Equal("purchasing.void_origin_consumed", voidResult.Error?.Code);
     }
 
-    private static ServiceProvider BuildProvider()
-    {
-        var connectionString =
-            Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
-        }
-
-        var services = new ServiceCollection();
-        services.AddEdgeRetailsInfrastructure(connectionString);
-        return services.BuildServiceProvider();
-    }
+    private static ServiceProvider BuildProvider() => Phase2PostgresTestHarness.BuildProvider();
 
     private static async Task EnsureReceiptConfigurationAsync(
         EdgeRetailsDbContext db)
@@ -228,7 +215,7 @@ public sealed class SerializedSalesPurchasingPostgresTests
         var product = new Product
         {
             Name = "Serialized Fan-" + suffix,
-            Sku = "SF-" + suffix[..12],
+            Sku = ("SF-" + suffix[..12]).ToUpperInvariant(),
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Serialized,
             SerialTrackingEnabled = true,
@@ -277,4 +264,5 @@ public sealed class SerializedSalesPurchasingPostgresTests
         Guid SupplierId,
         Guid ActorId);
 }
+
 

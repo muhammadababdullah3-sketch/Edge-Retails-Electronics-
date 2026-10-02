@@ -63,7 +63,10 @@ public sealed class SaleItem : Entity
     public decimal EnteredQuantity { get; set; }
     public decimal FactorToBaseSnapshot { get; set; }
     public decimal BaseQuantity { get; set; }
+    public decimal ListUnitPriceSnapshot { get; set; }
     public decimal UnitPrice { get; set; }
+    public string? PriceOverrideReason { get; set; }
+    public Guid? PriceOverrideBy { get; set; }
     public decimal GrossLineTotal { get; set; }
     public decimal AllocatedInvoiceDiscount { get; set; }
     public decimal NetLineTotal { get; set; }

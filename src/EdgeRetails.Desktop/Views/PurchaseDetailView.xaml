@@ -86,7 +86,9 @@
                            Foreground="{StaticResource Brush.Brand.Primary}" />
                 <Border BorderBrush="{DynamicResource Brush.Border.Default}"
                         BorderThickness="1" CornerRadius="8" Margin="0,0,0,16">
-                    <DataGrid ItemsSource="{Binding Items}" Style="{StaticResource Table.DataGrid}"
+                    <DataGrid ItemsSource="{Binding Items}"
+                              SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                              Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" BorderThickness="0" MaxHeight="260">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PRODUCT" Binding="{Binding ProductName}" Width="2*" />
@@ -99,6 +101,19 @@
                             <DataGridTextColumn Header="TOTAL" Binding="{Binding LineTotal}" Width="100"
                                                 HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
                                                 ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}" />
+                            <DataGridTemplateColumn Header="PHYSICAL INTAKE" Width="135">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Receive / Stickers"
+                                                Command="{Binding DataContext.OpenPhysicalIntakeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource Button.Neutral}"
+                                                Height="26"
+                                                Padding="6,0"
+                                                FontSize="11" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
@@ -130,9 +145,26 @@
         <Border Grid.Row="2" Padding="16"
                 BorderBrush="{DynamicResource Brush.Border.Default}"
                 BorderThickness="0,1,0,0">
-            <Button Content="Return Purchase" Command="{Binding ReturnPurchaseCommand}"
-                    Style="{StaticResource Button.Warning.Compact}" Height="38"
-                    HorizontalAlignment="Stretch" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Receive Physical Intake"
+                        Command="{Binding OpenPhysicalIntakeCommand}"
+                        Style="{StaticResource Button.Primary}" Height="38" Padding="4,0" />
+                <Button Grid.Column="2" Content="Return Purchase"
+                        Command="{Binding ReturnPurchaseCommand}"
+                        Style="{StaticResource Button.Warning.Compact}" Height="38" Padding="4,0" />
+                <Button Grid.Column="4" Content="Void Purchase"
+                        Command="{Binding VoidPurchaseCommand}"
+                        IsEnabled="{Binding CanVoidPurchase}"
+                        Visibility="{Binding IsBackendPurchase, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Style="{StaticResource Button.Warning.Compact}" Height="38" Padding="4,0" />
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

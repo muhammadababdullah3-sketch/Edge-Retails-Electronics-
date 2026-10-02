@@ -242,7 +242,8 @@
             </Border>
 
             <!-- ROW 2: PAYMENT METHOD CARDS (Cash, Bank, Other) -->
-            <StackPanel Grid.Row="2" Margin="0,0,0,18">
+            <StackPanel Grid.Row="2" Margin="0,0,0,18"
+                        IsEnabled="{Binding IsPaymentEditable}">
                 <TextBlock Text="Payment Method"
                            FontFamily="{StaticResource Font.Primary}"
                            FontSize="13"
@@ -480,7 +481,8 @@
             </StackPanel>
 
             <!-- ROW 3: PAYMENT-METHOD-SPECIFIC DETAILS -->
-            <Grid Grid.Row="3" Margin="0,0,0,16">
+            <Grid Grid.Row="3" Margin="0,0,0,16"
+                  IsEnabled="{Binding IsPaymentEditable}">
             <StackPanel Visibility="{Binding IsCash, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
@@ -819,7 +821,7 @@
                                               Stretch="Uniform"
                                               Margin="0,0,8,0"
                                               VerticalAlignment="Center" />
-                                        <TextBlock Text="Complete Sale"
+                                        <TextBlock Text="{Binding CompleteActionLabel}"
                                                    FontFamily="{StaticResource Font.Primary}"
                                                    FontSize="15"
                                                    FontWeight="Bold"

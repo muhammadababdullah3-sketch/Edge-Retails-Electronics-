@@ -20,11 +20,22 @@ public sealed class HmacRestoreSessionStore : IRestoreSessionStore
 
     public async Task CreateAsync(RestoreSessionRecord session, CancellationToken cancellationToken = default)
     {
+        if (session.ClientOperationId is Guid operationId && operationId == Guid.Empty)
+        {
+            throw new ArgumentException("Client operation ID must be nonempty when supplied.", nameof(session));
+        }
+
         Directory.CreateDirectory(_directory);
         var path = GetPath(session.RestoreId);
         if (File.Exists(path))
         {
             throw new InvalidOperationException("Restore session already exists.");
+        }
+
+        if (session.ClientOperationId is Guid clientOperationId &&
+            await GetJournalByOperationIdAsync(clientOperationId, cancellationToken) is not null)
+        {
+            throw new InvalidOperationException("Restore client operation ID is already bound to a session.");
         }
 
         await WriteProtectedAsync(path, session, overwrite: false, cancellationToken);
@@ -137,8 +148,113 @@ public sealed class HmacRestoreSessionStore : IRestoreSessionStore
             throw new InvalidOperationException("Restore session does not exist.");
         }
 
-        _ = await GetAsync(session.RestoreId, cancellationToken); // fail closed if existing journal was tampered.
+        var existing = await GetAsync(session.RestoreId, cancellationToken)
+            ?? throw new InvalidOperationException("Restore session does not exist.");
+        if (existing.ClientOperationId != session.ClientOperationId ||
+            !string.Equals(existing.TargetDatabase, session.TargetDatabase, StringComparison.Ordinal) ||
+            !string.Equals(existing.StagingDatabase, session.StagingDatabase, StringComparison.Ordinal) ||
+            existing.OriginalDatabaseOid != session.OriginalDatabaseOid ||
+            !string.Equals(existing.BackupFilePath, session.BackupFilePath, PathComparison) ||
+            !string.Equals(existing.VerifiedSha256, session.VerifiedSha256, StringComparison.OrdinalIgnoreCase) ||
+            (existing.StagingDatabaseOid != 0 && existing.StagingDatabaseOid != session.StagingDatabaseOid))
+        {
+            throw new InvalidOperationException("Restore session identity and operation binding are immutable.");
+        }
+
         await WriteProtectedAsync(path, session, overwrite: true, cancellationToken);
+    }
+
+    public async Task<RestoreSessionRecord?> GetJournalByOperationIdAsync(
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (clientOperationId == Guid.Empty)
+        {
+            throw new ArgumentException("Client operation ID must be nonempty.", nameof(clientOperationId));
+        }
+
+        if (!Directory.Exists(_directory))
+        {
+            return null;
+        }
+
+        RestoreSessionRecord? found = null;
+        foreach (var path in Directory.EnumerateFiles(_directory, "restore-*.journal", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (!name.StartsWith("restore-", StringComparison.Ordinal) ||
+                !Guid.TryParseExact(name[8..], "N", out var restoreId))
+            {
+                throw new InvalidDataException("Restore journal filename is invalid.");
+            }
+
+            var session = await GetAsync(restoreId, cancellationToken);
+            if (session?.ClientOperationId != clientOperationId)
+            {
+                continue;
+            }
+
+            if (found is not null)
+            {
+                throw new InvalidDataException("Restore client operation ID is bound to multiple sessions.");
+            }
+
+            found = session;
+        }
+
+        return found;
+    }
+
+    public async Task<RestoreSessionSummary?> GetSummaryByOperationIdAsync(
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await GetJournalByOperationIdAsync(clientOperationId, cancellationToken);
+        return session is null
+            ? null
+            : new RestoreSessionSummary(
+                session.RestoreId,
+                session.ClientOperationId,
+                session.State,
+                session.PreparedAtUtc,
+                session.CompletedAtUtc);
+    }
+
+    public async Task<IReadOnlyList<RestoreSessionSummary>> ListRecoverableAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(_directory))
+        {
+            return Array.Empty<RestoreSessionSummary>();
+        }
+
+        var sessions = new List<RestoreSessionSummary>();
+        foreach (var path in Directory.EnumerateFiles(_directory, "restore-*.journal", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (!name.StartsWith("restore-", StringComparison.Ordinal) ||
+                !Guid.TryParseExact(name[8..], "N", out var restoreId))
+            {
+                throw new InvalidDataException("Restore journal filename is invalid.");
+            }
+
+            var session = await GetAsync(restoreId, cancellationToken)
+                ?? throw new InvalidDataException("Restore journal disappeared while listing recoverable sessions.");
+            if (session.State is RestoreSessionState.Preparing or RestoreSessionState.Prepared or
+                RestoreSessionState.CutoverInProgress or RestoreSessionState.RecoveryRequired or RestoreSessionState.RolledBack)
+            {
+                sessions.Add(new RestoreSessionSummary(
+                    session.RestoreId,
+                    session.ClientOperationId,
+                    session.State,
+                    session.PreparedAtUtc,
+                    session.CompletedAtUtc));
+            }
+        }
+
+        return sessions.OrderBy(x => x.PreparedAtUtc).ToArray();
     }
 
     private async Task WriteProtectedAsync(string path, RestoreSessionRecord session, bool overwrite, CancellationToken cancellationToken)
@@ -217,6 +333,9 @@ public sealed class HmacRestoreSessionStore : IRestoreSessionStore
 
     private string GetPath(Guid restoreId)
         => Path.Combine(_directory, $"restore-{restoreId:N}.journal");
+
+    private static StringComparison PathComparison
+        => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private sealed record JournalEnvelope(string PayloadBase64, string HmacBase64);
 }

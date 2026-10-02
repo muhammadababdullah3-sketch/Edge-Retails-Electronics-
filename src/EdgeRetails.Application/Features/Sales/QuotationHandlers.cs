@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Sales;
 
@@ -30,6 +31,7 @@ public sealed class CreateQuotationHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public CreateQuotationHandler(
         ICatalogRepository catalog,
@@ -39,7 +41,8 @@ public sealed class CreateQuotationHandler
         IDocumentNumberService numbers,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _catalog = catalog;
         _quotations = quotations;
@@ -49,6 +52,7 @@ public sealed class CreateQuotationHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -57,6 +61,18 @@ public sealed class CreateQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.SalesCreate,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             if (command.Items.Count == 0)
             {
                 return Result<Guid>.Failure(
@@ -206,6 +222,7 @@ public sealed class UpdateQuotationHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public UpdateQuotationHandler(
         ICatalogRepository catalog,
@@ -214,7 +231,8 @@ public sealed class UpdateQuotationHandler
         IBusinessAuditWriter audit,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _catalog = catalog;
         _quotations = quotations;
@@ -223,6 +241,7 @@ public sealed class UpdateQuotationHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result> HandleAsync(
@@ -231,6 +250,18 @@ public sealed class UpdateQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.SalesCreate,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             if (command.Items.Count == 0)
             {
                 return Result.Failure(
@@ -400,17 +431,20 @@ public sealed class IssueQuotationHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public IssueQuotationHandler(
         IQuotationRepository quotations,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _quotations = quotations;
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result> HandleAsync(
@@ -419,6 +453,18 @@ public sealed class IssueQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.SalesCreate,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             var quotation = await _quotations.GetQuotationForUpdateAsync(
                 command.QuotationId,
                 ct);
@@ -461,17 +507,20 @@ public sealed class CancelQuotationHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public CancelQuotationHandler(
         IQuotationRepository quotations,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _quotations = quotations;
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result> HandleAsync(
@@ -480,6 +529,18 @@ public sealed class CancelQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.SalesCreate,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             var quotation = await _quotations.GetQuotationForUpdateAsync(
                 command.QuotationId,
                 ct);

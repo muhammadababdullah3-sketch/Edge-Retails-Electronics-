@@ -77,7 +77,8 @@ public interface IWarrantyReadService
         int pageSize = 100,
         DateTimeOffset? beforeCreatedAt = null,
         Guid? beforeWorkId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        WarrantyWorkKind? beforeWorkKind = null);
 
     Task<IReadOnlyList<WarrantyEventDto>> GetClaimTimelineAsync(
         Guid claimId,

@@ -66,6 +66,7 @@ public sealed class StocktakeViewModel : ViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly Action? _completed;
+    private readonly IClientOperationIntentStore _operationIntents;
     private BackendStocktakeSnapshot? _snapshot;
     private bool _isProcessing;
     private string? _message;
@@ -74,17 +75,19 @@ public sealed class StocktakeViewModel : ViewModelBase
         IBackendWorkflowReadService service,
         IDialogService dialogService,
         IToastService toastService,
-        Action? completed = null)
+        Action? completed = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _service = service;
         _dialogService = dialogService;
         _toastService = toastService;
         _completed = completed;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         Lines = [];
 
         StartCommand = new RelayCommand(
             async () => await StartAsync(),
-            () => !IsProcessing && _snapshot is null);
+            () => !IsProcessing && (_snapshot is null || _snapshot.Status == StocktakeStatus.Draft));
         RecordQuantityCommand = new RelayCommand<StocktakeLineViewModel>(
             async line => await RecordQuantityAsync(line),
             line => !IsProcessing && IsCounting && line?.IsQuantityTracked == true);
@@ -174,8 +177,13 @@ public sealed class StocktakeViewModel : ViewModelBase
         IsProcessing = true;
         try
         {
+            const string operationKey = "stocktake:create";
+            const string operationPayload = "FullShop|Desktop full-shop stocktake";
+            var operationId = _operationIntents.GetOrCreate(operationKey, operationPayload);
             ApplySnapshot(await _service.StartFullShopStocktakeAsync(
-                "Desktop full-shop stocktake"));
+                "Desktop full-shop stocktake",
+                operationId));
+            _operationIntents.Complete(operationKey, operationId);
             _toastService.Show("Full Shop stocktake started.", ToastTone.Success);
         }
         catch (Exception ex)
@@ -270,7 +278,11 @@ public sealed class StocktakeViewModel : ViewModelBase
         IsProcessing = true;
         try
         {
-            await _service.PostStocktakeAsync(_snapshot.StocktakeId);
+            var operationKey = $"post:{_snapshot.StocktakeId:D}";
+            var operationPayload = _snapshot.StocktakeId.ToString("D");
+            var operationId = _operationIntents.GetOrCreate(operationKey, operationPayload);
+            await _service.PostStocktakeAsync(_snapshot.StocktakeId, operationId);
+            _operationIntents.Complete(operationKey, operationId);
             _toastService.Show("Stocktake posted through inventory authority.", ToastTone.Success);
             _completed?.Invoke();
             _dialogService.Close();
@@ -347,9 +359,10 @@ public sealed class StocktakeViewModel : ViewModelBase
 
     private void SetError(Exception ex)
     {
-        Message = ex is BackendOperationException backend
-            ? $"{backend.Code}: {backend.Message}"
-            : ex.Message;
-        _toastService.Show(Message, ToastTone.Danger);
+        var safeMessage = DesktopErrorPresentation.ForException(
+            ex,
+            "The stocktake request failed. Refresh the stocktake and try again.");
+        Message = safeMessage;
+        _toastService.Show(safeMessage, ToastTone.Danger);
     }
 }

@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Controls;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Production.Printing;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
@@ -12,15 +14,21 @@ namespace EdgeRetails.Desktop.ViewModels;
 /// </summary>
 public sealed class PosViewModel : ViewModelBase
 {
+    private const string PendingSaleIntentCheckStatus =
+        "Checking the previous sale outcome before enabling checkout.";
     private readonly IToastService? _toastService;
     private readonly IDialogService? _dialogService;
     private readonly ITransactionService _transactionService;
+    private readonly IClientOperationIntentStore? _operationIntents;
     private readonly IPosCatalogGateway? _posCatalogGateway;
     private readonly IBackendBusinessOperationsService? _businessOperationsService;
     private readonly IBackendWorkflowReadService? _workflowService;
+    private readonly IProductionDocumentPrintService? _documentPrintService;
+    private readonly IWorkstationPrinterSettings? _printerSettings;
     private readonly List<CustomerDirectoryRecord> _customers = [];
     private readonly bool _isBackendCatalog;
     private readonly string _cashierName;
+    private readonly bool _canOverridePrice;
 #if DEBUG
     private readonly DemoRetailState _retailState = DemoRetailState.Instance;
     private readonly DemoBusinessDirectoryService _businessDirectory = DemoBusinessDirectoryService.Instance;
@@ -40,7 +48,14 @@ public sealed class PosViewModel : ViewModelBase
     private long? _currentDraftVersion;
     private string? _currentDraftNumber;
     private Guid? _pendingSaleOperationId;
+    private Guid? _pendingDraftOperationId;
+    private bool _saleOperationIntentReady;
     private int _scanInFlight;
+    private int _checkoutInFlight;
+    private int _draftSaveInFlight;
+    private int _pendingSaleIntentReadInFlight;
+    private int _pendingSaleIntentReadRequested;
+    private bool _draftSaveOutcomeUncertain;
 
     public event EventHandler? FocusSearchRequested;
 
@@ -56,15 +71,23 @@ public sealed class PosViewModel : ViewModelBase
         ISessionContext? sessionContext = null,
         IPosCatalogGateway? posCatalogGateway = null,
         IBackendBusinessOperationsService? businessOperationsService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IProductionDocumentPrintService? documentPrintService = null,
+        IWorkstationPrinterSettings? printerSettings = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _transactionService = ResolveTransactionService(transactionService);
+        _operationIntents = operationIntents;
+        _saleOperationIntentReady = operationIntents is null;
         _posCatalogGateway = posCatalogGateway;
         _businessOperationsService = businessOperationsService;
         _workflowService = workflowService;
+        _documentPrintService = documentPrintService;
+        _printerSettings = printerSettings;
         _isBackendCatalog = posCatalogGateway is not null;
+        _canOverridePrice = sessionContext?.PermissionKeys.Contains(PermissionKeys.SalesPriceOverride) == true;
         _cashierName = sessionContext != null
             ? $"{sessionContext.DisplayName}, {sessionContext.RoleName}"
             : "Abdullah, Owner";
@@ -97,19 +120,25 @@ public sealed class PosViewModel : ViewModelBase
 
         CompleteSaleCommand = new RelayCommand(
             CompleteSale,
-            () => CartItems.Count > 0 && Total > 0m);
+            () => CartItems.Count > 0 && Total > 0m && _saleOperationIntentReady);
 
         ChangeCustomerCommand = new RelayCommand(ChangeCustomer);
         FocusSearchCommand = new RelayCommand(RequestFocusSearch);
         ScanCommand = new RelayCommand(async () => await ScanAsync());
         PriceCheckCommand = new RelayCommand(async () => await PriceCheckAsync());
-        SaveDraftCommand = new RelayCommand(async () => await SaveDraftAsync(holdAfterSave: false), () => CartItems.Count > 0);
-        HoldDraftCommand = new RelayCommand(async () => await SaveDraftAsync(holdAfterSave: true), () => CartItems.Count > 0);
+        SaveDraftCommand = new RelayCommand(async () => await SaveDraftAsync(holdAfterSave: false),
+            () => CartItems.Count > 0 && !_draftSaveOutcomeUncertain && Volatile.Read(ref _draftSaveInFlight) == 0);
+        HoldDraftCommand = new RelayCommand(async () => await SaveDraftAsync(holdAfterSave: true),
+            () => CartItems.Count > 0 && !_draftSaveOutcomeUncertain && Volatile.Read(ref _draftSaveInFlight) == 0);
         RecentDraftsCommand = new RelayCommand(OpenRecentDrafts);
 
         // Sales terminal starts with a clean, empty cart ready for new transactions
         CartItems.Clear();
         RecalculateTotals();
+        if (_operationIntents is not null)
+        {
+            _ = RefreshPendingSaleOperationIdAsync();
+        }
 
         if (_posCatalogGateway is not null)
         {
@@ -364,7 +393,8 @@ public sealed class PosViewModel : ViewModelBase
                 product,
                 quantity: initialQuantity,
                 onChanged: _ => RecalculateTotals(),
-                onRemove: RemoveCartItem));
+                onRemove: RemoveCartItem,
+                canOverridePrice: _canOverridePrice));
         }
 
         RecalculateTotals();
@@ -385,6 +415,131 @@ public sealed class PosViewModel : ViewModelBase
     }
 
     public void CompleteSale()
+    {
+        if (!_saleOperationIntentReady)
+        {
+            ScannerStatusMessage = "The previous sale outcome is still being checked. Checkout will be available when it is verified.";
+            return;
+        }
+
+        _ = BeginCheckoutAsync();
+    }
+
+    private async Task BeginCheckoutAsync()
+    {
+        if (Interlocked.Exchange(ref _checkoutInFlight, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var freshStateError = await RevalidateCartAsync();
+            if (!string.IsNullOrWhiteSpace(freshStateError))
+            {
+                ScannerStatusMessage = freshStateError;
+                _toastService?.Show(freshStateError, ToastTone.Warning);
+                return;
+            }
+
+            OpenCheckoutDialog();
+        }
+        catch (BackendOperationException ex)
+        {
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The scan could not be added. Refresh the product or unit list and try again.");
+            ScannerStatusMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
+        }
+        catch (Exception)
+        {
+            ScannerStatusMessage = "Could not check current price and stock. Try again when the server is available.";
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+        }
+        finally
+        {
+            Volatile.Write(ref _checkoutInFlight, 0);
+        }
+    }
+
+    private async Task<string?> RevalidateCartAsync()
+    {
+        var localError = ValidateCartStockForCommit();
+        if (localError is not null || !_isBackendCatalog || _posCatalogGateway is null)
+        {
+            return localError;
+        }
+
+        foreach (var group in CartItems.GroupBy(item => item.Product.BackendProductUnitId))
+        {
+            var product = group.First().Product;
+            if (product.BackendProductId is not Guid productId ||
+                product.BackendProductUnitId is not Guid productUnitId)
+            {
+                return $"{product.Name} is missing its authoritative product identity.";
+            }
+
+            var search = string.IsNullOrWhiteSpace(product.Sku) ? product.Name : product.Sku;
+            var latest = (await _posCatalogGateway.LoadAsync(search, 200))
+                .FirstOrDefault(row =>
+                    row.ProductId == productId && row.ProductUnitId == productUnitId);
+            if (latest is null)
+            {
+                return $"{product.Name} is no longer in the sellable catalog. Remove it from the cart.";
+            }
+
+            if (latest.UnitPrice != product.Price)
+            {
+                product.Price = latest.UnitPrice;
+                foreach (var line in group)
+                {
+                    line.RefreshFromProduct();
+                }
+                return $"Price changed for {product.Name}. Review the updated cart before completing the sale.";
+            }
+
+            product.Stock = latest.SellableStock;
+            foreach (var line in group)
+            {
+                line.RefreshFromProduct();
+            }
+            if (group.Sum(item => item.Quantity) > latest.SellableStock)
+            {
+                return $"Stock changed for {product.Name}. Available: {latest.SellableStock:0.##} {product.Unit}.";
+            }
+
+            if (product.IsSerialized)
+            {
+                if (_workflowService is null)
+                {
+                    return "Exact-unit authority is unavailable. Reconnect before checkout.";
+                }
+
+                var currentUnits = await _workflowService.GetExactUnitsAsync(productId, status: null);
+                foreach (var line in group)
+                {
+                    if (line.ExactUnit is null)
+                    {
+                        return $"Select an exact physical unit for {product.Name}.";
+                    }
+
+                    var current = currentUnits.FirstOrDefault(x =>
+                        x.InventoryUnitId == line.ExactUnit.InventoryUnitId);
+                    if (current is null ||
+                        current.Status != EdgeRetails.Domain.Inventory.InventoryUnitStatus.InStock ||
+                        current.Version != line.ExactUnit.Version)
+                    {
+                        return $"Physical unit {line.ExactIdentityDisplay} changed. Remove it and select an available unit again.";
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void OpenCheckoutDialog()
     {
         if (CartItems.Count == 0 || Total <= 0m)
         {
@@ -409,6 +564,9 @@ public sealed class PosViewModel : ViewModelBase
                 Sku = item.Sku,
                 Brand = item.Brand,
                 UnitPrice = item.UnitPrice,
+                ListUnitPrice = item.ListUnitPrice,
+                PriceOverrideUnitPrice = item.PriceOverrideUnitPrice,
+                PriceOverrideReason = item.PriceOverrideReason,
                 Quantity = item.Quantity,
                 Discount = 0m,
                 LineTotal = item.LineTotal,
@@ -431,14 +589,79 @@ public sealed class PosViewModel : ViewModelBase
             subtotal: Subtotal,
             discountAmount: DiscountAmount,
             preCommitValidation: ValidateCartStockForCommit,
+            preCommitAsyncValidation: RevalidateCartAsync,
             clientOperationId: _pendingSaleOperationId,
             draftId: _currentDraftId,
             draftVersion: _currentDraftVersion)
         {
-            OnSaleCompleted = OnSaleCompleted
+            OnCheckoutCancelled = attempted =>
+            {
+                if (attempted)
+                {
+                    ResetPendingSaleOperationWhenResolved();
+                }
+            }
+        };
+        checkout.OnSaleCompleted = record =>
+        {
+            OnSaleCompleted(record);
+            if (checkout.PrintReceipt)
+            {
+                _ = PrintCompletedReceiptAsync(record);
+            }
         };
 
         _dialogService.Show(checkout);
+    }
+
+    private async Task PrintCompletedReceiptAsync(SaleTransactionRecord sale)
+    {
+        if (_documentPrintService is null || _printerSettings is null ||
+            sale.BackendSaleId is not Guid saleId || saleId == Guid.Empty)
+        {
+            _toastService?.Show(
+                "This completed sale does not have a canonical Server receipt available for printing.",
+                ToastTone.Warning);
+            return;
+        }
+
+        try
+        {
+            var profile = await _printerSettings.GetReceiptProfileAsync();
+            if (profile is null)
+            {
+                _toastService?.Show(
+                    "Sale completed. Choose and save a receipt printer in Settings before printing.",
+                    ToastTone.Warning);
+                return;
+            }
+
+            profile = profile with { ShowPreviewBeforePrint = true };
+            var result = await _documentPrintService.PrintAsync(
+                ProductionDocumentKind.PosSaleReceipt,
+                saleId,
+                profile,
+                isReprint: false);
+            if (result.Succeeded)
+            {
+                _toastService?.Show("Canonical sale receipt sent to the workstation preview/print flow.", ToastTone.Success);
+            }
+            else
+            {
+                var message = result.ErrorCode == "print.outcome_unknown"
+                    ? "Receipt submission is unconfirmed. Check the printer before choosing Reprint in Sales History."
+                    : result.ErrorCode is string errorCode
+                        ? DesktopErrorPresentation.ForCode(errorCode, "Sale completed, but the receipt could not be printed.")
+                        : result.ErrorMessage ?? "Sale completed, but the receipt could not be printed.";
+                _toastService?.Show(message, ToastTone.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Sale completed, but the receipt could not be printed."),
+                ToastTone.Warning);
+        }
     }
 
     private string? ValidateCartStockForCommit()
@@ -474,6 +697,15 @@ public sealed class PosViewModel : ViewModelBase
             {
                 return $"Stock changed for {item.Name}. Available: {item.Product.Stock:0.##} {item.Product.Unit}; requested: {item.Quantity:0.##}.";
             }
+        }
+
+        var duplicateUnit = CartItems
+            .Where(item => item.InventoryUnitId is not null)
+            .GroupBy(item => item.InventoryUnitId)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateUnit is not null)
+        {
+            return "The same physical unit appears more than once in the cart.";
         }
 
         return null;
@@ -566,7 +798,8 @@ public sealed class PosViewModel : ViewModelBase
             quantity: 1m,
             exactUnit: exactUnit,
             onChanged: _ => RecalculateTotals(),
-            onRemove: RemoveCartItem));
+            onRemove: RemoveCartItem,
+            canOverridePrice: _canOverridePrice));
         ScannerStatusMessage = $"Added exact unit {exactUnit.PrimaryIdentity}.";
         RecalculateTotals();
     }
@@ -654,13 +887,19 @@ public sealed class PosViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            ScannerStatusMessage = $"{ex.Code}: {ex.Message}";
-            _toastService?.Show(ScannerStatusMessage, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The selected product could not be added. Refresh and try again.");
+            ScannerStatusMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            ScannerStatusMessage = ex.Message;
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The selected product could not be added. Refresh and try again.");
+            ScannerStatusMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         finally
         {
@@ -722,17 +961,31 @@ public sealed class PosViewModel : ViewModelBase
 
             _dialogService.Show(new PriceCheckViewModel(products[0], _dialogService));
         }
-        catch (Exception ex)
+        catch (BackendOperationException ex)
         {
-            ScannerStatusMessage = ex is BackendOperationException backend
-                ? $"{backend.Code}: {backend.Message}"
-                : ex.Message;
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The exact unit could not be added. Refresh the unit list and try again.");
+            ScannerStatusMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
+        }
+        catch (Exception)
+        {
+            ScannerStatusMessage = "Price Check is unavailable. Reconnect and try again.";
             _toastService?.Show(ScannerStatusMessage, ToastTone.Danger);
         }
     }
 
     private async Task<bool> SaveDraftAsync(bool holdAfterSave)
     {
+        if (_draftSaveOutcomeUncertain)
+        {
+            _toastService?.Show(
+                "Draft save result is unknown. Open Recent Drafts and resolve it before saving again.",
+                ToastTone.Warning);
+            return false;
+        }
+
         if (_workflowService is null)
         {
             _toastService?.Show(
@@ -746,6 +999,13 @@ public sealed class PosViewModel : ViewModelBase
             _toastService?.Show("Cannot save an empty draft.", ToastTone.Warning);
             return false;
         }
+
+        if (Interlocked.Exchange(ref _draftSaveInFlight, 1) != 0)
+        {
+            return false;
+        }
+
+        NotifyDraftSaveCommands();
 
         try
         {
@@ -767,16 +1027,21 @@ public sealed class PosViewModel : ViewModelBase
                     item.ExactUnit?.InventoryUnitId);
             }).ToArray();
 
+            _pendingDraftOperationId ??= Guid.CreateVersion7();
+
             var saved = await _workflowService.SaveDraftAsync(
                 _currentDraftId,
                 _currentDraftVersion,
                 SelectedCustomer?.BackendId,
                 null,
-                inputs);
+                inputs,
+                _pendingDraftOperationId.Value);
 
             _currentDraftId = saved.DraftId;
             _currentDraftVersion = saved.Version;
             _currentDraftNumber = saved.DraftNumber;
+            _pendingDraftOperationId = null;
+            _pendingSaleOperationId = null;
             OnPropertyChanged(nameof(IsResumedDraft));
             OnPropertyChanged(nameof(DraftStatusDisplay));
             _toastService?.Show(
@@ -798,14 +1063,41 @@ public sealed class PosViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _pendingDraftOperationId = null;
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "The draft could not be saved."),
+                ToastTone.Danger);
             return false;
         }
-        catch (Exception ex)
+        catch (DesktopApiException ex) when (ex.Code.StartsWith("network.", StringComparison.OrdinalIgnoreCase))
         {
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            _draftSaveOutcomeUncertain = true;
+            ScannerStatusMessage = "Draft save result is unknown. Check Recent Drafts before taking another action.";
+            ((RelayCommand)SaveDraftCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)HoldDraftCommand).NotifyCanExecuteChanged();
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
             return false;
         }
+        catch (Exception)
+        {
+            _draftSaveOutcomeUncertain = true;
+            ScannerStatusMessage = "Draft save result could not be verified. Check Recent Drafts before taking another action.";
+            ((RelayCommand)SaveDraftCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)HoldDraftCommand).NotifyCanExecuteChanged();
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+            return false;
+        }
+        finally
+        {
+            Volatile.Write(ref _draftSaveInFlight, 0);
+            NotifyDraftSaveCommands();
+        }
+    }
+
+    private void NotifyDraftSaveCommands()
+    {
+        ((RelayCommand)SaveDraftCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)HoldDraftCommand).NotifyCanExecuteChanged();
     }
 
     private void OpenRecentDrafts()
@@ -847,9 +1139,36 @@ public sealed class PosViewModel : ViewModelBase
             var rebuilt = new List<PosCartItemViewModel>();
             foreach (var line in detail.Items)
             {
-                var product = AllProducts.FirstOrDefault(x =>
-                    x.BackendProductId == line.ProductId &&
-                    x.BackendProductUnitId == line.ProductUnitId);
+                PosProductItemViewModel? product;
+                if (_posCatalogGateway is not null)
+                {
+                    var search = string.IsNullOrWhiteSpace(line.Sku)
+                        ? line.ProductName
+                        : line.Sku;
+                    var row = (await _posCatalogGateway.LoadAsync(search, 200))
+                        .FirstOrDefault(x =>
+                            x.ProductId == line.ProductId &&
+                            x.ProductUnitId == line.ProductUnitId);
+                    product = row is null ? null : new PosProductItemViewModel(
+                        id: row.ProductId.ToString("D"),
+                        name: row.Name,
+                        sku: row.Sku,
+                        brand: "—",
+                        category: row.Category,
+                        stock: row.SellableStock,
+                        price: row.UnitPrice,
+                        unit: row.UnitSymbol,
+                        backendProductId: row.ProductId,
+                        backendProductUnitId: row.ProductUnitId,
+                        isSerialized: row.IsSerialized);
+                }
+                else
+                {
+                    product = AllProducts.FirstOrDefault(x =>
+                        x.BackendProductId == line.ProductId &&
+                        x.BackendProductUnitId == line.ProductUnitId);
+                }
+
                 if (product is null)
                 {
                     throw new BackendOperationException(
@@ -857,12 +1176,29 @@ public sealed class PosViewModel : ViewModelBase
                         $"Draft product '{line.ProductName}' is not available in the sellable catalog.");
                 }
 
+                if (line.Quantity > product.Stock)
+                {
+                    throw new BackendOperationException(
+                        "sales.draft_stale_stock",
+                        $"{product.Name} now has only {product.Stock:0.##} {product.Unit} available. Review the draft before sale.");
+                }
+
+                if (product.IsSerialized &&
+                    (line.ExactUnit is null ||
+                     line.ExactUnit.Status != EdgeRetails.Domain.Inventory.InventoryUnitStatus.InStock))
+                {
+                    throw new BackendOperationException(
+                        "sales.draft_stale_unit",
+                        $"Draft physical unit for {product.Name} is no longer available.");
+                }
+
                 rebuilt.Add(new PosCartItemViewModel(
                     product,
                     line.Quantity,
                     line.ExactUnit,
                     _ => RecalculateTotals(),
-                    RemoveCartItem));
+                    RemoveCartItem,
+                    _canOverridePrice));
             }
 
             CartItems.Clear();
@@ -874,6 +1210,8 @@ public sealed class PosViewModel : ViewModelBase
             _currentDraftId = detail.Draft.DraftId;
             _currentDraftVersion = detail.Draft.Version;
             _currentDraftNumber = detail.Draft.DraftNumber;
+            _pendingDraftOperationId = null;
+            _draftSaveOutcomeUncertain = false;
 
             var customer = detail.Draft.CustomerId is Guid customerId
                 ? _customers.FirstOrDefault(x => x.BackendId == customerId)
@@ -889,11 +1227,15 @@ public sealed class PosViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            _toastService?.Show($"{ex.Code}: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "The draft could not be cancelled."),
+                ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "The draft could not be cancelled."),
+                ToastTone.Danger);
         }
     }
 
@@ -958,6 +1300,10 @@ public sealed class PosViewModel : ViewModelBase
 
     private void ApplyCustomerSelection(CustomerDirectoryRecord? customer)
     {
+        if (SelectedCustomer?.BackendId != customer?.BackendId)
+        {
+            ResetPendingSaleOperationWhenResolved();
+        }
         SelectedCustomer = customer;
         CustomerName = customer?.Name ?? "Walk-in Customer";
         CustomerPhone = customer?.Phone ?? string.Empty;
@@ -965,6 +1311,8 @@ public sealed class PosViewModel : ViewModelBase
 
     private void RecalculateTotals()
     {
+        // A changed cart/discount begins a new checkout intent after a cancelled dialog.
+        ResetPendingSaleOperationWhenResolved();
         decimal sub = 0m;
         foreach (var item in CartItems)
         {
@@ -983,6 +1331,72 @@ public sealed class PosViewModel : ViewModelBase
         OnPropertyChanged(nameof(CartItemCountText));
 
         ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)SaveDraftCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)HoldDraftCommand).NotifyCanExecuteChanged();
+    }
+
+    private void ResetPendingSaleOperationWhenResolved()
+    {
+        if (_operationIntents is not null && _pendingSaleOperationId is not null)
+        {
+            _ = RefreshPendingSaleOperationIdAsync();
+        }
+    }
+
+    private async Task RefreshPendingSaleOperationIdAsync()
+    {
+        if (_operationIntents is null)
+        {
+            _pendingSaleOperationId = null;
+            _saleOperationIntentReady = true;
+            ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _pendingSaleIntentReadInFlight, 1) != 0)
+        {
+            Volatile.Write(ref _pendingSaleIntentReadRequested, 1);
+            _saleOperationIntentReady = false;
+            ScannerStatusMessage = PendingSaleIntentCheckStatus;
+            ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+            return;
+        }
+
+        _saleOperationIntentReady = false;
+        ScannerStatusMessage = PendingSaleIntentCheckStatus;
+        ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+        try
+        {
+            do
+            {
+                Volatile.Write(ref _pendingSaleIntentReadRequested, 0);
+                var pending = await _operationIntents.FindPendingByPrefixAsync(
+                    BackendTransactionService.SaleCheckoutIntentKey);
+                _pendingSaleOperationId = pending.SingleOrDefault()?.OperationId;
+            }
+            while (Interlocked.Exchange(ref _pendingSaleIntentReadRequested, 0) != 0);
+
+            _saleOperationIntentReady = true;
+            if (string.Equals(ScannerStatusMessage, PendingSaleIntentCheckStatus, StringComparison.Ordinal))
+            {
+                ScannerStatusMessage = null;
+            }
+        }
+        catch (Exception)
+        {
+            _saleOperationIntentReady = false;
+            ScannerStatusMessage = "A previous sale outcome could not be verified. Checkout remains disabled until the local operation record can be read.";
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _pendingSaleIntentReadInFlight, 0);
+            ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+            if (Interlocked.Exchange(ref _pendingSaleIntentReadRequested, 0) != 0)
+            {
+                _ = RefreshPendingSaleOperationIdAsync();
+            }
+        }
     }
 
     private static ITransactionService ResolveTransactionService(
@@ -1037,7 +1451,9 @@ public sealed class PosViewModel : ViewModelBase
         {
             _customers.Clear();
             _toastService?.Show(
-                $"Customer directory unavailable: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Customer directory is unavailable. Check the connection and try again."),
                 ToastTone.Warning);
         }
     }
@@ -1063,7 +1479,9 @@ public sealed class PosViewModel : ViewModelBase
         catch (Exception ex) when (version == Volatile.Read(ref _catalogSearchVersion))
         {
             _toastService?.Show(
-                $"Backend catalog search failed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Product search failed. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }
@@ -1131,10 +1549,16 @@ public sealed class PosViewModel : ViewModelBase
 
             ApplyFilters();
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (expectedVersion is null ||
+                                   expectedVersion.Value == Volatile.Read(ref _catalogSearchVersion))
         {
             _toastService?.Show(
-                $"Backend catalog unavailable: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "The product catalog is unavailable. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }

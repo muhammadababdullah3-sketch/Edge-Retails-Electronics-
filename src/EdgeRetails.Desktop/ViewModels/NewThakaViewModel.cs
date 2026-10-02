@@ -272,8 +272,11 @@ public sealed class NewThakaViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka project could not be created. Check operation status before retrying.");
+            ValidationMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         finally
         {

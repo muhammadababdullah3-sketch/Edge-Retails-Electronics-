@@ -95,7 +95,9 @@ public sealed class CustomerEditViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Customer details could not be loaded."),
+                ToastTone.Danger);
         }
     }
 }
@@ -283,7 +285,9 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Customers could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Customers could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
         finally
@@ -329,7 +333,11 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex) when (version == Volatile.Read(ref _searchVersion))
         {
-            _toastService.Show($"Customers search failed: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Customer search failed. Check the connection and try again."),
+                ToastTone.Danger);
         }
     }
 

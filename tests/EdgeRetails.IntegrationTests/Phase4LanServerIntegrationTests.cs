@@ -613,13 +613,41 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
     // 10. Operation Query Endpoint (/api/system/operations/{id})
     // ------------------------------------------------------------------------
 
+    private (Guid TerminalId, string Secret) SeedActiveTerminal()
+    {
+        var terminalId = Guid.NewGuid();
+        const string secret = "lan-terminal-secret-2026";
+        var terminal = new Terminal
+        {
+            Id = terminalId,
+            TerminalCode = "LAN-TERM-01",
+            Name = "LAN Test Terminal",
+            Status = TerminalStatus.Active,
+            ProtocolVersion = TerminalProtocol.CurrentProtocolVersion,
+            RegisteredAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow,
+            AuthSecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret)))
+        };
+        _factory.TerminalRepository.Seed(terminal);
+        return (terminalId, secret);
+    }
+
+    private HttpRequestMessage CreateTerminalRequest(HttpMethod method, string uri, Guid terminalId, string secret)
+    {
+        var request = new HttpRequestMessage(method, uri);
+        request.Headers.Add("X-Terminal-Id", terminalId.ToString());
+        request.Headers.Add("X-Terminal-Secret", secret);
+        return request;
+    }
+
     [Fact]
     public async Task OperationStatus_Anonymous_UnknownOperation_Returns_200_OK_With_Found_False()
     {
+        var (terminalId, secret) = SeedActiveTerminal();
         var clientOpId = Guid.NewGuid();
 
-        // Anonymous query without X-Terminal-Id header
-        var response = await _client.GetAsync($"/api/system/operations/{clientOpId}");
+        using var request = CreateTerminalRequest(HttpMethod.Get, $"/api/system/operations/{clientOpId}", terminalId, secret);
+        var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -636,6 +664,7 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
     [Fact]
     public async Task OperationStatus_CommittedSale_Returns_200_OK_With_Sale_Details()
     {
+        var (terminalId, secret) = SeedActiveTerminal();
         var clientOpId = Guid.NewGuid();
         var saleId = Guid.NewGuid();
         var invoiceNumber = "INV-TEST-2026-8801";
@@ -652,8 +681,15 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
             CompletedAt = DateTimeOffset.UtcNow
         };
         _factory.SalesRepository.SeedSale(sale);
+        await _factory.OperationOutcomeLedger.RecordSuccessAsync(
+            clientOpId,
+            "Sale",
+            saleId,
+            documentNumber: invoiceNumber,
+            terminalId: terminalId);
 
-        var response = await _client.GetAsync($"/api/system/operations/{clientOpId}");
+        using var request = CreateTerminalRequest(HttpMethod.Get, $"/api/system/operations/{clientOpId}", terminalId, secret);
+        var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -670,6 +706,7 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
     [Fact]
     public async Task OperationStatus_CommittedPurchase_Returns_200_OK_With_Purchase_Details()
     {
+        var (terminalId, secret) = SeedActiveTerminal();
         var clientOpId = Guid.NewGuid();
         var purchaseId = Guid.NewGuid();
         var purchaseNumber = "PUR-TEST-2026-5501";
@@ -685,8 +722,15 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
             CreatedAt = DateTimeOffset.UtcNow
         };
         _factory.PurchasingRepository.SeedPurchase(purchase);
+        await _factory.OperationOutcomeLedger.RecordSuccessAsync(
+            clientOpId,
+            "Purchase",
+            purchaseId,
+            documentNumber: purchaseNumber,
+            terminalId: terminalId);
 
-        var response = await _client.GetAsync($"/api/system/operations/{clientOpId}");
+        using var request = CreateTerminalRequest(HttpMethod.Get, $"/api/system/operations/{clientOpId}", terminalId, secret);
+        var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -703,6 +747,7 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
     [Fact]
     public async Task OperationStatus_CommittedSupplierPayment_Returns_200_OK_With_Payment_Details()
     {
+        var (terminalId, secret) = SeedActiveTerminal();
         var clientOpId = Guid.NewGuid();
         var paymentId = Guid.NewGuid();
         var paymentNumber = "SPAY-TEST-2026-3301";
@@ -716,8 +761,15 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
             PaidAt = DateTimeOffset.UtcNow
         };
         _factory.SupplierAccountRepository.SeedPayment(payment);
+        await _factory.OperationOutcomeLedger.RecordSuccessAsync(
+            clientOpId,
+            "SupplierPayment",
+            paymentId,
+            documentNumber: paymentNumber,
+            terminalId: terminalId);
 
-        var response = await _client.GetAsync($"/api/system/operations/{clientOpId}");
+        using var request = CreateTerminalRequest(HttpMethod.Get, $"/api/system/operations/{clientOpId}", terminalId, secret);
+        var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -734,7 +786,9 @@ public sealed class Phase4LanServerIntegrationTests : IDisposable
     [Fact]
     public async Task OperationStatus_EmptyGuid_Returns_400_BadRequest()
     {
-        var response = await _client.GetAsync($"/api/system/operations/{Guid.Empty}");
+        var (terminalId, secret) = SeedActiveTerminal();
+        using var request = CreateTerminalRequest(HttpMethod.Get, $"/api/system/operations/{Guid.Empty}", terminalId, secret);
+        var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
@@ -762,6 +816,7 @@ public sealed class CustomLanServerWebApplicationFactory : WebApplicationFactory
     public InMemorySalesRepository SalesRepository { get; } = new();
     public InMemoryPurchasingRepository PurchasingRepository { get; } = new();
     public InMemorySupplierAccountRepository SupplierAccountRepository { get; } = new();
+    public InMemoryOperationOutcomeLedger OperationOutcomeLedger { get; } = new();
 
     public void Reset()
     {
@@ -800,6 +855,10 @@ public sealed class CustomLanServerWebApplicationFactory : WebApplicationFactory
 
             services.RemoveAll<IResourceLock>();
             services.AddSingleton<IResourceLock, NoOpResourceLock>();
+
+            // Replace operation outcome ledger with in-memory double so LAN server tests run hermetically
+            services.RemoveAll<IOperationOutcomeLedger>();
+            services.AddSingleton<IOperationOutcomeLedger>(OperationOutcomeLedger);
         });
     }
 }

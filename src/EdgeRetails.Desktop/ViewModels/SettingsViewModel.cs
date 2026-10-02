@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
+using EdgeRetails.Application.Production.Backup;
+using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Desktop.Services;
 using Microsoft.Win32;
 
@@ -24,12 +26,22 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private readonly IDialogService _dialogService;
     private readonly IToastService _toastService;
     private readonly IBackendSettingsService? _backendService;
+    private readonly IBackendBackupRestoreService? _backupRestoreService;
+    public IWorkstationPrinterSettings? WorkstationPrinterSettings { get; init; }
     private readonly DemoSettingsState? _previewState;
+    private CancellationTokenSource? _backupLoadCancellation;
 
     private SettingsSection _selectedSection = SettingsSection.Shop;
     private AppTheme _selectedTheme;
     private bool _isLoading;
+    private bool _isBackupBusy;
     private string? _loadError;
+    private string? _printerSettingsError;
+    private string _printer = string.Empty;
+    private string _paperSize = "80mm";
+    private string _backupOperationStatus = "Backup history unavailable";
+    private SettingsBackupRecord? _selectedBackup;
+    private RestoreStatusApiResponse? _activeRestore;
 
     private string _licenseId = "Unavailable";
     private string _licenseStore = "Unavailable";
@@ -44,18 +56,23 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     private string _connectionStatus = "Database readiness unavailable";
     private string _workerStatus = "Unavailable";
     private string _lastBackupDisplay = "Unavailable";
+    private string _backupVerificationStatus = "Backup integrity status unavailable";
     private string _maintenanceStatus = "Unavailable";
 
     public SettingsViewModel(
         IThemeService themeService,
         IDialogService dialogService,
         IToastService toastService,
-        IBackendSettingsService? backendService = null)
+        IBackendSettingsService? backendService = null,
+        IBackendBackupRestoreService? backupRestoreService = null,
+        IWorkstationPrinterSettings? workstationPrinterSettings = null)
     {
         _themeService = themeService;
         _dialogService = dialogService;
         _toastService = toastService;
         _backendService = backendService;
+        _backupRestoreService = backupRestoreService;
+        WorkstationPrinterSettings = workstationPrinterSettings;
         _previewState = ResolvePreviewState(backendService);
         _selectedTheme = themeService.CurrentTheme;
 
@@ -63,18 +80,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Categories = [];
         Units = [];
         Backups = [];
+        Printers = [];
         PermissionMatrix = [];
-
-        Printers =
-        [
-            "Not configured",
-            "Windows Default",
-            "Thermal 80mm",
-            "Thermal 58mm"
-        ];
         PaperSizes = ["80mm", "58mm"];
-        Printer = "Not configured";
-        PaperSize = "80mm";
 
         SelectSectionCommand = new RelayCommand<string>(SelectSection);
         SaveShopCommand = new RelayCommand(() => _ = SaveShopAsync());
@@ -93,8 +101,16 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         EditUnitCommand = new RelayCommand<SettingsUnitRecord>(
             unit => OpenEditor(SettingsEditorKind.Unit, unit));
         ToggleUnitCommand = new RelayCommand<SettingsUnitRecord>(ToggleUnit);
-        BackupNowCommand = new RelayCommand(BackupNow);
-        RestoreCommand = new RelayCommand(OpenRestore);
+        BackupNowCommand = new RelayCommand(() => _ = BackupNowAsync(), () => !IsBackupBusy && _backupRestoreService is not null);
+        RestoreCommand = new RelayCommand(OpenRestore, () => !IsBackupBusy && _backupRestoreService is not null && SelectedBackup?.BackupId is not null);
+        RecoverRestoreCommand = new RelayCommand(() => _ = RecoverRestoreAsync(),
+            () => !IsBackupBusy && _activeRestore is { Session.State: RestoreSessionState.Preparing, Session.ClientOperationId: not null });
+        CutoverRestoreCommand = new RelayCommand(OpenCutoverConfirmation,
+            () => !IsBackupBusy && _activeRestore is { Session.State: RestoreSessionState.Prepared, CutoverConfirmation.Length: > 0 });
+        DiscardRestoreCommand = new RelayCommand(OpenDiscardConfirmation,
+            () => !IsBackupBusy && _activeRestore is { Session.State: RestoreSessionState.Prepared, DiscardConfirmation.Length: > 0 });
+        RefreshBackupHistoryCommand = new RelayCommand(() => _ = RefreshBackupHistoryAsync(true),
+            () => !IsBackupBusy && _backupRestoreService is not null);
         ImportLicenseCommand = new RelayCommand(OpenLicenseImport);
         ApplyThemeCommand = new RelayCommand(ApplyTheme);
         RefreshDiagnosticsCommand =
@@ -121,10 +137,23 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             ApplyUnavailable(
                 "Authoritative Settings backend service is not attached.");
         }
+
+        if (_backupRestoreService is not null)
+        {
+            _ = RefreshBackupHistoryAsync(false);
+            _ = ReconcilePendingRestorePreparationAsync();
+        }
+
+        if (WorkstationPrinterSettings is not null)
+        {
+            _ = LoadWorkstationPrinterSettingsAsync();
+        }
     }
 
     public void Dispose()
     {
+        _backupLoadCancellation?.Cancel();
+        _backupLoadCancellation?.Dispose();
 #if DEBUG
         if (_previewState is not null)
         {
@@ -168,11 +197,31 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public string Address { get; set; } = string.Empty;
     public string LogoPath { get; set; } = string.Empty;
 
-    public IReadOnlyList<string> Printers { get; }
+    public ObservableCollection<string> Printers { get; }
     public IReadOnlyList<string> PaperSizes { get; }
 
-    public string Printer { get; set; }
-    public string PaperSize { get; set; }
+    public string Printer
+    {
+        get => _printer;
+        set => SetProperty(ref _printer, value);
+    }
+    public string PaperSize
+    {
+        get => _paperSize;
+        set => SetProperty(ref _paperSize, value);
+    }
+    public string? PrinterSettingsError
+    {
+        get => _printerSettingsError;
+        private set
+        {
+            if (SetProperty(ref _printerSettingsError, value))
+            {
+                OnPropertyChanged(nameof(HasPrinterSettingsError));
+            }
+        }
+    }
+    public bool HasPrinterSettingsError => !string.IsNullOrWhiteSpace(PrinterSettingsError);
     public string HeaderText { get; set; } = string.Empty;
     public string FooterText { get; set; } = string.Empty;
     public bool ShowCustomer { get; set; }
@@ -221,6 +270,47 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public string ConnectionStatus => _connectionStatus;
     public string WorkerStatus => _workerStatus;
     public string LastBackupDisplay => _lastBackupDisplay;
+    public string BackupVerificationStatus
+    {
+        get => _backupVerificationStatus;
+        private set => SetProperty(ref _backupVerificationStatus, value);
+    }
+    public string BackupOperationStatus
+    {
+        get => _backupOperationStatus;
+        private set
+        {
+            SetProperty(ref _backupOperationStatus, value);
+        }
+    }
+    public string RestoreStatusDisplay => _activeRestore is null
+        ? "No restore is prepared."
+        : $"Restore {_activeRestore.Session.RestoreId:D} · {_activeRestore.Session.State}";
+    public bool IsRestorePrepared => _activeRestore?.Session.State == RestoreSessionState.Prepared;
+    public bool IsRestorePreparing => _activeRestore?.Session.State == RestoreSessionState.Preparing;
+    public bool IsRestoreRecoveryRequired => _activeRestore?.Session.State == RestoreSessionState.RecoveryRequired;
+    public bool IsBackupBusy
+    {
+        get => _isBackupBusy;
+        private set
+        {
+            if (SetProperty(ref _isBackupBusy, value))
+            {
+                NotifyBackupCommands();
+            }
+        }
+    }
+    public SettingsBackupRecord? SelectedBackup
+    {
+        get => _selectedBackup;
+        set
+        {
+            if (SetProperty(ref _selectedBackup, value))
+            {
+                RestoreCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
     public string MaintenanceStatus => _maintenanceStatus;
 
     public string ProductionAuthorityNotice =>
@@ -240,8 +330,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public ICommand AddUnitCommand { get; }
     public ICommand EditUnitCommand { get; }
     public ICommand ToggleUnitCommand { get; }
-    public ICommand BackupNowCommand { get; }
-    public ICommand RestoreCommand { get; }
+    public RelayCommand BackupNowCommand { get; }
+    public RelayCommand RestoreCommand { get; }
+    public RelayCommand RecoverRestoreCommand { get; }
+    public RelayCommand CutoverRestoreCommand { get; }
+    public RelayCommand DiscardRestoreCommand { get; }
+    public RelayCommand RefreshBackupHistoryCommand { get; }
     public ICommand ImportLicenseCommand { get; }
     public ICommand ApplyThemeCommand { get; }
     public ICommand RefreshDiagnosticsCommand { get; }
@@ -264,6 +358,10 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
                 out var parsed))
         {
             SelectedSection = parsed;
+            if (parsed == SettingsSection.Backup)
+            {
+                _ = RefreshBackupHistoryAsync(false);
+            }
         }
     }
 
@@ -284,7 +382,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             }
             catch (Exception ex)
             {
-                _toastService.Show(ex.Message, ToastTone.Warning);
+                _toastService.Show(
+                    DesktopErrorPresentation.ForException(ex, "Shop settings could not be saved."),
+                    ToastTone.Warning);
             }
             return;
         }
@@ -307,13 +407,70 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Shop settings were not saved: {ex.Message}",
+                DesktopErrorPresentation.ForException(ex, "Shop settings were not saved."),
                 ToastTone.Danger);
         }
     }
 
     private async Task SaveReceiptAsync()
     {
+        if (WorkstationPrinterSettings is null)
+        {
+            const string message = "Workstation printer settings are unavailable. Printer selection was not saved.";
+            PrinterSettingsError = message;
+            _toastService.Show(message, ToastTone.Danger);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Printer) ||
+            !Printers.Contains(Printer, StringComparer.OrdinalIgnoreCase))
+        {
+            PrinterSettingsError = Printers.Count == 0
+                ? "Windows did not report any installed printers. Connect or install a printer before saving receipt settings."
+                : "Select an installed Windows printer before saving receipt settings.";
+            _toastService.Show(PrinterSettingsError!, ToastTone.Warning);
+            return;
+        }
+
+        var paper = PaperSize switch
+        {
+            "58mm" => PaperKind.Thermal58Mm,
+            "80mm" => PaperKind.Thermal80Mm,
+            _ => (PaperKind?)null
+        };
+        if (paper is null)
+        {
+            PrinterSettingsError = "Select either 58mm or 80mm receipt media.";
+            _toastService.Show(PrinterSettingsError!, ToastTone.Warning);
+            return;
+        }
+
+        PrinterSettingsError = null;
+        var profileToSave = new PrinterProfile(
+            WindowsWorkstationPrinterSettings.ReceiptProfileName,
+            Printer,
+            paper.Value,
+            Copies: 1,
+            ShowPreviewBeforePrint: true);
+        try
+        {
+            var validation = await WorkstationPrinterSettings.ValidateReceiptProfileAsync(profileToSave);
+            if (!validation.Supported)
+            {
+                PrinterSettingsError = validation.Message ?? "The selected printer does not support this receipt profile.";
+                _toastService.Show(PrinterSettingsError!, ToastTone.Warning);
+                return;
+            }
+
+            await WorkstationPrinterSettings.SaveReceiptProfileAsync(profileToSave);
+        }
+        catch (Exception ex)
+        {
+            PrinterSettingsError = DesktopErrorPresentation.ForException(ex, "Workstation printer settings could not be saved.");
+            _toastService.Show(PrinterSettingsError!, ToastTone.Danger);
+            return;
+        }
+
 #if DEBUG
         if (_previewState is not null)
         {
@@ -331,8 +488,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 #endif
         if (_backendService is null)
         {
-            ShowProductionUnavailable(
-                "Authoritative receipt-template service is unavailable. No production settings were changed.");
+            PrinterSettingsError = "Printer and media preferences were saved on this workstation. Receipt template changes were not saved because the authoritative backend service is unavailable.";
+            _toastService.Show(PrinterSettingsError!, ToastTone.Warning);
             return;
         }
 
@@ -345,15 +502,54 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
                 ShowCashier,
                 AutoPrint);
             _toastService.Show(
-                "Global receipt template saved. Printer and paper selection remain workstation-local.",
+                "Receipt template saved. Printer and media preferences were saved on this workstation.",
                 ToastTone.Success);
             await RefreshBackendAsync(false);
         }
         catch (Exception ex)
         {
-            _toastService.Show(
-                $"Receipt template was not saved: {ex.Message}",
-                ToastTone.Danger);
+            PrinterSettingsError = "Workstation printer and media preferences were saved, but the receipt template was not: " +
+                DesktopErrorPresentation.ForException(ex, "Receipt template save failed.");
+            _toastService.Show(PrinterSettingsError!, ToastTone.Danger);
+        }
+    }
+
+    private async Task LoadWorkstationPrinterSettingsAsync()
+    {
+        try
+        {
+            var printers = await WorkstationPrinterSettings!.GetInstalledPrinterNamesAsync();
+            Printers.Clear();
+            foreach (var name in printers.Where(name => !string.IsNullOrWhiteSpace(name)))
+            {
+                Printers.Add(name);
+            }
+
+            var profile = await WorkstationPrinterSettings.GetReceiptProfileAsync();
+            if (profile is not null)
+            {
+                Printer = profile.PrinterName;
+                PaperSize = profile.Paper switch
+                {
+                    PaperKind.Thermal58Mm => "58mm",
+                    PaperKind.Thermal80Mm => "80mm",
+                    _ => "80mm"
+                };
+            }
+            else if (Printers.Count > 0)
+            {
+                Printer = Printers[0];
+            }
+
+            PrinterSettingsError = Printers.Count == 0
+                ? "No installed Windows printers were found. Install or connect a printer to configure receipt output."
+                : profile is not null && !Printers.Contains(profile.PrinterName, StringComparer.OrdinalIgnoreCase)
+                    ? $"Saved printer '{profile.PrinterName}' is not currently installed on this workstation. Select an installed printer to replace it."
+                    : null;
+        }
+        catch (Exception ex)
+        {
+            PrinterSettingsError = DesktopErrorPresentation.ForException(ex, "Installed printers or saved workstation settings could not be loaded.");
         }
     }
 
@@ -394,6 +590,13 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             return;
         }
 #endif
+        if (kind == SettingsEditorKind.User && existing is null && _backendService?.SupportsCashierCreation == true)
+        {
+            _dialogService.Show(new SettingsEditorViewModel(
+                _backendService, _toastService, _dialogService.Close,
+                () => RefreshBackendAsync(false)));
+            return;
+        }
         var area = kind switch
         {
             SettingsEditorKind.User => "User administration",
@@ -446,11 +649,10 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             "Unit lifecycle belongs to authoritative catalog management. No production state was changed.");
     }
 
-    private void BackupNow()
+    private async Task BackupNowAsync()
     {
-        // Worker integration is deferred until backend attachment.
 #if DEBUG
-        if (_previewState is not null)
+        if (_previewState is not null && _backupRestoreService is null)
         {
             _toastService.Show(
                 "Preview only. No backup was created. Worker integration is deferred until backend attachment.",
@@ -458,15 +660,36 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             return;
         }
 #endif
-        ShowProductionUnavailable(
-            "Hardened backup infrastructure exists, but the safe production Settings operator adapter is reserved for Phase 6. No backup was started.");
+        if (_backupRestoreService is null)
+        {
+            ShowProductionUnavailable("The authoritative backup service is unavailable. No backup was started.");
+            return;
+        }
+
+        IsBackupBusy = true;
+        BackupOperationStatus = "Creating encrypted database backup…";
+        try
+        {
+            var created = await _backupRestoreService.CreateBackupAsync();
+            AddOrReplaceBackup(created);
+            BackupOperationStatus = created.CreatedAtUtc.ToLocalTime().ToString("Backup completed · dd MMM yyyy hh:mm tt");
+            _toastService.Show("Encrypted PostgreSQL backup completed and verified.", ToastTone.Success);
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(ex, "The backup could not be completed.");
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+        }
+        finally
+        {
+            IsBackupBusy = false;
+        }
     }
 
     private void OpenRestore()
     {
-        // Backend restore is not attached yet.
 #if DEBUG
-        if (_previewState is not null)
+        if (_previewState is not null && _backupRestoreService is null)
         {
             var options = Backups.Select(backup => backup.Summary).ToArray();
             _dialogService.Show(new SettingsConfirmViewModel(
@@ -481,8 +704,328 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
             return;
         }
 #endif
-        ShowProductionUnavailable(
-            "Restore operator integration is not attached to the hardened Sprint 8 restore pipeline yet. No restore was prepared or executed.");
+        if (_backupRestoreService is null)
+        {
+            ShowProductionUnavailable("The authoritative restore service is unavailable. No restore was prepared.");
+            return;
+        }
+
+        if (SelectedBackup?.BackupId is not Guid backupId || backupId == Guid.Empty)
+        {
+            BackupOperationStatus = "Select a verified backup before preparing a restore.";
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+            return;
+        }
+
+        _ = PrepareRestoreAsync(backupId);
+    }
+
+    private async Task PrepareRestoreAsync(Guid backupId)
+    {
+        if (_backupRestoreService is null)
+        {
+            return;
+        }
+
+        IsBackupBusy = true;
+        BackupOperationStatus = "Validating backup and preparing an isolated restore…";
+        try
+        {
+            var status = await _backupRestoreService.PrepareRestoreAsync(backupId);
+            SetActiveRestore(status);
+            BackupOperationStatus = RestoreStatusMessage(status.Session.State);
+            _toastService.Show(BackupOperationStatus, status.Session.State == RestoreSessionState.Prepared
+                ? ToastTone.Success
+                : ToastTone.Warning);
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(ex, "Restore preparation could not be confirmed.");
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+        }
+        finally
+        {
+            IsBackupBusy = false;
+        }
+    }
+
+    private async Task RefreshBackupHistoryAsync(bool showToast)
+    {
+        if (_backupRestoreService is null)
+        {
+            return;
+        }
+
+        _backupLoadCancellation?.Cancel();
+        _backupLoadCancellation?.Dispose();
+        _backupLoadCancellation = new CancellationTokenSource();
+        var cancellationToken = _backupLoadCancellation.Token;
+        try
+        {
+            var selectedId = SelectedBackup?.BackupId;
+            IReadOnlyList<SafeBackupRecord> history;
+            try
+            {
+                var diagnostics = await _backupRestoreService.LoadHistoryDiagnosticsAsync(cancellationToken);
+                history = diagnostics.VerifiedBackups;
+                BackupVerificationStatus = diagnostics.InvalidArtifactCount == 0
+                    ? "All discovered backup artifacts passed integrity checks."
+                    : $"{diagnostics.InvalidArtifactCount} artifact(s) failed integrity checks and are unavailable for restore. " +
+                      string.Join(" · ", diagnostics.Issues.Select(issue => $"{issue.Code} ({issue.Count})"));
+            }
+            catch (NotSupportedException)
+            {
+                history = await _backupRestoreService.LoadHistoryAsync(cancellationToken);
+                BackupVerificationStatus = "The Server does not provide backup integrity diagnostics.";
+            }
+            catch (BackendOperationException)
+            {
+                history = await _backupRestoreService.LoadHistoryAsync(cancellationToken);
+                BackupVerificationStatus = "Backup integrity diagnostics are unavailable; the verified backup list was refreshed.";
+            }
+
+            ReplaceCollection(Backups, history.OrderByDescending(item => item.CreatedAtUtc).Select(ToSettingsBackupRecord));
+            SelectedBackup = selectedId is Guid id
+                ? Backups.FirstOrDefault(item => item.BackupId == id) ?? Backups.FirstOrDefault()
+                : Backups.FirstOrDefault();
+
+            if (history.Count > 0)
+            {
+                _lastBackupDisplay = history.MaxBy(item => item.CreatedAtUtc)!.CreatedAtUtc.ToLocalTime()
+                    .ToString("dd MMM yyyy hh:mm tt");
+            }
+            else
+            {
+                _lastBackupDisplay = "No verified backups";
+            }
+
+            BackupOperationStatus = history.Count == 0
+                ? "No verified backups are available."
+                : $"{history.Count} verified backup{(history.Count == 1 ? string.Empty : "s")} available.";
+            RaiseBackendProperties();
+            if (showToast)
+            {
+                _toastService.Show("Verified backup history refreshed from the Server.", ToastTone.Success);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(ex, "Backup history is unavailable.");
+            if (showToast)
+            {
+                _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+            }
+        }
+    }
+
+    private async Task ReconcilePendingRestorePreparationAsync()
+    {
+        if (_backupRestoreService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // This is a read-only status lookup. Recovery remains an explicit operator action.
+            var status = await _backupRestoreService.ReconcilePendingRestorePreparationAsync();
+            if (status is null)
+            {
+                return;
+            }
+
+            SetActiveRestore(status);
+            BackupOperationStatus = RestoreStatusMessage(status.Session.State);
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(
+                ex,
+                "The previous restore operation could not be reconciled. Its saved operation identity remains available.");
+        }
+    }
+
+    private async Task RecoverRestoreAsync()
+    {
+        if (_backupRestoreService is null || _activeRestore?.Session.ClientOperationId is not Guid operationId)
+        {
+            return;
+        }
+
+        IsBackupBusy = true;
+        try
+        {
+            var status = await _backupRestoreService.RecoverPreparationAsync(operationId);
+            SetActiveRestore(status);
+            BackupOperationStatus = RestoreStatusMessage(status.Session.State);
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(ex, "Restore recovery could not be confirmed.");
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+        }
+        finally
+        {
+            IsBackupBusy = false;
+        }
+    }
+
+    private void OpenCutoverConfirmation()
+    {
+        if (_activeRestore?.CutoverConfirmation is not { Length: > 0 } phrase)
+        {
+            return;
+        }
+
+        _dialogService.Show(new TypedRestoreConfirmationViewModel(
+            "Confirm restore cutover",
+            "The verified restore will become the active database. The current production database will be preserved under a recovery name.",
+            phrase,
+            "Cut Over",
+            value => _ = CutoverRestoreAsync(value),
+            _dialogService.Close));
+    }
+
+    private void OpenDiscardConfirmation()
+    {
+        if (_activeRestore?.DiscardConfirmation is not { Length: > 0 } phrase)
+        {
+            return;
+        }
+
+        _dialogService.Show(new TypedRestoreConfirmationViewModel(
+            "Discard prepared restore",
+            "The isolated staging database for this prepared restore will be removed. The active production database remains unchanged.",
+            phrase,
+            "Discard Staging",
+            value => _ = DiscardPreparedRestoreAsync(value),
+            _dialogService.Close));
+    }
+
+    private async Task CutoverRestoreAsync(string confirmation)
+        => await RunPreparedRestoreMutationAsync(
+            confirmation,
+            cutover: true);
+
+    private async Task DiscardPreparedRestoreAsync(string confirmation)
+        => await RunPreparedRestoreMutationAsync(
+            confirmation,
+            cutover: false);
+
+    private async Task RunPreparedRestoreMutationAsync(string confirmation, bool cutover)
+    {
+        if (_backupRestoreService is null || _activeRestore is null)
+        {
+            return;
+        }
+
+        IsBackupBusy = true;
+        try
+        {
+            var status = cutover
+                ? await _backupRestoreService.CutoverAsync(_activeRestore.Session.RestoreId, confirmation)
+                : await _backupRestoreService.DiscardAsync(_activeRestore.Session.RestoreId, confirmation);
+            SetActiveRestore(status);
+            BackupOperationStatus = RestoreStatusMessage(status.Session.State);
+            _toastService.Show(BackupOperationStatus, status.Session.State == RestoreSessionState.Completed
+                ? ToastTone.Success
+                : ToastTone.Info);
+            await RefreshBackupHistoryAsync(false);
+        }
+        catch (BackendOperationException ex)
+        {
+            BackupOperationStatus = DesktopErrorPresentation.ForException(ex, "The restore operation could not be confirmed.");
+            _toastService.Show(BackupOperationStatus, ToastTone.Warning);
+        }
+        finally
+        {
+            IsBackupBusy = false;
+        }
+    }
+
+    private void SetActiveRestore(RestoreStatusApiResponse status)
+    {
+        _activeRestore = status;
+        OnPropertyChanged(nameof(RestoreStatusDisplay));
+        OnPropertyChanged(nameof(IsRestorePrepared));
+        OnPropertyChanged(nameof(IsRestorePreparing));
+        OnPropertyChanged(nameof(IsRestoreRecoveryRequired));
+        RecoverRestoreCommand.NotifyCanExecuteChanged();
+        CutoverRestoreCommand.NotifyCanExecuteChanged();
+        DiscardRestoreCommand.NotifyCanExecuteChanged();
+    }
+
+    private void AddOrReplaceBackup(SafeBackupRecord backup)
+    {
+        var row = ToSettingsBackupRecord(backup);
+        var existing = Backups.FirstOrDefault(item => item.BackupId == backup.BackupId);
+        if (existing is not null)
+        {
+            Backups.Remove(existing);
+        }
+
+        Backups.Insert(0, row);
+        SelectedBackup = row;
+        _lastBackupDisplay = row.TimestampDisplay;
+        RaiseBackendProperties();
+    }
+
+    private static SettingsBackupRecord ToSettingsBackupRecord(SafeBackupRecord backup)
+        => new()
+        {
+            BackupId = backup.BackupId,
+            Timestamp = backup.CreatedAtUtc.LocalDateTime,
+            Type = $"PostgreSQL {backup.FormatVersion}",
+            Status = "Verified",
+            Size = FormatBytes(backup.SizeBytes),
+            Protection = backup.Protection,
+            PostgreSqlVersion = backup.PostgreSqlServerVersion
+        };
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 0)
+        {
+            return "Unavailable";
+        }
+
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var value = (double)bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return $"{value:0.##} {units[unit]}";
+    }
+
+    private static string RestoreStatusMessage(RestoreSessionState state)
+        => state switch
+        {
+            RestoreSessionState.Prepared => "Restore validated and prepared. Review the verified backup, then choose Cut Over or Discard.",
+            RestoreSessionState.Preparing => "Restore preparation is still resolving. Recover this operation before retrying.",
+            RestoreSessionState.Completed => "Restore cutover completed. The previous production database was preserved.",
+            RestoreSessionState.Discarded => "Prepared restore staging was discarded; production remains unchanged.",
+            RestoreSessionState.RecoveryRequired => "Restore recovery requires operator intervention. No automatic retry was attempted.",
+            RestoreSessionState.RolledBack => "Restore cutover was rolled back; recovery status is available on the Server.",
+            _ => "Restore operation is in progress. Refresh status before continuing."
+        };
+
+    private void NotifyBackupCommands()
+    {
+        BackupNowCommand?.NotifyCanExecuteChanged();
+        RestoreCommand?.NotifyCanExecuteChanged();
+        RecoverRestoreCommand?.NotifyCanExecuteChanged();
+        CutoverRestoreCommand?.NotifyCanExecuteChanged();
+        DiscardRestoreCommand?.NotifyCanExecuteChanged();
+        RefreshBackupHistoryCommand?.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(IsBackupBusy));
     }
 
     private void OpenLicenseImport()
@@ -559,7 +1102,9 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            ApplyUnavailable($"Settings backend unavailable: {ex.Message}");
+            ApplyUnavailable(DesktopErrorPresentation.ForException(
+                ex,
+                "Settings backend is unavailable. Check the connection and try again."));
             _toastService.Show(LoadError!, ToastTone.Danger);
         }
         finally
@@ -587,7 +1132,6 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         // tables in Settings. Phase 3 Product Management owns their final workflow.
         Categories.Clear();
         Units.Clear();
-        Backups.Clear();
         PermissionMatrix = [];
         OnPropertyChanged(nameof(PermissionMatrix));
 
@@ -602,7 +1146,11 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         _licenseExpiry = snapshot.LicenseExpiry;
         _licensedTerminals = snapshot.LicensedTerminals;
         _licenseStatus = snapshot.LicenseStatus;
-        _lastBackupDisplay = snapshot.LastBackupDisplay;
+        _lastBackupDisplay = _backupRestoreService is null
+            ? snapshot.LastBackupDisplay
+            : Backups.Count == 0
+                ? "No verified backups"
+                : Backups.MaxBy(item => item.Timestamp)!.TimestampDisplay;
         _maintenanceStatus = snapshot.MaintenanceStatus;
 
         RaiseBackendProperties();
@@ -671,7 +1219,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Address = string.Empty;
         LogoPath = string.Empty;
 
-        Printer = "Not configured";
+        Printer = string.Empty;
         PaperSize = "80mm";
         HeaderText = string.Empty;
         FooterText = string.Empty;
@@ -688,7 +1236,6 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Users.Clear();
         Categories.Clear();
         Units.Clear();
-        Backups.Clear();
         PermissionMatrix = [];
 
         _databaseName = "PostgreSQL";
@@ -751,6 +1298,10 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(LastBackupDisplay));
         OnPropertyChanged(nameof(MaintenanceStatus));
         OnPropertyChanged(nameof(ProductionAuthorityNotice));
+        OnPropertyChanged(nameof(RestoreStatusDisplay));
+        OnPropertyChanged(nameof(IsRestorePrepared));
+        OnPropertyChanged(nameof(IsRestorePreparing));
+        OnPropertyChanged(nameof(IsRestoreRecoveryRequired));
     }
 
     private void RaiseSectionProperties()
@@ -787,10 +1338,33 @@ public enum SettingsEditorKind
 
 public sealed class SettingsEditorViewModel : ViewModelBase
 {
-    private readonly DemoSettingsState _state;
+    private readonly DemoSettingsState? _state;
+    private readonly IBackendSettingsService? _production;
+    private readonly Func<Task>? _refresh;
     private readonly IToastService _toast;
     private readonly Action _close;
     private readonly object? _existing;
+    private string _newPin = string.Empty;
+    private bool _isSaving;
+    private bool _outcomeUnknown;
+    private string? _submittedName;
+    private string? _userOperationMessage;
+
+    public SettingsEditorViewModel(IBackendSettingsService production, IToastService toast,
+        Action close, Func<Task> refresh)
+    {
+        _production = production;
+        _toast = toast;
+        _close = close;
+        _refresh = refresh;
+        Kind = SettingsEditorKind.User;
+        Roles = ["Cashier"];
+        Statuses = ["Active"];
+        SaveCommand = new RelayCommand(() => _ = SaveProductionUserAsync(), () => !IsSaving);
+        CancelCommand = new RelayCommand(Cancel, () => !IsSaving);
+        CheckStatusCommand = new RelayCommand(() => _ = CheckCreationStatusAsync(), () => !IsSaving && HasUnknownOutcome);
+        BrowseLicenseFileCommand = new RelayCommand(() => { });
+    }
 
     public SettingsEditorViewModel(
         SettingsEditorKind kind,
@@ -827,6 +1401,7 @@ public sealed class SettingsEditorViewModel : ViewModelBase
         SaveCommand = new RelayCommand(Save);
         CancelCommand = new RelayCommand(Cancel);
         BrowseLicenseFileCommand = new RelayCommand(BrowseLicenseFile);
+        CheckStatusCommand = new RelayCommand(() => { }, () => false);
     }
 
     public SettingsEditorKind Kind { get; }
@@ -836,7 +1411,41 @@ public sealed class SettingsEditorViewModel : ViewModelBase
     public string Name { get; set; } = string.Empty;
     public string Role { get; set; } = "Cashier";
     public string Status { get; set; } = "Active";
-    public string NewPin { get; set; } = string.Empty;
+    public string NewPin { get => _newPin; set => SetProperty(ref _newPin, value); }
+    public Guid ClientOperationId { get; } = Guid.CreateVersion7();
+    public bool IsSaving
+    {
+        get => _isSaving;
+        private set
+        {
+            if (!SetProperty(ref _isSaving, value))
+            {
+                return;
+            }
+            OnPropertyChanged(nameof(IsUserFieldsEnabled));
+            OnPropertyChanged(nameof(IsPinEnabled));
+            (SaveCommand as RelayCommand)?.NotifyCanExecuteChanged();
+            (CancelCommand as RelayCommand)?.NotifyCanExecuteChanged();
+            (CheckStatusCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        }
+    }
+    public bool IsUserFieldsEnabled => !IsSaving && !HasUnknownOutcome;
+    public bool IsPinEnabled => !IsSaving;
+    public bool HasUnknownOutcome
+    {
+        get => _outcomeUnknown;
+        private set
+        {
+            if (!SetProperty(ref _outcomeUnknown, value))
+            {
+                return;
+            }
+            OnPropertyChanged(nameof(IsUserFieldsEnabled));
+            OnPropertyChanged(nameof(SaveButtonText));
+            (CheckStatusCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        }
+    }
+    public string? UserOperationMessage { get => _userOperationMessage; private set => SetProperty(ref _userOperationMessage, value); }
     public string Symbol { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
 
@@ -851,7 +1460,7 @@ public sealed class SettingsEditorViewModel : ViewModelBase
 
     public string Title => Kind switch
     {
-        SettingsEditorKind.User => _existing is null ? "Add User" : "Edit User",
+        SettingsEditorKind.User => _production is not null ? "Add Cashier" : _existing is null ? "Add User" : "Edit User",
         SettingsEditorKind.Category => _existing is null ? "Add Category" : "Edit Category",
         SettingsEditorKind.Unit => _existing is null ? "Add Unit" : "Edit Unit",
         SettingsEditorKind.LicenseImport => "Import New License",
@@ -860,7 +1469,7 @@ public sealed class SettingsEditorViewModel : ViewModelBase
 
     public string SaveButtonText => Kind switch
     {
-        SettingsEditorKind.User => _existing is null ? "Add User" : "Save Changes",
+        SettingsEditorKind.User => HasUnknownOutcome ? "Retry Same Creation" : _existing is null ? "Add User" : "Save Changes",
         SettingsEditorKind.Category => "Save Category",
         SettingsEditorKind.Unit => "Save Unit",
         SettingsEditorKind.LicenseImport => "Activate License",
@@ -870,6 +1479,7 @@ public sealed class SettingsEditorViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand BrowseLicenseFileCommand { get; }
+    public ICommand CheckStatusCommand { get; }
 
     private void Save()
     {
@@ -881,11 +1491,11 @@ public sealed class SettingsEditorViewModel : ViewModelBase
                     SaveUser();
                     break;
                 case SettingsEditorKind.Category:
-                    _state.SaveCategory(_existing as SettingsCategoryRecord, Name);
+                    _state!.SaveCategory(_existing as SettingsCategoryRecord, Name);
                     _toast.Show("Category settings saved.", ToastTone.Success);
                     break;
                 case SettingsEditorKind.Unit:
-                    _state.SaveUnit(_existing as SettingsUnitRecord, Name, Symbol);
+                    _state!.SaveUnit(_existing as SettingsUnitRecord, Name, Symbol);
                     _toast.Show("Unit settings saved.", ToastTone.Success);
                     break;
                 case SettingsEditorKind.LicenseImport:
@@ -900,7 +1510,9 @@ public sealed class SettingsEditorViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toast.Show(ex.Message, ToastTone.Warning);
+            _toast.Show(
+                DesktopErrorPresentation.ForException(ex, "The settings change was rejected."),
+                ToastTone.Warning);
         }
     }
 
@@ -911,7 +1523,7 @@ public sealed class SettingsEditorViewModel : ViewModelBase
             throw new InvalidOperationException("A PIN is required when creating a user.");
         }
 
-        _state.SaveUser(
+        _state!.SaveUser(
             _existing as SettingsUserRecord,
             Name,
             Role,
@@ -926,8 +1538,135 @@ public sealed class SettingsEditorViewModel : ViewModelBase
 
     private void Cancel()
     {
+        if (IsSaving)
+        {
+            return;
+        }
         NewPin = string.Empty;
         _close();
+    }
+
+    private async Task SaveProductionUserAsync()
+    {
+        if (IsSaving || _production is null)
+        {
+            return;
+        }
+        if (Role != "Cashier" || Status != "Active")
+        {
+            UserOperationMessage = "This workflow creates active Cashier accounts.";
+            NewPin = string.Empty;
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(Name) || Name.Trim().Length > 160 || NewPin.Length != 4 ||
+            NewPin.Any(ch => !char.IsAsciiDigit(ch)))
+        {
+            UserOperationMessage = "Enter a name and a four-digit PIN.";
+            NewPin = string.Empty;
+            return;
+        }
+        if (HasUnknownOutcome && _submittedName != Name.Trim())
+        {
+            UserOperationMessage = "Retry the original account name while its outcome is unconfirmed.";
+            NewPin = string.Empty;
+            return;
+        }
+        IsSaving = true;
+        _submittedName = Name.Trim();
+        var pin = NewPin;
+        NewPin = string.Empty;
+        try
+        {
+            await _production.CreateCashierAsync(_submittedName, pin, ClientOperationId);
+            await CompleteUserCreationAsync();
+        }
+        catch (Exception ex)
+        {
+            HasUnknownOutcome = IsUnconfirmed(ex);
+            UserOperationMessage = SafeUserError(ex);
+            _toast.Show(UserOperationMessage, ToastTone.Warning);
+        }
+        finally
+        {
+            NewPin = string.Empty;
+            IsSaving = false;
+        }
+    }
+
+    private async Task CheckCreationStatusAsync()
+    {
+        if (IsSaving || _production is null || !HasUnknownOutcome)
+        {
+            return;
+        }
+        IsSaving = true;
+        try
+        {
+            var status = await _production.GetCashierCreationStatusAsync(ClientOperationId);
+            if (status.State == "Succeeded" && status.UserId is not null)
+            {
+                await CompleteUserCreationAsync();
+            }
+            else
+            {
+                HasUnknownOutcome = status.State != "Failed";
+                UserOperationMessage = status.State == "Failed"
+                    ? "The Server rejected the original account creation."
+                    : "Account creation is unconfirmed. Retry this same creation with the original PIN.";
+            }
+        }
+        catch (Exception ex)
+        {
+            UserOperationMessage = SafeUserError(ex);
+        }
+        finally
+        {
+            NewPin = string.Empty;
+            IsSaving = false;
+        }
+    }
+
+    private async Task CompleteUserCreationAsync()
+    {
+        HasUnknownOutcome = false;
+        UserOperationMessage = "Cashier account created.";
+        _toast.Show(UserOperationMessage, ToastTone.Success);
+        _close();
+        if (_refresh is not null)
+        {
+            await _refresh();
+        }
+    }
+
+    private static bool IsUnconfirmed(Exception exception) => exception switch
+    {
+        BackendOperationException backend => backend.Code is "operation.outcome_unknown" or "idempotency.payload_mismatch",
+        DesktopApiException api => api.Code is "operation.outcome_unknown" or "idempotency.payload_mismatch" ||
+            api.StatusCode is null || (int)api.StatusCode >= 500,
+        _ => true
+    };
+
+    private static string SafeUserError(Exception exception)
+    {
+        var code = exception switch
+        {
+            BackendOperationException backend => backend.Code,
+            DesktopApiException api => api.Code,
+            _ => "operation.outcome_unknown"
+        };
+        return code switch
+        {
+            "identity.display_name_duplicate" => "A user with this name already exists.",
+            "identity.invalid_pin" => "Enter a four-digit PIN.",
+            "identity.invalid_display_name" => "Enter a user name of 1 to 160 characters.",
+            "identity.cashier_role_unavailable" => "The Cashier role is unavailable. Contact the Owner.",
+            "idempotency.payload_mismatch" => "This operation identity belongs to another request. Check its status.",
+            "operation.outcome_unknown" or "network.timeout" or "network.server_unavailable" =>
+                "Account creation is unconfirmed. Check status or retry this same creation with the original PIN.",
+            var auth when auth.StartsWith("auth.", StringComparison.Ordinal) || auth.StartsWith("authorization.", StringComparison.Ordinal) =>
+                "An active Owner session and terminal are required to create a Cashier.",
+            _ => "The account could not be created. Check status before trying again."
+        };
     }
 
     private void BrowseLicenseFile()

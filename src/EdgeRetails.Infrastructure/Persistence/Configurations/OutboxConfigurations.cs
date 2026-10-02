@@ -45,8 +45,16 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
 
         builder.Property(x => x.CompletedAt);
 
+        builder.Property(x => x.LeaseOwner)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.LeaseToken);
+
         builder.Property(x => x.CreatedAt)
             .IsRequired();
+
+        builder.Ignore(x => x.LeaseExpiresAt);
+        builder.Ignore(x => x.LeaseExpiry);
 
         builder.HasIndex(x => x.IdempotencyKey)
             .IsUnique()

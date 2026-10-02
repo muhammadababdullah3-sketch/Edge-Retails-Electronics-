@@ -41,7 +41,8 @@ public sealed class PosProductItemViewModel : ViewModelBase
         bool isSerialized = false,
         bool serialTrackingEnabled = false,
         bool imeiTrackingEnabled = false,
-        decimal factorToBaseUnit = 1m)
+        decimal factorToBaseUnit = 1m,
+        EdgeRetails.Domain.Catalog.TrackingMode? trackingMode = null)
     {
         Id = id;
         BackendProductId = backendProductId;
@@ -49,6 +50,9 @@ public sealed class PosProductItemViewModel : ViewModelBase
         IsSerialized = isSerialized;
         SerialTrackingEnabled = serialTrackingEnabled;
         ImeiTrackingEnabled = imeiTrackingEnabled;
+        TrackingMode = trackingMode ?? (isSerialized || serialTrackingEnabled || imeiTrackingEnabled
+            ? EdgeRetails.Domain.Catalog.TrackingMode.Serialized
+            : EdgeRetails.Domain.Catalog.TrackingMode.Quantity);
         FactorToBaseUnit = factorToBaseUnit <= 0m ? 1m : factorToBaseUnit;
         _name = name;
         _sku = sku;
@@ -83,6 +87,7 @@ public sealed class PosProductItemViewModel : ViewModelBase
     public bool SerialTrackingEnabled { get; }
     public bool ImeiTrackingEnabled { get; }
     public decimal FactorToBaseUnit { get; }
+    public EdgeRetails.Domain.Catalog.TrackingMode TrackingMode { get; }
 
     public string Name
     {

@@ -110,7 +110,7 @@
                                       Stretch="Uniform"
                                       Margin="0,0,8,0"
                                       VerticalAlignment="Center" />
-                                <TextBlock Text="Print Receipt"
+                                <TextBlock Text="Reprint Receipt"
                                            FontFamily="{StaticResource Font.Primary}"
                                            FontSize="13.5"
                                            FontWeight="SemiBold"

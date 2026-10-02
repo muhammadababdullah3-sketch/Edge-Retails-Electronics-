@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\EdgeRetails.Application\EdgeRetails.Application.csproj" />
     <ProjectReference Include="..\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.12" />
   </ItemGroup>
 
 </Project>

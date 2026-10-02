@@ -19,16 +19,16 @@
     <sys:Double x:Key="Dimension.Sidebar.Collapsed">72</sys:Double>
     <sys:Double x:Key="Dimension.TopBar.Height">56</sys:Double>
     <GridLength x:Key="Dimension.TopBar.GridLength">56</GridLength>
-    <sys:Double x:Key="Dimension.Control.Standard">35</sys:Double>
+    <sys:Double x:Key="Dimension.Control.Standard">36</sys:Double>
     <sys:Double x:Key="Dimension.Control.Compact">28</sys:Double>
-    <sys:Double x:Key="Dimension.Button.CompactAction">31.5</sys:Double>
-    <sys:Double x:Key="Dimension.Button.Standard">35</sys:Double>
-    <sys:Double x:Key="Dimension.Button.PrimaryAction">46</sys:Double>
+    <sys:Double x:Key="Dimension.Button.CompactAction">32</sys:Double>
+    <sys:Double x:Key="Dimension.Button.Standard">36</sys:Double>
+    <sys:Double x:Key="Dimension.Button.PrimaryAction">48</sys:Double>
     <sys:Double x:Key="Dimension.Button.PrimaryPurchaseAction">48</sys:Double>
     <sys:Double x:Key="Dimension.Search.Large">44</sys:Double>
-    <sys:Double x:Key="Dimension.Search.Compact">36</sys:Double>
-    <sys:Double x:Key="Dimension.Table.Header">35</sys:Double>
-    <sys:Double x:Key="Dimension.Table.Row">38.5</sys:Double>
+    <sys:Double x:Key="Dimension.Search.Compact">40</sys:Double>
+    <sys:Double x:Key="Dimension.Table.Header">36</sys:Double>
+    <sys:Double x:Key="Dimension.Table.Row">40</sys:Double>
     <sys:Double x:Key="Dimension.Drawer.Width">480</sys:Double>
     <sys:Double x:Key="Dimension.Drawer.Wide">760</sys:Double>
     <sys:Double x:Key="Container.MaxWidth.Standard">1320</sys:Double>
@@ -37,7 +37,7 @@
     <sys:Double x:Key="Container.MaxWidth.Settings">1020</sys:Double>
 
     <Thickness x:Key="Padding.Control.Standard">14,0</Thickness>
-    <Thickness x:Key="Padding.Input.Standard">10.5,0</Thickness>
+    <Thickness x:Key="Padding.Input.Standard">12,0</Thickness>
     <Thickness x:Key="Padding.Sidebar.Navigation">10.5</Thickness>
     <Thickness x:Key="Padding.TopBar">21,0</Thickness>
     <Thickness x:Key="Padding.Card.Standard">14</Thickness>

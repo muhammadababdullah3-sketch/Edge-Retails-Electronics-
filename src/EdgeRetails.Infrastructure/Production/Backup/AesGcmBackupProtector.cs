@@ -5,7 +5,7 @@ using EdgeRetails.Application.Production.Backup;
 
 namespace EdgeRetails.Infrastructure.Production.Backup;
 
-public sealed class AesGcmBackupProtector : IBackupProtector
+public sealed class AesGcmBackupProtector : IVersionedBackupProtector
 {
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("ERBAK002");
     private const int ChunkSize = 1024 * 1024;
@@ -16,8 +16,17 @@ public sealed class AesGcmBackupProtector : IBackupProtector
         => _keyProvider = keyProvider ?? throw new ArgumentNullException(nameof(keyProvider));
 
     public async Task ProtectAsync(string plainDumpPath, string protectedBackupPath, CancellationToken cancellationToken = default)
+        => await ProtectVersionAsync(plainDumpPath, protectedBackupPath, null, cancellationToken);
+
+    public Task<BackupKeyMetadata?> GetCurrentMetadataAsync(CancellationToken cancellationToken = default)
+        => _keyProvider is IVersionedBackupEncryptionKeyProvider versioned
+            ? versioned.GetCurrentMetadataAsync(cancellationToken)
+            : Task.FromResult<BackupKeyMetadata?>(null);
+
+    public async Task ProtectVersionAsync(string plainDumpPath, string protectedBackupPath, BackupKeyMetadata? metadata,
+        CancellationToken cancellationToken = default)
     {
-        var key = await GetValidatedKeyCloneAsync(cancellationToken);
+        var key = await GetValidatedKeyCloneAsync(metadata, cancellationToken);
         try
         {
             var noncePrefix = RandomNumberGenerator.GetBytes(8);
@@ -78,8 +87,12 @@ public sealed class AesGcmBackupProtector : IBackupProtector
     }
 
     public async Task UnprotectAsync(string protectedBackupPath, string plainDumpPath, CancellationToken cancellationToken = default)
+        => await UnprotectVersionAsync(protectedBackupPath, plainDumpPath, null, cancellationToken);
+
+    public async Task UnprotectVersionAsync(string protectedBackupPath, string plainDumpPath, BackupKeyMetadata? metadata,
+        CancellationToken cancellationToken = default)
     {
-        var key = await GetValidatedKeyCloneAsync(cancellationToken);
+        var key = await GetValidatedKeyCloneAsync(metadata, cancellationToken);
         try
         {
             await using var input = new FileStream(protectedBackupPath, FileMode.Open, FileAccess.Read, FileShare.Read, ChunkSize, useAsync: true);
@@ -171,15 +184,23 @@ public sealed class AesGcmBackupProtector : IBackupProtector
         }
     }
 
-    private async Task<byte[]> GetValidatedKeyCloneAsync(CancellationToken cancellationToken)
+    private async Task<byte[]> GetValidatedKeyCloneAsync(BackupKeyMetadata? metadata, CancellationToken cancellationToken)
     {
-        var providerKey = await _keyProvider.GetKeyAsync(cancellationToken);
+        var providerKey = _keyProvider is IVersionedBackupEncryptionKeyProvider versioned
+            ? metadata is not null
+                ? await versioned.GetVersionKeyAsync(metadata.KeyVersion, cancellationToken)
+                : await versioned.GetLegacyKeyAsync(cancellationToken)
+            : metadata is not null
+                ? throw new InvalidOperationException("Versioned backup authority is unavailable.")
+                : await _keyProvider.GetKeyAsync(cancellationToken);
         if (providerKey is null || providerKey.Length != 32)
         {
             throw new InvalidOperationException("Backup encryption key provider must return exactly 32 bytes.");
         }
 
-        return providerKey.ToArray();
+        var clone = providerKey.ToArray();
+        if (_keyProvider is IVersionedBackupEncryptionKeyProvider) { CryptographicOperations.ZeroMemory(providerKey); }
+        return clone;
     }
 
     private static byte[] BuildNonce(byte[] prefix, int index)

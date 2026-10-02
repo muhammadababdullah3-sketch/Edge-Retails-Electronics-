@@ -117,6 +117,12 @@
         <ComboBox ItemsSource="{Binding PaperSizes}" SelectedItem="{Binding PaperSize}" Style="{StaticResource Input.ComboBox}"/>
        </StackPanel>
       </Grid>
+      <TextBlock Text="{Binding PrinterSettingsError}" Margin="0,8,0,0" TextWrapping="Wrap"
+                 Foreground="{StaticResource Brush.Function.Warning}"
+                 Visibility="{Binding HasPrinterSettingsError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="Printer choices are the Windows printers installed on this workstation. The selected printer and receipt width are stored locally for this workstation."
+                 Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+                 Foreground="{DynamicResource Brush.Text.Muted}"/>
       <TextBlock Text="Header Text" Margin="0,14,0,5" FontSize="12"/>
       <TextBox Text="{Binding HeaderText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
       <TextBlock Text="Footer Text" Margin="0,14,0,5" FontSize="12"/>
@@ -246,37 +252,50 @@
         <ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/>
        </Grid.ColumnDefinitions>
        <Border Grid.Column="0" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="DB Health" FontSize="11"/><TextBlock Text="Integration Pending" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="DB Health" FontSize="11"/><TextBlock Text="{Binding DatabaseStatus}" FontWeight="SemiBold"/></StackPanel>
        </Border>
        <Border Grid.Column="2" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Last Backup" FontSize="11"/><TextBlock Text="Preview Data" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Last Backup" FontSize="11"/><TextBlock Text="{Binding LastBackupDisplay}" FontWeight="SemiBold"/></StackPanel>
        </Border>
        <Border Grid.Column="4" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Cloud Backup" FontSize="11"/><TextBlock Text="Integration Pending" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Storage" FontSize="11"/><TextBlock Text="Encrypted local" FontWeight="SemiBold"/></StackPanel>
        </Border>
        <Border Grid.Column="6" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Automatic Backup" FontSize="11"/><TextBlock Text="Integration Pending" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Automatic Backup" FontSize="11"/><TextBlock Text="Server worker" FontWeight="SemiBold"/></StackPanel>
        </Border>
       </Grid>
       <Grid Margin="0,0,0,16">
        <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="Auto"/>
-        <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
        </Grid.ColumnDefinitions>
-       <TextBlock Text="Frequency" VerticalAlignment="Center" Margin="0,0,10,0"/>
-       <TextBlock Grid.Column="1" Text="Every 6 hours · Preview"
-                  FontWeight="SemiBold" VerticalAlignment="Center"/>
-       <StackPanel Grid.Column="3" Orientation="Horizontal">
-        <Button Content="Restore" Command="{Binding RestoreCommand}"
+       <StackPanel VerticalAlignment="Center">
+        <TextBlock Text="Scheduled backups are managed by the local Server worker." FontWeight="SemiBold"/>
+        <TextBlock Text="{Binding BackupOperationStatus}" Margin="0,5,0,0" TextWrapping="Wrap"
+                   FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+        <TextBlock Text="{Binding BackupVerificationStatus}" Margin="0,4,0,0" TextWrapping="Wrap"
+                   FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+        <TextBlock Text="{Binding RestoreStatusDisplay}" Margin="0,4,0,0" TextWrapping="Wrap"
+                   FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+       </StackPanel>
+       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <Button Content="Refresh" Command="{Binding RefreshBackupHistoryCommand}"
+                Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
+        <Button Content="Prepare Restore" Command="{Binding RestoreCommand}"
+                Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
+        <Button Content="Recover" Command="{Binding RecoverRestoreCommand}"
+                Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
+        <Button Content="Cut Over" Command="{Binding CutoverRestoreCommand}"
+                Style="{StaticResource Button.Warning.Compact}" Margin="0,0,8,0"/>
+        <Button Content="Discard" Command="{Binding DiscardRestoreCommand}"
                 Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
         <Button Content="Backup Now" Command="{Binding BackupNowCommand}"
                 Style="{StaticResource Button.Primary}"/>
        </StackPanel>
       </Grid>
       <TextBlock Text="Recent Backup History" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10"/>
-      <DataGrid ItemsSource="{Binding Backups}" Style="{StaticResource Table.DataGrid}" Height="180">
+      <DataGrid ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}"
+                Style="{StaticResource Table.DataGrid}" Height="180" IsReadOnly="True">
        <DataGrid.Columns>
         <DataGridTextColumn Header="Date &amp; Time" Binding="{Binding TimestampDisplay}" Width="*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="130"/>
@@ -284,7 +303,7 @@
         <DataGridTextColumn Header="Size" Binding="{Binding Size}" Width="120"/>
        </DataGrid.Columns>
       </DataGrid>
-      <TextBlock Text="Backup/restore execution remains a worker/backend responsibility and is not simulated as a successful real operation."
+      <TextBlock Text="Restore validates an isolated staging database before requiring an exact typed confirmation for cutover. Backup files and credentials remain under Server-side control."
                  Margin="0,12,0,0" TextWrapping="Wrap" FontSize="11"
                  Foreground="{DynamicResource Brush.Text.Muted}"/>
      </StackPanel>

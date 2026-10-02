@@ -76,7 +76,7 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
         _selectionRequired = selectionRequired;
 
         Units = [];
-        ConfirmCommand = new RelayCommand(Confirm, () => CanConfirm);
+        ConfirmCommand = new RelayCommand(async () => await ConfirmAsync(), () => CanConfirm);
         CancelCommand = new RelayCommand(_dialogService.Close);
         RefreshCommand = new RelayCommand(async () => await LoadAsync(), () => !IsLoading);
         _ = LoadAsync();
@@ -116,6 +116,8 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
             if (SetProperty(ref _isLoading, value))
             {
                 ((RelayCommand)RefreshCommand).NotifyCanExecuteChanged();
+                OnPropertyChanged(nameof(CanConfirm));
+                ((RelayCommand)ConfirmCommand).NotifyCanExecuteChanged();
             }
         }
     }
@@ -133,7 +135,7 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
     }
 
     public bool HasValidationMessage => !string.IsNullOrWhiteSpace(ValidationMessage);
-    public bool CanConfirm => !_selectionRequired || SelectedCount == _requiredCount;
+    public bool CanConfirm => !IsLoading && (!_selectionRequired || SelectedCount == _requiredCount);
     public ICommand ConfirmCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand RefreshCommand { get; }
@@ -168,11 +170,15 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            ValidationMessage = $"{ex.Code}: {ex.Message}";
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The selected unit could not be loaded. Refresh and try again.");
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The selected unit could not be loaded. Refresh and try again.");
         }
         finally
         {
@@ -220,7 +226,7 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
         ((RelayCommand)ConfirmCommand).NotifyCanExecuteChanged();
     }
 
-    private void Confirm()
+    private async Task ConfirmAsync()
     {
         if (!CanConfirm)
         {
@@ -228,7 +234,44 @@ public sealed class ExactUnitPickerViewModel : ViewModelBase
             return;
         }
 
-        _confirmed(_all.Where(x => x.IsSelected).Select(x => x.Unit).ToArray());
-        _dialogService.Close();
+        if (!_selectionRequired)
+        {
+            _dialogService.Close();
+            return;
+        }
+
+        var selected = _all.Where(x => x.IsSelected).Select(x => x.Unit).ToArray();
+        IsLoading = true;
+        try
+        {
+            var latest = await _service.GetExactUnitsAsync(
+                _productId, _status, _sourcePurchaseItemId);
+            if (selected.Any(unit =>
+                latest.All(current =>
+                    current.InventoryUnitId != unit.InventoryUnitId ||
+                    current.Version != unit.Version ||
+                    current.Status != unit.Status)))
+            {
+                ValidationMessage = "Physical-unit state changed. Refresh and select an eligible unit again.";
+                return;
+            }
+
+            _confirmed(selected);
+            _dialogService.Close();
+        }
+        catch (BackendOperationException ex)
+        {
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "The selected unit could not be confirmed. Refresh and try again.");
+        }
+        catch (Exception)
+        {
+            ValidationMessage = "Could not verify physical units. Reconnect and try again.";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 }

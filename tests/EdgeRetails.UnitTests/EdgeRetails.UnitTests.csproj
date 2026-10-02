@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
@@ -23,6 +24,12 @@
     <ProjectReference Include="..\..\src\EdgeRetails.Application\EdgeRetails.Application.csproj" />
     <ProjectReference Include="..\..\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\EdgeRetails.Worker\EdgeRetails.Worker.csproj" />
+    <ProjectReference Include="..\..\src\EdgeRetails.Server\EdgeRetails.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\EdgeRetails.Recovery\RecoveryServerRuntimePolicy.cs" Link="Production\Recovery\RecoveryServerRuntimePolicy.cs" />
+    <Compile Include="..\..\src\EdgeRetails.Recovery\RecoveryGovernanceKeyBinding.cs" Link="Production\Recovery\RecoveryGovernanceKeyBinding.cs" />
   </ItemGroup>
 
 </Project>

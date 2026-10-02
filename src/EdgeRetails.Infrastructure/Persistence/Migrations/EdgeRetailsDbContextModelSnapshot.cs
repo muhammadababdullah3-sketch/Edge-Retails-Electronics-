@@ -76,6 +76,16 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.HasIndex("EntityType", "EntityId", "OccurredAt")
                         .HasDatabaseName("ix_business_events_entity_type_entity_id_occurred_at");
 
+                    b.HasIndex(new[] { "CorrelationId", "Action" }, "pin_recovery_consumed_nonce")
+                        .IsUnique()
+                        .HasDatabaseName("ux_business_events_pin_recovery_consumed_nonce")
+                        .HasFilter("action = 'USER_PIN_RECOVERY_AUTHORIZATION_CONSUMED'");
+
+                    b.HasIndex(new[] { "CorrelationId", "Action" }, "pin_recovery_success_operation")
+                        .IsUnique()
+                        .HasDatabaseName("ux_business_events_pin_recovery_success_operation")
+                        .HasFilter("action = 'USER_PIN_RECOVERY_SUCCEEDED'");
+
                     b.ToTable("business_events", "audit");
                 });
 
@@ -84,6 +94,12 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("IdentitySymbol")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("identity_symbol");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
@@ -95,14 +111,70 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("name");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
                     b.HasKey("Id")
                         .HasName("pk_categories");
+
+                    b.HasIndex("IdentitySymbol")
+                        .IsUnique()
+                        .HasDatabaseName("ix_categories_identity_symbol");
 
                     b.HasIndex("Name")
                         .IsUnique()
                         .HasDatabaseName("ix_categories_name");
 
-                    b.ToTable("categories", "catalog");
+                    b.ToTable("categories", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_categories_symbol_uppercase", "identity_symbol = UPPER(identity_symbol)");
+                        });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Catalog.Company", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("code");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_companies");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_companies_code");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_companies_name");
+
+                    b.ToTable("companies", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_companies_code_uppercase", "code = UPPER(code)");
+                        });
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Catalog.Product", b =>
@@ -135,6 +207,10 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("category_id");
 
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("company_id");
+
                     b.Property<decimal>("DefaultSalePrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
@@ -165,6 +241,11 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("model");
+
+                    b.Property<string>("ModelCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("model_code");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -201,6 +282,9 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.HasIndex("BaseUnitId")
                         .HasDatabaseName("ix_products_base_unit_id");
 
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_products_company_id");
+
                     b.HasIndex("Name")
                         .HasDatabaseName("ix_products_name");
 
@@ -216,7 +300,11 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_products_attributes_schema_version_positive", "attributes_schema_version >= 1");
 
+                            t.HasCheckConstraint("ck_products_model_code_uppercase", "model_code IS NULL OR model_code = UPPER(model_code)");
+
                             t.HasCheckConstraint("ck_products_nonnegative_prices", "default_sale_price >= 0 AND minimum_stock_level >= 0 AND (reference_purchase_cost IS NULL OR reference_purchase_cost >= 0)");
+
+                            t.HasCheckConstraint("ck_products_sku_uppercase", "sku IS NULL OR sku = UPPER(sku)");
 
                             t.HasCheckConstraint("ck_products_warranty_months_nonnegative", "default_warranty_months >= 0");
                         });
@@ -2186,6 +2274,102 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.ToTable("stocktake_unit_checks", "inventory");
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Operations.OperationOutcome", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("document_number");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("operation_type");
+
+                    b.Property<string>("PayloadFingerprint")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("payload_fingerprint");
+
+                    b.Property<Guid?>("ResultEntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("result_entity_id");
+
+                    b.Property<string>("ResultEntityType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("result_entity_type");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TerminalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("terminal_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<bool>("WasCommitted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("was_committed");
+
+                    b.HasKey("Id")
+                        .HasName("pk_operation_outcomes");
+
+                    b.HasIndex("ClientOperationId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_operation_outcomes_client_operation_id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_operation_outcomes_created_at");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_operation_outcomes_status");
+
+                    b.ToTable("operation_outcomes", "system");
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Parties.Customer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3236,10 +3420,24 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("inventory_movement_id");
 
+                    b.Property<decimal>("ListUnitPriceSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("list_unit_price_snapshot");
+
                     b.Property<decimal>("NetLineTotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("net_line_total");
+
+                    b.Property<Guid?>("PriceOverrideBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("price_override_by");
+
+                    b.Property<string>("PriceOverrideReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("price_override_reason");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid")
@@ -3300,7 +3498,9 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
 
                     b.ToTable("sale_items", "sales", t =>
                         {
-                            t.HasCheckConstraint("ck_sale_item_values", "entered_quantity > 0 AND factor_to_base_snapshot > 0 AND base_quantity > 0 AND unit_price >= 0 AND gross_line_total >= 0 AND allocated_invoice_discount >= 0 AND net_line_total >= 0 AND unit_cost_snapshot >= 0 AND total_cost_snapshot >= 0");
+                            t.HasCheckConstraint("ck_sale_item_price_override_audit", "(price_override_reason IS NULL AND price_override_by IS NULL) OR (price_override_reason IS NOT NULL AND btrim(price_override_reason) <> '' AND price_override_by IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_sale_item_values", "entered_quantity > 0 AND factor_to_base_snapshot > 0 AND base_quantity > 0 AND list_unit_price_snapshot >= 0 AND unit_price >= 0 AND gross_line_total >= 0 AND allocated_invoice_discount >= 0 AND net_line_total >= 0 AND unit_cost_snapshot >= 0 AND total_cost_snapshot >= 0");
                         });
                 });
 
@@ -3643,6 +3843,15 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("last_error");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_token");
 
                     b.Property<DateTimeOffset?>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone")
@@ -4913,6 +5122,12 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_products_categories_category_id");
+
+                    b.HasOne("EdgeRetails.Domain.Catalog.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_products_companies_company_id");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Catalog.ProductUnit", b =>

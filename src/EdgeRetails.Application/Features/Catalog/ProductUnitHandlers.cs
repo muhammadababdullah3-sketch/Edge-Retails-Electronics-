@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 
@@ -16,22 +17,26 @@ public sealed record ProductUnitInput(
 
 public sealed record ConfigureProductUnitsCommand(
     Guid ProductId,
-    IReadOnlyList<ProductUnitInput> Units);
+    IReadOnlyList<ProductUnitInput> Units,
+    Guid ActorId = default);
 
 public sealed class ConfigureProductUnitsHandler
 {
     private readonly ICatalogRepository _catalog;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public ConfigureProductUnitsHandler(
         ICatalogRepository catalog,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _catalog = catalog;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result> HandleAsync(
@@ -40,6 +45,18 @@ public sealed class ConfigureProductUnitsHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.InventoryManage,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             var product = await _catalog.GetProductAsync(command.ProductId, ct);
             if (product is null)
             {
@@ -164,22 +181,25 @@ public sealed class ConfigureProductUnitsHandler
     }
 }
 
-public sealed record SetProductUnitBarcodeCommand(Guid ProductUnitId, string Barcode);
+public sealed record SetProductUnitBarcodeCommand(Guid ProductUnitId, string Barcode, Guid ActorId = default);
 
 public sealed class SetProductUnitBarcodeHandler
 {
     private readonly ICatalogRepository _catalog;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public SetProductUnitBarcodeHandler(
         ICatalogRepository catalog,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _catalog = catalog;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -188,6 +208,18 @@ public sealed class SetProductUnitBarcodeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.InventoryManage,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             var productUnit = await _catalog.GetProductUnitAsync(command.ProductUnitId, ct);
             if (productUnit is null || !productUnit.IsActive)
             {

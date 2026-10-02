@@ -2,12 +2,14 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Inventory;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using EdgeRetails.Domain.Warranty;
 
 namespace EdgeRetails.Application.Features.Warranty;
@@ -24,25 +26,92 @@ internal static class WarrantyOperationIdentity
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
 }
 
-public sealed record WarrantyClaimUnitInput(
-    Guid? OriginalInventoryUnitId,
-    string? OriginalIdentitySnapshot);
+public sealed record WarrantyClaimUnitInput
+{
+    [JsonConstructor]
+    public WarrantyClaimUnitInput(Guid? OriginalInventoryUnitId, string? OriginalIdentitySnapshot = null)
+    {
+        this.OriginalInventoryUnitId = OriginalInventoryUnitId;
+        this.OriginalIdentitySnapshot = OriginalIdentitySnapshot;
+    }
 
-public sealed record WarrantyClaimItemInput(
-    Guid ProductId,
-    decimal Quantity,
-    string FaultDescription,
-    Guid? OriginalSaleItemId,
-    DateOnly? WarrantyValidUntil,
-    IReadOnlyList<WarrantyClaimUnitInput>? Units);
+    public Guid? OriginalInventoryUnitId { get; init; }
+    public string? OriginalIdentitySnapshot { get; init; }
 
-public sealed record CreateWarrantyClaimCommand(
-    Guid CustomerId,
-    Guid? OriginalSaleId,
-    Guid? SupplierId,
-    Guid ActorId,
-    IReadOnlyList<WarrantyClaimItemInput> Items,
-    Guid ClientOperationId);
+    public WarrantyClaimUnitInput(Guid? originalInventoryUnitId, string? serialNumber, string? imei1, string? imei2)
+        : this(originalInventoryUnitId, string.Join(" | ", new[] { serialNumber, imei1, imei2 }.Where(x => !string.IsNullOrWhiteSpace(x))))
+    {
+    }
+}
+
+public sealed record WarrantyClaimItemInput
+{
+    [JsonConstructor]
+    public WarrantyClaimItemInput(
+        Guid ProductId,
+        decimal Quantity,
+        string FaultDescription,
+        Guid? OriginalSaleItemId,
+        DateOnly? WarrantyValidUntil = null,
+        IReadOnlyList<WarrantyClaimUnitInput>? Units = null)
+    {
+        this.ProductId = ProductId;
+        this.Quantity = Quantity;
+        this.FaultDescription = FaultDescription;
+        this.OriginalSaleItemId = OriginalSaleItemId;
+        this.WarrantyValidUntil = WarrantyValidUntil;
+        this.Units = Units;
+    }
+
+    public Guid ProductId { get; init; }
+    public decimal Quantity { get; init; }
+    public string FaultDescription { get; init; }
+    public Guid? OriginalSaleItemId { get; init; }
+    public DateOnly? WarrantyValidUntil { get; init; }
+    public IReadOnlyList<WarrantyClaimUnitInput>? Units { get; init; }
+
+    public WarrantyClaimItemInput(Guid ProductId, decimal Quantity, string FaultDescription, Guid? OriginalSaleItemId, IReadOnlyList<WarrantyClaimUnitInput>? Units)
+        : this(ProductId, Quantity, FaultDescription, OriginalSaleItemId, null, Units)
+    {
+    }
+}
+
+public sealed record CreateWarrantyClaimCommand
+{
+    [JsonConstructor]
+    public CreateWarrantyClaimCommand(
+        Guid CustomerId,
+        Guid? OriginalSaleId,
+        Guid? SupplierId,
+        Guid ActorId,
+        IReadOnlyList<WarrantyClaimItemInput> Items,
+        Guid ClientOperationId)
+    {
+        this.CustomerId = CustomerId;
+        this.OriginalSaleId = OriginalSaleId;
+        this.SupplierId = SupplierId;
+        this.ActorId = ActorId;
+        this.Items = Items;
+        this.ClientOperationId = ClientOperationId;
+    }
+
+    public Guid CustomerId { get; init; }
+    public Guid? OriginalSaleId { get; init; }
+    public Guid? SupplierId { get; init; }
+    public Guid ActorId { get; init; }
+    public IReadOnlyList<WarrantyClaimItemInput> Items { get; init; }
+    public Guid ClientOperationId { get; init; }
+
+    public CreateWarrantyClaimCommand(
+        Guid customerId,
+        Guid? originalSaleId,
+        Guid actorId,
+        Guid clientOperationId,
+        IReadOnlyList<WarrantyClaimItemInput> items)
+        : this(customerId, originalSaleId, null, actorId, items, clientOperationId)
+    {
+    }
+}
 
 public sealed class CreateWarrantyClaimHandler
 {
@@ -75,7 +144,8 @@ public sealed class CreateWarrantyClaimHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IOperationLock? operationLock = null)
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _operationLock = operationLock;
         _catalog = catalog;
@@ -91,36 +161,39 @@ public sealed class CreateWarrantyClaimHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<Guid>> HandleAsync(
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public async Task<Result<Guid>> HandleAsync(
         CreateWarrantyClaimCommand command,
         CancellationToken cancellationToken)
     {
         if (command.CustomerId == Guid.Empty || command.OriginalSaleId is null ||
             command.OriginalSaleId == Guid.Empty || command.Items.Count == 0)
         {
-            return Task.FromResult(Result<Guid>.Failure(
+            return Result<Guid>.Failure(
                 "warranty.sale_customer_items_required",
-                "Customer, original Sale, and at least one warranty item are required."));
+                "Customer, original Sale, and at least one warranty item are required.");
         }
 
         if (command.ClientOperationId == Guid.Empty)
         {
-            return Task.FromResult(Result<Guid>.Failure(
+            return Result<Guid>.Failure(
                 "validation.client_operation_id_required",
-                "ClientOperationId is required for Customer Warranty Claim creation."));
+                "ClientOperationId is required for Customer Warranty Claim creation.");
         }
 
         if (command.Items.Any(x => x.OriginalSaleItemId is null || x.OriginalSaleItemId == Guid.Empty) ||
             command.Items.GroupBy(x => x.OriginalSaleItemId).Any(g => g.Count() > 1))
         {
-            return Task.FromResult(Result<Guid>.Failure(
+            return Result<Guid>.Failure(
                 "warranty.sale_item_required",
-                "Every warranty line requires one distinct original SaleItem."));
+                "Every warranty line requires one distinct original SaleItem.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -141,6 +214,25 @@ public sealed class CreateWarrantyClaimHandler
             var existingByOperation = await _warranty.GetClaimByClientOperationIdAsync(command.ClientOperationId, ct);
             if (existingByOperation is not null)
             {
+                if (existingByOperation.CustomerId != command.CustomerId ||
+                    existingByOperation.OriginalSaleId != command.OriginalSaleId)
+                {
+                    return Result<Guid>.Failure(
+                        "payload_mismatch",
+                        "Operation was previously submitted with a different Warranty claim payload.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "WarrantyClaim",
+                        existingByOperation.Id,
+                        existingByOperation.ClaimNumber,
+                        actorId: command.ActorId,
+                        cancellationToken: ct);
+                }
+
                 return Result<Guid>.Success(existingByOperation.Id);
             }
 
@@ -322,7 +414,7 @@ public sealed class CreateWarrantyClaimHandler
                                 "A claimed physical unit was already terminally replaced/refunded.");
                         }
 
-                        if (unit.SupplierProductId is null || unit.SourcePurchaseItemId is null)
+                        if (unit.SupplierProductId is null)
                         {
                             return Result<Guid>.Failure(
                                 "warranty.supplier_provenance_missing",
@@ -332,22 +424,32 @@ public sealed class CreateWarrantyClaimHandler
                         var supplierProduct = await _traceability.GetSupplierProductByIdForUpdateAsync(
                             unit.SupplierProductId.Value,
                             ct);
-                        var sourceItem = await _purchases.GetPurchaseItemForUpdateAsync(
-                            unit.SourcePurchaseItemId.Value,
-                            ct);
-                        if (supplierProduct is null || sourceItem is null)
+                        if (supplierProduct is null)
                         {
                             return Result<Guid>.Failure(
                                 "warranty.supplier_provenance_missing",
                                 "Original Supplier provenance could not be resolved.");
                         }
 
-                        var sourcePurchase = await _purchases.GetPurchaseForUpdateAsync(sourceItem.PurchaseId, ct);
-                        if (sourcePurchase is null || sourcePurchase.SupplierId != supplierProduct.SupplierId)
+                        if (unit.SourcePurchaseItemId is Guid sourcePurchaseItemId)
                         {
-                            return Result<Guid>.Failure(
-                                "warranty.supplier_provenance_mismatch",
-                                "Tracked-unit Supplier provenance is inconsistent.");
+                            var sourceItem = await _purchases.GetPurchaseItemForUpdateAsync(
+                                sourcePurchaseItemId,
+                                ct);
+                            if (sourceItem is null)
+                            {
+                                return Result<Guid>.Failure(
+                                    "warranty.supplier_provenance_missing",
+                                    "Original Supplier provenance could not be resolved.");
+                            }
+
+                            var sourcePurchase = await _purchases.GetPurchaseForUpdateAsync(sourceItem.PurchaseId, ct);
+                            if (sourcePurchase is null || sourcePurchase.SupplierId != supplierProduct.SupplierId)
+                            {
+                                return Result<Guid>.Failure(
+                                    "warranty.supplier_provenance_mismatch",
+                                    "Tracked-unit Supplier provenance is inconsistent.");
+                            }
                         }
 
                         if (exactSupplier is null)
@@ -469,9 +571,33 @@ public sealed class CreateWarrantyClaimHandler
                 OccurredAt = now
             });
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "WarrantyClaim",
+                    claim.Id,
+                    claim.ClaimNumber,
+                    actorId: command.ActorId,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(claim.Id);
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "WarrantyClaim",
+                result.Error?.Code ?? "warranty.claim_failed",
+                result.Error?.Message ?? "Warranty claim creation failed.",
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<IReadOnlyDictionary<Guid, decimal>> ResolveSaleItemSupplierCapacitiesAsync(
@@ -2264,6 +2390,27 @@ public sealed class ReceiveShopStockWarrantyHandler
                 return Result.Failure(
                     "warranty.shop_case_not_with_supplier",
                     "Warranty case is not currently with the Supplier.");
+            }
+
+            if (product.TrackingMode == TrackingMode.Serialized || (command.OriginalInventoryUnitIds is { Count: > 0 }))
+            {
+                var sentUnitIds = await _inventory.GetMovementUnitIdsByReferenceAsync(
+                    "SHOP_WARRANTY",
+                    warrantyCase.Id,
+                    ct);
+
+                if (sentUnitIds.Count > 0)
+                {
+                    var sentSet = sentUnitIds.ToHashSet();
+                    if (command.OriginalInventoryUnitIds is null ||
+                        command.OriginalInventoryUnitIds.Count != sentUnitIds.Count ||
+                        command.OriginalInventoryUnitIds.Any(id => !sentSet.Contains(id)))
+                    {
+                        return Result.Failure(
+                            "warranty.case_unit_mismatch",
+                            "One or more units were not sent for this warranty case.");
+                    }
+                }
             }
 
             if (command.Resolution == WarrantyResolutionType.Replaced &&

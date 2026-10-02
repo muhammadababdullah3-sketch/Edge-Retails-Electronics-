@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Domain.Finance;
 
 namespace EdgeRetails.Application.Features.Finance;
@@ -15,17 +16,20 @@ public sealed class OpenCashSessionHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public OpenCashSessionHandler(
         ICashRepository cash,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IApplicationPermissionAuthorizer? authorizer = null)
     {
         _cash = cash;
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _authorizer = authorizer;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -34,6 +38,18 @@ public sealed class OpenCashSessionHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            {
+                var auth = await _authorizer.AuthorizeAsync(
+                    command.ActorId,
+                    PermissionKeys.SalesPosUse,
+                    ct);
+                if (!auth.IsSuccess)
+                {
+                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
+                }
+            }
+
             if (command.OpeningCash < 0)
             {
                 return Result<Guid>.Failure(

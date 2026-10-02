@@ -50,14 +50,55 @@ public interface IIdentityReadRepository
         Guid roleId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<Role>> GetRolesAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> GetRolePermissionKeysAsync(
+        Guid roleId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Permission>> GetPermissionsAsync(
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlySet<string>> GetEffectivePermissionKeysAsync(
         Guid userId,
         CancellationToken cancellationToken);
 }
 
+public sealed record PinRecoveryTarget(Guid UserId, string DisplayName);
+
+public interface IIdentityCredentialRecoveryRepository
+{
+    Task<IReadOnlyList<PinRecoveryTarget>> GetActiveOwnerTargetsAsync(
+        CancellationToken cancellationToken);
+
+    Task<User?> GetUserForRecoveryUpdateAsync(
+        Guid userId,
+        CancellationToken cancellationToken);
+
+    Task<bool> HasRecoveryOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken);
+
+    Task RevokeActiveSessionsAsync(
+        Guid userId,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken);
+
+    Task<bool> TrySaveRecoveryChangesAsync(CancellationToken cancellationToken);
+}
+
 public interface IIdentitySessionRepository
 {
     void AddSession(UserSession session);
+
+    /// <summary>
+    /// Read-only (non-locking) session lookup used by the authentication
+    /// middleware where a pessimistic lock would be wasteful.
+    /// </summary>
+    Task<UserSession?> GetSessionAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken);
 
     Task<UserSession?> GetSessionForUpdateAsync(
         Guid sessionId,

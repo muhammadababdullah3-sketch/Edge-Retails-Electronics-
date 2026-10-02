@@ -38,8 +38,8 @@
                             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="SKU" Margin="0,0,0,5" FontSize="12" />
-                            <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
+                            <TextBlock Text="SKU (Master Product Code)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsSkuReadOnly}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                     </Grid>
 
@@ -50,26 +50,44 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Brand" Margin="0,0,0,5" FontSize="12" />
-                            <TextBox Text="{Binding Brand, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
+                            <TextBlock Text="Company / Manufacturer" Margin="0,0,0,5" FontSize="12" />
+                            <ComboBox ItemsSource="{Binding Companies}"
+                                      SelectedItem="{Binding SelectedCompany}"
+                                      Height="36" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Model" Margin="0,0,0,5" FontSize="12" />
-                            <TextBox Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid Margin="0,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="14" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel>
                             <TextBlock Text="Category" Margin="0,0,0,5" FontSize="12" />
                             <ComboBox ItemsSource="{Binding Categories}"
                                       SelectedItem="{Binding SelectedCategory}"
                                       Height="36" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Model (Display)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBox Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Model Code (Identity Token, e.g. DLX56)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBox Text="{Binding ModelCode, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Brand (Optional)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBox Text="{Binding Brand, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Base Unit" Margin="0,0,0,5" FontSize="12" />

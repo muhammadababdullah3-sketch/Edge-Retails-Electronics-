@@ -538,7 +538,10 @@ public sealed class CommercialExchangeHandler
                         EnteredQuantity = line.Quantity.EnteredQuantity,
                         FactorToBaseSnapshot = line.Quantity.FactorToBaseSnapshot,
                         BaseQuantity = line.Quantity.BaseQuantity,
+                        ListUnitPriceSnapshot = line.ListUnitPrice,
                         UnitPrice = line.UnitPrice,
+                        PriceOverrideReason = line.PriceOverrideReason,
+                        PriceOverrideBy = line.PriceOverrideBy,
                         GrossLineTotal = line.GrossLineTotal,
                         AllocatedInvoiceDiscount = allocatedDiscount,
                         NetLineTotal = netLineTotal,
@@ -801,6 +804,9 @@ public sealed class CommercialExchangeHandler
                 productUnit,
                 quantity,
                 authoritativePrice,
+                authoritativePrice,
+                null,
+                null,
                 Money(quantity.EnteredQuantity * authoritativePrice),
                 serializedUnits));
         }

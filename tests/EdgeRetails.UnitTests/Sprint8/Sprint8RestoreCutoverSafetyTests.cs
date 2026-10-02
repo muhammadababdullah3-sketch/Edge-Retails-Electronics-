@@ -273,7 +273,7 @@ public sealed class Sprint8RestoreCutoverSafetyTests
         public Task<PostgresMaintenanceDescriptor> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(_connection);
     }
 
-    private sealed class RecordingBarrier : IProductionMaintenanceBarrier
+    private sealed class RecordingBarrier : IConditionalProductionMaintenanceBarrier
     {
         public RecordingBarrier(ProductionMaintenanceState initialState) => ExitState = initialState;
 
@@ -282,6 +282,19 @@ public sealed class Sprint8RestoreCutoverSafetyTests
         public Task<ProductionMaintenanceState> GetStateAsync(CancellationToken cancellationToken = default) => Task.FromResult(ExitState);
         public Task<IProductionMaintenanceLease> EnterExclusiveAsync(ProductionMaintenanceState state, CancellationToken cancellationToken = default)
         {
+            EnterCount++;
+            return Task.FromResult<IProductionMaintenanceLease>(new Lease(this));
+        }
+        public Task<IProductionMaintenanceLease> EnterExclusiveAsync(
+            ProductionMaintenanceState expectedCurrentState,
+            ProductionMaintenanceState state,
+            CancellationToken cancellationToken = default)
+        {
+            if (ExitState != expectedCurrentState)
+            {
+                throw new ProductionMaintenanceException(ExitState);
+            }
+
             EnterCount++;
             return Task.FromResult<IProductionMaintenanceLease>(new Lease(this));
         }

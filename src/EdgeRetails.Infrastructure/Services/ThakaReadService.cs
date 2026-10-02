@@ -73,7 +73,8 @@ public sealed class ThakaReadService : IThakaReadService
                 LEFT JOIN paid pd ON pd.project_id = p.id
                 LEFT JOIN payment_reversed pr ON pr.project_id = p.id
                 LEFT JOIN discounts d ON d.project_id = p.id
-                ORDER BY p.started_on DESC, p.id DESC;
+                ORDER BY p.started_on DESC, p.id DESC
+                LIMIT 500;
                 """;
 
             var rows = await connection.QueryAsync<ThakaProjectSummaryDto>(
@@ -88,7 +89,7 @@ public sealed class ThakaReadService : IThakaReadService
         CancellationToken cancellationToken) =>
         WithConnectionAsync(async connection =>
         {
-            var take = Math.Clamp(request.PageSize, 1, 200);
+            var take = Math.Clamp(request.PageSize <= 0 ? 50 : request.PageSize, 1, 500);
             const string sql = """
                 WITH paged_projects AS (
                     SELECT

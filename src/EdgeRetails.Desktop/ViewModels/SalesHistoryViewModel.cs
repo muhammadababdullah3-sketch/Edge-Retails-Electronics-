@@ -23,6 +23,8 @@ public sealed class SalesHistoryViewModel : ViewModelBase
     private readonly IDialogService? _dialogService;
     private readonly ITransactionService _transactionService;
     private readonly IBackendSalesHistoryService? _backendSalesHistoryService;
+    private readonly IProductionDocumentPrintService? _documentPrintService;
+    private readonly IWorkstationPrinterSettings? _printerSettings;
 
     private string _searchText = string.Empty;
     private SalesHistoryPeriod _selectedPeriod = SalesHistoryPeriod.Today;
@@ -37,7 +39,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
     private const int HistoryPageSize = 200;
 
     public SalesHistoryViewModel()
-        : this(null, null, null, null, null, null, null)
+        : this(null, null, null, null, null, null, null, null, null)
     {
     }
 
@@ -48,7 +50,9 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         IDrawerService? drawerService = null,
         IDialogService? dialogService = null,
         ITransactionService? transactionService = null,
-        IBackendSalesHistoryService? backendSalesHistoryService = null)
+        IBackendSalesHistoryService? backendSalesHistoryService = null,
+        IProductionDocumentPrintService? documentPrintService = null,
+        IWorkstationPrinterSettings? printerSettings = null)
     {
         _navigationService = navigationService;
         _toastService = toastService;
@@ -56,6 +60,8 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         _dialogService = dialogService;
         _transactionService = transactionService ?? DemoTransactionService.Instance;
         _backendSalesHistoryService = backendSalesHistoryService;
+        _documentPrintService = documentPrintService;
+        _printerSettings = printerSettings;
 
         CashierContext = sessionContext != null && !string.IsNullOrWhiteSpace(sessionContext.DisplayName)
             ? $"{sessionContext.DisplayName}, {sessionContext.RoleName}"
@@ -206,7 +212,9 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             _dialogService,
             onBack: CloseSaleDetail,
             onSaleUpdated: ApplyFiltersAndRecalculate,
-            transactionService: _transactionService);
+            transactionService: _transactionService,
+            documentPrintService: _documentPrintService,
+            printerSettings: _printerSettings);
     }
 
     private async Task OpenBackendSaleDetailAsync(SaleTransactionItemViewModel sale)
@@ -231,11 +239,15 @@ public sealed class SalesHistoryViewModel : ViewModelBase
                 _dialogService,
                 onBack: CloseSaleDetail,
                 onSaleUpdated: ApplyFiltersAndRecalculate,
-                transactionService: _transactionService);
+                transactionService: _transactionService,
+                documentPrintService: _documentPrintService,
+                printerSettings: _printerSettings);
         }
         catch (Exception ex)
         {
-            _toastService?.Show($"Invoice {invoice} could not be loaded: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, $"Invoice {invoice} could not be loaded."),
+                ToastTone.Danger);
         }
     }
 
@@ -273,7 +285,9 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         catch (Exception ex)
         {
             _toastService?.Show(
-                $"Sales history could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Sales history could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
     }
@@ -372,7 +386,11 @@ public sealed class SalesHistoryViewModel : ViewModelBase
         }
         catch (Exception ex) when (version == Volatile.Read(ref _historyRefreshVersion))
         {
-            _toastService?.Show($"Sales history could not be refreshed: {ex.Message}", ToastTone.Danger);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Sales history could not be refreshed. Check the connection and try again."),
+                ToastTone.Danger);
         }
     }
 
@@ -538,6 +556,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             paymentState: record.PaymentState,
             returnState: returnState,
             totalReturnedAmount: totalReturned,
+            businessDocumentId: record.BackendSaleId,
             invoiceDisplayOverride: record.InvoiceNumber.StartsWith('#')
                 ? null
                 : record.InvoiceNumber);

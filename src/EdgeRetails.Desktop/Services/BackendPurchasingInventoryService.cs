@@ -1,7 +1,9 @@
+using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Parties;
 using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Application.Gateways;
+using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Desktop.ViewModels;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Purchasing;
@@ -96,6 +98,18 @@ public sealed record BackendProductSaleHistoryItem(
         CancellationToken cancellationToken = default);
 
     Task<BackendInventorySnapshot> GetInventorySnapshotAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<Result<ReceiveProductIntakeResult>> ReceiveProductIntakeAsync(
+        ReceiveProductIntakeCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<Result<PrintPhysicalStickersResult>> PrintStickersAsync(
+        PrintPhysicalStickersCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CommittedInventoryUnitDto>> GetUnitsForPurchaseItemAsync(
+        Guid purchaseItemId,
         CancellationToken cancellationToken = default);
 }
 public sealed class BackendPurchasingInventoryService
@@ -536,7 +550,7 @@ public sealed class BackendPurchasingInventoryService
             stockRows.ToDictionary(x => x.ProductId),
             catalogRows.ToDictionary(x => x.ProductUnitId));
     }
-    private static PurchaseRecord ProjectPurchase(
+    internal static PurchaseRecord ProjectPurchase(
         PurchaseDocumentDto document,
         IReadOnlyDictionary<Guid, InventoryStockRowDto> stockByProduct,
         IReadOnlyDictionary<Guid, PurchaseCatalogProductDto> catalogByUnit)
@@ -571,7 +585,11 @@ public sealed class BackendPurchasingInventoryService
                 model: stock?.Model ?? string.Empty,
                 backendProductId: item.ProductId,
                 backendProductUnitId: item.ProductUnitId,
-                isSerialized: item.IsSerialized);
+                isSerialized: item.IsSerialized,
+                serialTrackingEnabled: item.SerialTrackingEnabled,
+                imeiTrackingEnabled: item.ImeiTrackingEnabled,
+                factorToBaseUnit: factor,
+                trackingMode: item.TrackingMode);
 
             return new PurchaseItemRecord
             {
@@ -580,6 +598,7 @@ public sealed class BackendPurchasingInventoryService
                 BackendEligibleReturnQuantity = eligibleEntered,
                 Product = product,
                 PurchasedQuantity = item.EnteredQuantity,
+                ReceivedQuantity = item.ReceivedBaseQuantity / factor,
                 UsedQuantity = usedEntered,
                 ReturnedQuantity = returnedEntered,
                 Cost = item.EnteredUnitCost,
@@ -593,6 +612,7 @@ public sealed class BackendPurchasingInventoryService
             IsVoided = document.Status == PurchaseStatus.Voided,
             PurchaseNumber = document.PurchaseNumber,
             Supplier = document.SupplierName,
+            SupplierCode = document.SupplierCode,
             InvoiceNumber = document.SupplierInvoiceNumber,
             Date = document.PurchaseDate.ToDateTime(TimeOnly.MinValue),
             Note = document.Note ?? string.Empty,
@@ -601,12 +621,39 @@ public sealed class BackendPurchasingInventoryService
         };
     }
 
+    public async Task<Result<ReceiveProductIntakeResult>> ReceiveProductIntakeAsync(
+        ReceiveProductIntakeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ReceiveProductIntakeHandler>();
+        return await handler.HandleAsync(command, cancellationToken);
+    }
+
+    public async Task<Result<PrintPhysicalStickersResult>> PrintStickersAsync(
+        PrintPhysicalStickersCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<PrintPhysicalStickersHandler>();
+        return await handler.HandleAsync(command, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CommittedInventoryUnitDto>> GetUnitsForPurchaseItemAsync(
+        Guid purchaseItemId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var reads = scope.ServiceProvider.GetRequiredService<IPurchasingReadService>();
+        return await reads.GetUnitsForPurchaseItemAsync(purchaseItemId, cancellationToken);
+    }
+
     private Guid RequireActor() =>
         _actorUserId()
         ?? throw new InvalidOperationException(
             "A persistent backend user session is required for this operation.");
 
-    private static InventoryMovementKind MapMovement(
+    internal static InventoryMovementKind MapMovement(
         InventoryMovementType type,
         decimal delta) => type switch
         {

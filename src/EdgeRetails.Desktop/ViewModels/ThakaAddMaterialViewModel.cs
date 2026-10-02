@@ -385,13 +385,18 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         }
         catch (BackendOperationException ex)
         {
-            ValidationMessage = $"{ex.Code}: {ex.Message}";
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka material issue was rejected.");
             _toastService?.Show(ValidationMessage, ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
-            _toastService?.Show(ex.Message, ToastTone.Danger);
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka material issue outcome could not be confirmed. Check operation status before retrying.");
+            ValidationMessage = safeMessage;
+            _toastService?.Show(safeMessage, ToastTone.Danger);
         }
         finally
         {
@@ -422,9 +427,12 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ValidationMessage = ex.Message;
+            var safeMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Thaka material catalog could not be loaded. Check the connection and try again.");
+            ValidationMessage = safeMessage;
             _toastService?.Show(
-                $"Thaka material catalog could not be loaded: {ex.Message}",
+                safeMessage,
                 ToastTone.Danger);
         }
     }

@@ -6,7 +6,10 @@ public enum TrackingMode
 {
     Quantity = 1,
     Length = 2,
-    Serialized = 3
+    Serialized = 3,
+    IndividualPiece = 4,
+    Container = 5,
+    Pack = 5
 }
 
 public sealed class Unit : Entity
@@ -17,10 +20,20 @@ public sealed class Unit : Entity
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class Company : Entity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
+    public long Version { get; set; }
+}
+
 public sealed class Category : Entity
 {
     public string Name { get; set; } = string.Empty;
+    public string IdentitySymbol { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
+    public long Version { get; set; }
 }
 
 public sealed class Product : Entity
@@ -29,8 +42,10 @@ public sealed class Product : Entity
     public string? Sku { get; set; }
     public string? Brand { get; set; }
     public string? Model { get; set; }
+    public string? ModelCode { get; set; }
     public Guid BaseUnitId { get; set; }
     public Guid? CategoryId { get; set; }
+    public Guid? CompanyId { get; set; }
     public TrackingMode TrackingMode { get; set; } = TrackingMode.Quantity;
     public bool SerialTrackingEnabled { get; set; }
     public bool ImeiTrackingEnabled { get; set; }
@@ -49,7 +64,15 @@ public sealed class Product : Entity
         {
             throw new BusinessRuleException(
                 "catalog.serialized_identity_required",
-                "A serialized product must enable serial or IMEI tracking.");
+                "Serialized tracking requires serial or IMEI tracking to be enabled.");
+        }
+
+        if ((TrackingMode == TrackingMode.Quantity || TrackingMode == TrackingMode.Length) &&
+            (SerialTrackingEnabled || ImeiTrackingEnabled))
+        {
+            throw new BusinessRuleException(
+                "catalog.quantity_tracking_invalid_serial_policy",
+                "Quantity and length tracking cannot have serial or IMEI tracking enabled.");
         }
     }
 
@@ -134,14 +157,14 @@ public sealed class ProductUnit : Entity
 
         var exactBaseQuantity = enteredQuantity * FactorToBaseUnit;
 
-        if (trackingMode == TrackingMode.Serialized && !QuantityMath.IsWhole(exactBaseQuantity))
+        if ((trackingMode == TrackingMode.Serialized || trackingMode == TrackingMode.IndividualPiece || trackingMode == TrackingMode.Container) && !QuantityMath.IsWhole(exactBaseQuantity))
         {
             throw new BusinessRuleException(
                 "catalog.serialized_whole_quantity",
-                "Serialized product quantity must resolve to an exact whole base quantity before rounding.");
+                "Tracked product quantity must resolve to an exact whole base quantity before rounding.");
         }
 
-        return trackingMode == TrackingMode.Serialized
+        return (trackingMode == TrackingMode.Serialized || trackingMode == TrackingMode.IndividualPiece || trackingMode == TrackingMode.Container)
             ? exactBaseQuantity
             : QuantityMath.RoundQuantity(exactBaseQuantity);
     }

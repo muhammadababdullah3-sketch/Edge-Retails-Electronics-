@@ -19,6 +19,10 @@
                                    Margin="0,3,0,0" Style="{StaticResource Text.Body.Secondary}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Companies"
+                                Command="{Binding ManageCompaniesCommand}"
+                                Style="{StaticResource Button.Neutral}"
+                                Margin="0,0,8,0" />
                         <Button Content="Categories"
                                 Command="{Binding ManageCategoriesCommand}"
                                 Style="{StaticResource Button.Neutral}"
@@ -96,7 +100,8 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="120" />
                                 <DataGridTextColumn Header="PRODUCT" Binding="{Binding Name}" Width="2*" />
-                                <DataGridTextColumn Header="BRAND" Binding="{Binding Brand}" Width="130" />
+                                <DataGridTextColumn Header="COMPANY" Binding="{Binding CompanyName}" Width="130" />
+                                <DataGridTextColumn Header="BRAND" Binding="{Binding Brand}" Width="110" />
                                 <DataGridTextColumn Header="MODEL" Binding="{Binding Model}" Width="120" />
                                 <DataGridTextColumn Header="CATEGORY" Binding="{Binding Category}" Width="140" />
                                 <DataGridTextColumn Header="UNIT" Binding="{Binding BaseUnit}" Width="80" />

@@ -16,6 +16,7 @@ using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Production.Licensing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace EdgeRetails.UnitTests;
@@ -29,7 +30,9 @@ public sealed class ProductionForensicRemediationTests
     public void ProductionInfrastructure_DiContainer_PassesStrictScopeAndBuildValidation()
     {
         var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddEdgeRetailsInfrastructure(DummyConnectionString);
+        services.AddSingleton<ISequenceHighWaterService>(NullSequenceHighWaterService.Instance);
 
         // Build with strict scope and build validation enabled
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions

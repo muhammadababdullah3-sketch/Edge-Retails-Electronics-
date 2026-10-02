@@ -25,6 +25,8 @@ public static class InfrastructureServiceCollectionExtensions
                     .MigrationsHistoryTable("__ef_migrations_history", "system")
                     .CommandTimeout(ResolveDbCommandTimeoutSeconds())));
 
+        services.AddSingleton(_ => ProductionBackupConfiguration.FromConnectionString(connectionString));
+
         var productionStateRoot = ResolveProductionStateRoot();
         services.AddSingleton<IProductionMaintenanceIntegrityKeyProvider>(
             _ => new FileProductionMaintenanceIntegrityKeyProvider(
@@ -48,6 +50,51 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddSingleton<EdgeRetails.Application.Production.Backup.IBackupJobLock>(_ =>
             new FileBackupJobLock(Path.Combine(productionStateRoot, "backup.lock")));
+        // Server backup lifecycle provisioning is deferred by the current Phase 3 scope.
+        // Retain the established provider; uninstalled key-ring work is not composed.
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IBackupEncryptionKeyProvider,
+            EnvironmentBackupEncryptionKeyProvider>();
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IBackupProtector,
+            AesGcmBackupProtector>();
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IBackupManifestAuthenticator,
+            HmacBackupManifestAuthenticator>();
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IRestoreJournalIntegrityKeyProvider>(
+            _ => new FileRestoreJournalIntegrityKeyProvider(Path.Combine(productionStateRoot, "restore-journal-integrity.key")));
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IRestoreSessionStore>(provider =>
+            new HmacRestoreSessionStore(
+                Path.Combine(productionStateRoot, "restore-sessions"),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Backup.IRestoreJournalIntegrityKeyProvider>()));
+        services.AddSingleton<EdgeRetails.Application.Production.Backup.IPostgresMaintenanceConnectionProvider,
+            EnvironmentPostgresMaintenanceConnectionProvider>();
+        services.AddSingleton<IPostgresProcessRunner, ProcessRunner>();
+        services.AddScoped<IRestoreStagingCompatibilityProbe, EdgeRetailsEfRestoreCompatibilityProbe>();
+        services.AddScoped<IRestoreStagingCompatibilityProbe>(provider =>
+            new EdgeRetailsBusinessRestoreCompatibilityProbe(
+                ProductionBackupConfiguration.ResolvePostgresTool("psql"),
+                provider.GetRequiredService<IPostgresProcessRunner>()));
+        services.AddScoped<IRestoreStagingValidator>(provider =>
+            new CanonicalRestoreStagingValidator(
+                ProductionBackupConfiguration.ResolvePostgresTool("psql"),
+                provider.GetServices<IRestoreStagingCompatibilityProbe>(),
+                provider.GetRequiredService<IPostgresProcessRunner>()));
+        services.AddScoped<EdgeRetails.Application.Production.Backup.IPostgresBackupEngine>(provider =>
+            new PostgresBackupEngine(
+                ProductionBackupConfiguration.ResolvePostgresTool("pg_dump"),
+                ProductionBackupConfiguration.ResolvePostgresTool("pg_restore"),
+                ProductionBackupConfiguration.ResolvePostgresTool("psql"),
+                ProductionBackupConfiguration.ResolvePostgresTool("createdb"),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Backup.IBackupProtector>(),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Backup.IRestoreSessionStore>(),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Backup.IPostgresMaintenanceConnectionProvider>(),
+                provider.GetRequiredService<IProductionMaintenanceBarrier>(),
+                provider.GetRequiredService<IRestoreStagingValidator>(),
+                provider.GetRequiredService<EdgeRetails.Application.Production.Backup.IBackupManifestAuthenticator>(),
+                provider.GetRequiredService<IPostgresProcessRunner>()));
+        services.AddScoped<EdgeRetails.Application.Production.Backup.CreateBackupHandler>();
+        services.AddScoped<EdgeRetails.Application.Production.Backup.PrepareRestoreHandler>();
+        services.AddScoped<EdgeRetails.Application.Production.Backup.RecoverRestorePreparationHandler>();
+        services.AddScoped<EdgeRetails.Application.Production.Backup.CutoverRestoreHandler>();
+        services.AddScoped<EdgeRetails.Application.Production.Backup.DiscardPreparedRestoreHandler>();
         services.AddSingleton<IProductionAuditSink>(provider =>
             new EdgeRetails.Infrastructure.Production.FileProductionAuditSink(
                 Path.Combine(productionStateRoot, "production-audit.jsonl"),
@@ -75,6 +122,10 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<EdgeRetails.Application.Production.Printing.PrintDocumentHandler>();
         services.AddScoped<EdgeRetails.Application.Production.Printing.SavePrinterProfileHandler>();
+        services.AddScoped<EdgeRetails.Application.Production.Printing.IPhysicalStickerDocumentSource, EdgeRetails.Infrastructure.Production.Printing.EfPhysicalStickerDocumentSource>();
+        services.AddScoped<EdgeRetails.Application.Production.Printing.IProductLabelDocumentSource, EdgeRetails.Infrastructure.Production.Printing.EfProductLabelDocumentSource>();
+        services.AddSingleton<EdgeRetails.Application.Production.Printing.IPhysicalStickerPrintEngine, EdgeRetails.Infrastructure.Production.Printing.SimulatedPhysicalStickerPrintEngine>();
+        services.AddScoped<EdgeRetails.Application.Production.Printing.PrintPhysicalStickersHandler>();
         services.AddScoped<EdgeRetails.Application.Production.Outbox.IOutboxEffectHandler, EdgeRetails.Application.Production.Outbox.PrintOutboxEffectHandler>();
         services.AddScoped<EdgeRetails.Application.Production.Outbox.OutboxProcessor>();
 
@@ -108,6 +159,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Production.Outbox.IOutboxWriter>(p => p.GetRequiredService<OutboxRepository>());
         services.AddScoped<ISetupRepository, SetupRepository>();
         services.AddScoped<IIdentityReadRepository, IdentityReadRepository>();
+        services.AddScoped<IIdentityAdministrationRepository, IdentityAdministrationRepository>();
+        services.AddScoped<IIdentityCredentialRecoveryRepository, IdentityCredentialRecoveryRepository>();
         services.AddScoped<IIdentitySessionRepository, IdentitySessionRepository>();
         services.AddScoped<IPinCredentialService, Pbkdf2PinCredentialService>();
         services.AddScoped<IDatabaseReadinessService, EfDatabaseReadinessService>();
@@ -141,6 +194,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Sales.CompletePosDraftHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Sales.CommercialExchangeHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Purchasing.CreatePurchaseHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Purchasing.ReceiveProductIntakeHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Purchasing.CreatePurchaseReturnHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Purchasing.VoidPurchaseHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.TransferInventoryConditionHandler>();
@@ -181,6 +235,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Catalog.DeactivateProductHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.ReactivateProductHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SetSupplierProductActiveHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Catalog.SaveCompanyHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Catalog.SetCompanyActiveHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SaveCategoryHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SetCategoryActiveHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SaveUnitHandler>();
@@ -199,21 +255,30 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Settings.UpdateShopProfileHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Settings.UpdateReceiptTemplateHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.GetLoginAccountsHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Identity.CreateCashierHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.AuthenticateUserHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.EndUserSessionHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Identity.RecoverOwnerPinHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.IApplicationPermissionAuthorizer, EdgeRetails.Application.Features.Identity.ApplicationPermissionAuthorizer>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.RegisterTerminalHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.TerminalHeartbeatHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.UpdateTerminalStatusHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.AuthoritativeRevalidationHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Terminals.IOperationOutcomeLedger, EdgeRetails.Infrastructure.Repositories.EfOperationOutcomeLedger>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.OperationStatusQueryHandler>();
         services.AddScoped<EdgeRetails.Application.Gateways.IApplicationGateway, EdgeRetails.Application.Gateways.LocalApplicationGateway>();
 
         services.AddScoped<IDocumentNumberService, PostgresDocumentNumberService>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
+        services.AddSingleton<ISequenceHighWaterService, MachineSequenceHighWaterService>();
 
-        services.AddEdgeRetailsLicensing(connectionString, productionStateRoot);
+        // The signed installed license is machine-wide in ProgramData. Only an
+        // explicit state-root override (used by isolated rehearsals and configured
+        // installations) moves license authority with the rest of that state.
+        var configuredProductionStateRoot = Environment.GetEnvironmentVariable("EDGE_RETAILS_PRODUCTION_STATE_DIR");
+        services.AddEdgeRetailsLicensing(connectionString,
+            string.IsNullOrWhiteSpace(configuredProductionStateRoot) ? null : productionStateRoot);
 
         return services;
     }
@@ -223,8 +288,9 @@ public static class InfrastructureServiceCollectionExtensions
         string connectionString,
         string? productionStateRoot = null)
     {
-        var stateRoot = productionStateRoot ?? ResolveProductionStateRoot();
-        var licensePath = Path.Combine(stateRoot, "license.erlic");
+        var licensePath = EdgeRetails.Infrastructure.Production.Licensing.ProductionLicensePathPolicy.Resolve(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            productionStateRoot);
 
         services.AddSingleton<EdgeRetails.Application.Production.Licensing.IDeviceIdentityProvider, EdgeRetails.Infrastructure.Production.Licensing.WindowsMachineIdentityProvider>();
         services.AddSingleton<EdgeRetails.Application.Production.Licensing.ILicensePublicKeyProvider, EdgeRetails.Infrastructure.Production.Licensing.ProductionLicensePublicKeyProvider>();
@@ -232,6 +298,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Production.Licensing.ILicenseValidator, EdgeRetails.Infrastructure.Production.Licensing.SignedLicenseValidator>();
         services.AddScoped<EdgeRetails.Application.Production.Licensing.ILicenseStore>(_ => new EdgeRetails.Infrastructure.Production.Licensing.FileLicenseStore(licensePath));
         services.AddScoped<EdgeRetails.Application.Production.Licensing.RuntimeLicenseService>();
+        services.AddSingleton<EdgeRetails.Application.Production.Recovery.IRecoveryAuthorizationTrustProvider,
+            EdgeRetails.Infrastructure.Production.Recovery.UnprovisionedRecoveryAuthorizationTrustProvider>();
+        services.AddScoped<EdgeRetails.Application.Production.Recovery.IRecoveryAuthorizationValidator,
+            EdgeRetails.Infrastructure.Production.Recovery.SignedRecoveryAuthorizationValidator>();
 
         services.AddScoped<EdgeRetails.Application.Production.Startup.IDatabaseReadinessProbe>(_ => new EdgeRetails.Infrastructure.Production.Startup.NpgsqlDatabaseReadinessProbe(connectionString));
         services.AddScoped<EdgeRetails.Application.Production.Startup.IMigrationCompatibilityProbe, EdgeRetails.Infrastructure.Production.Startup.EfMigrationCompatibilityProbe<EdgeRetailsDbContext>>();

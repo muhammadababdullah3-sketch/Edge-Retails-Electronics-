@@ -110,12 +110,16 @@ public sealed class ProductEditViewModel : ViewModelBase
     private readonly Action _close;
     private readonly Func<Task> _saved;
     private BackendCatalogCategory? _selectedCategory;
+    private BackendCatalogCompany? _selectedCompany;
     private BackendCatalogUnit? _selectedBaseUnit;
     private TrackingMode _selectedTrackingMode;
     private bool _serialTrackingEnabled;
     private bool _imeiTrackingEnabled;
     private bool _isSaving;
     private string? _validationMessage;
+    private string _modelCode = string.Empty;
+    private bool _isModelCodeManuallyEdited;
+    private bool _isAutoSuggestingModelCode;
 
     public ProductEditViewModel(
         BackendProductManagementItem? product,
@@ -132,10 +136,14 @@ public sealed class ProductEditViewModel : ViewModelBase
         _close = close;
         _saved = saved;
 
-        Name = product?.Name ?? string.Empty;
-        Sku = product?.Sku ?? string.Empty;
-        Brand = product?.Brand ?? string.Empty;
-        Model = product?.Model ?? string.Empty;
+        _name = product?.Name ?? string.Empty;
+        _sku = product?.Sku ?? string.Empty;
+        _brand = product?.Brand ?? string.Empty;
+        _model = product?.Model ?? string.Empty;
+        _modelCode = product?.ModelCode ?? string.Empty;
+        _selectedCompany = product?.CompanyId is Guid companyId
+            ? snapshot.Companies.FirstOrDefault(x => x.Id == companyId)
+            : null;
         _selectedCategory = product?.CategoryId is Guid categoryId
             ? snapshot.Categories.FirstOrDefault(x => x.Id == categoryId)
             : null;
@@ -159,6 +167,10 @@ public sealed class ProductEditViewModel : ViewModelBase
         AttributesSchemaVersionText = (product?.AttributesSchemaVersion ?? 1)
             .ToString(CultureInfo.InvariantCulture);
 
+        Companies = snapshot.Companies
+            .Where(x => x.IsActive || x.Id == product?.CompanyId)
+            .OrderBy(x => x.Name)
+            .ToArray();
         Categories = snapshot.Categories
             .Where(x => x.IsActive || x.Id == product?.CategoryId)
             .OrderBy(x => x.Name)
@@ -167,7 +179,13 @@ public sealed class ProductEditViewModel : ViewModelBase
             .Where(x => x.IsActive || x.Id == product?.BaseUnitId)
             .OrderBy(x => x.Name)
             .ToArray();
-        TrackingModes = Enum.GetValues<TrackingMode>();
+        TrackingModes = new[]
+        {
+            TrackingMode.Quantity,
+            TrackingMode.Length,
+            TrackingMode.IndividualPiece,
+            TrackingMode.Container
+        };
 
         UnitConfigurations = [];
         BuildUnitConfigurationRows();
@@ -187,10 +205,126 @@ public sealed class ProductEditViewModel : ViewModelBase
     public bool IsEdit => _product is not null;
     public string Title => IsEdit ? "Edit Product" : "Add Product";
     public bool IsBaseUnitEditable => !IsEdit;
-    public string Name { get; set; }
-    public string Sku { get; set; }
-    public string Brand { get; set; }
-    public string Model { get; set; }
+    public bool IsSkuReadOnly => IsEdit;
+
+    private string _name = string.Empty;
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (SetProperty(ref _name, value))
+            {
+                AutoSuggestSkuIfApplicable();
+            }
+        }
+    }
+
+    private string _sku = string.Empty;
+    public string Sku
+    {
+        get => _sku;
+        set
+        {
+            if (SetProperty(ref _sku, value))
+            {
+                if (!_isAutoSuggesting)
+                {
+                    _isSkuManuallyEdited = true;
+                }
+            }
+        }
+    }
+
+    private string _brand = string.Empty;
+    public string Brand
+    {
+        get => _brand;
+        set
+        {
+            if (SetProperty(ref _brand, value))
+            {
+                AutoSuggestSkuIfApplicable();
+            }
+        }
+    }
+
+    private string _model = string.Empty;
+    public string Model
+    {
+        get => _model;
+        set
+        {
+            if (SetProperty(ref _model, value))
+            {
+                if (!IsEdit && !_isModelCodeManuallyEdited)
+                {
+                    _isAutoSuggestingModelCode = true;
+                    try
+                    {
+                        ModelCode = !string.IsNullOrWhiteSpace(_model)
+                            ? TraceabilityCodeRules.SuggestModelCode(_model)
+                            : string.Empty;
+                    }
+                    finally
+                    {
+                        _isAutoSuggestingModelCode = false;
+                    }
+                }
+                AutoSuggestSkuIfApplicable();
+            }
+        }
+    }
+
+    public string ModelCode
+    {
+        get => _modelCode;
+        set
+        {
+            if (SetProperty(ref _modelCode, value))
+            {
+                if (!_isAutoSuggestingModelCode)
+                {
+                    _isModelCodeManuallyEdited = true;
+                }
+                AutoSuggestSkuIfApplicable();
+            }
+        }
+    }
+
+    private bool _isSkuManuallyEdited;
+    private bool _isAutoSuggesting;
+
+    private void AutoSuggestSkuIfApplicable()
+    {
+        if (!IsEdit && !_isSkuManuallyEdited)
+        {
+            _isAutoSuggesting = true;
+            try
+            {
+                var compCode = SelectedCompany?.Code;
+                var catSymbol = SelectedCategory?.IdentitySymbol;
+                var effectiveModelCode = !string.IsNullOrWhiteSpace(ModelCode)
+                    ? ModelCode
+                    : (!string.IsNullOrWhiteSpace(Model) ? TraceabilityCodeRules.SuggestModelCode(Model) : null);
+
+                if (!string.IsNullOrWhiteSpace(compCode) && !string.IsNullOrWhiteSpace(catSymbol) && !string.IsNullOrWhiteSpace(effectiveModelCode))
+                {
+                    Sku = TraceabilityCodeRules.BuildProductCode(compCode, catSymbol, effectiveModelCode);
+                }
+                else
+                {
+                    Sku = TraceabilityCodeRules.SuggestProductCode(Brand, Name, Model, SelectedCategory?.Name);
+                }
+            }
+            finally
+            {
+                _isAutoSuggesting = false;
+            }
+        }
+    }
+
+    public IReadOnlyList<BackendCatalogCompany> Companies { get; }
     public IReadOnlyList<BackendCatalogCategory> Categories { get; }
     public IReadOnlyList<BackendCatalogUnit> Units { get; }
     public IReadOnlyList<TrackingMode> TrackingModes { get; }
@@ -203,10 +337,32 @@ public sealed class ProductEditViewModel : ViewModelBase
     public string AttributesJson { get; set; }
     public string AttributesSchemaVersionText { get; set; }
 
+    public BackendCatalogCompany? SelectedCompany
+    {
+        get => _selectedCompany;
+        set
+        {
+            if (SetProperty(ref _selectedCompany, value))
+            {
+                if (string.IsNullOrWhiteSpace(Brand) && value is not null)
+                {
+                    Brand = value.Name;
+                }
+                AutoSuggestSkuIfApplicable();
+            }
+        }
+    }
+
     public BackendCatalogCategory? SelectedCategory
     {
         get => _selectedCategory;
-        set => SetProperty(ref _selectedCategory, value);
+        set
+        {
+            if (SetProperty(ref _selectedCategory, value))
+            {
+                AutoSuggestSkuIfApplicable();
+            }
+        }
     }
 
     public BackendCatalogUnit? SelectedBaseUnit
@@ -317,18 +473,39 @@ public sealed class ProductEditViewModel : ViewModelBase
         ValidationMessage = null;
 
         if (string.IsNullOrWhiteSpace(Name) ||
-            string.IsNullOrWhiteSpace(Sku) ||
-            SelectedBaseUnit is null)
+            SelectedBaseUnit is null ||
+            (!IsEdit && SelectedCategory is null))
         {
-            ValidationMessage = "Product name, SKU and base unit are required.";
+            ValidationMessage = "Product name, category and base unit are required.";
             return;
         }
 
-        var existing = await _service.GetProductBySkuAsync(Sku.Trim());
-        if (existing is not null && existing.ProductId != _product?.ProductId)
+        if (string.IsNullOrWhiteSpace(Sku))
         {
-            ValidationMessage = "Another product already uses this SKU.";
-            return;
+            var compCode = SelectedCompany?.Code;
+            var catSymbol = SelectedCategory?.IdentitySymbol;
+            var effectiveModelCode = !string.IsNullOrWhiteSpace(ModelCode)
+                ? ModelCode
+                : (!string.IsNullOrWhiteSpace(Model) ? TraceabilityCodeRules.SuggestModelCode(Model) : null);
+
+            if (!string.IsNullOrWhiteSpace(compCode) && !string.IsNullOrWhiteSpace(catSymbol) && !string.IsNullOrWhiteSpace(effectiveModelCode))
+            {
+                Sku = TraceabilityCodeRules.BuildProductCode(compCode, catSymbol, effectiveModelCode);
+            }
+            else
+            {
+                Sku = TraceabilityCodeRules.SuggestProductCode(Brand, Name, Model, SelectedCategory?.Name);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(Sku))
+        {
+            var existing = await _service.GetProductBySkuAsync(Sku.Trim());
+            if (existing is not null && existing.ProductId != _product?.ProductId)
+            {
+                ValidationMessage = "Another product already uses this SKU.";
+                return;
+            }
         }
 
         if (!TryParseOptionalDecimal(ReferencePurchaseCostText, out var referenceCost) ||
@@ -397,7 +574,9 @@ public sealed class ProductEditViewModel : ViewModelBase
             minimumStock,
             warrantyMonths,
             string.IsNullOrWhiteSpace(AttributesJson) ? null : AttributesJson,
-            attributesSchemaVersion);
+            attributesSchemaVersion,
+            SelectedCompany?.Id,
+            string.IsNullOrWhiteSpace(ModelCode) ? null : ModelCode);
 
         IsSaving = true;
         try
@@ -429,17 +608,29 @@ public sealed class ProductEditViewModel : ViewModelBase
             ValidationMessage = ex.Code switch
             {
                 "catalog.sku_duplicate" => "This SKU is already assigned to another product.",
+                "catalog.sku_immutable" => "Product SKU is permanent and cannot be modified once stock or inventory history exists.",
+                "catalog.model_code_immutable" => "Product ModelCode is permanent and cannot be modified once stock or inventory history exists.",
+                "catalog.company_immutable" => "Product company cannot be modified once stock or inventory history exists.",
+                "catalog.category_immutable" => "Product category cannot be modified once stock or inventory history exists.",
+                "catalog.category_required" => "Category is required for product creation.",
+                "catalog.category_unavailable" => "Selected category is unavailable.",
+                "catalog.company_unavailable" => "Selected company is unavailable.",
+                "catalog.base_unit_unavailable" => "Selected base unit is unavailable.",
                 "concurrency.stale_product" => "This product changed elsewhere. Refresh and reopen it before saving.",
                 "catalog.tracking_policy_locked" => "Tracking policy cannot be changed after stock or inventory history exists.",
                 "concurrency.stale_supplier_product" => "A supplier link changed elsewhere. Refresh and reopen the product.",
                 "authorization.denied" => "You do not have permission to manage products.",
-                _ => ex.Message
+                _ => DesktopErrorPresentation.ForException(
+                    ex,
+                    "Catalog save was rejected.")
             };
             _toastService.Show(ValidationMessage, ToastTone.Danger);
         }
         catch (Exception ex)
         {
-            ValidationMessage = $"Catalog save failed: {ex.Message}";
+            ValidationMessage = DesktopErrorPresentation.ForException(
+                ex,
+                "Catalog save failed. Check the connection and try again.");
             _toastService.Show(ValidationMessage, ToastTone.Danger);
         }
         finally

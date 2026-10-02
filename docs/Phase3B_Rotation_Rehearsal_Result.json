@@ -1,0 +1,14 @@
+﻿{
+    "mode":  "Rehearsal",
+    "result":  "PASS",
+    "postgresMajor":  18,
+    "oldAuthenticationBefore":  true,
+    "wrongPasswordReason":  "password authentication failed",
+    "oldPasswordAfterReason":  "password authentication failed",
+    "newAuthentication":  true,
+    "roleAttributesAndMembershipsPreserved":  true,
+    "configAliasesConsistent":  true,
+    "canonicalAcl":  true,
+    "secretInEvidence":  false,
+    "utc":  "2026-09-29T15:11:37.9956394Z"
+}

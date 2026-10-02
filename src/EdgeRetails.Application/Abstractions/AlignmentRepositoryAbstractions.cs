@@ -59,3 +59,20 @@ public interface IPosDraftRepository
     void AddItem(PosDraftItem item);
     void RemoveItem(PosDraftItem item);
 }
+
+public interface ISequenceHighWaterService
+{
+    long GetDealerPrefixHighWater(string prefix);
+    void RecordDealerPrefixHighWater(string prefix, long sequence);
+    long GetSupplierProductHighWater(Guid supplierId, Guid productId);
+    void RecordSupplierProductHighWater(Guid supplierId, Guid productId, long sequence);
+}
+
+public sealed class NullSequenceHighWaterService : ISequenceHighWaterService
+{
+    public static readonly NullSequenceHighWaterService Instance = new();
+    public long GetDealerPrefixHighWater(string prefix) => 0;
+    public void RecordDealerPrefixHighWater(string prefix, long sequence) { }
+    public long GetSupplierProductHighWater(Guid supplierId, Guid productId) => 0;
+    public void RecordSupplierProductHighWater(Guid supplierId, Guid productId, long sequence) { }
+}

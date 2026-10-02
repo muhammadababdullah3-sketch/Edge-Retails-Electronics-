@@ -12,6 +12,8 @@ using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
+using EdgeRetails.Application.Features.Purchasing;
+using EdgeRetails.Application.Features.Terminals;
 
 namespace EdgeRetails.UnitTests;
 
@@ -31,6 +33,7 @@ internal sealed class Phase2TestDoubles
     public FakePosDraftRepository PosDrafts { get; } = new();
     public FakeThakaRepository Thaka { get; } = new();
     public FakeExpenseRepository Expenses { get; } = new();
+    public InMemoryOperationOutcomeLedger OutcomeLedger { get; } = new();
     public FakeOperationLock OperationLock { get; } = new();
     public FakeResourceLock ResourceLock { get; } = new();
     public FakeBusinessAuditWriter Audit { get; } = new();
@@ -40,10 +43,12 @@ internal sealed class Phase2TestDoubles
     public FakeTransactionRunner Transactions { get; } = new();
     public FakePermissionAuthorizer Authorization { get; } = new();
     public FakeUnitOfWork UnitOfWork { get; } = new();
+    public FakePurchasingReadService PurchasingReads { get; }
 
     public Phase2TestDoubles()
     {
         CostAllocator = new FakeInventoryCostAllocator(Inventory);
+        PurchasingReads = new FakePurchasingReadService(Purchasing, Inventory);
     }
 }
 
@@ -497,4 +502,66 @@ internal sealed class FakeReceiptSnapshotProvider : IReceiptSnapshotProvider
 {
     public Task<string> CaptureAsync(CancellationToken cancellationToken) =>
         Task.FromResult("{\"ReceiptConfigVersion\":1,\"Header\":\"Edge Retails\",\"Footer\":\"Thank You!\"}");
+}
+
+internal sealed class FakePurchasingReadService : IPurchasingReadService
+{
+    private readonly FakePurchasingRepository _purchasing;
+    private readonly FakeInventoryRepository _inventory;
+
+    public FakePurchasingReadService(FakePurchasingRepository purchasing, FakeInventoryRepository inventory)
+    {
+        _purchasing = purchasing;
+        _inventory = inventory;
+    }
+
+    public Task<IReadOnlyList<PurchaseHistoryRowDto>> GetHistoryAsync(GetPurchaseHistoryQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PurchaseHistoryRowDto>>(Array.Empty<PurchaseHistoryRowDto>());
+
+    public Task<PurchaseDocumentDto?> GetDocumentAsync(GetPurchaseDocumentQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<PurchaseDocumentDto?>(null);
+
+    public Task<IReadOnlyList<PurchaseReturnHistoryRowDto>> GetReturnHistoryAsync(GetPurchaseReturnHistoryQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PurchaseReturnHistoryRowDto>>(Array.Empty<PurchaseReturnHistoryRowDto>());
+
+    public Task<IReadOnlyList<CommittedInventoryUnitDto>> GetUnitsForPurchaseItemAsync(Guid purchaseItemId, CancellationToken cancellationToken)
+    {
+        var units = _inventory.Units
+            .Where(u => u.SourcePurchaseItemId == purchaseItemId)
+            .OrderBy(u => u.ItemSequence)
+            .ThenBy(u => u.CreatedAt)
+            .Select(u => new CommittedInventoryUnitDto(
+                u.Id,
+                u.TrackingCode ?? string.Empty,
+                u.ItemSequence ?? 0,
+                u.SerialNumber,
+                u.Imei1,
+                u.Imei2,
+                u.AcquisitionCost))
+            .ToList();
+
+        if (units.Count == 0)
+        {
+            var linkedUnitIds = _purchasing.PurchaseItemUnits
+                .Where(piu => piu.PurchaseItemId == purchaseItemId)
+                .Select(piu => piu.InventoryUnitId)
+                .ToHashSet();
+
+            units = _inventory.Units
+                .Where(u => linkedUnitIds.Contains(u.Id))
+                .OrderBy(u => u.ItemSequence)
+                .ThenBy(u => u.CreatedAt)
+                .Select(u => new CommittedInventoryUnitDto(
+                    u.Id,
+                    u.TrackingCode ?? string.Empty,
+                    u.ItemSequence ?? 0,
+                    u.SerialNumber,
+                    u.Imei1,
+                    u.Imei2,
+                    u.AcquisitionCost))
+                .ToList();
+        }
+
+        return Task.FromResult<IReadOnlyList<CommittedInventoryUnitDto>>(units);
+    }
 }

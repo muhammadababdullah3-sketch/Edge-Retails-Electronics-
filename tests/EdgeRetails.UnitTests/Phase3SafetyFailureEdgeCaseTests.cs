@@ -263,6 +263,20 @@ public sealed class Phase3SafetyFailureEdgeCaseTests
         public Task<IReadOnlyList<OutboxMessage>> GetPendingMessagesAsync(int batchSize, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<OutboxMessage>>(_messages.Where(m => m.Status == OutboxMessageStatus.Pending).Take(batchSize).ToList());
 
+        public Task<bool> TryClaimMessageAsync(Guid messageId, string workerId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
+        {
+            var message = _messages.FirstOrDefault(x => x.Id == messageId);
+            if (message is null || message.Status != OutboxMessageStatus.Pending)
+            {
+                return Task.FromResult(false);
+            }
+            message.Status = OutboxMessageStatus.Processing;
+            message.LeaseOwner = workerId;
+            message.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(leaseDuration);
+            message.NextAttemptAt = message.LeaseExpiresAt;
+            return Task.FromResult(true);
+        }
+
         public Task MarkProcessingAsync(Guid messageId, CancellationToken cancellationToken = default)
         {
             var msg = _messages.FirstOrDefault(m => m.Id == messageId);

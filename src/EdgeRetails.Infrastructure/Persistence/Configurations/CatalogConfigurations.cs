@@ -26,15 +26,53 @@ internal sealed class UnitConfiguration : IEntityTypeConfiguration<Unit>
     }
 }
 
+internal sealed class CompanyConfiguration : IEntityTypeConfiguration<Company>
+{
+    public void Configure(EntityTypeBuilder<Company> builder)
+    {
+        builder.ToTable(
+            "companies",
+            "catalog",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_companies_code_uppercase",
+                    "code = UPPER(code)");
+            });
+
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.Name).HasMaxLength(150).IsRequired();
+        builder.Property(x => x.Code).HasMaxLength(10).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken();
+
+        builder.HasIndex(x => x.Code).IsUnique();
+        builder.HasIndex(x => x.Name).IsUnique();
+    }
+}
+
 internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
 {
     public void Configure(EntityTypeBuilder<Category> builder)
     {
-        builder.ToTable("categories", "catalog");
+        builder.ToTable(
+            "categories",
+            "catalog",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_categories_symbol_uppercase",
+                    "identity_symbol = UPPER(identity_symbol)");
+            });
+
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.Name).HasMaxLength(150).IsRequired();
+        builder.Property(x => x.IdentitySymbol).HasMaxLength(10).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken();
+
         builder.HasIndex(x => x.Name).IsUnique();
+        builder.HasIndex(x => x.IdentitySymbol).IsUnique();
     }
 }
 
@@ -56,6 +94,12 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 table.HasCheckConstraint(
                     "ck_products_attributes_schema_version_positive",
                     "attributes_schema_version >= 1");
+                table.HasCheckConstraint(
+                    "ck_products_sku_uppercase",
+                    "sku IS NULL OR sku = UPPER(sku)");
+                table.HasCheckConstraint(
+                    "ck_products_model_code_uppercase",
+                    "model_code IS NULL OR model_code = UPPER(model_code)");
             });
 
         builder.HasKey(x => x.Id);
@@ -64,6 +108,7 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.Sku).HasMaxLength(100);
         builder.Property(x => x.Brand).HasMaxLength(150);
         builder.Property(x => x.Model).HasMaxLength(150);
+        builder.Property(x => x.ModelCode).HasMaxLength(50);
         builder.Property(x => x.ReferencePurchaseCost).HasPrecision(18, 6);
         builder.Property(x => x.DefaultSalePrice).HasPrecision(18, 2);
         builder.Property(x => x.MinimumStockLevel).HasPrecision(18, 6).HasDefaultValue(0m);
@@ -82,11 +127,17 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasForeignKey(x => x.CategoryId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<Company>()
+            .WithMany()
+            .HasForeignKey(x => x.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(x => x.Sku)
             .IsUnique()
             .HasFilter("sku IS NOT NULL");
 
         builder.HasIndex(x => x.Name);
+        builder.HasIndex(x => x.CompanyId);
         builder.HasIndex(x => new { x.CategoryId, x.IsActive });
     }
 }

@@ -11,6 +11,8 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
     private readonly IBackendPurchasingInventoryService? _backendService;
     private readonly IBackendProductManagementService? _catalogService;
     private readonly IBackendWorkflowReadService? _workflowService;
+    private readonly IBackendStockAdjustmentService? _stockAdjustmentService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private readonly List<PosProductItemViewModel> _backendProducts = [];
     private readonly List<InventoryMovementRecord> _backendMovements = [];
     private bool _backendLoaded;
@@ -31,13 +33,17 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
         IDialogService dialogService,
         IBackendPurchasingInventoryService? backendService = null,
         IBackendProductManagementService? catalogService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IBackendStockAdjustmentService? stockAdjustmentService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _backendService = backendService;
         _catalogService = catalogService;
         _workflowService = workflowService;
+        _stockAdjustmentService = stockAdjustmentService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _retailState = ResolvePreviewRetailState(backendService);
         _inventoryService = ResolvePreviewInventoryService(backendService);
 
@@ -205,7 +211,8 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
             _toastService,
             CloseProductDetail,
             _backendService,
-            _catalogService);
+            _catalogService,
+            _stockAdjustmentService);
         IsDetailViewActive = true;
     }
 
@@ -262,12 +269,13 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
             _workflowService,
             _dialogService,
             _toastService,
-            completed: () => _ = RefreshBackendAsync()));
+            completed: () => _ = RefreshBackendAsync(),
+            operationIntents: _operationIntents));
     }
 
     private void OpenSelectedAdjustment()
     {
-        if (_backendService is not null)
+        if (_backendService is not null && _stockAdjustmentService is null)
         {
             _toastService.Show(
                 "Stock adjustment is blocked until the authoritative backend adjustment flow is attached.",
@@ -284,7 +292,9 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
         _dialogService.Show(new StockAdjustmentViewModel(
             SelectedProduct,
             _toastService,
-            _dialogService.Close));
+            _dialogService.Close,
+            _stockAdjustmentService,
+            () => _ = RefreshBackendAsync()));
     }
 
     private void OnStateChanged(object? sender, EventArgs e) => Refresh();
@@ -348,7 +358,9 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Inventory could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Inventory could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
         finally

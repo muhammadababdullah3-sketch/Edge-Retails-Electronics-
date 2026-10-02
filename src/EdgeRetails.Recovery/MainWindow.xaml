@@ -1,0 +1,39 @@
+<Window x:Class="EdgeRetails.Recovery.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edge Retails — Owner PIN Recovery" Height="620" Width="600"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock FontSize="20" FontWeight="SemiBold" Text="Owner PIN recovery" />
+        <TextBlock Grid.Row="1" Margin="0,8,0,14" TextWrapping="Wrap"
+                   Text="This governance-side tool issues a one-time authorization in memory and sends it to the loopback Shop Server. The non-exportable signing key stays in Windows protected key storage; only the public key is provisioned to the Server. No direct database access is available." />
+        <TextBlock Grid.Row="2" x:Name="AuthorityText" Margin="0,0,0,8" TextWrapping="Wrap" />
+        <TextBlock Grid.Row="3" Margin="0,0,0,4" Text="Active Owner account" />
+        <ComboBox x:Name="OwnerPicker" Grid.Row="4" Height="32" DisplayMemberPath="DisplayName"
+                  VerticalContentAlignment="Center" />
+        <TextBlock Grid.Row="5" Margin="0,12,0,4" Text="New four-digit PIN" />
+        <PasswordBox x:Name="NewPin" Grid.Row="6" Height="32" MaxLength="4"
+                     VerticalContentAlignment="Center" />
+        <StackPanel Grid.Row="7" Margin="0,12,0,0">
+            <TextBlock Margin="0,0,0,4" Text="Confirm new PIN" />
+            <PasswordBox x:Name="ConfirmPin" Height="32" MaxLength="4"
+                         VerticalContentAlignment="Center" />
+            <TextBlock x:Name="StatusText" Margin="0,10,0,0" TextWrapping="Wrap" />
+            <StackPanel Margin="0,16,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="ProvisionButton" Width="175" Height="34" Margin="0,0,8,0" Content="Provision Governance Key" Click="Provision_Click" />
+                <Button x:Name="RefreshButton" Width="90" Height="34" Margin="0,0,8,0" Content="Refresh" Click="Refresh_Click" />
+                <Button x:Name="RecoverButton" Width="120" Height="34" Content="Recover PIN" Click="Recover_Click" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

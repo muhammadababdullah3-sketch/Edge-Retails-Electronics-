@@ -557,6 +557,9 @@
                                            FontFamily="{StaticResource Font.Primary}"
                                            FontSize="12"
                                            HorizontalAlignment="Center"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Width="342"
                                            Margin="0,12,0,0">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

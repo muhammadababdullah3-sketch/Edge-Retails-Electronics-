@@ -1,0 +1,19 @@
+Get-FileHash C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\pre_migration_20260929_163913.dump SHA256=675D0248EF1583C73637AD87A558245F2168B9E3B6C5B9488FC91C65996C907D => PASS
+pg_restore --list C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\pre_migration_20260929_163913.dump => exit 0
+pg_restore --file NUL C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\pre_migration_20260929_163913.dump => exit 0
+Get-FileHash C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\post_phase3a_migration_20260929_20260929_184442.dump SHA256=FF2682D091C324EE41F241E4315136B30F4DA6C66E0EC39EFF66864C9834A606 => PASS
+pg_restore --list C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\post_phase3a_migration_20260929_20260929_184442.dump => exit 0
+pg_restore --file NUL C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\post_phase3a_migration_20260929_20260929_184442.dump => exit 0
+initdb -D C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\data --username=inventory_closure_admin --pwfile=C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\admin.pw --auth-host=scram-sha-256 --auth-local=scram-sha-256 --encoding=UTF8 --no-locale => exit 0
+pg_ctl -D C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\data -l C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\postgres.log -w start => exit 0
+psql -X -w -q -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 56941 -U [redacted] -d postgres -f - (BEGIN READ ONLY) => exit 0
+createdb -h 127.0.0.1 -p 56941 -U inventory_closure_admin --template=template0 inventory_pre => exit 0
+pg_restore --exit-on-error --single-transaction --no-owner --no-privileges -h 127.0.0.1 -p 56941 -U inventory_closure_admin -d inventory_pre C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\pre_migration_20260929_163913.dump => exit 0
+psql -X -w -q -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 56941 -U [redacted] -d inventory_pre -f - (BEGIN READ ONLY) => exit 0
+createdb -h 127.0.0.1 -p 56941 -U inventory_closure_admin --template=template0 inventory_post => exit 0
+pg_restore --exit-on-error --single-transaction --no-owner --no-privileges -h 127.0.0.1 -p 56941 -U inventory_closure_admin -d inventory_post C:\Users\muham\AppData\Local\EdgeRetails\Production\backups\post_phase3a_migration_20260929_20260929_184442.dump => exit 0
+psql -X -w -q -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 56941 -U [redacted] -d inventory_post -f - (BEGIN READ ONLY) => exit 0
+psql -X -w -q -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U [redacted] -d edge_retails_prod -f - (BEGIN READ ONLY) => exit 0
+pg_ctl -D C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\data -m fast -w stop => exit 0
+pg_ctl -D C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08\data status => exit 3 (3=stopped)
+Cleanup exact root C:\Users\muham\AppData\Local\Temp\EdgeRetailsInventoryClosure_58a4b0f8260e42f9b4a81fbab199ce08 => absent=True; listener 56941 absent=True

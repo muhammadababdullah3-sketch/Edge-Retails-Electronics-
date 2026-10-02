@@ -457,7 +457,7 @@ public sealed class Sprint5ForensicAuditTests
 
         Assert.DoesNotContain("public string Pin", state);
         Assert.Contains("NewPin = string.Empty", vm);
-        Assert.Contains("is not persisted as plaintext", dialog);
+        Assert.Contains("PIN is cleared after submission", dialog);
     }
 
     [Fact]
@@ -484,8 +484,9 @@ public sealed class Sprint5ForensicAuditTests
         Assert.Contains("Integration Pending", state);
         Assert.Contains("Not Connected · Frontend Shell", state);
         Assert.Contains("Status = \"Sample\"", state);
-        Assert.Contains("Integration Pending", view);
-        Assert.Contains("Preview Data", view);
+        Assert.Contains("{Binding DatabaseStatus}", view);
+        Assert.Contains("{Binding ConnectionStatus}", view);
+        Assert.Contains("{Binding WorkerStatus}", view);
         Assert.DoesNotContain("<TextBlock Text=\"Connected\" FontWeight=\"SemiBold\"/>", view);
         Assert.DoesNotContain("<TextBlock Text=\"Active\" FontWeight=\"SemiBold\"/>", view);
     }

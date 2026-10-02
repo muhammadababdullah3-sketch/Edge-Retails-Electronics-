@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
@@ -57,7 +58,8 @@ public sealed class CreatePurchaseReturnHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _purchases = purchases;
         _inventory = inventory;
@@ -71,9 +73,12 @@ public sealed class CreatePurchaseReturnHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<CreatePurchaseReturnResult>> HandleAsync(
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+
+    public async Task<Result<CreatePurchaseReturnResult>> HandleAsync(
         CreatePurchaseReturnCommand command,
         CancellationToken cancellationToken)
     {
@@ -81,19 +86,19 @@ public sealed class CreatePurchaseReturnHandler
             command.Lines.Count == 0 ||
             string.IsNullOrWhiteSpace(command.Reason))
         {
-            return Task.FromResult(Result<CreatePurchaseReturnResult>.Failure(
+            return Result<CreatePurchaseReturnResult>.Failure(
                 "purchasing.return_invalid",
-                "Purchase return requires operation id, reason and at least one item."));
+                "Purchase return requires operation id, reason and at least one item.");
         }
 
         if (command.Lines.GroupBy(x => x.PurchaseItemId).Any(g => g.Count() > 1))
         {
-            return Task.FromResult(Result<CreatePurchaseReturnResult>.Failure(
+            return Result<CreatePurchaseReturnResult>.Failure(
                 "purchasing.return_duplicate_item",
-                "A purchase item may appear only once in a return."));
+                "A purchase item may appear only once in a return.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.CreatedBy,
@@ -112,6 +117,24 @@ public sealed class CreatePurchaseReturnHandler
                 command.ClientOperationId, ct);
             if (existing is not null)
             {
+                if (existing.PurchaseId != command.PurchaseId)
+                {
+                    return Result<CreatePurchaseReturnResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted for a different purchase.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "PurchaseReturn",
+                        existing.Id,
+                        existing.ReturnNumber,
+                        actorId: command.CreatedBy,
+                        cancellationToken: ct);
+                }
+
                 return Result<CreatePurchaseReturnResult>.Success(new(
                     existing.Id, existing.ReturnNumber, existing.SupplierReturnValue,
                     existing.InventoryCostRemoved, true));
@@ -288,7 +311,7 @@ public sealed class CreatePurchaseReturnHandler
                     if (isSerialized)
                     {
                         inventoryCostRemoved = await ProcessSerializedAsync(
-                            item, input, baseQuantity, movement, ct);
+                            purchase, item, input, baseQuantity, movement, ct);
                     }
                     else
                     {
@@ -381,6 +404,17 @@ public sealed class CreatePurchaseReturnHandler
                     command.ClientOperationId,
                     $"Return {purchaseReturn.ReturnNumber}; purchase {purchase.PurchaseNumber}; supplier value {purchaseReturn.SupplierReturnValue:0.00}; inventory cost {purchaseReturn.InventoryCostRemoved:0.000000}.");
 
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "PurchaseReturn",
+                        purchaseReturn.Id,
+                        purchaseReturn.ReturnNumber,
+                        actorId: command.CreatedBy,
+                        cancellationToken: ct);
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
                 return Result<CreatePurchaseReturnResult>.Success(new(
                     purchaseReturn.Id, purchaseReturn.ReturnNumber,
@@ -392,6 +426,19 @@ public sealed class CreatePurchaseReturnHandler
                 return Result<CreatePurchaseReturnResult>.Failure(ex.Code, ex.Message);
             }
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.ClientOperationId,
+                "PurchaseReturn",
+                result.Error?.Code ?? "purchasing.return_failed",
+                result.Error?.Message ?? "Purchase return failed.",
+                actorId: command.CreatedBy,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<decimal> ProcessQuantityAsync(
@@ -443,6 +490,7 @@ public sealed class CreatePurchaseReturnHandler
     }
 
     private async Task<decimal> ProcessSerializedAsync(
+        Purchase purchase,
         PurchaseItem item,
         PurchaseReturnLineInput input,
         decimal baseQuantity,
@@ -460,14 +508,47 @@ public sealed class CreatePurchaseReturnHandler
 
         var units = await _inventory.GetInventoryUnitsForUpdateAsync(
             item.ProductId, input.InventoryUnitIds, ct);
-        if (units.Count != input.InventoryUnitIds.Count ||
-            units.Any(x => x.SourcePurchaseItemId != item.Id ||
-                           x.Status != InventoryUnitStatus.InStock ||
-                           x.InventoryLotId is null))
+        if (units.Count != input.InventoryUnitIds.Count)
         {
             throw new BusinessRuleException(
                 "purchasing.return_serial_not_eligible",
-                "One or more serialized units are not eligible.");
+                "One or more serialized units were not found.");
+        }
+
+        foreach (var unit in units)
+        {
+            if (unit.SourcePurchaseItemId is null)
+            {
+                throw new BusinessRuleException(
+                    "purchasing.return_requires_supplier_provenance",
+                    "Serialized unit lacks original purchase/supplier provenance.");
+            }
+
+            if (unit.SourcePurchaseItemId != item.Id)
+            {
+                var sourceItem = await _purchases.GetPurchaseItemForUpdateAsync(unit.SourcePurchaseItemId.Value, ct);
+                if (sourceItem is not null)
+                {
+                    var sourcePurchase = await _purchases.GetPurchaseForUpdateAsync(sourceItem.PurchaseId, ct);
+                    if (sourcePurchase is not null && sourcePurchase.SupplierId != purchase.SupplierId)
+                    {
+                        throw new BusinessRuleException(
+                            "purchasing.return_wrong_supplier",
+                            "An item received from another supplier cannot be returned to this supplier.");
+                    }
+                }
+
+                throw new BusinessRuleException(
+                    "purchasing.return_wrong_supplier",
+                    "Serialized unit does not belong to the purchase item being returned.");
+            }
+
+            if (unit.Status != InventoryUnitStatus.InStock || unit.InventoryLotId is null)
+            {
+                throw new BusinessRuleException(
+                    "purchasing.return_serial_not_eligible",
+                    "One or more serialized units are not currently in stock or eligible for return.");
+            }
         }
 
         decimal removed = 0m;

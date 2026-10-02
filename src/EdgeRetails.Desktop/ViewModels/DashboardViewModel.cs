@@ -339,7 +339,9 @@ public sealed class DashboardViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ApplyUnavailable($"Dashboard backend unavailable: {ex.Message}");
+            ApplyUnavailable(DesktopErrorPresentation.ForException(
+                ex,
+                "Dashboard data is unavailable. Check the connection and try again."));
             _toastService?.Show(LoadError!, ToastTone.Danger);
         }
         finally

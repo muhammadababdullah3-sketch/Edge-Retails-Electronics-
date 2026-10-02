@@ -11,7 +11,14 @@ public sealed class TerminalAuthenticationMiddleware
     {
         "/api/terminals/register",
         "/api/system/health",
-        "/api/system/version"
+        "/api/system/ready",
+        "/api/system/version",
+        "/api/auth/accounts",
+        "/api/auth/login",
+        "/api/recovery/owner-pin",
+        "/api/recovery/context",
+        "/api/setup/state",
+        "/api/setup/bootstrap"
     };
 
     public TerminalAuthenticationMiddleware(RequestDelegate next)
@@ -23,10 +30,9 @@ public sealed class TerminalAuthenticationMiddleware
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? string.Empty;
 
-        // Skip non-API paths or whitelisted anonymous endpoints or operation query status
+        // Skip non-API paths or whitelisted anonymous endpoints
         if (!path.StartsWith("/api", StringComparison.OrdinalIgnoreCase) ||
-            AnonymousEndpoints.Contains(path) ||
-            path.StartsWith("/api/system/operations/", StringComparison.OrdinalIgnoreCase))
+            AnonymousEndpoints.Contains(path))
         {
             await _next(context);
             return;

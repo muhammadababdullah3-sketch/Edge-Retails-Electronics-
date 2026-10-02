@@ -18,6 +18,7 @@ using Xunit;
 
 namespace EdgeRetails.IntegrationTests;
 
+[Collection("Phase2PostgresIntegration")]
 public sealed class Phase2ReconciliationPostgresTests
 {
     [Fact]
@@ -266,61 +267,69 @@ public sealed class Phase2ReconciliationPostgresTests
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
         var fixture = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db, defaultSalePrice: 200m);
         var session = await Phase2PostgresTestHarness.SeedOpenCashSessionAsync(db, fixture.ActorId, openingCash: 10000m);
+        try
+        {
+            var purchaseHandler = ActivatorUtilities.CreateInstance<CreatePurchaseHandler>(services);
+            var paymentHandler = ActivatorUtilities.CreateInstance<CreateSupplierPaymentHandler>(services);
+            var refundHandler = ActivatorUtilities.CreateInstance<CreateSupplierRefundHandler>(services);
+            var cashHandler = ActivatorUtilities.CreateInstance<RecordManualCashMovementHandler>(services);
 
-        var purchaseHandler = ActivatorUtilities.CreateInstance<CreatePurchaseHandler>(services);
-        var paymentHandler = ActivatorUtilities.CreateInstance<CreateSupplierPaymentHandler>(services);
-        var refundHandler = ActivatorUtilities.CreateInstance<CreateSupplierRefundHandler>(services);
-        var cashHandler = ActivatorUtilities.CreateInstance<RecordManualCashMovementHandler>(services);
+            // 1. Purchase 5,000 (unpaid) -> Payable = +5,000
+            await purchaseHandler.HandleAsync(
+                new CreatePurchaseCommand(
+                    fixture.SupplierId,
+                    "INV-KHATA-01",
+                    DateOnly.FromDateTime(DateTime.UtcNow),
+                    null,
+                    0m,
+                    PurchaseSettlementMode.External,
+                    fixture.ActorId,
+                    Guid.CreateVersion7(),
+                    [new CreatePurchaseLineInput(fixture.ProductId, fixture.ProductUnitId, 50m, 100m, 200m, [])],
+                    InitialPaymentAmount: 0m),
+                CancellationToken.None);
 
-        // 1. Purchase 5,000 (unpaid) -> Payable = +5,000
-        await purchaseHandler.HandleAsync(
-            new CreatePurchaseCommand(
-                fixture.SupplierId,
-                "INV-KHATA-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
-                null,
-                0m,
-                PurchaseSettlementMode.External,
-                fixture.ActorId,
-                Guid.CreateVersion7(),
-                [new CreatePurchaseLineInput(fixture.ProductId, fixture.ProductUnitId, 50m, 100m, 200m, [])],
-                InitialPaymentAmount: 0m),
-            CancellationToken.None);
+            // 2. Supplier Cash Drawer Payment 2,000 -> Payable = +3,000, Cash = 10,000 - 2,000 = 8,000
+            await paymentHandler.HandleAsync(
+                new CreateSupplierPaymentCommand(
+                    fixture.SupplierId,
+                    2000m,
+                    SupplierPaymentPurpose.Settlement,
+                    SupplierSettlementMethod.CashDrawer,
+                    fixture.ActorId,
+                    Guid.CreateVersion7(),
+                    null,
+                    "Cash drawer partial settlement"),
+                CancellationToken.None);
 
-        // 2. Supplier Cash Drawer Payment 2,000 -> Payable = +3,000, Cash = 10,000 - 2,000 = 8,000
-        await paymentHandler.HandleAsync(
-            new CreateSupplierPaymentCommand(
-                fixture.SupplierId,
-                2000m,
-                SupplierPaymentPurpose.Settlement,
-                SupplierSettlementMethod.CashDrawer,
-                fixture.ActorId,
-                Guid.CreateVersion7(),
-                null,
-                "Cash drawer partial settlement"),
-            CancellationToken.None);
+            // 3. Manual Cash In +1,000 -> Cash = 8,000 + 1,000 = 9,000
+            await cashHandler.HandleAsync(
+                new RecordManualCashMovementCommand(
+                    CashMovementDirection.In,
+                    1000m,
+                    fixture.ActorId,
+                    "Cash replenishment",
+                    null),
+                CancellationToken.None);
 
-        // 3. Manual Cash In +1,000 -> Cash = 8,000 + 1,000 = 9,000
-        await cashHandler.HandleAsync(
-            new RecordManualCashMovementCommand(
-                CashMovementDirection.In,
-                1000m,
-                fixture.ActorId,
-                "Cash replenishment",
-                null),
-            CancellationToken.None);
+            db.ChangeTracker.Clear();
 
-        db.ChangeTracker.Clear();
+            // Verify Khata Balance
+            var entries = await db.SupplierAccountEntries.Where(x => x.SupplierId == fixture.SupplierId).ToListAsync();
+            var netPayable = entries.Sum(e => e.Direction == SupplierAccountDirection.IncreasePayable ? e.Amount : -e.Amount);
+            Assert.Equal(3000m, netPayable);
 
-        // Verify Khata Balance
-        var entries = await db.SupplierAccountEntries.Where(x => x.SupplierId == fixture.SupplierId).ToListAsync();
-        var netPayable = entries.Sum(e => e.Direction == SupplierAccountDirection.IncreasePayable ? e.Amount : -e.Amount);
-        Assert.Equal(3000m, netPayable);
-
-        // Verify Cash Movements
-        var movements = await db.CashMovements.Where(x => x.CashSessionId == session.Id).ToListAsync();
-        var netCashMovement = movements.Sum(m => m.Direction == CashMovementDirection.In ? m.Amount : -m.Amount);
-        var expectedCash = session.OpeningCash + netCashMovement;
-        Assert.Equal(9000m, expectedCash);
+            // Verify Cash Movements
+            var movements = await db.CashMovements.Where(x => x.CashSessionId == session.Id).ToListAsync();
+            var netCashMovement = movements.Sum(m => m.Direction == CashMovementDirection.In ? m.Amount : -m.Amount);
+            var expectedCash = session.OpeningCash + netCashMovement;
+            Assert.Equal(9000m, expectedCash);
+        }
+        finally
+        {
+            await db.CashSessions
+                .Where(x => x.Id == session.Id && x.Status == CashSessionStatus.Open)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, CashSessionStatus.Closed));
+        }
     }
 }

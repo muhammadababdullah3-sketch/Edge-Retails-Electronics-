@@ -24,7 +24,7 @@ Edge Retails implements deterministic, transactional version upgrades:
 |     - Check System Health: Verify 11 Diagnostic Probes report HEALTHY                             |
 |     - Drain Outbox Backlog: Ensure 0 pending print/side-effect jobs                               |
 |     - Stop Background Services: EdgeRetailsWorker, EdgeRetailsServer                              |
-|     - Capture Mandatory Backup Snapshot: Generate .erbak and authenticated manifest               |
+|     - Capture and verify mandatory backup from the same operational database                      |
 |                                                                                                   |
 |  [2. BINARY INSTALLATION]                                                                         |
 |     - Execute EdgeRetailsSetup.exe /quiet (Replaces files in Program Files)                       |
@@ -35,8 +35,8 @@ Edge Retails implements deterministic, transactional version upgrades:
 |     - Verify EfMigrationCompatibilityProbe reports Compatible                                     |
 |                                                                                                   |
 |  [4. RESTART & VERIFICATION]                                                                      |
-|     - Start EdgeRetailsWorker and EdgeRetailsServer                                               |
-|     - Execute SmokeTest-ReleaseExe.ps1                                                            |
+|     - Start and verify EdgeRetailsServer readiness                                                 |
+|     - Start EdgeRetailsWorker, then execute installed Desktop smoke                                |
 |     - Re-open Terminals & Release Maintenance Barrier                                             |
 +---------------------------------------------------------------------------------------------------+
 ```
@@ -65,15 +65,7 @@ net stop EdgeRetailsServer
 ```
 
 ### Step 3: Mandatory Pre-Upgrade Database Snapshot
-Execute an immediate on-demand backup. This snapshot is your primary recovery mechanism in case of power loss or unrecoverable environmental failure during migration:
-```powershell
-$backupDir = "$env:LOCALAPPDATA\EdgeRetails\Production\backups"
-& "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" `
-    --format=custom --no-password `
-    --host localhost --port 5432 --username postgres `
-    --file "$backupDir\pre_upgrade_snapshot_$((Get-Date).ToString('yyyyMMdd_HHmmss')).dump" `
-    edgeretails_prod
-```
+Execute an immediate on-demand backup using the approved Edge Retails backup workflow or a PostgreSQL 18 custom-format snapshot. Resolve the target from the same approved runtime configuration used by the installed Server; do not substitute a hard-coded database, role, or plaintext credential. Record the target identity without recording the password. For a custom-format snapshot, require a nonempty file, `pg_restore --list` success, a full archive read, SHA-256, and migration-history content before any schema mutation. Keep Server and Worker stopped during the upgrade. See `Backup_Restore_Runbook.md` for the authenticated application backup lifecycle.
 
 ---
 
@@ -95,37 +87,49 @@ Write-Host "Binaries updated successfully." -ForegroundColor Green
 ```
 
 ### 3.2 Apply Database Schema Migrations
-Apply the compiled EF Core migrations against the PostgreSQL 18 production database:
+Apply only approved forward EF Core migrations against the PostgreSQL 18 database used by the installed Server. First compare the source infrastructure DLL hash with the installed Server's `EdgeRetails.Infrastructure.dll`, inspect `dotnet ef migrations list` and direct `system.__ef_migrations_history`, and rehearse the same pending chain against a disposable PostgreSQL 18 database containing representative older business data. Keep both application services stopped. The design-time context factory reads the approved ProgramData runtime configuration when `EDGE_RETAILS_DB` is absent; do not replace a working runtime authority with a new connection string.
 
 ```powershell
-$env:EDGE_RETAILS_DB = "Host=localhost;Port=5432;Database=edgeretails_prod;Username=edgeretails_user;Password=$SecureProductionPassword;"
+$infraProject = '.\src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj'
 
-# Apply forward migrations
-dotnet ef database update `
-    --project "C:\Program Files\Edge Retails\EdgeRetails.Infrastructure.dll" `
-    --startup-project "C:\Program Files\Edge Retails\EdgeRetails.Infrastructure.dll"
+# Read-only census, then apply the specifically approved final migration ID.
+dotnet ef migrations list --project $infraProject --startup-project $infraProject --context EdgeRetailsDbContext --configuration Release --no-build
+dotnet ef database update <ApprovedFinalMigrationId> --project $infraProject --startup-project $infraProject --context EdgeRetailsDbContext --configuration Release --no-build
 ```
-*(Alternatively, starting `EdgeRetails.Desktop.exe` or `EdgeRetails.Server.exe` will automatically invoke `ProductionStartupCoordinator` to apply approved forward migrations under transactional lock).*
+
+For the 1.0.3 legacy-category upgrade at the exact 13-migration baseline, the released `20260925142150_Phase1SemanticProductIdentity` remains immutable. Its unique index cannot be created while two existing categories have the same empty default. The governed forward recovery uses `scripts/Invoke-Phase3LegacyCategoryPreMigration.ps1` and append-only `20260929100000_Phase3LegacyCategoryUpgradeRecovery`. This special procedure is valid only after the isolated PostgreSQL 18 backup/restore and upgrade rehearsals have passed. A database with category-dependent products or stocktakes fails the guard and needs a separate reviewed plan.
+
+Run the pre-step first without `-Apply` using the new, verified same-database custom backup path and its SHA-256. Review the emitted nonsecret target fingerprint and require the expected 13 history IDs, two categories, and stopped/disabled Server and Worker. Then run it from an elevated shell with `-Apply -ExpectedTargetFingerprint <reviewed fingerprint>`. The pre-step atomically stages the two category rows and leaves both application services disabled. Apply the EF chain explicitly through the approved ProgramData authority, targeting `20260929100000_Phase3LegacyCategoryUpgradeRecovery`, then verify all 18 history IDs, restored category IDs/names/active states, valid unique identity symbols, absence of the staging table, and no pending migrations. If the pre-step or EF update fails or returns an ambiguous result, keep both services disabled and inspect hold/history before any retry. Do not blindly rerun the pre-step or restore over the live database.
+
+`ProductionStartupCoordinator` checks schema compatibility and blocks startup when migrations are pending. Starting Desktop or Server does not apply them. If the EF update fails, stop, verify transactional rollback and migration history, and follow the approved correction path before retrying.
 
 ### 3.3 Verify Database Compatibility
-Verify that the database state is `Compatible`:
+Verify database history and source-model alignment as separate checks. `has-pending-model-changes` checks whether the source model differs from its migration snapshot; it does not prove that the production database has applied all migrations.
 ```powershell
-# Verify migration alignment via EF Core CLI
-dotnet ef migrations has-pending-model-changes `
-    --project "C:\Program Files\Edge Retails\EdgeRetails.Infrastructure.dll" `
-    --startup-project "C:\Program Files\Edge Retails\EdgeRetails.Infrastructure.dll" `
-    --no-build
+dotnet ef migrations list --project $infraProject --startup-project $infraProject --context EdgeRetailsDbContext --configuration Release --no-build
+dotnet ef migrations has-pending-model-changes --project $infraProject --startup-project $infraProject --context EdgeRetailsDbContext --configuration Release --no-build
 ```
+
+Require no `(Pending)` migrations, matching `system.__ef_migrations_history`, and zero pending model changes before service resumption.
 
 ---
 
 ## 4. Post-Upgrade Verification & Service Resumption
 
-### Step 1: Restart Background Services
+### Step 1: Restart and Verify Services
 ```powershell
-net start EdgeRetailsWorker
-net start EdgeRetailsServer
+Set-Service -Name EdgeRetailsServer -StartupType Automatic
+Start-Service -Name EdgeRetailsServer
+.\scripts\Test-EdgeRetailsServices.ps1
+Set-Service -Name EdgeRetailsWorker -StartupType Automatic
+Start-Service -Name EdgeRetailsWorker
+(Get-Service -Name EdgeRetailsWorker).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+$worker = Get-CimInstance Win32_Service -Filter "Name='EdgeRetailsWorker'"
+if ($worker.State -ne 'Running' -or $worker.StartMode -ne 'Auto') { throw 'Worker did not reach Running/Auto.' }
+sc.exe qfailure EdgeRetailsWorker
 ```
+
+Require HTTP 200 from `http://127.0.0.1:7150/api/system/ready` and a loopback-only listener before starting Worker or opening Desktop. Run the service commands from an elevated shell. Inspect `sc.exe qfailure` and require the approved Worker restart actions before completing service resumption.
 
 ### Step 2: Automated Smoke Test
 Execute the automated release executable smoke test to confirm window initialization, WPF UI readiness, and clean shutdown:
@@ -162,18 +166,15 @@ If the upgrade encounters critical failures (e.g., severe hardware incompatibili
    ```powershell
    msiexec /i ".\previous_release\EdgeRetailsSetup.msi" /qn
    ```
-4. **Restore Pre-Upgrade Database Snapshot:**
+4. **Restore Pre-Upgrade Database Snapshot:** Follow `Backup_Restore_Runbook.md` for staged restore, validation, and cutover. Do not run an in-place `pg_restore --clean` against the operational database. A transactionally rolled-back migration needs verification, not an automatic restore.
+5. **Restart Services:** After the restored schema is confirmed compatible with the reinstalled binary, start Server first, require the deployment verification to pass, then start Worker:
    ```powershell
-   # Restore PostgreSQL database from the pre-upgrade snapshot
-   & "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" `
-       --clean --if-exists --no-password `
-       --host localhost --port 5432 --username postgres `
-       --dbname edgeretails_prod `
-       "$backupDir\pre_upgrade_snapshot_<timestamp>.dump"
-   ```
-5. **Restart Services:**
-   ```powershell
-   net start EdgeRetailsWorker
-   net start EdgeRetailsServer
+    Set-Service -Name EdgeRetailsServer -StartupType Automatic
+    Start-Service -Name EdgeRetailsServer
+    .\scripts\Test-EdgeRetailsServices.ps1
+    Set-Service -Name EdgeRetailsWorker -StartupType Automatic
+    Start-Service -Name EdgeRetailsWorker
+    (Get-Service -Name EdgeRetailsWorker).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+    sc.exe qfailure EdgeRetailsWorker
    ```
 6. **Verify System Integrity:** Confirm login succeeds and cashiers can resume transactions.

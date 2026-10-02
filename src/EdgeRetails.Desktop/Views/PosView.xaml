@@ -185,7 +185,7 @@
                                 </TextBox>
 
                                 <TextBlock IsHitTestVisible="False"
-                                           Text="Search product, SKU or scan barcode…"
+                                           Text="Search name or SKU; scan barcode, tracking code, serial or IMEI…"
                                            Foreground="{DynamicResource Brush.Text.Subtle}"
                                            FontFamily="{StaticResource Font.Primary}"
                                            FontSize="14"
@@ -676,7 +676,7 @@
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0"
-                                               Text="Discount"
+                                           Text="Sale discount"
                                                FontFamily="{StaticResource Font.Primary}"
                                                FontSize="13"
                                                Foreground="{DynamicResource Brush.Text.Secondary}"
@@ -715,6 +715,10 @@
                                         </Grid>
                                     </Border>
                                 </Grid>
+
+                                <TextBlock Text="Sale discount does not change item price. Item price overrides require separate authorization."
+                                           TextWrapping="Wrap" Margin="0,0,0,10"
+                                           FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" />
 
                                 <!-- Subtotal Row -->
                                 <Grid Margin="0,0,0,10">

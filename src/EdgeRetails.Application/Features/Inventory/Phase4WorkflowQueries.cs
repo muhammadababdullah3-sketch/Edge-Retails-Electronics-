@@ -20,6 +20,22 @@ public sealed record ExactInventoryUnitDto(
     DateTimeOffset CreatedAt,
     long Version);
 
+/// <summary>
+/// Minimum serialized-unit identity data needed by POS. Deliberately excludes acquisition cost,
+/// supplier, and purchase provenance, which belong to inventory authority.
+/// </summary>
+public sealed record PosExactUnitDto(
+    Guid InventoryUnitId,
+    Guid ProductId,
+    string ProductName,
+    string? Sku,
+    string? TrackingCode,
+    string? SerialNumber,
+    string? Imei1,
+    string? Imei2,
+    InventoryUnitStatus Status,
+    long Version);
+
 public sealed record ScannerProductMatchDto(
     ScannerResolutionNamespace Namespace,
     Guid ProductId,
@@ -37,7 +53,12 @@ public sealed record ScannerProductMatchDto(
     string? SerialNumber,
     string? Imei1,
     string? Imei2,
-    InventoryUnitStatus? UnitStatus);
+    InventoryUnitStatus? UnitStatus,
+    bool IsSellable = true,
+    string? SupplierName = null,
+    string? PurchaseNumber = null,
+    Guid? SourcePurchaseItemId = null,
+    Guid? SupplierId = null);
 
 public sealed record PosDraftSummaryDto(
     Guid DraftId,
@@ -97,6 +118,23 @@ public interface IPhase4WorkflowReadService
         InventoryUnitStatus? status,
         Guid? sourcePurchaseItemId,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ExactInventoryUnitDto>> GetExactUnitsAsync(
+        Guid productId,
+        InventoryUnitStatus? status,
+        Guid? sourcePurchaseItemId,
+        int pageSize,
+        CancellationToken cancellationToken) =>
+        GetExactUnitsAsync(productId, status, sourcePurchaseItemId, cancellationToken);
+
+    Task<IReadOnlyList<ExactInventoryUnitDto>> GetExactUnitsAsync(
+        Guid productId,
+        InventoryUnitStatus? status,
+        Guid? sourcePurchaseItemId,
+        int pageSize,
+        Guid? beforeUnitId,
+        CancellationToken cancellationToken) =>
+        GetExactUnitsAsync(productId, status, sourcePurchaseItemId, pageSize, cancellationToken);
 
     Task<IReadOnlyList<ScannerProductMatchDto>> ResolveScannerAsync(
         string input,

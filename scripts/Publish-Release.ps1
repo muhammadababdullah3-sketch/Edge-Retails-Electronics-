@@ -5,6 +5,7 @@ param(
     [string]$DesktopProject = "src/EdgeRetails.Desktop/EdgeRetails.Desktop.csproj",
     [string]$WorkerProject = "src/EdgeRetails.Worker/EdgeRetails.Worker.csproj",
     [string]$ServerProject = "src/EdgeRetails.Server/EdgeRetails.Server.csproj",
+    [string]$RecoveryProject = "src/EdgeRetails.Recovery/EdgeRetails.Recovery.csproj",
     [string]$UnitTestProject = "tests/EdgeRetails.UnitTests/EdgeRetails.UnitTests.csproj",
     [string]$Output = "artifacts/release",
     [string]$PgBin = "",
@@ -14,6 +15,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot 'ReleasePayloadSecurity.psm1') -Force
+
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Installer-safe Version must use major.minor.patch (for example 1.0.0)." }
 $versionParts = $Version.Split('.') | ForEach-Object { [int]$_ }
 if ($versionParts[0] -gt 255 -or $versionParts[1] -gt 255 -or $versionParts[2] -gt 65535) { throw "MSI ProductVersion requires major/minor <= 255 and build <= 65535." }
@@ -48,7 +51,7 @@ $outputFull = [IO.Path]::GetFullPath((Join-Path $root $Output))
 if ($outputFull -eq $root -or $outputFull.Length -le $root.Length) {
     throw "Output directory cannot be root or workspace root."
 }
-if (Test-Path $outputFull) { Remove-Item $outputFull -Recurse -Force }
+if (Test-Path $outputFull) { throw "Release output already exists. Choose a new empty output path; existing artifacts are preserved." }
 New-Item -ItemType Directory -Force -Path $publish,$msiOut,$bundleOut | Out-Null
 
 # General release verification is RID-neutral. PostgreSQL integration evidence is supplied by the
@@ -135,6 +138,24 @@ if ($LASTEXITCODE -ne 0) { throw "Server publish failed." }
 $serverExe = Join-Path $serverPublish "EdgeRetails.Server.exe"
 if (-not (Test-Path $serverExe -PathType Leaf)) { throw "Publish did not produce EdgeRetails.Server.exe." }
 
+# Publish the local elevated PIN recovery utility. It is packaged with the
+# approved release and does not add a network endpoint or direct Desktop DB path.
+dotnet restore $RecoveryProject -r $Runtime
+if ($LASTEXITCODE -ne 0) { throw "Recovery runtime restore failed." }
+$recoveryPublish = Join-Path $publish "recovery"
+$recoveryArgs = @(
+    "publish", $RecoveryProject, "-c", "Release", "-r", $Runtime, "--self-contained", "true", "--no-restore",
+    "-p:Version=$Version", "-p:FileVersion=$Version", "-p:AssemblyVersion=$Version",
+    "-p:Product=Edge Retails Recovery", "-p:Company=Edge Retails", "-p:Description=Governance-side signed Owner PIN recovery utility",
+    "-p:PublishSingleFile=false", "-p:DebugType=None", "-p:DebugSymbols=false",
+    "-p:Deterministic=true", "-p:ContinuousIntegrationBuild=true", "-p:TreatWarningsAsErrors=true",
+    "-o", $recoveryPublish
+)
+& dotnet @recoveryArgs
+if ($LASTEXITCODE -ne 0) { throw "Recovery utility publish failed." }
+$recoveryExe = Join-Path $recoveryPublish "EdgeRetails.Recovery.exe"
+if (-not (Test-Path $recoveryExe -PathType Leaf)) { throw "Publish did not produce EdgeRetails.Recovery.exe." }
+
 # The production app performs target-machine PostgreSQL toolchain readiness at runtime. When PgBin is supplied
 # to this build, validate the exact tools now as an additional release gate.
 if (-not [string]::IsNullOrWhiteSpace($PgBin)) {
@@ -151,18 +172,76 @@ if (-not [string]::IsNullOrWhiteSpace($FingerprintPath)) {
 }
 
 $msiProject = Join-Path $root "installer/EdgeRetails.Setup/EdgeRetails.Setup.wixproj"
+# WiX harvests the entire publish tree. Reject private-key files and PEM material before packaging.
+Assert-NoRecoveryPrivateKeyMaterial $publish
+# The WiX projects are built directly rather than through the solution. Clean their
+# intermediate outputs so a previous ProductVersion cannot be reused for a new release.
+dotnet clean $msiProject -c Release -p:Platform=$wixPlatform
+if ($LASTEXITCODE -ne 0) { throw "WiX MSI clean failed." }
 dotnet build $msiProject -c Release -p:Platform=$wixPlatform -p:ProductVersion=$Version -p:PublishDir=$publish -p:AppIconPath=$iconPath -o $msiOut -warnaserror
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed." }
 $msi = Get-ChildItem $msiOut -Filter *.msi -File | Select-Object -First 1
 if (-not $msi) { throw "WiX MSI build completed without producing an MSI." }
+$windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
+$msiDatabase = $null
+$msiView = $null
+try {
+    $msiDatabase = $windowsInstaller.OpenDatabase($msi.FullName, 0)
+    $msiView = $msiDatabase.OpenView("SELECT `Value` FROM `Property` WHERE `Property`='ProductVersion'")
+    $msiView.Execute()
+    $msiVersionRecord = $msiView.Fetch()
+    $actualMsiVersion = if ($msiVersionRecord) { $msiVersionRecord.StringData(1) } else { $null }
+}
+finally {
+    if ($msiView) { $msiView.Close(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($msiView) }
+    if ($msiDatabase) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($msiDatabase) }
+    if ($windowsInstaller) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($windowsInstaller) }
+}
+if ($actualMsiVersion -ne $Version) {
+    throw "WiX MSI ProductVersion mismatch: expected $Version, actual $actualMsiVersion."
+}
 
 $bundleProject = Join-Path $root "installer/EdgeRetails.Bootstrapper/EdgeRetails.Bootstrapper.wixproj"
+dotnet clean $bundleProject -c Release -p:Platform=$wixPlatform
+if ($LASTEXITCODE -ne 0) { throw "WiX Bootstrapper clean failed." }
 dotnet build $bundleProject -c Release -p:Platform=$wixPlatform -p:ProductVersion=$Version "-p:MsiPath=$($msi.FullName)" "-p:AppIconPath=$iconPath" -o $bundleOut -warnaserror
 if ($LASTEXITCODE -ne 0) { throw "WiX Burn bundle build failed." }
 $setup = Get-ChildItem $bundleOut -Filter EdgeRetailsSetup.exe -File | Select-Object -First 1
 if (-not $setup) { throw "WiX Burn build completed without producing EdgeRetailsSetup.exe." }
+$actualBundleVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($setup.FullName).ProductVersion
+if ($actualBundleVersion -notin @($Version, "$Version.0")) {
+    throw "WiX bundle ProductVersion mismatch: expected $Version, actual $actualBundleVersion."
+}
 
-$artifacts = @($exe, $workerExe, $serverExe, $msi.FullName, $setup.FullName)
+# Burn layout plus Windows Installer administrative extraction inspects the payload files after both
+# packaging layers have been expanded. This complements the source publish-tree scan.
+$bundleProjectXml = [xml](Get-Content -LiteralPath $bundleProject)
+$sdkIdentity = [regex]::Match([string]$bundleProjectXml.Project.Sdk, '^WixToolset\.Sdk/(?<version>\d+\.\d+\.\d+)$', [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+if (-not $sdkIdentity.Success) { throw "Could not resolve the pinned WiX SDK version from $bundleProject." }
+$nugetPackages = if ([string]::IsNullOrWhiteSpace($env:NUGET_PACKAGES)) { Join-Path $env:USERPROFILE '.nuget\packages' } else { $env:NUGET_PACKAGES }
+$wixCliPath = Join-Path $nugetPackages "wixtoolset.sdk\$($sdkIdentity.Groups['version'].Value)\tools\net6.0\wix.dll"
+Assert-InstallerPayloadContainsNoRecoveryPrivateKey -WixCliPath $wixCliPath -BundlePath $setup.FullName -MsiPath $msi.FullName
+
+# Retain a raw container check as another containment gate.
+$privateKeyMarkers = @(
+    ('-----BEGIN ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN RSA ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN DSA ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN EC ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN ENCRYPTED ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN OPENSSH ' + 'PRIVATE KEY-----'),
+    ('-----BEGIN SSH2 ENCRYPTED ' + 'PRIVATE KEY-----')
+)
+foreach ($package in @($msi.FullName, $setup.FullName)) {
+    $packageBytes = [IO.File]::ReadAllBytes($package)
+    foreach ($marker in $privateKeyMarkers) {
+        if ([EdgeRetailsReleaseKeyScanner]::Contains($packageBytes, [Text.Encoding]::ASCII.GetBytes($marker))) {
+            throw "Final package contains private signing-key PEM material: $package"
+        }
+    }
+}
+
+$artifacts = @($exe, $workerExe, $serverExe, $recoveryExe, $msi.FullName, $setup.FullName)
 $hashes = foreach ($file in $artifacts) {
     $h = Get-FileHash $file -Algorithm SHA256
     [pscustomobject]@{ File = (Split-Path $file -Leaf); Sha256 = $h.Hash; Bytes = (Get-Item $file).Length }
@@ -181,6 +260,15 @@ $manifest = [ordered]@{
     preflightEvidenceSha256 = if ($preflightHash) { $preflightHash } else { $null }
     createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     artifacts = $hashes
+    payloadFiles = @(
+        Get-ChildItem -LiteralPath $publish -Recurse -File | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{
+                path = [IO.Path]::GetRelativePath($publish, $_.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+                sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                bytes = $_.Length
+            }
+        }
+    )
     targetReadiness = [ordered]@{ postgresClientTools = @("pg_dump", "pg_restore", "psql", "createdb"); enforcement = "runtime diagnostics/startup plus optional release PgBin gate" }
 }
 $manifest | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $root "$Output/release-manifest.json") -Encoding UTF8

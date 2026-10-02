@@ -138,9 +138,15 @@ internal sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         builder.ToTable(
             "sale_items",
             "sales",
-            table => table.HasCheckConstraint(
-                "ck_sale_item_values",
-                "entered_quantity > 0 AND factor_to_base_snapshot > 0 AND base_quantity > 0 AND unit_price >= 0 AND gross_line_total >= 0 AND allocated_invoice_discount >= 0 AND net_line_total >= 0 AND unit_cost_snapshot >= 0 AND total_cost_snapshot >= 0"));
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_sale_item_values",
+                    "entered_quantity > 0 AND factor_to_base_snapshot > 0 AND base_quantity > 0 AND list_unit_price_snapshot >= 0 AND unit_price >= 0 AND gross_line_total >= 0 AND allocated_invoice_discount >= 0 AND net_line_total >= 0 AND unit_cost_snapshot >= 0 AND total_cost_snapshot >= 0");
+                table.HasCheckConstraint(
+                    "ck_sale_item_price_override_audit",
+                    "(price_override_reason IS NULL AND price_override_by IS NULL) OR (price_override_reason IS NOT NULL AND btrim(price_override_reason) <> '' AND price_override_by IS NOT NULL)");
+            });
 
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
@@ -149,7 +155,9 @@ internal sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         builder.Property(x => x.EnteredQuantity).HasPrecision(18, 6);
         builder.Property(x => x.FactorToBaseSnapshot).HasPrecision(18, 9);
         builder.Property(x => x.BaseQuantity).HasPrecision(18, 6);
+        builder.Property(x => x.ListUnitPriceSnapshot).HasPrecision(18, 2);
         builder.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        builder.Property(x => x.PriceOverrideReason).HasMaxLength(500);
         builder.Property(x => x.GrossLineTotal).HasPrecision(18, 2);
         builder.Property(x => x.AllocatedInvoiceDiscount).HasPrecision(18, 2);
         builder.Property(x => x.NetLineTotal).HasPrecision(18, 2);

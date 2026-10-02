@@ -118,14 +118,19 @@ public static class Program
                 services.AddEdgeRetailsInfrastructure(dbConn);
                 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
                 using var provider = services.BuildServiceProvider();
+                Console.WriteLine("TRACE:provider-built");
                 using var scope = provider.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+                Console.WriteLine("TRACE:db-resolved");
                 var outbox = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
 
                 // Ensure base catalog data exists or query existing
                 var product = await db.Products.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:product-read");
                 var user = await db.Users.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:user-read");
                 var unit = await db.ProductUnits.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:unit-read");
 
                 if (product is null || user is null || unit is null)
                 {
@@ -135,6 +140,7 @@ public static class Program
 
                 // Begin explicit transaction
                 await using var tx = await db.Database.BeginTransactionAsync();
+                Console.WriteLine("TRACE:transaction-open");
 
                 var saleId = Guid.NewGuid();
                 var movementId = Guid.NewGuid();
@@ -205,6 +211,7 @@ public static class Program
 
                 // Flush changes to PostgreSQL inside the uncommitted transaction
                 await db.SaveChangesAsync();
+                Console.WriteLine("TRACE:changes-saved");
 
                 // Signal parent test that transaction is dirty and uncommitted
                 Console.WriteLine("READY:CRASH_BEFORE_COMMIT");
@@ -223,13 +230,18 @@ public static class Program
                 services.AddEdgeRetailsInfrastructure(dbConn);
                 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
                 using var provider = services.BuildServiceProvider();
+                Console.WriteLine("TRACE:provider-built");
                 using var scope = provider.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+                Console.WriteLine("TRACE:db-resolved");
                 var outbox = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
 
                 var product = await db.Products.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:product-read");
                 var user = await db.Users.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:user-read");
                 var unit = await db.ProductUnits.FirstOrDefaultAsync();
+                Console.WriteLine("TRACE:unit-read");
 
                 if (product is null || user is null || unit is null)
                 {
@@ -238,6 +250,7 @@ public static class Program
                 }
 
                 await using var tx = await db.Database.BeginTransactionAsync();
+                Console.WriteLine("TRACE:transaction-open");
 
                 var saleId = Guid.NewGuid();
                 var movementId = Guid.NewGuid();
@@ -307,7 +320,9 @@ public static class Program
                 });
 
                 await db.SaveChangesAsync();
+                Console.WriteLine("TRACE:changes-saved");
                 await tx.CommitAsync();
+                Console.WriteLine("TRACE:transaction-committed");
 
                 // Signal that commit succeeded, but process is about to die before acknowledging
                 Console.WriteLine("READY:COMMITTED_BEFORE_ACK");

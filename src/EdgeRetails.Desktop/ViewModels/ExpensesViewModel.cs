@@ -148,7 +148,9 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService.Show(ex.Message, ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Expense could not be saved."),
+                ToastTone.Danger);
         }
     }
 }
@@ -333,7 +335,9 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _toastService.Show(
-                $"Expenses could not be refreshed: {ex.Message}",
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Expenses could not be refreshed. Check the connection and try again."),
                 ToastTone.Danger);
         }
         finally

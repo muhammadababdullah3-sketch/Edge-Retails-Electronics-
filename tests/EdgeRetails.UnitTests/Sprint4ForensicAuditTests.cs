@@ -148,12 +148,14 @@ public sealed class Sprint4ForensicAuditTests
     public void StockAdjustment_WritesControlledMovement()
     {
         var vm = ReadDesktop("ViewModels", "StockAdjustmentViewModel.cs");
-        var service = ReadDesktop("Services", "DemoPurchaseInventoryService.cs");
+        var service = ReadDesktop("Services", "RemoteStockAdjustmentService.cs");
 
-        Assert.Contains("_service.AdjustStock(Product, delta, Reason, Note)", vm);
-        Assert.Contains("Adjustment cannot make sellable stock negative", service);
-        Assert.Contains("InventoryMovementKind.AdjustmentIn", service);
-        Assert.Contains("InventoryMovementKind.AdjustmentOut", service);
+        Assert.Contains("if (_backendService is not null)", vm);
+        Assert.Contains("_backendService.CreateDeltaAdjustmentAsync(", vm);
+        Assert.Contains("_clientOperationId", vm);
+        Assert.Contains("_service.AdjustStock(Product, IsIncrease ? qty : -qty, Reason, Note)", vm);
+        Assert.Contains("/api/inventory/adjustments", service);
+        Assert.Contains("$\"/api/system/operations/{clientOperationId:D}\"", service);
     }
 
     [Fact]

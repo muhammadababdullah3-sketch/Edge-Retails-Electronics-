@@ -12,6 +12,8 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
     private readonly IBackendWorkflowReadService? _workflowService;
     private PurchaseRecord _purchase = null!;
     private bool _isLoadingBackendDetail;
+    private bool _isVoidingPurchase;
+    private const string PurchaseVoidReason = "Purchase void";
 
     public PurchaseDetailViewModel(
         PurchaseRecord purchase,
@@ -30,6 +32,8 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
 
         CloseCommand = new RelayCommand(_drawerService.Close);
         ReturnPurchaseCommand = new RelayCommand(OpenReturn, () => CanReturnPurchase);
+        OpenPhysicalIntakeCommand = new RelayCommand<PurchaseItemRecord>(OpenPhysicalIntake, _ => CanPerformPhysicalIntake);
+        VoidPurchaseCommand = new RelayCommand(OpenVoidConfirmation, () => CanVoidPurchase);
 
         if (_backendService is not null && purchase.BackendPurchaseId is Guid)
         {
@@ -59,6 +63,8 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
                 OnPropertyChanged(nameof(TotalDisplay));
                 OnPropertyChanged(nameof(CanReturnPurchase));
                 ((RelayCommand)ReturnPurchaseCommand).NotifyCanExecuteChanged();
+                OnPropertyChanged(nameof(CanVoidPurchase));
+                ((RelayCommand)VoidPurchaseCommand).NotifyCanExecuteChanged();
             }
         }
         catch (OperationCanceledException)
@@ -66,7 +72,9 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _toastService.Show($"Purchase details could not be loaded: {ex.Message}", ToastTone.Danger);
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Purchase details could not be loaded."),
+                ToastTone.Danger);
         }
         finally
         {
@@ -92,8 +100,121 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
         !Purchase.IsVoided &&
         Purchase.Items.Any(item => item.EligibleReturnQuantity > 0m);
 
+    public bool CanPerformPhysicalIntake => !Purchase.IsVoided && Items.Count > 0;
+
+    public bool IsBackendPurchase =>
+        _backendService is not null && _dialogService is not null && Purchase.BackendPurchaseId.HasValue;
+
+    public bool CanVoidPurchase => IsBackendPurchase && !Purchase.IsVoided && !_isVoidingPurchase;
+
+    private PurchaseItemRecord? _selectedItem;
+    public PurchaseItemRecord? SelectedItem
+    {
+        get => _selectedItem;
+        set => SetProperty(ref _selectedItem, value);
+    }
+
     public ICommand CloseCommand { get; }
     public ICommand ReturnPurchaseCommand { get; }
+    public ICommand OpenPhysicalIntakeCommand { get; }
+    public ICommand VoidPurchaseCommand { get; }
+
+    private void OpenVoidConfirmation()
+    {
+        if (!CanVoidPurchase || _dialogService is null)
+        {
+            return;
+        }
+
+        _dialogService.Show(new ConfirmationDialogViewModel(
+            "Void purchase?",
+            "This reverses the purchase payable and inventory effects. If the Server response is lost, confirm this same action again to reconcile its saved operation identity.",
+            "Void Purchase",
+            () => _ = VoidPurchaseAsync(),
+            _dialogService.Close));
+    }
+
+    private async Task VoidPurchaseAsync()
+    {
+        if (!CanVoidPurchase || _backendService is null)
+        {
+            return;
+        }
+
+        _isVoidingPurchase = true;
+        OnPropertyChanged(nameof(CanVoidPurchase));
+        ((RelayCommand)VoidPurchaseCommand).NotifyCanExecuteChanged();
+        try
+        {
+            await _backendService.VoidPurchaseAsync(Purchase, PurchaseVoidReason);
+            _purchase = new PurchaseRecord
+            {
+                BackendPurchaseId = Purchase.BackendPurchaseId,
+                BackendSupplierId = Purchase.BackendSupplierId,
+                IsVoided = true,
+                PurchaseNumber = Purchase.PurchaseNumber,
+                Supplier = Purchase.Supplier,
+                InvoiceNumber = Purchase.InvoiceNumber,
+                Date = Purchase.Date,
+                Note = Purchase.Note,
+                OtherCharges = Purchase.OtherCharges,
+                Items = Purchase.Items,
+                BackendSubtotal = Purchase.BackendSubtotal,
+                BackendTotal = Purchase.BackendTotal,
+                BackendItemCount = Purchase.BackendItemCount
+            };
+            OnPropertyChanged(nameof(Purchase));
+            OnPropertyChanged(nameof(CanReturnPurchase));
+            OnPropertyChanged(nameof(CanPerformPhysicalIntake));
+            OnPropertyChanged(nameof(CanVoidPurchase));
+            ((RelayCommand)ReturnPurchaseCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)VoidPurchaseCommand).NotifyCanExecuteChanged();
+            _toastService.Show("Purchase void was confirmed by the Server.", ToastTone.Success);
+            await LoadBackendDetailAsync();
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(
+                    ex,
+                    "Purchase void status could not be confirmed. Retry this action to reconcile the saved operation identity."),
+                ToastTone.Danger);
+        }
+        finally
+        {
+            _isVoidingPurchase = false;
+            OnPropertyChanged(nameof(CanVoidPurchase));
+            ((RelayCommand)VoidPurchaseCommand).NotifyCanExecuteChanged();
+        }
+    }
+
+    private void OpenPhysicalIntake(PurchaseItemRecord? item = null)
+    {
+        var targetItem = item ?? SelectedItem ?? Items.FirstOrDefault();
+        if (targetItem is null)
+        {
+            _toastService.Show("Select a product line to begin physical intake.", ToastTone.Warning);
+            return;
+        }
+
+        if (Purchase.IsVoided)
+        {
+            _toastService.Show("Cannot perform physical intake on a voided purchase.", ToastTone.Warning);
+            return;
+        }
+
+        _dialogService.Show(new PhysicalIntakeViewModel(
+            Purchase,
+            targetItem,
+            _dialogService,
+            _toastService,
+            _backendService,
+            () => Guid.Empty,
+            onCompleted: () =>
+            {
+                _ = LoadBackendDetailAsync();
+            }));
+    }
 
     private void OpenReturn()
     {

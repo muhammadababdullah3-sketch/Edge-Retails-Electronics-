@@ -99,13 +99,18 @@ public sealed class Sprint7Phase2ForensicAuditTests
         var service = Read(
             "src", "EdgeRetails.Desktop", "Services",
             "BackendTransactionService.cs");
+        var pos = Read(
+            "src", "EdgeRetails.Desktop", "ViewModels",
+            "PosViewModel.cs");
 
         Assert.Contains("A persistent backend user session is required", service);
         Assert.Contains("BackendProductId", service);
         Assert.Contains("BackendProductUnitId", service);
         Assert.Contains("CompleteSaleHandler", service);
         Assert.Contains("CreateSaleReturnHandler", service);
-        Assert.Contains("Guid.CreateVersion7()", service);
+        Assert.Contains("request.ClientOperationId,", service);
+        Assert.Contains("gateway.CompleteSaleAsync(", service);
+        Assert.Contains("_pendingSaleOperationId ??= Guid.CreateVersion7()", pos);
     }
 
     [Fact]

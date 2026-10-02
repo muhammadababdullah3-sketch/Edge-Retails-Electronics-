@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EdgeRetails.PerformanceTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EdgeRetails.Desktop.PerformanceTests", "tests\EdgeRetails.Desktop.PerformanceTests\EdgeRetails.Desktop.PerformanceTests.csproj", "{25559141-EFE6-4073-A279-32564FFD0443}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EdgeRetails.Recovery", "src\EdgeRetails.Recovery\EdgeRetails.Recovery.csproj", "{9187B694-5DD4-4DDC-9B2C-7BE8669F7188}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -171,6 +173,10 @@ Global
 		{25559141-EFE6-4073-A279-32564FFD0443}.Release|x64.Build.0 = Release|Any CPU
 		{25559141-EFE6-4073-A279-32564FFD0443}.Release|x86.ActiveCfg = Release|Any CPU
 		{25559141-EFE6-4073-A279-32564FFD0443}.Release|x86.Build.0 = Release|Any CPU
+		{9187B694-5DD4-4DDC-9B2C-7BE8669F7188}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9187B694-5DD4-4DDC-9B2C-7BE8669F7188}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9187B694-5DD4-4DDC-9B2C-7BE8669F7188}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9187B694-5DD4-4DDC-9B2C-7BE8669F7188}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -187,5 +193,6 @@ Global
 		{1FA1FD49-27AD-4601-A9F2-52AA50062500} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8B24F67E-1F60-47E6-B1C7-5797482696FB} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{25559141-EFE6-4073-A279-32564FFD0443} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{9187B694-5DD4-4DDC-9B2C-7BE8669F7188} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

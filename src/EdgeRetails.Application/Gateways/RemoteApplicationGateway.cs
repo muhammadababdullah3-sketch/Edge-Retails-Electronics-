@@ -118,6 +118,16 @@ public sealed class RemoteApplicationGateway : IApplicationGateway
 
             return Result<TResult>.Success(result);
         }
+        catch (JsonException)
+        {
+            // A successful HTTP status with an unreadable body is ambiguous for
+            // mutations: the Server may have committed before serialization failed.
+            // Return a canonical gateway failure so callers can query operation status
+            // using the same ClientOperationId instead of losing the recovery path.
+            return Result<TResult>.Failure(
+                "gateway.invalid_response",
+                "Server returned an invalid response. Verify the operation status before retrying.");
+        }
         catch (HttpRequestException ex)
         {
             _stateMachine.RecordHeartbeatFailure(ex.Message);
@@ -242,6 +252,17 @@ public sealed class RemoteApplicationGateway : IApplicationGateway
     {
         return await SendPostAsync<CreatePurchaseCommand, CreatePurchaseResult>(
             "/api/purchasing/create",
+            command,
+            isMutation: true,
+            cancellationToken);
+    }
+
+    public async Task<Result<ReceiveProductIntakeResult>> ReceiveProductIntakeAsync(
+        ReceiveProductIntakeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        return await SendPostAsync<ReceiveProductIntakeCommand, ReceiveProductIntakeResult>(
+            "/api/purchasing/receive-intake",
             command,
             isMutation: true,
             cancellationToken);

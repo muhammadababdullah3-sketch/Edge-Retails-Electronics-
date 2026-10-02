@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
@@ -58,7 +59,8 @@ public sealed class CreateStockAdjustmentHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -71,7 +73,10 @@ public sealed class CreateStockAdjustmentHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
+
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public async Task<Result<Guid>> HandleAsync(
         CreateStockAdjustmentCommand command,
@@ -235,7 +240,7 @@ public sealed class CreateStockAdjustmentHandler
         }
 
         // 2. Execute Transaction and Canonical Resource Locking (Section 185)
-        return await _transactions.ExecuteAsync(async ct =>
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             // Sort Product IDs
             foreach (var pid in productIds)
@@ -671,8 +676,32 @@ public sealed class CreateStockAdjustmentHandler
                 command.CorrelationId,
                 adjustment.AdjustmentNumber);
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.CorrelationId,
+                    "StockAdjustment",
+                    adjustment.Id,
+                    adjustment.AdjustmentNumber,
+                    actorId: command.ActorId,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(adjustment.Id);
         }, cancellationToken);
+
+        if (!result.IsSuccess && _outcomeLedger is not null && command.CorrelationId != Guid.Empty)
+        {
+            await _outcomeLedger.RecordFailureAsync(
+                command.CorrelationId,
+                "StockAdjustment",
+                result.Error?.Code ?? "inventory.adjustment_failed",
+                result.Error?.Message ?? "Stock adjustment failed.",
+                actorId: command.ActorId,
+                cancellationToken: cancellationToken);
+        }
+
+        return result;
     }
 }
