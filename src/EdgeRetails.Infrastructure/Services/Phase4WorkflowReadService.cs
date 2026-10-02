@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Domain.Catalog;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Sales;
 using EdgeRetails.Infrastructure.Persistence;
@@ -75,7 +76,6 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
         }
 
         var upper = term.ToUpperInvariant();
-        var digits = new string(term.Where(char.IsDigit).ToArray());
 
         // 1. TrackingCode / Physical SKU
         var trackingIds = await _db.InventoryUnits
@@ -91,12 +91,18 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                 cancellationToken);
         }
 
-        // 2. Serial Number
-        var serialIds = await _db.InventoryUnits
-            .AsNoTracking()
-            .Where(x => x.SerialNumber != null && x.SerialNumber.ToUpper() == upper)
-            .Select(x => x.Id)
-            .ToArrayAsync(cancellationToken);
+        // 2. Canonical Serial manufacturer identity claim (authoritative ScannerResolutionNamespace.ManufacturerSerialOrImei tier).
+        var normalizedSerial = TryNormalizeSerial(term);
+        var serialIds = normalizedSerial is null
+            ? Array.Empty<Guid>()
+            : await _db.InventoryUnitIdentityClaims
+                .AsNoTracking()
+                .Where(x =>
+                    x.IdentifierType == ManufacturerIdentifierType.Serial &&
+                    x.NormalizedValue == normalizedSerial)
+                .Select(x => x.InventoryUnitId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken);
         if (serialIds.Length > 0)
         {
             return await BuildInventoryUnitMatchesAsync(
@@ -105,14 +111,18 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                 cancellationToken);
         }
 
-        // 3. IMEI (authoritative ScannerResolutionNamespace.ManufacturerSerialOrImei tier)
-        var imeiIds = digits.Length > 0
-            ? await _db.InventoryUnits
+        // 3. Canonical IMEI manufacturer identity claim (one global IMEI namespace).
+        var normalizedImei = TryNormalizeImei(term);
+        var imeiIds = normalizedImei is null
+            ? Array.Empty<Guid>()
+            : await _db.InventoryUnitIdentityClaims
                 .AsNoTracking()
-                .Where(x => x.Imei1 == digits || x.Imei2 == digits)
-                .Select(x => x.Id)
-                .ToArrayAsync(cancellationToken)
-            : Array.Empty<Guid>();
+                .Where(x =>
+                    x.IdentifierType == ManufacturerIdentifierType.Imei &&
+                    x.NormalizedValue == normalizedImei)
+                .Select(x => x.InventoryUnitId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken);
         if (imeiIds.Length > 0)
         {
             return await BuildInventoryUnitMatchesAsync(
@@ -558,5 +568,29 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     x.Version);
             })
             .ToArray();
+    }
+
+    private static string? TryNormalizeSerial(string value)
+    {
+        try
+        {
+            return IdentityNormalizationRules.NormalizeOptionalSerialNumber(value);
+        }
+        catch (BusinessRuleException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryNormalizeImei(string value)
+    {
+        try
+        {
+            return IdentityNormalizationRules.NormalizeOptionalImei(value);
+        }
+        catch (BusinessRuleException)
+        {
+            return null;
+        }
     }
 }

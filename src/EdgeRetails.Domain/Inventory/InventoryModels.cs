@@ -250,6 +250,30 @@ public sealed class InventoryUnit : Entity
     }
 }
 
+public enum ManufacturerIdentifierType
+{
+    Serial = 1,
+    Imei = 2
+}
+
+public enum ManufacturerIdentifierSlot
+{
+    Serial = 1,
+    Imei1 = 2,
+    Imei2 = 3
+}
+
+public sealed class InventoryUnitIdentityClaim : Entity
+{
+    public Guid InventoryUnitId { get; set; }
+    public ManufacturerIdentifierType IdentifierType { get; set; }
+    public ManufacturerIdentifierSlot IdentifierSlot { get; set; }
+    public string RawValue { get; set; } = string.Empty;
+    public string NormalizedValue { get; set; } = string.Empty;
+    public int NormalizationVersion { get; set; } = 1;
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public enum StocktakeStatus
 {
     Draft = 1,

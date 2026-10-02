@@ -428,17 +428,40 @@ public sealed class InventoryRepository : IInventoryRepository
             .OrderBy(x => x.Id)
             .ToListAsync(cancellationToken);
 
-    public Task<bool> InventoryIdentityExistsAsync(
+    public async Task<bool> InventoryIdentityExistsAsync(
         string? serialNumber,
         string? imei1,
         string? imei2,
-        CancellationToken cancellationToken) =>
-        _db.InventoryUnits.AnyAsync(
+        CancellationToken cancellationToken)
+    {
+        var serial = IdentityNormalizationRules.NormalizeOptionalSerialNumber(serialNumber);
+        var normalizedImei1 = IdentityNormalizationRules.NormalizeOptionalImei(imei1);
+        var normalizedImei2 = IdentityNormalizationRules.NormalizeOptionalImei(imei2);
+
+        if (await _db.InventoryUnitIdentityClaims.AnyAsync(
+                x =>
+                    (serial != null &&
+                     x.IdentifierType == ManufacturerIdentifierType.Serial &&
+                     x.NormalizedValue == serial) ||
+                    (normalizedImei1 != null &&
+                     x.IdentifierType == ManufacturerIdentifierType.Imei &&
+                     x.NormalizedValue == normalizedImei1) ||
+                    (normalizedImei2 != null &&
+                     x.IdentifierType == ManufacturerIdentifierType.Imei &&
+                     x.NormalizedValue == normalizedImei2),
+                cancellationToken))
+        {
+            return true;
+        }
+        return await _db.InventoryUnits.AnyAsync(
             x =>
-                (serialNumber != null && x.SerialNumber == serialNumber) ||
-                (imei1 != null && (x.Imei1 == imei1 || x.Imei2 == imei1)) ||
-                (imei2 != null && (x.Imei1 == imei2 || x.Imei2 == imei2)),
+                (serial != null && x.SerialNumber == serial) ||
+                (normalizedImei1 != null &&
+                 (x.Imei1 == normalizedImei1 || x.Imei2 == normalizedImei1)) ||
+                (normalizedImei2 != null &&
+                 (x.Imei1 == normalizedImei2 || x.Imei2 == normalizedImei2)),
             cancellationToken);
+    }
 
     public Task<bool> IsProductBlockedByCountingStocktakeAsync(
         Guid productId,
@@ -490,7 +513,60 @@ public sealed class InventoryRepository : IInventoryRepository
 
     public void AddStockBalance(StockBalance balance) => _db.StockBalances.Add(balance);
     public void AddCostState(ProductCostState costState) => _db.ProductCostStates.Add(costState);
-    public void AddInventoryUnit(InventoryUnit unit) => _db.InventoryUnits.Add(unit);
+    public void AddInventoryUnit(InventoryUnit unit)
+    {
+        var rawSerial = unit.SerialNumber;
+        var rawImei1 = unit.Imei1;
+        var rawImei2 = unit.Imei2;
+
+        unit.SerialNumber = IdentityNormalizationRules.NormalizeOptionalSerialNumber(rawSerial);
+        unit.Imei1 = IdentityNormalizationRules.NormalizeOptionalImei(rawImei1);
+        unit.Imei2 = IdentityNormalizationRules.NormalizeOptionalImei(rawImei2);
+
+        _db.InventoryUnits.Add(unit);
+        AddIdentityClaim(
+            unit,
+            ManufacturerIdentifierType.Serial,
+            ManufacturerIdentifierSlot.Serial,
+            rawSerial,
+            unit.SerialNumber);
+        AddIdentityClaim(
+            unit,
+            ManufacturerIdentifierType.Imei,
+            ManufacturerIdentifierSlot.Imei1,
+            rawImei1,
+            unit.Imei1);
+        AddIdentityClaim(
+            unit,
+            ManufacturerIdentifierType.Imei,
+            ManufacturerIdentifierSlot.Imei2,
+            rawImei2,
+            unit.Imei2);
+    }
+
+    private void AddIdentityClaim(
+        InventoryUnit unit,
+        ManufacturerIdentifierType type,
+        ManufacturerIdentifierSlot slot,
+        string? rawValue,
+        string? normalizedValue)
+    {
+        if (normalizedValue is null)
+        {
+            return;
+        }
+
+        _db.InventoryUnitIdentityClaims.Add(new InventoryUnitIdentityClaim
+        {
+            InventoryUnitId = unit.Id,
+            IdentifierType = type,
+            IdentifierSlot = slot,
+            RawValue = rawValue?.Trim() ?? normalizedValue,
+            NormalizedValue = normalizedValue,
+            NormalizationVersion = IdentityNormalizationRules.ManufacturerIdentityNormalizationVersion,
+            CreatedAt = unit.CreatedAt
+        });
+    }
     public void AddMovement(InventoryMovement movement) => _db.InventoryMovements.Add(movement);
     public void AddMovementEffect(InventoryMovementEffect effect) =>
         _db.InventoryMovementEffects.Add(effect);

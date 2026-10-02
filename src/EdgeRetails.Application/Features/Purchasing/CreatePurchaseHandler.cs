@@ -70,6 +70,7 @@ public sealed class CreatePurchaseHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISequenceHighWaterService _highWaterService;
+    private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
 
     public CreatePurchaseHandler(
         IPurchasingRepository purchases,
@@ -89,7 +90,8 @@ public sealed class CreatePurchaseHandler
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
         ISequenceHighWaterService? highWaterService = null,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
     {
         _purchases = purchases;
         _parties = parties;
@@ -109,6 +111,7 @@ public sealed class CreatePurchaseHandler
         _unitOfWork = unitOfWork;
         _highWaterService = highWaterService ?? NullSequenceHighWaterService.Instance;
         _outcomeLedger = outcomeLedger;
+        _physicalUnits = physicalUnitCreationAuthority;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -273,9 +276,9 @@ public sealed class CreatePurchaseHandler
                         .SelectMany(x => x.Input.SerializedUnits)
                         .Select(x => new
                         {
-                            Serial = NormalizeIdentity(x.SerialNumber),
-                            Imei1 = NormalizeIdentity(x.Imei1),
-                            Imei2 = NormalizeIdentity(x.Imei2)
+                            Serial = NormalizeSerial(x.SerialNumber),
+                            Imei1 = NormalizeImei(x.Imei1),
+                            Imei2 = NormalizeImei(x.Imei2)
                         })
                         .ToArray();
 
@@ -426,34 +429,56 @@ public sealed class CreatePurchaseHandler
 
                         if (line.Product.TrackingMode == TrackingMode.Serialized || line.Product.TrackingMode == TrackingMode.IndividualPiece || line.Product.TrackingMode == TrackingMode.Container)
                         {
-                            var supplierProduct = supplierProducts[line.Product.Id];
-                            var unitCount = line.Input.SerializedUnits.Count;
-
-                            var machineSeq = _highWaterService.GetSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId);
-                            if (machineSeq > supplierProduct.NextItemSequence)
+                            if (_physicalUnits is not null)
                             {
-                                supplierProduct.NextItemSequence = machineSeq;
+                                var creation = await _physicalUnits.CreateAsync(
+                                    command.SupplierId,
+                                    line.Product.Id,
+                                    line.Input.SerializedUnits.Select(identity => new PhysicalUnitCreationEntry(
+                                        identity.SerialNumber, identity.Imei1, identity.Imei2,
+                                        InventoryUnitStatus.InStock, effectiveBaseCost, lotId,
+                                        InventoryUnitOriginType.Purchase,
+                                        SourcePurchaseItemId: item.Id)).ToArray(),
+                                    ct);
+                                if (!creation.IsSuccess || creation.Value is null)
+                                {
+                                    return Result<CreatePurchaseResult>.Failure(creation.Error!.Code, creation.Error.Message);
+                                }
+                                foreach (var unit in creation.Value)
+                                {
+                                    _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
+                                    {
+                                        PurchaseItemId = item.Id,
+                                        InventoryUnitId = unit.Id
+                                    });
+                                    _inventory.AddMovementUnit(new InventoryMovementUnit
+                                    {
+                                        MovementId = movement.Id,
+                                        InventoryUnitId = unit.Id,
+                                        FromStatus = null,
+                                        ToStatus = InventoryUnitStatus.InStock
+                                    });
+                                }
                             }
-
-                            var firstSequence = supplierProduct.NextItemSequence;
-                            supplierProduct.NextItemSequence = checked(firstSequence + unitCount);
-                            supplierProduct.UpdatedAt = _clock.UtcNow;
-                            supplierProduct.Version++;
-
-                            _highWaterService.RecordSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId, supplierProduct.NextItemSequence);
-
-                            AddSerializedUnits(
-                                line,
-                                item,
-                                movement,
-                                lotId,
-                                effectiveBaseCost,
-                                supplierProduct,
-                                supplier.DealerCode!,
-                                TraceabilityCodeRules.NormalizeSku(line.Product.Sku!),
-                                firstSequence);
-                        }
-                        else if (line.Input.SerializedUnits.Count > 0)
+                            else
+                            {
+                                var supplierProduct = supplierProducts[line.Product.Id];
+                                var unitCount = line.Input.SerializedUnits.Count;
+                                var machineSeq = _highWaterService.GetSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId);
+                                if (machineSeq > supplierProduct.NextItemSequence)
+                                {
+                                    supplierProduct.NextItemSequence = machineSeq;
+                                }
+                                var firstSequence = supplierProduct.NextItemSequence;
+                                supplierProduct.NextItemSequence = checked(firstSequence + unitCount);
+                                supplierProduct.UpdatedAt = _clock.UtcNow;
+                                supplierProduct.Version++;
+                                _highWaterService.RecordSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId, supplierProduct.NextItemSequence);
+                                AddSerializedUnits(
+                                    line, item, movement, lotId, effectiveBaseCost, supplierProduct,
+                                    supplier.DealerCode!, TraceabilityCodeRules.NormalizeSku(line.Product.Sku!), firstSequence);
+                            }
+                        }                        else if (line.Input.SerializedUnits.Count > 0)
                         {
                             return Result<CreatePurchaseResult>.Failure(
                                 "purchasing.serials_not_allowed",
@@ -729,9 +754,9 @@ public sealed class CreatePurchaseHandler
                 TrackingCode = trackingCode,
                 SupplierCodeSnapshot = dealerCode,
                 ProductSkuSnapshot = productSku,
-                SerialNumber = NormalizeIdentity(identity.SerialNumber),
-                Imei1 = NormalizeIdentity(identity.Imei1),
-                Imei2 = NormalizeIdentity(identity.Imei2),
+                SerialNumber = NormalizeSerial(identity.SerialNumber),
+                Imei1 = NormalizeImei(identity.Imei1),
+                Imei2 = NormalizeImei(identity.Imei2),
                 Status = InventoryUnitStatus.InStock,
                 AcquisitionCost = acquisitionCost,
                 InventoryLotId = lotId,
@@ -768,9 +793,9 @@ public sealed class CreatePurchaseHandler
 
         foreach (var identity in identities)
         {
-            var serial = NormalizeIdentity(identity.SerialNumber);
-            var imei1 = NormalizeIdentity(identity.Imei1);
-            var imei2 = NormalizeIdentity(identity.Imei2);
+            var serial = NormalizeSerial(identity.SerialNumber);
+            var imei1 = NormalizeImei(identity.Imei1);
+            var imei2 = NormalizeImei(identity.Imei2);
 
             if (product.SerialTrackingEnabled && serial is null)
             {
@@ -803,11 +828,11 @@ public sealed class CreatePurchaseHandler
         }
     }
 
-    private static string? NormalizeIdentity(string? value)
-    {
-        var v = value?.Trim();
-        return string.IsNullOrWhiteSpace(v) ? null : v.ToUpperInvariant();
-    }
+    private static string? NormalizeSerial(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalSerialNumber(value);
+
+    private static string? NormalizeImei(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalImei(value);
 
     private static decimal Money(decimal value) =>
         decimal.Round(value, 2, MidpointRounding.AwayFromZero);

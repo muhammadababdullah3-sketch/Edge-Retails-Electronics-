@@ -53,6 +53,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<InventoryMovementEffect> InventoryMovementEffects => Set<InventoryMovementEffect>();
     public DbSet<InventoryMovementUnit> InventoryMovementUnits => Set<InventoryMovementUnit>();
     public DbSet<InventoryUnit> InventoryUnits => Set<InventoryUnit>();
+    public DbSet<InventoryUnitIdentityClaim> InventoryUnitIdentityClaims => Set<InventoryUnitIdentityClaim>();
     public DbSet<ProductCostState> ProductCostStates => Set<ProductCostState>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<InventoryLotBucketBalance> InventoryLotBucketBalances => Set<InventoryLotBucketBalance>();

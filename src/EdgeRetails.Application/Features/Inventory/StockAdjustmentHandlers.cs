@@ -47,6 +47,7 @@ public sealed class CreateStockAdjustmentHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
 
     public CreateStockAdjustmentHandler(
         ICatalogRepository catalog,
@@ -60,7 +61,8 @@ public sealed class CreateStockAdjustmentHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -74,6 +76,7 @@ public sealed class CreateStockAdjustmentHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _physicalUnits = physicalUnitCreationAuthority;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -198,7 +201,7 @@ public sealed class CreateStockAdjustmentHandler
                                     $"IMEI1 is required for product '{product.Name}'.");
                             }
 
-                            var normImei1 = IdentityNormalizationRules.NormalizeImei(u.Imei1);
+                            var normImei1 = IdentityNormalizationRules.NormalizeImeiIdentity(u.Imei1);
                             if (!seenImeis.Add(normImei1))
                             {
                                 return Result<Guid>.Failure(
@@ -208,7 +211,7 @@ public sealed class CreateStockAdjustmentHandler
 
                             if (!string.IsNullOrWhiteSpace(u.Imei2))
                             {
-                                var normImei2 = IdentityNormalizationRules.NormalizeImei(u.Imei2);
+                                var normImei2 = IdentityNormalizationRules.NormalizeImeiIdentity(u.Imei2);
                                 if (!seenImeis.Add(normImei2))
                                 {
                                     return Result<Guid>.Failure(
@@ -285,10 +288,10 @@ public sealed class CreateStockAdjustmentHandler
                         ? IdentityNormalizationRules.NormalizeSerialNumber(u.SerialNumber)
                         : null;
                     var normImei1 = p.ImeiTrackingEnabled && !string.IsNullOrWhiteSpace(u.Imei1)
-                        ? IdentityNormalizationRules.NormalizeImei(u.Imei1)
+                        ? IdentityNormalizationRules.NormalizeImeiIdentity(u.Imei1)
                         : null;
                     var normImei2 = p.ImeiTrackingEnabled && !string.IsNullOrWhiteSpace(u.Imei2)
-                        ? IdentityNormalizationRules.NormalizeImei(u.Imei2)
+                        ? IdentityNormalizationRules.NormalizeImeiIdentity(u.Imei2)
                         : null;
 
                     if (await _inventory.InventoryIdentityExistsAsync(normSerial, normImei1, normImei2, ct))
@@ -436,7 +439,43 @@ public sealed class CreateStockAdjustmentHandler
 
                     if (product.TrackingMode == TrackingMode.Serialized)
                     {
-                        var count = (int)itemCommand.BaseQuantity;
+                        if (_physicalUnits is not null)
+                        {
+                            var targetStatus = itemCommand.TargetBucket switch
+                            {
+                                InventoryBucket.Sellable => InventoryUnitStatus.InStock,
+                                InventoryBucket.Damaged => InventoryUnitStatus.Damaged,
+                                InventoryBucket.Defective => InventoryUnitStatus.Defective,
+                                InventoryBucket.WithSupplier => InventoryUnitStatus.WithSupplier,
+                                _ => InventoryUnitStatus.Scrapped
+                            };
+                            var creation = await _physicalUnits.CreateAsync(
+                                itemCommand.SupplierId!.Value,
+                                itemCommand.ProductId,
+                                itemCommand.SerializedUnits!.Select(unit => new PhysicalUnitCreationEntry(
+                                    unit.SerialNumber, unit.Imei1, unit.Imei2,
+                                    targetStatus, unitCost, lotId,
+                                    InventoryUnitOriginType.StockAdjustment,
+                                    SourceStockAdjustmentItemId: adjustmentItem.Id)).ToArray(),
+                                ct);
+                            if (!creation.IsSuccess || creation.Value is null)
+                            {
+                                return Result<Guid>.Failure(creation.Error!.Code, creation.Error.Message);
+                            }
+                            adjustmentItem.SupplierProductId = creation.Value[0].SupplierProductId;
+                            foreach (var unit in creation.Value)
+                            {
+                                _inventory.AddMovementUnit(new InventoryMovementUnit
+                                {
+                                    MovementId = movement.Id,
+                                    InventoryUnitId = unit.Id,
+                                    FromStatus = null,
+                                    ToStatus = targetStatus
+                                });
+                            }
+                        }
+                        else
+                        {                        var count = (int)itemCommand.BaseQuantity;
                         var supplier = await _parties.GetSupplierAsync(itemCommand.SupplierId!.Value, ct);
                         if (supplier is null)
                         {
@@ -511,10 +550,10 @@ public sealed class CreateStockAdjustmentHandler
                                     ? IdentityNormalizationRules.NormalizeSerialNumber(unitCmd.SerialNumber)
                                     : null,
                                 Imei1 = product.ImeiTrackingEnabled && !string.IsNullOrWhiteSpace(unitCmd.Imei1)
-                                    ? IdentityNormalizationRules.NormalizeImei(unitCmd.Imei1)
+                                    ? IdentityNormalizationRules.NormalizeImeiIdentity(unitCmd.Imei1)
                                     : null,
                                 Imei2 = product.ImeiTrackingEnabled && !string.IsNullOrWhiteSpace(unitCmd.Imei2)
-                                    ? IdentityNormalizationRules.NormalizeImei(unitCmd.Imei2)
+                                    ? IdentityNormalizationRules.NormalizeImeiIdentity(unitCmd.Imei2)
                                     : null,
                                 AcquisitionCost = unitCost,
                                 Status = targetStatus,
@@ -532,6 +571,7 @@ public sealed class CreateStockAdjustmentHandler
                                 FromStatus = null,
                                 ToStatus = targetStatus
                             });
+                        }
                         }
                     }
 

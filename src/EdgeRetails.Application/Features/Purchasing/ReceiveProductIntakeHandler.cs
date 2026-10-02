@@ -62,6 +62,7 @@ public sealed class ReceiveProductIntakeHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISequenceHighWaterService _highWaterService;
+    private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
 
     public ReceiveProductIntakeHandler(
         IPurchasingRepository purchases,
@@ -78,7 +79,8 @@ public sealed class ReceiveProductIntakeHandler
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
         ISequenceHighWaterService? highWaterService = null,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
     {
         _purchases = purchases;
         _parties = parties;
@@ -95,6 +97,7 @@ public sealed class ReceiveProductIntakeHandler
         _unitOfWork = unitOfWork;
         _highWaterService = highWaterService ?? NullSequenceHighWaterService.Instance;
         _outcomeLedger = outcomeLedger;
+        _physicalUnits = physicalUnitCreationAuthority;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -125,7 +128,7 @@ public sealed class ReceiveProductIntakeHandler
         if (serializedUnits != null && serializedUnits.Count > 0)
         {
             var normalized = serializedUnits
-                .Select(u => $"{NormalizeIdentity(u.SerialNumber) ?? ""}:{NormalizeIdentity(u.Imei1) ?? ""}:{NormalizeIdentity(u.Imei2) ?? ""}")
+                .Select(u => $"{NormalizeSerial(u.SerialNumber) ?? ""}:{NormalizeImei(u.Imei1) ?? ""}:{NormalizeImei(u.Imei2) ?? ""}")
                 .OrderBy(x => x, StringComparer.Ordinal);
             sb.Append(string.Join(";", normalized));
         }
@@ -146,7 +149,7 @@ public sealed class ReceiveProductIntakeHandler
         if (command.SerializedUnits != null && command.SerializedUnits.Count > 0)
         {
             var normalized = command.SerializedUnits
-                .Select(u => $"{NormalizeIdentity(u.SerialNumber) ?? ""}:{NormalizeIdentity(u.Imei1) ?? ""}:{NormalizeIdentity(u.Imei2) ?? ""}")
+                .Select(u => $"{NormalizeSerial(u.SerialNumber) ?? ""}:{NormalizeImei(u.Imei1) ?? ""}:{NormalizeImei(u.Imei2) ?? ""}")
                 .OrderBy(x => x, StringComparer.Ordinal);
             sb.Append(string.Join(";", normalized));
         }
@@ -339,13 +342,13 @@ public sealed class ReceiveProductIntakeHandler
 
                     if (command.SerializedUnits.Count > 0)
                     {
-                        var existingSerials = existingUnits.Select(u => NormalizeIdentity(u.SerialNumber)).Where(s => s != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        var existingImeis = existingUnits.Select(u => NormalizeIdentity(u.Imei1)).Where(s => s != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var existingSerials = existingUnits.Select(u => NormalizeSerial(u.SerialNumber)).Where(s => s != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var existingImeis = existingUnits.Select(u => NormalizeImei(u.Imei1)).Where(s => s != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                         foreach (var inputUnit in command.SerializedUnits)
                         {
-                            var s = NormalizeIdentity(inputUnit.SerialNumber);
-                            var im1 = NormalizeIdentity(inputUnit.Imei1);
+                            var s = NormalizeSerial(inputUnit.SerialNumber);
+                            var im1 = NormalizeImei(inputUnit.Imei1);
                             if (s != null && !existingSerials.Contains(s))
                             {
                                 return Result<ReceiveProductIntakeResult>.Failure(
@@ -601,9 +604,9 @@ public sealed class ReceiveProductIntakeHandler
                 // Check duplicates against DB
                 foreach (var identity in lineUnits)
                 {
-                    var serial = NormalizeIdentity(identity.SerialNumber);
-                    var imei1 = NormalizeIdentity(identity.Imei1);
-                    var imei2 = NormalizeIdentity(identity.Imei2);
+                    var serial = NormalizeSerial(identity.SerialNumber);
+                    var imei1 = NormalizeImei(identity.Imei1);
+                    var imei2 = NormalizeImei(identity.Imei2);
                     if (serial is not null || imei1 is not null || imei2 is not null)
                     {
                         if (await _inventory.InventoryIdentityExistsAsync(serial, imei1, imei2, ct))
@@ -615,7 +618,49 @@ public sealed class ReceiveProductIntakeHandler
                     }
                 }
 
-                // Resolve SupplierProduct sequence authority
+                if (_physicalUnits is not null)
+                {
+                    var creation = await _physicalUnits.CreateAsync(
+                        supplier.Id,
+                        product.Id,
+                        lineUnits.Select(identity => new PhysicalUnitCreationEntry(
+                            identity.SerialNumber,
+                            identity.Imei1,
+                            identity.Imei2,
+                            InventoryUnitStatus.InStock,
+                            effectiveUnitCost,
+                            lotId,
+                            InventoryUnitOriginType.Purchase,
+                            SourcePurchaseItemId: purchaseItem.Id)).ToArray(),
+                        ct);
+                    if (!creation.IsSuccess || creation.Value is null)
+                    {
+                        return Result<ReceiveProductIntakeResult>.Failure(
+                            creation.Error!.Code,
+                            creation.Error.Message);
+                    }
+
+                    foreach (var unit in creation.Value)
+                    {
+                        _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
+                        {
+                            PurchaseItemId = purchaseItem.Id,
+                            InventoryUnitId = unit.Id
+                        });
+                        _inventory.AddMovementUnit(new InventoryMovementUnit
+                        {
+                            MovementId = movement.Id,
+                            InventoryUnitId = unit.Id,
+                            FromStatus = null,
+                            ToStatus = InventoryUnitStatus.InStock
+                        });
+                        committedUnits.Add(new CommittedInventoryUnitDto(
+                            unit.Id, unit.TrackingCode!, unit.ItemSequence!.Value,
+                            unit.SerialNumber, unit.Imei1, unit.Imei2, effectiveUnitCost));
+                    }
+                }
+                else
+                {                // Resolve SupplierProduct sequence authority
                 var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(supplier.Id, product.Id, ct);
                 if (supplierProduct is null)
                 {
@@ -665,9 +710,9 @@ public sealed class ReceiveProductIntakeHandler
                         TrackingCode = trackingCode,
                         SupplierCodeSnapshot = dealerCode,
                         ProductSkuSnapshot = product.Sku,
-                        SerialNumber = NormalizeIdentity(identity.SerialNumber),
-                        Imei1 = NormalizeIdentity(identity.Imei1),
-                        Imei2 = NormalizeIdentity(identity.Imei2),
+                        SerialNumber = NormalizeSerial(identity.SerialNumber),
+                        Imei1 = NormalizeImei(identity.Imei1),
+                        Imei2 = NormalizeImei(identity.Imei2),
                         Status = InventoryUnitStatus.InStock,
                         AcquisitionCost = effectiveUnitCost,
                         InventoryLotId = lotId,
@@ -698,6 +743,7 @@ public sealed class ReceiveProductIntakeHandler
                         unit.Imei1,
                         unit.Imei2,
                         effectiveUnitCost));
+                }
                 }
             }
 
@@ -777,9 +823,9 @@ public sealed class ReceiveProductIntakeHandler
         for (var i = 0; i < identities.Count; i++)
         {
             var identity = identities[i];
-            var serial = NormalizeIdentity(identity.SerialNumber);
-            var imei1 = NormalizeIdentity(identity.Imei1);
-            var imei2 = NormalizeIdentity(identity.Imei2);
+            var serial = NormalizeSerial(identity.SerialNumber);
+            var imei1 = NormalizeImei(identity.Imei1);
+            var imei2 = NormalizeImei(identity.Imei2);
 
             if (product.SerialTrackingEnabled && string.IsNullOrWhiteSpace(serial))
             {
@@ -824,11 +870,11 @@ public sealed class ReceiveProductIntakeHandler
         return null;
     }
 
-    private static string? NormalizeIdentity(string? value)
-    {
-        var trimmed = value?.Trim();
-        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
-    }
+    private static string? NormalizeSerial(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalSerialNumber(value);
+
+    private static string? NormalizeImei(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalImei(value);
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 4, MidpointRounding.AwayFromZero);

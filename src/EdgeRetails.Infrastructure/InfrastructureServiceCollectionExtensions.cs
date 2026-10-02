@@ -142,6 +142,7 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<ICatalogRepository, CatalogRepository>();
         services.AddScoped<IInventoryRepository, InventoryRepository>();
+        services.AddScoped<IPhysicalUnitCreationAuthority, PhysicalUnitCreationAuthority>();
         services.AddScoped<IWarrantyRepository, WarrantyRepository>();
         services.AddScoped<ICashRepository, CashRepository>();
         services.AddScoped<IQuotationRepository, QuotationRepository>();

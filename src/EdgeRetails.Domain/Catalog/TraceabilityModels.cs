@@ -1,5 +1,8 @@
 using EdgeRetails.Domain.Common;
 
+using System.Globalization;
+using System.Text;
+
 namespace EdgeRetails.Domain.Catalog;
 
 public sealed class SupplierProduct : Entity
@@ -574,6 +577,13 @@ public static class TraceabilityCodeRules
 
 public static class IdentityNormalizationRules
 {
+    public const int ManufacturerIdentityNormalizationVersion = 1;
+    public const int SerialNumberMaxLength = 160;
+    public const int ImeiRawMaxLength = 40;
+
+    public static string? NormalizeOptionalSerialNumber(string? rawSerial) =>
+        string.IsNullOrWhiteSpace(rawSerial) ? null : NormalizeSerialNumber(rawSerial);
+
     public static string NormalizeSerialNumber(string rawSerial)
     {
         if (string.IsNullOrWhiteSpace(rawSerial))
@@ -581,17 +591,73 @@ public static class IdentityNormalizationRules
             throw new BusinessRuleException("identity.serial_required", "Serial number cannot be empty.");
         }
 
-        return rawSerial.Trim().ToUpperInvariant();
+        var normalized = rawSerial.Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+        if (normalized.Length > SerialNumberMaxLength)
+        {
+            throw new BusinessRuleException(
+                "identity.serial_too_long",
+                $"Serial number cannot exceed {SerialNumberMaxLength} characters.");
+        }
+
+        if (normalized.Any(c => char.IsControl(c) ||
+            CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format))
+        {
+            throw new BusinessRuleException(
+                "identity.serial_unsupported_character",
+                "Serial number contains unsupported control or invisible characters.");
+        }
+
+        return normalized;
     }
 
-    public static string NormalizeImei(string rawImei)
+    public static string? NormalizeOptionalImei(string? rawImei) =>
+        string.IsNullOrWhiteSpace(rawImei) ? null : NormalizeImeiIdentity(rawImei);
+
+    public static string NormalizeImeiIdentity(string rawImei)
     {
         if (string.IsNullOrWhiteSpace(rawImei))
         {
             throw new BusinessRuleException("identity.imei_required", "IMEI cannot be empty.");
         }
 
-        var digitsOnly = new string(rawImei.Where(char.IsDigit).ToArray());
+        if (rawImei.Length > ImeiRawMaxLength)
+        {
+            throw new BusinessRuleException(
+                "identity.imei_too_long",
+                $"IMEI input cannot exceed {ImeiRawMaxLength} characters.");
+        }
+
+        var input = rawImei.Trim().Normalize(NormalizationForm.FormKC);
+        var digits = new StringBuilder(input.Length);
+        foreach (var c in input)
+        {
+            if (c is >= '0' and <= '9')
+            {
+                digits.Append(c);
+                continue;
+            }
+
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.DecimalDigitNumber)
+            {
+                var digit = CharUnicodeInfo.GetDigitValue(c);
+                if (digit is >= 0 and <= 9)
+                {
+                    digits.Append((char)('0' + digit));
+                    continue;
+                }
+            }
+
+            if (char.IsWhiteSpace(c) || c == '-')
+            {
+                continue;
+            }
+
+            throw new BusinessRuleException(
+                "identity.imei_unsupported_character",
+                "IMEI may contain digits and visual separators only.");
+        }
+
+        var digitsOnly = digits.ToString();
         if (digitsOnly.Length is not (14 or 15))
         {
             throw new BusinessRuleException(
@@ -599,6 +665,12 @@ public static class IdentityNormalizationRules
                 "IMEI must contain exactly 14 or 15 digits.");
         }
 
+        return digitsOnly;
+    }
+
+    public static string NormalizeImei(string rawImei)
+    {
+        var digitsOnly = NormalizeImeiIdentity(rawImei);
         if (digitsOnly.Length == 15 && !ValidateLuhn(digitsOnly))
         {
             throw new BusinessRuleException(

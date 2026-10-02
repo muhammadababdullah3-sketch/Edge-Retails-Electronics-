@@ -556,7 +556,7 @@ public sealed class RecordSerializedStocktakeHandler
     }
 
     private static string BestIdentity(InventoryUnit unit) =>
-        unit.SerialNumber ?? unit.Imei1 ?? unit.Id.ToString();
+        unit.TrackingCode ?? unit.SerialNumber ?? unit.Imei1 ?? unit.Imei2 ?? unit.Id.ToString();
 }
 
 public sealed record ReviewStocktakeCommand(Guid StocktakeId, Guid ActorId = default, Guid ClientOperationId = default);

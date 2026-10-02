@@ -209,6 +209,48 @@ internal sealed class InventoryUnitConfiguration : IEntityTypeConfiguration<Inve
     }
 }
 
+internal sealed class InventoryUnitIdentityClaimConfiguration
+    : IEntityTypeConfiguration<InventoryUnitIdentityClaim>
+{
+    public void Configure(EntityTypeBuilder<InventoryUnitIdentityClaim> builder)
+    {
+        builder.ToTable(
+            "unit_identity_claims",
+            "inventory",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_inventory_unit_identity_claim_type_slot",
+                    "(identifier_type = 1 AND identifier_slot = 1) OR " +
+                    "(identifier_type = 2 AND identifier_slot IN (2, 3))");
+                table.HasCheckConstraint(
+                    "ck_inventory_unit_identity_claim_normalization_version",
+                    "normalization_version >= 1");
+                table.HasCheckConstraint(
+                    "ck_inventory_unit_identity_claim_value_nonempty",
+                    "length(btrim(normalized_value)) > 0");
+            });
+
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.RawValue).HasMaxLength(160).IsRequired();
+        builder.Property(x => x.NormalizedValue).HasMaxLength(160).IsRequired();
+        builder.Property(x => x.NormalizationVersion).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+
+        builder.HasOne<InventoryUnit>()
+            .WithMany()
+            .HasForeignKey(x => x.InventoryUnitId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(x => new { x.IdentifierType, x.NormalizedValue })
+            .IsUnique();
+        builder.HasIndex(x => new { x.InventoryUnitId, x.IdentifierSlot })
+            .IsUnique();
+        builder.HasIndex(x => x.InventoryUnitId);
+    }
+}
+
 internal sealed class InventoryMovementUnitConfiguration
     : IEntityTypeConfiguration<InventoryMovementUnit>
 {

@@ -1624,9 +1624,9 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
             var identityKeys = selectedUnits
                 .SelectMany(x => new[]
                 {
-                    NormalizeIdentity(x.Input.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
-                    NormalizeIdentity(x.Input.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
-                    NormalizeIdentity(x.Input.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
+                    NormalizeSerial(x.Input.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
+                    NormalizeImei(x.Input.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
+                    NormalizeImei(x.Input.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
                 })
                 .Where(x => x is not null)
                 .Select(x => x!)
@@ -1682,9 +1682,9 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
             foreach (var selected in selectedUnits)
             {
                 var product = products[selected.Item.ProductId];
-                var serial = NormalizeIdentity(selected.Input.SerialNumber);
-                var imei1 = NormalizeIdentity(selected.Input.Imei1);
-                var imei2 = NormalizeIdentity(selected.Input.Imei2);
+                var serial = NormalizeSerial(selected.Input.SerialNumber);
+                var imei1 = NormalizeImei(selected.Input.Imei1);
+                var imei2 = NormalizeImei(selected.Input.Imei2);
 
                 if (product.SerialTrackingEnabled && serial is null)
                 {
@@ -1737,9 +1737,9 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                     TrackingCode = trackingCode,
                     SupplierCodeSnapshot = supplier.DealerCode,
                     ProductSkuSnapshot = sku,
-                    SerialNumber = NormalizeIdentity(selected.Input.SerialNumber),
-                    Imei1 = NormalizeIdentity(selected.Input.Imei1),
-                    Imei2 = NormalizeIdentity(selected.Input.Imei2),
+                    SerialNumber = NormalizeSerial(selected.Input.SerialNumber),
+                    Imei1 = NormalizeImei(selected.Input.Imei1),
+                    Imei2 = NormalizeImei(selected.Input.Imei2),
                     Status = InventoryUnitStatus.WarrantyCustomerHeld,
                     AcquisitionCost = original.AcquisitionCost,
                     InventoryLotId = null,
@@ -1823,13 +1823,11 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
         }, cancellationToken);
     }
 
-    private static string? NormalizeIdentity(string? value)
-    {
-        var normalized = value?.Trim();
-        return string.IsNullOrWhiteSpace(normalized)
-            ? null
-            : normalized.ToUpperInvariant();
-    }
+    private static string? NormalizeSerial(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalSerialNumber(value);
+
+    private static string? NormalizeImei(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalImei(value);
 
     private static string BuildIdentitySnapshot(InventoryUnit unit)
     {
@@ -2354,9 +2352,9 @@ public sealed class ReceiveShopStockWarrantyHandler
                 var identityKeys = command.ReplacementUnits
                     .SelectMany(x => new[]
                     {
-                        NormalizeIdentity(x.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
-                        NormalizeIdentity(x.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
-                        NormalizeIdentity(x.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
+                        NormalizeSerial(x.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
+                        NormalizeImei(x.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
+                        NormalizeImei(x.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
                     })
                     .Where(x => x is not null)
                     .Select(x => x!)
@@ -2608,9 +2606,9 @@ public sealed class ReceiveShopStockWarrantyHandler
         var seenImeis = new HashSet<string>(StringComparer.Ordinal);
         foreach (var input in command.ReplacementUnits)
         {
-            var serial = NormalizeIdentity(input.SerialNumber);
-            var imei1 = NormalizeIdentity(input.Imei1);
-            var imei2 = NormalizeIdentity(input.Imei2);
+            var serial = NormalizeSerial(input.SerialNumber);
+            var imei1 = NormalizeImei(input.Imei1);
+            var imei2 = NormalizeImei(input.Imei2);
 
             if (product.SerialTrackingEnabled && serial is null)
             {
@@ -2743,9 +2741,9 @@ public sealed class ReceiveShopStockWarrantyHandler
                 TrackingCode = trackingCode,
                 SupplierCodeSnapshot = supplier.DealerCode,
                 ProductSkuSnapshot = sku,
-                SerialNumber = NormalizeIdentity(input.SerialNumber),
-                Imei1 = NormalizeIdentity(input.Imei1),
-                Imei2 = NormalizeIdentity(input.Imei2),
+                SerialNumber = NormalizeSerial(input.SerialNumber),
+                Imei1 = NormalizeImei(input.Imei1),
+                Imei2 = NormalizeImei(input.Imei2),
                 Status = InventoryUnitStatus.InStock,
                 AcquisitionCost = oldUnit.AcquisitionCost,
                 InventoryLotId = oldUnit.InventoryLotId,
@@ -2943,13 +2941,11 @@ public sealed class ReceiveShopStockWarrantyHandler
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
 
-    private static string? NormalizeIdentity(string? value)
-    {
-        var normalized = value?.Trim();
-        return string.IsNullOrWhiteSpace(normalized)
-            ? null
-            : normalized.ToUpperInvariant();
-    }
+    private static string? NormalizeSerial(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalSerialNumber(value);
+
+    private static string? NormalizeImei(string? value) =>
+        IdentityNormalizationRules.NormalizeOptionalImei(value);
 
     private static string? NormalizeNullable(string? value)
     {
