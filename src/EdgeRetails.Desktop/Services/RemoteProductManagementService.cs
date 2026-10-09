@@ -6,8 +6,9 @@ namespace EdgeRetails.Desktop.Services;
 /// <summary>Catalog management adapter. All product and reference mutations go to Server.</summary>
 public sealed class RemoteProductManagementService(
     DesktopApiClient apiClient,
-    Func<Guid?> actorUserId) : IBackendProductManagementService
+    Func<Guid?> actorUserId) : IBackendProductManagementService, IBackendSupplierLookupService
 {
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Guid> _pendingAggregateOperations = new();
     public async Task<BackendProductManagementSnapshot> GetSnapshotAsync(
         CancellationToken cancellationToken = default)
     {
@@ -18,14 +19,36 @@ public sealed class RemoteProductManagementService(
             "/api/catalog/units?includeInactive=true", cancellationToken);
         var companies = await apiClient.GetAsync<CatalogCompanyDto[]>(
             "/api/catalog/companies?includeInactive=true", cancellationToken);
-        var suppliers = await apiClient.GetAsync<SupplierDirectoryDto[]>(
-            "/api/suppliers?pageSize=200", cancellationToken);
+        var suppliers = await GetSupplierPageAsync(null, cancellationToken: cancellationToken);
         return new BackendProductManagementSnapshot(
             products,
             [.. categories.Select(x => new BackendCatalogCategory(x.Id, x.Name, x.IdentitySymbol, x.IsActive))],
             [.. units.Select(x => new BackendCatalogUnit(x.Id, x.Name, x.Symbol, x.DisplayDecimalPlaces, x.IsActive))],
-            [.. suppliers.Select(x => new BackendSupplierOption(x.SupplierId, x.Name))],
+            suppliers.Items,
             [.. companies.Select(x => new BackendCatalogCompany(x.Id, x.Name, x.Code, x.IsActive))]);
+    }
+
+    public async Task<BackendSupplierPage> GetSupplierPageAsync(string? search, int pageSize = 50,
+        string? beforeName = null, Guid? beforeSupplierId = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(beforeName) != !beforeSupplierId.HasValue)
+        {
+            throw new ArgumentException("Supplier cursor requires both name and ID.");
+        }
+        var take = Math.Clamp(pageSize, 1, 199);
+        var query = $"/api/suppliers?pageSize={take + 1}";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query += $"&search={Uri.EscapeDataString(search.Trim())}";
+        }
+        if (beforeSupplierId is Guid cursor)
+        {
+            query += $"&beforeName={Uri.EscapeDataString(beforeName!)}&beforeSupplierId={cursor:D}";
+        }
+        var rows = await apiClient.GetAsync<SupplierDirectoryDto[]>(query, cancellationToken);
+        var visible = rows.Take(take).ToArray();
+        return new BackendSupplierPage(visible.Select(x => new BackendSupplierOption(x.SupplierId, x.Name, x.City, x.Phone)).ToArray(),
+            rows.Length > take ? visible[^1].Name : null, rows.Length > take ? visible[^1].SupplierId : null);
     }
 
     public async Task<IReadOnlyList<BackendProductManagementItem>> GetProductsPageAsync(
@@ -104,13 +127,48 @@ public sealed class RemoteProductManagementService(
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
-        var created = await apiClient.PostAsync<CreateProductCommand, ProductMutationResult>(
-            "/api/catalog/products",
-            new CreateProductCommand(actor, ToInput(request)), cancellationToken);
-        await ConfigureUnitsAsync(created.ProductId, request.BaseUnitId, units, cancellationToken);
-        await SyncSupplierLinksAsync(created.ProductId, linkedSupplierIds, cancellationToken);
-        return await GetProductAsync(created.ProductId, cancellationToken)
-            ?? throw Error("catalog.product_readback_failed", "Product was created but could not be read back.");
+        var normalizedUnits = units
+            .Where(x => x.IsActive)
+            .Select(x => new ProductUnitInput(
+                x.UnitId,
+                x.UnitId == request.BaseUnitId ? 1m : x.FactorToBaseUnit,
+                x.CanPurchase,
+                x.CanSell,
+                x.CanUseInThaka,
+                x.IsDefaultPurchaseUnit,
+                x.IsDefaultSaleUnit))
+            .ToList();
+
+        if (normalizedUnits.All(x => x.UnitId != request.BaseUnitId))
+        {
+            normalizedUnits.Insert(0, new ProductUnitInput(
+                request.BaseUnitId,
+                1m,
+                true,
+                true,
+                true,
+                true,
+                true));
+        }
+
+        var command = new SaveProductAggregateCommand(
+            actor,
+            null,
+            null,
+            ToInput(request),
+            normalizedUnits,
+            linkedSupplierIds.ToList(),
+            null);
+        var fingerprint = ProductAggregatePayloadFingerprint.Compute(command);
+        command = command with { ClientOperationId = _pendingAggregateOperations.GetOrAdd(fingerprint, _ => Guid.NewGuid()) };
+
+        var created = await apiClient.PostAsync<SaveProductAggregateCommand, ProductMutationResult>(
+            "/api/catalog/products/aggregate",
+            command,
+            cancellationToken);
+
+        _pendingAggregateOperations.TryRemove(fingerprint, out _);
+        return await ReadCommittedAggregateAsync(created, request, units, linkedSupplierIds, cancellationToken);
     }
 
     public async Task<BackendProductManagementItem> UpdateProductAsync(
@@ -129,13 +187,71 @@ public sealed class RemoteProductManagementService(
         }
 
         var actor = RequireActor();
-        await apiClient.PutAsync<UpdateProductCommand, ProductMutationResult>(
-            $"/api/catalog/products/{productId:D}",
-            new UpdateProductCommand(actor, productId, expectedVersion, ToInput(request)), cancellationToken);
-        await ConfigureUnitsAsync(productId, request.BaseUnitId, units, cancellationToken);
-        await SyncSupplierLinksAsync(productId, linkedSupplierIds, cancellationToken);
-        return await GetProductAsync(productId, cancellationToken)
-            ?? throw Error("catalog.product_readback_failed", "Product was updated but could not be read back.");
+        var normalizedUnits = units
+            .Where(x => x.IsActive)
+            .Select(x => new ProductUnitInput(
+                x.UnitId,
+                x.UnitId == request.BaseUnitId ? 1m : x.FactorToBaseUnit,
+                x.CanPurchase,
+                x.CanSell,
+                x.CanUseInThaka,
+                x.IsDefaultPurchaseUnit,
+                x.IsDefaultSaleUnit))
+            .ToList();
+
+        if (normalizedUnits.All(x => x.UnitId != request.BaseUnitId))
+        {
+            normalizedUnits.Insert(0, new ProductUnitInput(
+                request.BaseUnitId,
+                1m,
+                true,
+                true,
+                true,
+                true,
+                true));
+        }
+
+        var command = new SaveProductAggregateCommand(
+            actor,
+            productId,
+            expectedVersion,
+            ToInput(request),
+            normalizedUnits,
+            linkedSupplierIds.ToList(),
+            null);
+        var fingerprint = ProductAggregatePayloadFingerprint.Compute(command);
+        command = command with { ClientOperationId = _pendingAggregateOperations.GetOrAdd(fingerprint, _ => Guid.NewGuid()) };
+
+        var updated = await apiClient.PostAsync<SaveProductAggregateCommand, ProductMutationResult>(
+            "/api/catalog/products/aggregate",
+            command,
+            cancellationToken);
+
+        _pendingAggregateOperations.TryRemove(fingerprint, out _);
+        return await ReadCommittedAggregateAsync(updated, request, units, linkedSupplierIds, cancellationToken);
+    }
+
+    private async Task<BackendProductManagementItem> ReadCommittedAggregateAsync(
+        ProductMutationResult committed,
+        BackendProductCatalogRequest request,
+        IReadOnlyList<BackendProductUnitConfiguration> units,
+        IReadOnlyCollection<Guid> suppliers,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var row = await GetProductAsync(committed.ProductId, cancellationToken);
+            if (row is not null)
+            {
+                return row;
+            }
+        }
+        catch (Exception ex) when (ex is DesktopApiException or System.Net.Http.HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            // The mutation response already confirmed commit. A display refresh
+            // failure cannot turn it into a failed save and invite duplicate creation.
+        }
+        return BackendProductManagementService.CommittedAggregateFallback(committed, request, units, suppliers);
     }
 
     public async Task<BackendProductManagementItem> SetProductActiveAsync(

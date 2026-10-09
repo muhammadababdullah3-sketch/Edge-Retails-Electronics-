@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
+using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
@@ -78,7 +79,8 @@ public sealed class NewPurchaseLineViewModel : ViewModelBase
                 return 0;
             }
 
-            var baseQuantity = Quantity * Product.FactorToBaseUnit;
+            var baseQuantity = Product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                ? Quantity : Quantity * Product.FactorToBaseUnit;
             if (baseQuantity <= 0m ||
                 baseQuantity != decimal.Truncate(baseQuantity) ||
                 baseQuantity > int.MaxValue)
@@ -94,7 +96,7 @@ public sealed class NewPurchaseLineViewModel : ViewModelBase
         IsSerialized && RequiredSerializedUnitCount > 0;
 
     public bool HasValidSerializedIntake =>
-        !IsSerialized ||
+        !IsSerialized || (!Product.SerialTrackingEnabled && !Product.ImeiTrackingEnabled && _serializedIdentities.Count == 0) ||
         (RequiredSerializedUnitCount > 0 &&
          _serializedIdentities.Count == RequiredSerializedUnitCount);
 
@@ -118,7 +120,7 @@ public sealed class NewPurchaseLineViewModel : ViewModelBase
     }
 }
 
-public sealed class NewPurchaseViewModel : ViewModelBase
+public sealed class NewPurchaseViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoPurchaseInventoryService? _previewService;
     private readonly IBackendPurchasingInventoryService? _backendService;
@@ -135,7 +137,29 @@ public sealed class NewPurchaseViewModel : ViewModelBase
     private string _searchText = string.Empty;
     private PosProductItemViewModel? _selectedProduct;
     private decimal _otherCharges;
+    private readonly IBackendPurchaseLookupService? _lookup;
+    private CancellationTokenSource? _productLookupCts;
+    private CancellationTokenSource? _supplierLookupCts;
+    private long _productLookupGeneration;
+    private long _supplierLookupGeneration;
+    private string? _nextProductName;
+    private Guid? _nextProductId;
+    private string? _nextSupplierName;
+    private Guid? _nextSupplierId;
+    private string _supplierSearchText = string.Empty;
+    private bool _applyingLookup;
+    public Guid? SelectedSupplierId { get; private set; }
     private readonly Guid _clientOperationId = Guid.CreateVersion7();
+    private int _submissionGate;
+    private bool _isPurchaseCommitted;
+    private string _commitStatusMessage = string.Empty;
+    public Guid? ConfirmedPurchaseId { get; private set; }
+    public bool IsPurchaseCommitted => _isPurchaseCommitted;
+    public string CommitStatusMessage
+    {
+        get => _commitStatusMessage;
+        private set => SetProperty(ref _commitStatusMessage, value);
+    }
 
     public NewPurchaseViewModel(
         IToastService? toastService = null,
@@ -145,6 +169,7 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         IDialogService? dialogService = null)
     {
         _backendService = backendService;
+        _lookup = backendService as IBackendPurchaseLookupService;
         _previewService = ResolvePreviewService(backendService);
         _toastService = toastService;
         _dialogService = dialogService;
@@ -168,7 +193,12 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         SavePurchaseCommand = new RelayCommand(
             async () => await SavePurchaseAsync(),
             () => CanSave);
-        CancelCommand = new RelayCommand(() => _cancel?.Invoke());
+        RefreshCommittedPurchaseCommand = new RelayCommand(
+            async () => await RefreshCommittedPurchaseAsync(),
+            () => ConfirmedPurchaseId.HasValue && _submissionGate == 0);
+        MoreProductsCommand = new RelayCommand(() => _ = SearchProductsAsync(true));
+        MoreSuppliersCommand = new RelayCommand(() => _ = SearchSuppliersAsync(true));
+        CancelCommand = new RelayCommand(() => { Dispose(); _cancel?.Invoke(); });
 
         if (_backendService is not null)
         {
@@ -186,12 +216,31 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         get => _selectedSupplier;
         set
         {
+            if (_applyingLookup && string.IsNullOrEmpty(value))
+            {
+                return;
+            }
             if (SetProperty(ref _selectedSupplier, value ?? string.Empty))
             {
+                SelectedSupplierId = _backendSupplierIds.TryGetValue(_selectedSupplier, out var id) ? id : null;
+                OnPropertyChanged(nameof(SelectedSupplierId));
                 RefreshCanSave();
             }
         }
     }
+
+    public string SupplierSearchText
+    {
+        get => _supplierSearchText;
+        set { if (SetProperty(ref _supplierSearchText, value ?? string.Empty) && _lookup is not null)
+              {
+                  _ = SearchSuppliersAsync(false);
+              } }
+    }
+    public bool HasMoreProducts => _nextProductId.HasValue;
+    public bool HasMoreSuppliers => _nextSupplierId.HasValue;
+    public ICommand MoreProductsCommand { get; }
+    public ICommand MoreSuppliersCommand { get; }
 
     public string InvoiceNumber
     {
@@ -223,7 +272,14 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         {
             if (SetProperty(ref _searchText, value ?? string.Empty))
             {
-                ApplyProductFilter();
+                if (_lookup is not null)
+                {
+                    _ = SearchProductsAsync(false);
+                }
+                else
+                {
+                    ApplyProductFilter();
+                }
             }
         }
     }
@@ -233,6 +289,10 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         get => _selectedProduct;
         set
         {
+            if (_applyingLookup && value is null)
+            {
+                return;
+            }
             if (SetProperty(ref _selectedProduct, value))
             {
                 ((RelayCommand)AddSelectedProductCommand).NotifyCanExecuteChanged();
@@ -271,18 +331,23 @@ public sealed class NewPurchaseViewModel : ViewModelBase
     public decimal Total => Subtotal + OtherCharges;
     public string SubtotalDisplay => $"Rs. {Subtotal:N0}";
     public string TotalDisplay => $"Rs. {Total:N0}";
+    public bool RequiresSerializedIntake =>
+        _backendService is null || _backendService.ReceivesStockImmediately;
+
     public bool CanSave =>
+        !_isPurchaseCommitted && _submissionGate == 0 &&
         !string.IsNullOrWhiteSpace(SelectedSupplier) &&
         !string.IsNullOrWhiteSpace(InvoiceNumber) &&
         Lines.Count > 0 &&
         Lines.All(line =>
             line.Quantity > 0m &&
-            line.HasValidSerializedIntake);
+            (!RequiresSerializedIntake || line.HasValidSerializedIntake));
 
     public ICommand AddSelectedProductCommand { get; }
     public ICommand RemoveLineCommand { get; }
     public ICommand ConfigureSerializedUnitsCommand { get; }
     public ICommand SavePurchaseCommand { get; }
+    public ICommand RefreshCommittedPurchaseCommand { get; }
     public ICommand CancelCommand { get; }
 
     private void AddSelectedProduct()
@@ -292,10 +357,32 @@ public sealed class NewPurchaseViewModel : ViewModelBase
             return;
         }
 
-        var existing = Lines.FirstOrDefault(line => line.Product.Id == SelectedProduct.Id);
+        var selectedProductId = SelectedProduct.BackendProductId ?? (Guid.TryParse(SelectedProduct.Id, out var spid) ? spid : Guid.Empty);
+        var existing = Lines.FirstOrDefault(line =>
+        {
+            var lineProductId = line.Product.BackendProductId ?? (Guid.TryParse(line.Product.Id, out var lpid) ? lpid : Guid.Empty);
+            return selectedProductId != Guid.Empty && lineProductId != Guid.Empty
+                ? lineProductId == selectedProductId
+                : string.Equals(line.Product.Sku, SelectedProduct.Sku, StringComparison.OrdinalIgnoreCase);
+        });
+
         if (existing is not null)
         {
-            existing.Quantity += 1m;
+            var sameUnit = SelectedProduct.BackendProductUnitId.HasValue && existing.Product.BackendProductUnitId.HasValue
+                ? SelectedProduct.BackendProductUnitId.Value == existing.Product.BackendProductUnitId.Value
+                : string.Equals(existing.Product.Unit, SelectedProduct.Unit, StringComparison.OrdinalIgnoreCase);
+
+            if (sameUnit)
+            {
+                existing.Quantity += 1m;
+            }
+            else
+            {
+                _toastService?.Show(
+                    $"Product '{SelectedProduct.Name}' is already in this purchase with unit '{existing.Product.Unit}'. Alternate units cannot be merged into the same purchase line.",
+                    ToastTone.Warning);
+                return;
+            }
         }
         else
         {
@@ -347,6 +434,11 @@ public sealed class NewPurchaseViewModel : ViewModelBase
         {
             return;
         }
+        if (Interlocked.CompareExchange(ref _submissionGate, 1, 0) != 0)
+        {
+            return;
+        }
+        RefreshSubmissionCommands();
 
         try
         {
@@ -378,9 +470,7 @@ public sealed class NewPurchaseViewModel : ViewModelBase
             }
             else
             {
-                if (!_backendSupplierIds.TryGetValue(
-                        SelectedSupplier,
-                        out var supplierId))
+                if (SelectedSupplierId is not Guid supplierId)
                 {
                     throw new InvalidOperationException(
                         "Selected supplier is not attached uniquely to the backend.");
@@ -396,17 +486,81 @@ public sealed class NewPurchaseViewModel : ViewModelBase
                     _clientOperationId);
             }
 
-            _toastService?.Show(
-                $"{record.PurchaseNumber} saved. Stock updated for {record.ItemCount} products.",
-                ToastTone.Success);
+            SetConfirmedPurchase(record.BackendPurchaseId, record.PurchaseNumber);
+            if (record.StockReceivedImmediately)
+            {
+                _toastService?.Show(
+                    $"{record.PurchaseNumber} saved. Stock updated for {record.ItemCount} products.",
+                    ToastTone.Success);
+            }
+            else
+            {
+                _toastService?.Show(
+                    $"Purchase order {record.PurchaseNumber} saved. Receive stock from Purchase Detail.",
+                    ToastTone.Success);
+            }
+            Dispose();
             _saved?.Invoke(record);
+        }
+        catch (PurchaseCommittedReadbackException ex)
+        {
+            SetConfirmedPurchase(ex.Result.PurchaseId, ex.Result.PurchaseNumber);
+            _toastService?.Show(CommitStatusMessage, ToastTone.Warning);
         }
         catch (Exception ex)
         {
             _toastService?.Show(
-                DesktopErrorPresentation.ForException(ex, "Purchase creation was rejected."),
+                _isPurchaseCommitted ? CommitStatusMessage :
+                    DesktopErrorPresentation.ForException(ex, "Purchase outcome is not confirmed. Keep this form open and preserve the original operation identity."),
                 ToastTone.Danger);
         }
+        finally
+        {
+            Interlocked.Exchange(ref _submissionGate, 0);
+            RefreshSubmissionCommands();
+        }
+    }
+
+    private void SetConfirmedPurchase(Guid? purchaseId, string number)
+    {
+        _isPurchaseCommitted = true;
+        ConfirmedPurchaseId = purchaseId;
+        CommitStatusMessage = $"Purchase {number} is saved (ID: {purchaseId}). Refresh details without saving again.";
+        OnPropertyChanged(nameof(IsPurchaseCommitted));
+        OnPropertyChanged(nameof(ConfirmedPurchaseId));
+    }
+
+    private async Task RefreshCommittedPurchaseAsync()
+    {
+        if (_backendService is null || ConfirmedPurchaseId is not Guid purchaseId ||
+            Interlocked.CompareExchange(ref _submissionGate, 1, 0) != 0)
+        {
+            return;
+        }
+        RefreshSubmissionCommands();
+        try
+        {
+            var record = await _backendService.GetPurchaseAsync(purchaseId)
+                ?? throw new InvalidOperationException("Saved purchase details remain unavailable.");
+            record.StockReceivedImmediately = false;
+            Dispose();
+            _saved?.Invoke(record);
+        }
+        catch (Exception)
+        {
+            _toastService?.Show(CommitStatusMessage + " Details remain unavailable.", ToastTone.Warning);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _submissionGate, 0);
+            RefreshSubmissionCommands();
+        }
+    }
+
+    private void RefreshSubmissionCommands()
+    {
+        RefreshCanSave();
+        ((RelayCommand)RefreshCommittedPurchaseCommand).NotifyCanExecuteChanged();
     }
 
     private static DemoPurchaseInventoryService? ResolvePreviewService(
@@ -437,6 +591,11 @@ public sealed class NewPurchaseViewModel : ViewModelBase
 
         try
         {
+            if (_lookup is not null)
+            {
+                await Task.WhenAll(SearchSuppliersAsync(false), SearchProductsAsync(false));
+                return;
+            }
             var suppliers = await _backendService.GetSuppliersAsync();
             var catalog = await _backendService.GetCatalogAsync();
 
@@ -450,9 +609,18 @@ public sealed class NewPurchaseViewModel : ViewModelBase
                 var matches = group.ToArray();
                 if (matches.Length != 1)
                 {
-                    _toastService?.Show(
-                        $"Supplier name '{group.Key}' is duplicated in backend and cannot be selected until disambiguated.",
-                        ToastTone.Warning);
+                    foreach (var s in matches)
+                    {
+                        var disambiguated = !string.IsNullOrWhiteSpace(s.City)
+                            ? $"{s.Name} — {s.City}"
+                            : $"{s.Name} ({s.Id.ToString()[..6]})";
+                        if (_backendSupplierIds.ContainsKey(disambiguated))
+                        {
+                            disambiguated = $"{s.Name} ({s.Id.ToString()[..6]})";
+                        }
+                        Suppliers.Add(disambiguated);
+                        _backendSupplierIds[disambiguated] = s.Id;
+                    }
                     continue;
                 }
 
@@ -481,7 +649,8 @@ public sealed class NewPurchaseViewModel : ViewModelBase
                     isSerialized: item.IsSerialized,
                     serialTrackingEnabled: item.SerialTrackingEnabled,
                     imeiTrackingEnabled: item.ImeiTrackingEnabled,
-                    factorToBaseUnit: item.FactorToBaseUnit));
+                    factorToBaseUnit: item.FactorToBaseUnit,
+                    trackingMode: item.TrackingMode));
             }
 
             if (Suppliers.Count == 1)
@@ -500,6 +669,178 @@ public sealed class NewPurchaseViewModel : ViewModelBase
                     "Purchase data could not be loaded. Check the connection and try again."),
                 ToastTone.Danger);
         }
+    }
+
+    public async Task SearchSuppliersAsync(bool more = false)
+    {
+        if (_lookup is null || (more && !HasMoreSuppliers))
+        {
+            return;
+        }
+        if (!more)
+        {
+            _nextSupplierName = null;
+            _nextSupplierId = null;
+            OnPropertyChanged(nameof(HasMoreSuppliers));
+        }
+        var generation = Interlocked.Increment(ref _supplierLookupGeneration);
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _supplierLookupCts, cts);
+        previous?.Cancel();
+        try
+        {
+            if (!more)
+            {
+                await Task.Delay(250, cts.Token);
+            }
+            var page = await _lookup.GetSupplierPageAsync(SupplierSearchText, 50,
+                more ? _nextSupplierName : null, more ? _nextSupplierId : null, cts.Token);
+            if (cts.IsCancellationRequested || generation != Volatile.Read(ref _supplierLookupGeneration))
+            {
+                return;
+            }
+            _applyingLookup = true;
+            try
+            {
+                var selected = SelectedSupplier;
+                if (!more)
+                {
+                    Suppliers.Clear();
+                }
+                if (SelectedSupplierId.HasValue && !Suppliers.Contains(selected))
+                {
+                    Suppliers.Add(selected);
+                }
+                foreach (var supplier in page.Items)
+                {
+                    // Full ID makes duplicate names/cities unambiguous across separately fetched pages.
+                    var label = $"{supplier.DisplayName} ({supplier.Id:D})";
+                    _backendSupplierIds[label] = supplier.Id;
+                    if (!Suppliers.Contains(label))
+                    {
+                        Suppliers.Add(label);
+                    }
+                }
+                _nextSupplierName = page.NextName;
+                _nextSupplierId = page.NextSupplierId;
+                OnPropertyChanged(nameof(HasMoreSuppliers));
+                OnPropertyChanged(nameof(SelectedSupplier));
+                RefreshCanSave();
+            }
+            finally { _applyingLookup = false; }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (generation == Volatile.Read(ref _supplierLookupGeneration))
+            {
+                _toastService?.Show(DesktopErrorPresentation.ForException(ex, "Supplier search failed."), ToastTone.Danger);
+            }
+        }
+        finally { Interlocked.CompareExchange(ref _supplierLookupCts, null, cts); cts.Dispose(); }
+    }
+
+    public async Task SearchProductsAsync(bool more = false)
+    {
+        if (_lookup is null || (more && !HasMoreProducts))
+        {
+            return;
+        }
+        if (!more)
+        {
+            _nextProductName = null;
+            _nextProductId = null;
+            OnPropertyChanged(nameof(HasMoreProducts));
+        }
+        var generation = Interlocked.Increment(ref _productLookupGeneration);
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _productLookupCts, cts);
+        previous?.Cancel();
+        try
+        {
+            if (!more)
+            {
+                await Task.Delay(250, cts.Token);
+            }
+            var page = await _lookup.GetCatalogPageAsync(new PurchaseCatalogPageQuery(SearchText, 50,
+                more ? _nextProductName : null, more ? _nextProductId : null), cts.Token);
+            // Off-page selections remain visible; refresh their stock from their exact Product ID.
+            var selectedProductId = SelectedProduct?.BackendProductId;
+            PurchaseCatalogPageDto? selectedPage = null;
+            if (selectedProductId is Guid exactId && !page.Items.Any(x => x.ProductId == exactId))
+            {
+                selectedPage = await _lookup.GetCatalogPageAsync(
+                    new PurchaseCatalogPageQuery(ProductId: exactId, IncludeInactive: true), cts.Token);
+            }
+            if (cts.IsCancellationRequested || generation != Volatile.Read(ref _productLookupGeneration))
+            {
+                return;
+            }
+            _applyingLookup = true;
+            try
+            {
+                foreach (var stock in page.Items.Concat(selectedPage?.Items ?? []).GroupBy(x => x.ProductId).Select(x => x.First()))
+                {
+                    if (SelectedProduct?.BackendProductId == stock.ProductId)
+                    {
+                        SelectedProduct.Stock = stock.SellableStock;
+                    }
+                    foreach (var line in Lines.Where(x => x.Product.BackendProductId == stock.ProductId))
+                    {
+                        line.Product.Stock = stock.SellableStock;
+                    }
+                    foreach (var existing in Products.Where(x => x.BackendProductId == stock.ProductId))
+                    {
+                        existing.Stock = stock.SellableStock;
+                    }
+                }
+                if (!more) { Products.Clear(); FilteredProducts.Clear(); }
+                if (SelectedProduct is { } selected && !FilteredProducts.Any(x => x.BackendProductUnitId == selected.BackendProductUnitId))
+                {
+                    FilteredProducts.Add(selected);
+                }
+                foreach (var item in page.Items)
+                {
+                    if (Products.Any(x => x.BackendProductUnitId == item.ProductUnitId))
+                    {
+                        continue;
+                    }
+                    var product = new PosProductItemViewModel(item.ProductId.ToString("D"), item.Name,
+                        item.Sku ?? string.Empty, "—", item.Category, item.SellableStock, item.DefaultSalePrice,
+                        unit: item.UnitSymbol, cost: item.ReferenceCost, backendProductId: item.ProductId,
+                        backendProductUnitId: item.ProductUnitId, isSerialized: item.IsSerialized,
+                        serialTrackingEnabled: item.SerialTrackingEnabled, imeiTrackingEnabled: item.ImeiTrackingEnabled,
+                        factorToBaseUnit: item.FactorToBaseUnit, trackingMode: item.TrackingMode);
+                    Products.Add(product);
+                    if (!FilteredProducts.Any(x => x.BackendProductUnitId == item.ProductUnitId))
+                    {
+                        FilteredProducts.Add(product);
+                    }
+                }
+                _nextProductName = page.NextName;
+                _nextProductId = page.NextProductId;
+                OnPropertyChanged(nameof(HasMoreProducts));
+                OnPropertyChanged(nameof(SelectedProduct));
+            }
+            finally { _applyingLookup = false; }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (generation == Volatile.Read(ref _productLookupGeneration))
+            {
+                _toastService?.Show(DesktopErrorPresentation.ForException(ex, "Product search failed."), ToastTone.Danger);
+            }
+        }
+        finally { Interlocked.CompareExchange(ref _productLookupCts, null, cts); cts.Dispose(); }
+    }
+
+    public void Dispose()
+    {
+        Interlocked.Increment(ref _productLookupGeneration);
+        Interlocked.Increment(ref _supplierLookupGeneration);
+        Interlocked.Exchange(ref _productLookupCts, null)?.Cancel();
+        Interlocked.Exchange(ref _supplierLookupCts, null)?.Cancel();
     }
 
     private void ApplyProductFilter()

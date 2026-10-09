@@ -129,7 +129,7 @@ public sealed class Phase1BProductIdentityAuthorityTests
 
         // Before history: operator can correct SKU
         var updateBeforeHistory = new UpdateProductHandler(
-            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(false), doubles.Transactions, doubles.UnitOfWork);
+            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(false), doubles.Transactions, doubles.UnitOfWork, new FakeBusinessAuditWriter());
 
         var corrected = await updateBeforeHistory.HandleAsync(
             new UpdateProductCommand(Guid.NewGuid(), product.Id, product.Version, ValidProductInput(unit.Id, category.Id) with
@@ -144,7 +144,7 @@ public sealed class Phase1BProductIdentityAuthorityTests
 
         // After history exists: SKU is strictly immutable
         var updateAfterHistory = new UpdateProductHandler(
-            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(true), doubles.Transactions, doubles.UnitOfWork);
+            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(true), doubles.Transactions, doubles.UnitOfWork, new FakeBusinessAuditWriter());
 
         var rejected = await updateAfterHistory.HandleAsync(
             new UpdateProductCommand(Guid.NewGuid(), product.Id, product.Version, ValidProductInput(unit.Id, category.Id) with
@@ -829,7 +829,7 @@ public sealed class Phase1BProductIdentityAuthorityTests
 
         // Before history: update allowed
         var updateBeforeHistory = new UpdateProductHandler(
-            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(false), doubles.Transactions, doubles.UnitOfWork);
+            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(false), doubles.Transactions, doubles.UnitOfWork, new FakeBusinessAuditWriter());
 
         var beforeResult = await updateBeforeHistory.HandleAsync(
             new UpdateProductCommand(Guid.NewGuid(), product.Id, product.Version, new ProductCatalogInput(
@@ -855,7 +855,7 @@ public sealed class Phase1BProductIdentityAuthorityTests
 
         // After history exists: ModelCode, CompanyId, CategoryId are strictly immutable
         var updateAfterHistory = new UpdateProductHandler(
-            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(true), doubles.Transactions, doubles.UnitOfWork);
+            doubles.Catalog, doubles.Authorization, new Phase3CatalogSafetyReadService(true), doubles.Transactions, doubles.UnitOfWork, new FakeBusinessAuditWriter());
 
         // 1. Attempt to change ModelCode -> rejected
         var mcResult = await updateAfterHistory.HandleAsync(
@@ -1129,7 +1129,9 @@ public sealed class Phase1BProductIdentityAuthorityTests
             d.Transactions,
             d.Authorization,
             d.UnitOfWork,
-            highWater);
+            highWater,
+            d.OutcomeLedger,
+            new FakePhysicalUnitCreationAuthority(d.Catalog, d.Parties, d.Traceability, d.Inventory, d.Clock, highWater));
 
     private static CreatePurchaseCommand BuildPurchaseCommand(
         Guid supplierId,

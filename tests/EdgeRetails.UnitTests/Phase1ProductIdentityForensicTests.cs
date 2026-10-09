@@ -346,7 +346,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(true), // History exists!
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var updateResult = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -388,7 +388,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(false), // No history yet
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var updateResult = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -425,7 +425,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(false),
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var updateResult = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -650,7 +650,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(false),
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var result = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -684,7 +684,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(hasStockOrHistory: true),
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var result = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -721,7 +721,7 @@ public sealed class Phase1ProductIdentityForensicTests
             env.Authorizer,
             new FakeProductCatalogSafetyReadService(false),
             env.Transactions,
-            env.UnitOfWork);
+            env.UnitOfWork, new FakeBusinessAuditWriter());
 
         var result = await updateHandler.HandleAsync(
             new UpdateProductCommand(
@@ -939,6 +939,9 @@ public sealed class Phase1ProductIdentityForensicTests
                 return Task.FromResult(_productUnits.Values.Any(pu => pu.IsActive && pu.UnitId == unitId));
             }
         }
+
+        public Task<ProductUnit?> GetProductUnitSnapshotAsync(Guid productUnitId, CancellationToken cancellationToken) =>
+            GetProductUnitAsync(productUnitId, cancellationToken);
 
         public Task<ProductUnit?> GetProductUnitAsync(Guid productUnitId, CancellationToken cancellationToken)
         {

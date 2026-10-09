@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
     <Border Padding="14"
             BorderThickness="1"
             CornerRadius="{StaticResource Radius.Card}"
@@ -129,9 +129,11 @@
             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                 <TextBlock Text="{Binding Title, ElementName=Root}"
                            Style="{StaticResource Text.KpiLabel}" />
-                <TextBlock Margin="0,1.75,0,0"
-                           Text="{Binding Value, ElementName=Root}"
-                           Style="{StaticResource Text.KpiValue}" />
+                <Viewbox Margin="0,1.75,0,0" Stretch="Uniform" StretchDirection="DownOnly"
+                         HorizontalAlignment="Left" ToolTip="{Binding Value, ElementName=Root}">
+                    <TextBlock Text="{Binding Value, ElementName=Root}"
+                               Style="{StaticResource Text.KpiValue}" />
+                </Viewbox>
             </StackPanel>
         </Grid>
     </Border>

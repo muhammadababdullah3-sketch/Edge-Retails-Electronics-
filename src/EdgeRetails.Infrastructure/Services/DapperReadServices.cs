@@ -559,7 +559,7 @@ public sealed class PurchasingReadService : IPurchasingReadService
                 pi.sku_snapshot AS Sku,
                 pi.product_unit_id AS ProductUnitId,
                 u.symbol AS UnitSymbol,
-                (cp.tracking_mode = 3) AS IsSerialized,
+                (cp.tracking_mode IN (3, 4, 5)) AS IsSerialized,
                 pi.entered_quantity AS EnteredQuantity,
                 pi.factor_to_base_snapshot AS FactorToBaseSnapshot,
                 pi.base_quantity AS BaseQuantity,

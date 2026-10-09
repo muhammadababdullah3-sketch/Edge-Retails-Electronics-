@@ -47,7 +47,11 @@ public sealed record ReportingSnapshotDto(
     bool ShowExpenseSeries,
     IReadOnlyList<ReportingTrendPointDto> Trend,
     IReadOnlyList<ReportingExpenseBreakdownDto> ExpenseBreakdown,
-    IReadOnlyList<ReportingThakaActivityDto> ThakaActivity);
+    IReadOnlyList<ReportingThakaActivityDto> ThakaActivity,
+    decimal NetCOGS = 0m,
+    decimal InventoryLoss = 0m,
+    decimal InventoryLossRecoveryGain = 0m,
+    decimal WarrantyRecoveryGain = 0m);
 
 public interface IReportingReadService
 {

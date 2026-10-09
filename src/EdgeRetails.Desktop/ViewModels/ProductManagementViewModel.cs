@@ -22,6 +22,10 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _productPageSearchCts;
     private CancellationTokenSource? _refreshCts;
     private long _productPageSearchVersion;
+    private string? _nextProductName;
+    private Guid? _nextProductId;
+    public bool HasMoreProducts => _nextProductId.HasValue;
+    public ICommand MoreProductsCommand { get; }
     private const int ProductPageSize = 200;
 
     public ProductManagementViewModel(
@@ -54,6 +58,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         ToggleActiveCommand = new RelayCommand<BackendProductManagementItem>(
             product => _ = ToggleActiveAsync(product));
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !IsLoading);
+        MoreProductsCommand = new RelayCommand(() => _ = LoadMoreProductsAsync());
         CloseDetailCommand = new RelayCommand(CloseProductDetail);
 
         _ = RefreshAsync();
@@ -176,6 +181,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        Interlocked.Increment(ref _productPageSearchVersion);
         Interlocked.Exchange(ref _refreshCts, null)?.Cancel();
         var searchCts = Interlocked.Exchange(ref _productPageSearchCts, null);
         searchCts?.Cancel();
@@ -210,13 +216,14 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        var refreshGeneration = Volatile.Read(ref _productPageSearchVersion);
         IsLoading = true;
         ErrorMessage = null;
         try
         {
             _snapshot = await _catalogService.GetSnapshotAsync(cancellationToken: cts.Token);
             RebuildCategoryFilter();
-            await LoadCurrentProductPageAsync(cts.Token);
+            await LoadCurrentProductPageAsync(cts.Token, refreshGeneration);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -238,6 +245,10 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             Interlocked.CompareExchange(ref _refreshCts, null, cts);
             cts.Dispose();
             IsLoading = false;
+            if (refreshGeneration != Volatile.Read(ref _productPageSearchVersion))
+            {
+                ScheduleBackendPageRefresh();
+            }
             NotifyState();
             if (AddProductCommand is RelayCommand add)
             {
@@ -313,16 +324,17 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
 
     private void ScheduleBackendPageRefresh()
     {
-        if (_catalogService is null || IsLoading)
+        if (_catalogService is null) { ApplyFilters(); return; }
+        var version = Interlocked.Increment(ref _productPageSearchVersion);
+        _nextProductId = null;
+        _nextProductName = null;
+        OnPropertyChanged(nameof(HasMoreProducts));
+        _productPageSearchCts?.Cancel();
+        if (IsLoading)
         {
-            if (_catalogService is null)
-            {
-                ApplyFilters();
-            }
             return;
         }
 
-        var version = Interlocked.Increment(ref _productPageSearchVersion);
         var previous = Interlocked.Exchange(ref _productPageSearchCts, new CancellationTokenSource());
         previous?.Cancel();
         previous?.Dispose();
@@ -340,13 +352,17 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            await LoadCurrentProductPageAsync(cts.Token);
+            await LoadCurrentProductPageAsync(cts.Token, version);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (version == Volatile.Read(ref _productPageSearchVersion))
+        catch (Exception ex)
         {
+            if (version != Volatile.Read(ref _productPageSearchVersion))
+            {
+                return;
+            }
             ErrorMessage = DesktopErrorPresentation.ForException(
                 ex,
                 "Catalog search failed. Check the connection and try again.");
@@ -354,7 +370,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task LoadCurrentProductPageAsync(CancellationToken cancellationToken)
+    private async Task LoadCurrentProductPageAsync(CancellationToken cancellationToken, long generation)
     {
         if (_catalogService is null)
         {
@@ -377,7 +393,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             ProductPageSize,
             cancellationToken: cancellationToken);
 
-        if (cancellationToken.IsCancellationRequested)
+        if (cancellationToken.IsCancellationRequested || generation != Volatile.Read(ref _productPageSearchVersion))
         {
             return;
         }
@@ -388,7 +404,50 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             FilteredProducts.Add(product);
         }
 
+        _nextProductId = rows.Count == ProductPageSize ? rows[^1].ProductId : null;
+        _nextProductName = rows.Count == ProductPageSize ? rows[^1].Name : null;
+        OnPropertyChanged(nameof(HasMoreProducts));
         NotifyState();
+    }
+
+    private async Task LoadMoreProductsAsync()
+    {
+        if (_catalogService is null || !HasMoreProducts)
+        {
+            return;
+        }
+        var generation = Volatile.Read(ref _productPageSearchVersion);
+        var cursor = _nextProductId;
+        try
+        {
+            var categoryId = _snapshot?.Categories.FirstOrDefault(x => x.Name == SelectedCategory)?.Id;
+            var isActive = SelectedStatus switch { "Active" => true, "Inactive" => false, _ => (bool?)null };
+            var rows = await _catalogService.GetProductsPageAsync(SearchText, isActive, categoryId, ProductPageSize,
+                _nextProductName, cursor, _productPageSearchCts?.Token ?? default);
+            if (generation != Volatile.Read(ref _productPageSearchVersion) || cursor != _nextProductId)
+            {
+                return;
+            }
+            foreach (var product in rows)
+            {
+                if (!FilteredProducts.Any(x => x.ProductId == product.ProductId))
+                {
+                    FilteredProducts.Add(product);
+                }
+            }
+            _nextProductId = rows.Count == ProductPageSize ? rows[^1].ProductId : null;
+            _nextProductName = rows.Count == ProductPageSize ? rows[^1].Name : null;
+            OnPropertyChanged(nameof(HasMoreProducts));
+            NotifyState();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (generation == Volatile.Read(ref _productPageSearchVersion))
+            {
+                _toastService.Show(DesktopErrorPresentation.ForException(ex, "Catalog page could not be loaded."), ToastTone.Danger);
+            }
+        }
     }
 
     private void NotifyState()

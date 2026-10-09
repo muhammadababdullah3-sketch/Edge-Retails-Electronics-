@@ -47,7 +47,9 @@ public sealed class ProductManagementReadService : IProductManagementReadService
             var term = request.Search.Trim();
             query = query.Where(x =>
                 EF.Functions.ILike(x.Name, "%" + term + "%") ||
-                (x.Sku != null && EF.Functions.ILike(x.Sku, "%" + term + "%")));
+                (x.Sku != null && EF.Functions.ILike(x.Sku, "%" + term + "%")) ||
+                (x.Brand != null && EF.Functions.ILike(x.Brand, "%" + term + "%")) ||
+                (x.Model != null && EF.Functions.ILike(x.Model, "%" + term + "%")));
         }
 
         if (!string.IsNullOrWhiteSpace(request.BeforeName) &&
@@ -192,6 +194,24 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                    .AnyAsync(x => x.ProductId == productId, cancellationToken) ||
                await _db.ShopStockWarrantyCases.AsNoTracking()
                    .AnyAsync(x => x.ProductId == productId, cancellationToken);
+    }
+
+    public async Task<bool> HasUnitUsageAsync(
+        Guid productUnitId,
+        CancellationToken cancellationToken)
+    {
+        return await _db.PurchaseItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken) ||
+               await _db.PurchaseReturnItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken) ||
+               await _db.SaleItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken) ||
+               await _db.SaleReturnItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken) ||
+               await _db.ThakaMaterialIssueItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken) ||
+               await _db.StockAdjustmentItems.AsNoTracking()
+                   .AnyAsync(x => x.ProductUnitId == productUnitId, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ProductManagementRowDto>> ProjectAsync(

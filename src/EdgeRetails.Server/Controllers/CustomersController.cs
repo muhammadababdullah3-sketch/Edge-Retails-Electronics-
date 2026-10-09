@@ -14,15 +14,27 @@ public sealed class CustomersController : ControllerBase
     private readonly IPartyDirectoryReadService _partyReads;
     private readonly GetCustomersHandler _getCustomersHandler;
     private readonly SaveCustomerHandler _saveCustomerHandler;
+    private readonly SetCustomerSuspensionHandler _suspensionHandler;
 
     public CustomersController(
         IPartyDirectoryReadService partyReads,
         GetCustomersHandler getCustomersHandler,
-        SaveCustomerHandler saveCustomerHandler)
+        SaveCustomerHandler saveCustomerHandler,
+        SetCustomerSuspensionHandler suspensionHandler)
     {
         _partyReads = partyReads;
         _getCustomersHandler = getCustomersHandler;
         _saveCustomerHandler = saveCustomerHandler;
+        _suspensionHandler = suspensionHandler;
+    }
+
+    [HttpPost("{id:guid}/suspension")]
+    public async Task<IActionResult> SetSuspension(Guid id, SetCustomerSuspensionRequest request, CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        var terminal = HttpContext.Items["CurrentTerminal"] as Terminal;
+        return ToActionResult(await _suspensionHandler.HandleAsync(new(request.ClientOperationId, id,
+            request.IsSuspended, actor?.UserId ?? Guid.Empty, terminal?.Id, actor?.SessionId), cancellationToken));
     }
 
     [HttpGet]
@@ -31,6 +43,7 @@ public sealed class CustomersController : ControllerBase
         [FromQuery] int pageSize = 50,
         [FromQuery] string? beforeName = null,
         [FromQuery] Guid? beforeCustomerId = null,
+        [FromQuery] bool includeInactive = false,
         CancellationToken cancellationToken = default)
     {
         var denied = this.RequirePermission(PermissionKeys.CustomersManage);
@@ -49,7 +62,8 @@ public sealed class CustomersController : ControllerBase
             Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500),
             cancellationToken,
             beforeName,
-            beforeCustomerId);
+            beforeCustomerId,
+            includeInactive);
         return Ok(customers);
     }
 
@@ -88,7 +102,8 @@ public sealed class CustomersController : ControllerBase
             Notes: request.Notes,
             ClientOperationId: request.ClientOperationId,
             TerminalId: (HttpContext.Items["CurrentTerminal"] as Terminal)?.Id,
-            SessionId: actor?.SessionId);
+            SessionId: actor?.SessionId,
+            PreserveActivityStatus: request.PreserveActivityStatus);
 
         var result = await _saveCustomerHandler.HandleAsync(command, cancellationToken);
         return ToActionResult(result);
@@ -115,7 +130,8 @@ public sealed class CustomersController : ControllerBase
             Notes: request.Notes,
             ClientOperationId: request.ClientOperationId,
             TerminalId: (HttpContext.Items["CurrentTerminal"] as Terminal)?.Id,
-            SessionId: actor?.SessionId);
+            SessionId: actor?.SessionId,
+            PreserveActivityStatus: true);
 
         var result = await _saveCustomerHandler.HandleAsync(command, cancellationToken);
         return ToActionResult(result);
@@ -151,4 +167,7 @@ public sealed record SaveCustomerRequest(
     string? Notes = null,
     Guid? ActorId = null,
     Guid? CorrelationId = null,
-    Guid? ClientOperationId = null);
+    Guid? ClientOperationId = null,
+    bool PreserveActivityStatus = false);
+
+public sealed record SetCustomerSuspensionRequest(Guid ClientOperationId, bool IsSuspended);

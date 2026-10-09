@@ -65,7 +65,7 @@ public sealed class ThakaReadService : IThakaReadService
                         - COALESCE(d.amount, 0)
                         - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
                     ) AS Balance,
-                    p.note AS Note
+                    p.note AS Note, c.is_active AS CustomerIsActive
                 FROM thaka.projects p
                 INNER JOIN parties.customers c ON c.id = p.customer_id
                 LEFT JOIN issued i ON i.project_id = p.id
@@ -99,6 +99,7 @@ public sealed class ThakaReadService : IThakaReadService
                         p.project_name,
                         c.name AS customer_name,
                         c.phone AS customer_phone,
+                        c.is_active AS customer_is_active,
                         p.site_address,
                         p.started_on,
                         p.status,
@@ -213,7 +214,7 @@ public sealed class ThakaReadService : IThakaReadService
                         - COALESCE(d.amount, 0)
                         - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
                     ) AS Balance,
-                    p.note AS Note,
+                    p.note AS Note, p.customer_is_active AS CustomerIsActive,
                     a.total_active_count AS TotalActiveCount,
                     a.total_active_material AS TotalActiveMaterialValue,
                     a.total_active_balance AS TotalActiveBalance
@@ -256,7 +257,7 @@ public sealed class ThakaReadService : IThakaReadService
                 x.Paid,
                 x.SettlementDiscount,
                 x.Balance,
-                x.Note)).ToArray();
+                x.Note, x.CustomerIsActive)).ToArray();
             var last = items.LastOrDefault();
             var totals = pageRows.FirstOrDefault();
 
@@ -326,7 +327,7 @@ public sealed class ThakaReadService : IThakaReadService
                         - COALESCE(d.amount, 0)
                         - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
                     ) AS Balance,
-                    p.note AS Note
+                    p.note AS Note, c.is_active AS CustomerIsActive
                 FROM thaka.projects p
                 INNER JOIN parties.customers c ON c.id = p.customer_id
                 LEFT JOIN issued i ON i.project_id = p.id
@@ -392,16 +393,39 @@ public sealed class ThakaReadService : IThakaReadService
                 """;
 
             var args = new { ProjectId = projectId };
-            var materials = (await connection.QueryAsync<ThakaMaterialLedgerRowDto>(
+            var materials = (await connection.QueryAsync<ThakaMaterialLedgerDbRow>(
                 new CommandDefinition(
                     materialsSql,
                     args,
-                    cancellationToken: cancellationToken))).ToArray();
-            var payments = (await connection.QueryAsync<ThakaPaymentLedgerRowDto>(
+                    cancellationToken: cancellationToken)))
+                .Select(row => new ThakaMaterialLedgerRowDto(
+                    row.MaterialIssueId,
+                    row.ChallanNumber,
+                    ToUtcOffset(row.IssuedAt),
+                    row.ProductId,
+                    row.ProductName,
+                    row.ProductUnitId,
+                    row.UnitSymbol,
+                    row.EnteredQuantity,
+                    row.UnitCharge,
+                    row.LineCharge,
+                    row.IsReversed))
+                .ToArray();
+            var payments = (await connection.QueryAsync<ThakaPaymentLedgerDbRow>(
                 new CommandDefinition(
                     paymentsSql,
                     args,
-                    cancellationToken: cancellationToken))).ToArray();
+                    cancellationToken: cancellationToken)))
+                .Select(row => new ThakaPaymentLedgerRowDto(
+                    row.PaymentId,
+                    row.ReceiptNumber,
+                    ToUtcOffset(row.RecordedAt),
+                    row.PaymentMethod,
+                    row.Amount,
+                    row.RecordedBy,
+                    row.Reference,
+                    row.IsReversed))
+                .ToArray();
 
             return new ThakaProjectDetailDto(project, materials, payments);
         }, cancellationToken);
@@ -420,18 +444,20 @@ public sealed class ThakaReadService : IThakaReadService
                     u.symbol AS UnitSymbol,
                     COALESCE(sb.sellable_qty, 0) AS SellableStock,
                     p.default_sale_price AS UnitCharge,
-                    (p.tracking_mode = 3) AS IsSerialized
+                    (p.tracking_mode IN (3, 4, 5)) AS IsSerialized,
+                    pu.factor_to_base_unit AS FactorToBaseUnit,
+                    p.tracking_mode AS TrackingMode
                 FROM catalog.products p
                 INNER JOIN catalog.product_units pu
                     ON pu.product_id = p.id
-                   AND pu.unit_id = p.base_unit_id
+                   AND (pu.unit_id = p.base_unit_id OR p.tracking_mode = 5)
                 INNER JOIN catalog.units u ON u.id = pu.unit_id
                 LEFT JOIN inventory.stock_balances sb ON sb.product_id = p.id
                 WHERE p.is_active = TRUE
                   AND pu.is_active = TRUE
                   AND pu.can_use_in_thaka = TRUE
-                  AND pu.factor_to_base_unit = 1
-                ORDER BY p.name, p.id;
+                  AND (pu.factor_to_base_unit = 1 OR p.tracking_mode = 5)
+                ORDER BY p.name, p.id, pu.id;
                 """;
 
             var rows = await connection.QueryAsync<ThakaCatalogItemDto>(
@@ -440,6 +466,41 @@ public sealed class ThakaReadService : IThakaReadService
                     cancellationToken: cancellationToken));
             return (IReadOnlyList<ThakaCatalogItemDto>)rows.ToArray();
         }, cancellationToken);
+
+    // Npgsql exposes timestamptz as UTC DateTime for Dapper constructor binding.
+    // Keep that provider transport separate from the public DateTimeOffset contract.
+    private static DateTimeOffset ToUtcOffset(DateTime value)
+    {
+        if (value.Kind != DateTimeKind.Utc)
+        {
+            throw new InvalidOperationException("Thaka timestamps must be materialized as UTC.");
+        }
+
+        return new DateTimeOffset(value);
+    }
+
+    private sealed record ThakaMaterialLedgerDbRow(
+        Guid MaterialIssueId,
+        string ChallanNumber,
+        DateTime IssuedAt,
+        Guid ProductId,
+        string ProductName,
+        Guid ProductUnitId,
+        string UnitSymbol,
+        decimal EnteredQuantity,
+        decimal UnitCharge,
+        decimal LineCharge,
+        bool IsReversed);
+
+    private sealed record ThakaPaymentLedgerDbRow(
+        Guid PaymentId,
+        string ReceiptNumber,
+        DateTime RecordedAt,
+        ThakaPaymentMethod PaymentMethod,
+        decimal Amount,
+        Guid RecordedBy,
+        string? Reference,
+        bool IsReversed);
 
     private sealed record ThakaProjectPageRow(
         Guid ProjectId,
@@ -456,6 +517,7 @@ public sealed class ThakaReadService : IThakaReadService
         decimal SettlementDiscount,
         decimal Balance,
         string? Note,
+        bool CustomerIsActive,
         int TotalActiveCount,
         decimal TotalActiveMaterialValue,
         decimal TotalActiveBalance);

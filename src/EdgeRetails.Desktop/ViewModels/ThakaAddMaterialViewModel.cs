@@ -215,7 +215,8 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
                 return 0;
             }
 
-            var baseQuantity = Quantity * SelectedProduct.Product.FactorToBaseUnit;
+            var baseQuantity = SelectedProduct.Product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                ? Quantity : Quantity * SelectedProduct.Product.FactorToBaseUnit;
             if (baseQuantity != decimal.Truncate(baseQuantity) ||
                 baseQuantity > int.MaxValue)
             {

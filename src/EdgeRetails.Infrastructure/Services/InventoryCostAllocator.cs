@@ -46,6 +46,10 @@ public sealed class InventoryCostAllocator : IInventoryCostAllocator
 
             var take = Math.Min(position.Balance.Quantity, remaining);
             take = QuantityMath.RoundQuantity(take);
+            if (take <= 0)
+            {
+                continue;
+            }
             position.Balance.Quantity = QuantityMath.RoundQuantity(
                 position.Balance.Quantity - take);
 
@@ -334,6 +338,11 @@ public sealed class InventoryCostAllocator : IInventoryCostAllocator
 
             var take = QuantityMath.RoundQuantity(
                 Math.Min(position.Balance.Quantity, remaining));
+            if (take <= 0)
+            {
+                continue;
+            }
+
             position.Balance.Quantity = QuantityMath.RoundQuantity(
                 position.Balance.Quantity - take);
 

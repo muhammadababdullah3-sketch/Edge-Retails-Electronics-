@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
@@ -24,6 +25,14 @@ internal static class WarrantyOperationIdentity
 
     public static string Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    public static string ManufacturerIdentity(string? serial, string? imei1, string? imei2) =>
+        System.Text.Json.JsonSerializer.Serialize(new[]
+        {
+            IdentityNormalizationRules.NormalizeOptionalSerialNumber(serial),
+            IdentityNormalizationRules.NormalizeOptionalImei(imei1),
+            IdentityNormalizationRules.NormalizeOptionalImei(imei2)
+        });
 }
 
 public sealed record WarrantyClaimUnitInput
@@ -244,10 +253,28 @@ public sealed class CreateWarrantyClaimHandler
                     "Warranty customer was not found.");
             }
 
+            var sale = await _sales.GetSaleForUpdateAsync(command.OriginalSaleId.Value, ct);
+            if (sale is null || sale.Status != EdgeRetails.Domain.Sales.SaleStatus.Completed)
+            {
+                return Result<Guid>.Failure(
+                    "warranty.sale_not_eligible",
+                    "Original Sale was not found or is not completed.");
+            }
+
+            if (sale.CustomerId is Guid saleCustomerId && saleCustomerId != command.CustomerId)
+            {
+                return Result<Guid>.Failure(
+                    "warranty.customer_sale_mismatch",
+                    "The selected customer does not match the original Sale.");
+            }
+
+            foreach (var productId in command.Items.Select(x => x.ProductId).Distinct().OrderBy(x => x))
+                await _resourceLock.AcquireAsync("product", productId, ct);
             foreach (var saleItemId in command.Items
                 .Select(x => x.OriginalSaleItemId!.Value)
                 .OrderBy(x => x))
             {
+                await _resourceLock.AcquireAsync("sale-item", saleItemId, ct);
                 await _resourceLock.AcquireAsync("warranty-sale-item", saleItemId, ct);
             }
 
@@ -266,22 +293,8 @@ public sealed class CreateWarrantyClaimHandler
 
             foreach (var unitId in submittedUnitIds.OrderBy(x => x))
             {
+                await _resourceLock.AcquireAsync("inventory-unit", unitId, ct);
                 await _resourceLock.AcquireAsync("warranty-unit", unitId, ct);
-            }
-
-            var sale = await _sales.GetSaleForUpdateAsync(command.OriginalSaleId.Value, ct);
-            if (sale is null || sale.Status != EdgeRetails.Domain.Sales.SaleStatus.Completed)
-            {
-                return Result<Guid>.Failure(
-                    "warranty.sale_not_eligible",
-                    "Original Sale was not found or is not completed.");
-            }
-
-            if (sale.CustomerId is Guid saleCustomerId && saleCustomerId != command.CustomerId)
-            {
-                return Result<Guid>.Failure(
-                    "warranty.customer_sale_mismatch",
-                    "The selected customer does not match the original Sale.");
             }
 
             var now = _clock.UtcNow;
@@ -343,8 +356,9 @@ public sealed class CreateWarrantyClaimHandler
 
                 decimal quantity;
                 Guid lineSupplierId;
+                IReadOnlyList<OriginalLotReturnAllocation> sourceAllocations = Array.Empty<OriginalLotReturnAllocation>();
 
-                if (product.TrackingMode == TrackingMode.Serialized)
+                if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
                 {
                     if (!QuantityMath.IsWhole(input.Quantity))
                     {
@@ -354,7 +368,8 @@ public sealed class CreateWarrantyClaimHandler
                     }
 
                     quantity = input.Quantity;
-                    if (input.Units is null || input.Units.Count != decimal.ToInt32(quantity) ||
+                    if (input.Units is null || input.Units.Count == 0 ||
+                        (product.TrackingMode != TrackingMode.Container && input.Units.Count != quantity) ||
                         input.Units.Any(x => x.OriginalInventoryUnitId is null))
                     {
                         return Result<Guid>.Failure(
@@ -364,6 +379,10 @@ public sealed class CreateWarrantyClaimHandler
 
                     var ids = input.Units.Select(x => x.OriginalInventoryUnitId!.Value).ToArray();
                     var soldLinks = await _sales.GetSaleItemUnitsAsync(saleItem.Id, ct);
+                    if (product.TrackingMode == TrackingMode.Container &&
+                        (soldLinks.Count == 0 || quantity != saleItem.BaseQuantity / soldLinks.Count * ids.Length))
+                        return Result<Guid>.Failure("warranty.container_quantity_mismatch",
+                            "Claim quantity must match the original sold pack quantity.");
                     var soldLinkByUnit = soldLinks.ToDictionary(x => x.InventoryUnitId);
                     var returnedIds = await _sales.GetReturnedInventoryUnitIdsAsync(saleItem.Id, ct);
                     var units = await _inventory.GetInventoryUnitsForUpdateAsync(product.Id, ids, ct);
@@ -482,7 +501,11 @@ public sealed class CreateWarrantyClaimHandler
                             $"Requested warranty quantity exceeds eligible remaining quantity ({eligible}).");
                     }
 
-                    var supplierCapacities = await ResolveSaleItemSupplierCapacitiesAsync(saleItem, ct);
+                    IReadOnlyList<SoldSourceCapacity> sourcePositions;
+                    try { sourcePositions = await _sales.GetSoldSourceCapacityForUpdateAsync(saleItem.Id, ct); }
+                    catch (BusinessRuleException ex) { return Result<Guid>.Failure(ex.Code, ex.Message); }
+                    var supplierCapacities = sourcePositions.Where(x => x.SupplierId.HasValue && x.RemainingQuantity > 0m)
+                        .GroupBy(x => x.SupplierId!.Value).ToDictionary(x => x.Key, x => x.Sum(y => y.RemainingQuantity));
                     if (supplierCapacities.Count == 0)
                     {
                         return Result<Guid>.Failure(
@@ -513,6 +536,12 @@ public sealed class CreateWarrantyClaimHandler
                     }
                 }
 
+                if (product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container))
+                {
+                    try { sourceAllocations = SoldSourceAllocationAuthority.Select(await _sales.GetSoldSourceCapacityForUpdateAsync(saleItem.Id, ct), quantity, lineSupplierId); }
+                    catch (BusinessRuleException ex) { return Result<Guid>.Failure(ex.Code, ex.Message); }
+                }
+
                 if (command.SupplierId is Guid explicitSupplier && explicitSupplier != lineSupplierId)
                 {
                     return Result<Guid>.Failure(
@@ -541,8 +570,15 @@ public sealed class CreateWarrantyClaimHandler
                     WarrantyValidUntil = saleItem.WarrantyValidUntil
                 };
                 _warranty.AddClaimItem(item);
+                foreach (var allocation in sourceAllocations)
+                    _sales.AddClaimSourceAllocation(new WarrantyClaimSourceAllocation
+                    {
+                        ClaimItemId = item.Id, SaleConsumptionId = allocation.SaleConsumptionId,
+                        BaseQuantity = allocation.Quantity, ActorId = command.ActorId,
+                        ClientOperationId = command.ClientOperationId, OccurredAt = now
+                    });
 
-                if (product.TrackingMode == TrackingMode.Serialized)
+                if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
                 {
                     var ids = input.Units!.Select(x => x.OriginalInventoryUnitId!.Value).ToArray();
                     var units = await _inventory.GetInventoryUnitsForUpdateAsync(product.Id, ids, ct);
@@ -595,48 +631,6 @@ public sealed class CreateWarrantyClaimHandler
                 result.Error?.Message ?? "Warranty claim creation failed.",
                 actorId: command.ActorId,
                 cancellationToken: cancellationToken);
-        }
-
-        return result;
-    }
-
-    private async Task<IReadOnlyDictionary<Guid, decimal>> ResolveSaleItemSupplierCapacitiesAsync(
-        EdgeRetails.Domain.Sales.SaleItem saleItem,
-        CancellationToken cancellationToken)
-    {
-        var result = new Dictionary<Guid, decimal>();
-        var consumptions = await _inventory.GetMovementLotConsumptionsAsync(
-            saleItem.InventoryMovementId,
-            cancellationToken);
-
-        foreach (var consumption in consumptions)
-        {
-            var lot = await _inventory.GetInventoryLotForUpdateAsync(
-                consumption.LotId,
-                cancellationToken);
-            if (lot?.PurchaseItemId is not Guid purchaseItemId)
-            {
-                continue;
-            }
-
-            var purchaseItem = await _purchases.GetPurchaseItemForUpdateAsync(
-                purchaseItemId,
-                cancellationToken);
-            if (purchaseItem is null)
-            {
-                continue;
-            }
-
-            var purchase = await _purchases.GetPurchaseForUpdateAsync(
-                purchaseItem.PurchaseId,
-                cancellationToken);
-            if (purchase is null)
-            {
-                continue;
-            }
-
-            result[purchase.SupplierId] = QuantityMath.RoundQuantity(
-                result.GetValueOrDefault(purchase.SupplierId) + consumption.Quantity);
         }
 
         return result;
@@ -1432,6 +1426,7 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
 
     public ReceiveCustomerWarrantyReplacementHandler(
         IWarrantyRepository warranty,
@@ -1444,7 +1439,8 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
         IApplicationPermissionAuthorizer authorization,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
     {
         _warranty = warranty;
         _catalog = catalog;
@@ -1457,6 +1453,7 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _physicalUnits = physicalUnitCreationAuthority;
     }
 
     public Task<Result> HandleAsync(
@@ -1485,31 +1482,47 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
-            var replacementPayload = string.Join(";", command.Units
-                .OrderBy(x => x.ClaimItemUnitId)
-                .Select(x => $"{x.ClaimItemUnitId:D}|{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}"));
+            string replacementPayload;
+            try
+            {
+                replacementPayload = System.Text.Json.JsonSerializer.Serialize(command.Units
+                    .OrderBy(x => x.ClaimItemUnitId)
+                    .Select(x => new { x.ClaimItemUnitId, Identity = WarrantyOperationIdentity.ManufacturerIdentity(x.SerialNumber, x.Imei1, x.Imei2) }));
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result.Failure(ex.Code, ex.Message);
+            }
             var payloadHash = WarrantyOperationIdentity.Hash(
                 "CUSTOMER_CLAIM",
                 command.ClaimId.ToString("D"),
                 "CUSTOMER_REPLACEMENT",
                 replacementPayload,
                 WarrantyOperationIdentity.Normalize(command.Note));
-            var existingOperation = await _warranty.GetOperationByClientOperationIdAsync(command.ClientOperationId, ct);
+            var legacyPayloadHash = WarrantyOperationIdentity.Hash("CUSTOMER_CLAIM", command.ClaimId.ToString("D"),
+                "CUSTOMER_REPLACEMENT", string.Join(";", command.Units.OrderBy(x => x.ClaimItemUnitId)
+                    .Select(x => $"{x.ClaimItemUnitId:D}|{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}")),
+                WarrantyOperationIdentity.Normalize(command.Note));
+            var existingOperation = await _warranty.GetOperationForReplayAsync(command.ClientOperationId, ct);
             if (existingOperation is not null)
             {
                 if (existingOperation.OperationType != WarrantyOperationType.CustomerReplacement ||
                     existingOperation.TargetType != "CUSTOMER_CLAIM" ||
-                    existingOperation.TargetId != command.ClaimId ||
-                    existingOperation.PayloadHash != payloadHash)
+                    existingOperation.TargetId != command.ClaimId)
                 {
                     return Result.Failure("payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
+                }
+                if (existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
+                {
+                    return Result.Failure("warranty.replay_reconciliation_required",
+                        "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
                 }
                 return Result.Success();
             }
 
             await _resourceLock.AcquireAsync("warranty-claim", command.ClaimId, ct);
 
-            var claim = await _warranty.GetClaimForUpdateAsync(command.ClaimId, ct);
+            var claim = await _warranty.GetClaimAsync(command.ClaimId, ct);
             if (claim is null)
             {
                 return Result.Failure("warranty.claim_not_found", "Warranty claim was not found.");
@@ -1538,9 +1551,9 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                     "Active Supplier with permanent DealerCode is required for replacement tracking.");
             }
 
-            var claimItems = await _warranty.GetClaimItemsAsync(claim.Id, ct);
+            var claimItems = await _warranty.GetClaimItemsForDiscoveryAsync(claim.Id, ct);
             var claimItemById = claimItems.ToDictionary(x => x.Id);
-            var allClaimUnits = await _warranty.GetClaimUnitsAsync(claim.Id, ct);
+            var allClaimUnits = await _warranty.GetClaimUnitsForDiscoveryAsync(claim.Id, ct);
             var claimUnitById = allClaimUnits.ToDictionary(x => x.Id);
 
             var selectedUnits = new List<(WarrantyClaimItemUnit Link, WarrantyClaimItem Item, CustomerWarrantyReplacementUnitInput Input)>();
@@ -1576,40 +1589,12 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                 await _resourceLock.AcquireAsync("product", productId, ct);
             }
 
-            var products = new Dictionary<Guid, Product>();
-            var supplierProducts = new Dictionary<Guid, SupplierProduct>();
+            var discoveredSelections = selectedUnits.ToDictionary(x => x.Link.Id,
+                x => (ItemId: x.Item.Id, ProductId: x.Item.ProductId, OriginalUnitId: x.Link.OriginalInventoryUnitId));
             foreach (var productId in productIds)
             {
-                var product = await _catalog.GetProductAsync(productId, ct);
-                if (product is null || product.TrackingMode != TrackingMode.Serialized ||
-                    string.IsNullOrWhiteSpace(product.Sku))
-                {
-                    return Result.Failure(
-                        "warranty.replacement_product_not_trackable",
-                        "Customer exact-unit replacement requires an active serialized Product with permanent SKU.");
-                }
-
-                products[productId] = product;
-
-                await _resourceLock.AcquireAsync(
-                    "supplier-product",
-                    $"{supplierId:D}:{productId:D}",
-                    ct);
-
-                var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(
-                    supplierId,
-                    productId,
-                    ct);
-                if (supplierProduct is null || !supplierProduct.IsActive)
-                {
-                    return Result.Failure(
-                        "warranty.supplier_product_missing",
-                        "Active SupplierProduct sequence authority is required for replacement.");
-                }
-
-                supplierProducts[productId] = supplierProduct;
+                await _resourceLock.AcquireAsync("supplier-product", $"{supplierId:D}:{productId:D}", ct);
             }
-
             var originalUnitIds = selectedUnits
                 .Select(x => x.Link.OriginalInventoryUnitId!.Value)
                 .Distinct()
@@ -1637,6 +1622,74 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
             foreach (var identityKey in identityKeys)
             {
                 await _resourceLock.AcquireAsync("inventory-identity", identityKey, ct);
+            }
+
+            claim = await _warranty.GetClaimForUpdateAsync(command.ClaimId, ct);
+            if (claim is null)
+            {
+                return Result.Failure("warranty.claim_not_found", "Warranty claim was not found.");
+            }
+            if (claim.SupplierId != supplierId)
+            {
+                return Result.Failure("warranty.replacement_context_changed_retry", "Warranty Supplier changed; reload the claim before retrying.");
+            }
+            if (claim.Status is not WarrantyClaimStatus.SentToSupplier and not WarrantyClaimStatus.SupplierProcessing)
+            {
+                return Result.Failure("warranty.replacement_wrong_state", "Customer replacement can be received only after the claim was sent to the Supplier.");
+            }
+            claimItems = await _warranty.GetClaimItemsAsync(claim.Id, ct);
+            claimItemById = claimItems.ToDictionary(x => x.Id);
+            allClaimUnits = await _warranty.GetClaimUnitsAsync(claim.Id, ct);
+            claimUnitById = allClaimUnits.ToDictionary(x => x.Id);
+            selectedUnits.Clear();
+            foreach (var input in command.Units)
+            {
+                if (!claimUnitById.TryGetValue(input.ClaimItemUnitId, out var link) ||
+                    !claimItemById.TryGetValue(link.ClaimItemId, out var item) ||
+                    !discoveredSelections.TryGetValue(link.Id, out var discovered) ||
+                    item.Id != discovered.ItemId || item.ProductId != discovered.ProductId ||
+                    link.OriginalInventoryUnitId != discovered.OriginalUnitId)
+                {
+                    return Result.Failure("warranty.replacement_context_changed_retry", "Warranty unit membership changed; reload the claim before retrying.");
+                }
+                selectedUnits.Add((link, item, input));
+            }
+            if (selectedUnits.All(x => x.Link.ReplacementInventoryUnitId is not null))
+            {
+                return Result.Success();
+            }
+            if (selectedUnits.Any(x => x.Link.ReplacementInventoryUnitId is not null))
+            {
+                return Result.Failure("warranty.replacement_partial_replay", "Some selected claim units already have replacements. Reload the claim before retrying.");
+            }
+            var products = new Dictionary<Guid, Product>();
+            var supplierProducts = new Dictionary<Guid, SupplierProduct>();
+            foreach (var productId in productIds)
+            {
+                var product = await _catalog.GetProductForUpdateAsync(productId, ct);
+                if (product is null || product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container) ||
+                    string.IsNullOrWhiteSpace(product.Sku))
+                {
+                    return Result.Failure(
+                        "warranty.replacement_product_not_trackable",
+                        "Customer exact-unit replacement requires an active serialized Product with permanent SKU.");
+                }
+
+                products[productId] = product;
+
+
+                var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(
+                    supplierId,
+                    productId,
+                    ct);
+                if (supplierProduct is null || !supplierProduct.IsActive)
+                {
+                    return Result.Failure(
+                        "warranty.supplier_product_missing",
+                        "Active SupplierProduct sequence authority is required for replacement.");
+                }
+
+                supplierProducts[productId] = supplierProduct;
             }
 
             var originalUnitsById = new Dictionary<Guid, InventoryUnit>();
@@ -1708,65 +1761,52 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                 }
             }
 
-            var nextSequences = supplierProducts.ToDictionary(
-                x => x.Key,
-                x => x.Value.NextItemSequence);
-
             var replacementReferences = new Dictionary<Guid, List<string>>();
-            foreach (var selected in selectedUnits.OrderBy(x => x.Item.ProductId).ThenBy(x => x.Link.Id))
+            if (_physicalUnits is null)
             {
-                var product = products[selected.Item.ProductId];
-                var supplierProduct = supplierProducts[product.Id];
-                var sequence = nextSequences[product.Id];
-                nextSequences[product.Id] = checked(sequence + 1);
+                return Result.Failure(
+                    "inventory.physical_unit_authority_unavailable",
+                    "Physical-unit creation authority is unavailable.");
+            }
 
-                var sku = TraceabilityCodeRules.NormalizeSku(product.Sku!);
-                var trackingCode = TraceabilityCodeRules.BuildTrackingCode(
-                    supplier.DealerCode!,
-                    sku,
-                    sequence);
-
-                var original = originalUnitsById[selected.Link.OriginalInventoryUnitId!.Value];
-                var replacement = new InventoryUnit
+            foreach (var group in selectedUnits
+                .OrderBy(x => x.Item.ProductId)
+                .ThenBy(x => x.Link.Id)
+                .GroupBy(x => x.Item.ProductId))
+            {
+                var ordered = group.ToArray();
+                var entries = ordered.Select(selected =>
                 {
-                    ProductId = product.Id,
-                    SupplierProductId = supplierProduct.Id,
-                    OriginType = InventoryUnitOriginType.WarrantyReplacement,
-                    SourceWarrantyClaimItemId = selected.Item.Id,
-                    ItemSequence = sequence,
-                    TrackingCode = trackingCode,
-                    SupplierCodeSnapshot = supplier.DealerCode,
-                    ProductSkuSnapshot = sku,
-                    SerialNumber = NormalizeSerial(selected.Input.SerialNumber),
-                    Imei1 = NormalizeImei(selected.Input.Imei1),
-                    Imei2 = NormalizeImei(selected.Input.Imei2),
-                    Status = InventoryUnitStatus.WarrantyCustomerHeld,
-                    AcquisitionCost = original.AcquisitionCost,
-                    InventoryLotId = null,
-                    SourcePurchaseItemId = null,
-                    SourceWarrantyCaseId = null,
-                    CreatedAt = _clock.UtcNow
-                };
-
-                _inventory.AddInventoryUnit(replacement);
-                selected.Link.ReplacementInventoryUnitId = replacement.Id;
-                selected.Link.ReplacementIdentitySnapshot = BuildIdentitySnapshot(replacement);
-
-                if (!replacementReferences.TryGetValue(selected.Item.Id, out var refs))
+                    var original = originalUnitsById[selected.Link.OriginalInventoryUnitId!.Value];
+                    return new PhysicalUnitCreationEntry(
+                        selected.Input.SerialNumber,
+                        selected.Input.Imei1,
+                        selected.Input.Imei2,
+                        InventoryUnitStatus.WarrantyCustomerHeld,
+                        original.AcquisitionCost,
+                        null,
+                        InventoryUnitOriginType.WarrantyReplacement,
+                        SourceWarrantyClaimItemId: selected.Item.Id);
+                }).ToArray();
+                var creation = await _physicalUnits.CreateAsync(supplierId, group.Key, entries, ct);
+                if (!creation.IsSuccess || creation.Value is null)
                 {
-                    refs = new List<string>();
-                    replacementReferences[selected.Item.Id] = refs;
+                    return Result.Failure(creation.Error!.Code, creation.Error.Message);
                 }
-                refs.Add(trackingCode);
+                for (var i = 0; i < ordered.Length; i++)
+                {
+                    var selected = ordered[i];
+                    var replacement = creation.Value[i];
+                    selected.Link.ReplacementInventoryUnitId = replacement.Id;
+                    selected.Link.ReplacementIdentitySnapshot = BuildIdentitySnapshot(replacement);
+                    if (!replacementReferences.TryGetValue(selected.Item.Id, out var refs))
+                    {
+                        refs = new List<string>();
+                        replacementReferences[selected.Item.Id] = refs;
+                    }
+                    refs.Add(replacement.TrackingCode!);
+                }
             }
-
-            foreach (var pair in supplierProducts)
-            {
-                pair.Value.NextItemSequence = nextSequences[pair.Key];
-                pair.Value.UpdatedAt = _clock.UtcNow;
-                pair.Value.Version++;
-            }
-
             foreach (var item in claimItems)
             {
                 var itemLinks = allClaimUnits.Where(x => x.ClaimItemId == item.Id).ToArray();
@@ -1968,11 +2008,13 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                     "Warranty Supplier was not found or is inactive.");
             }
 
-            var quantity = product.TrackingMode == TrackingMode.Serialized
+            var quantity = product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container
                 ? command.BaseQuantity
                 : QuantityMath.RoundQuantity(command.BaseQuantity);
 
-            if (product.TrackingMode == TrackingMode.Serialized)
+            IReadOnlyList<InventoryUnit>? units = null;
+            InventoryLot? targetLot = null;
+            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
             {
                 if (!QuantityMath.IsWhole(command.BaseQuantity))
                 {
@@ -1982,7 +2024,8 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                 }
 
                 if (command.InventoryUnitIds is null ||
-                    command.InventoryUnitIds.Count != decimal.ToInt32(quantity) ||
+                    command.InventoryUnitIds.Count == 0 ||
+                    (product.TrackingMode != TrackingMode.Container && command.InventoryUnitIds.Count != quantity) ||
                     command.InventoryUnitIds.Distinct().Count() != command.InventoryUnitIds.Count)
                 {
                     return Result<Guid>.Failure(
@@ -1995,7 +2038,7 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                     await _resourceLock.AcquireAsync("warranty-unit", unitId, ct);
                 }
 
-                var units = await _inventory.GetInventoryUnitsForUpdateAsync(
+                units = await _inventory.GetInventoryUnitsForUpdateAsync(
                     product.Id,
                     command.InventoryUnitIds,
                     ct);
@@ -2024,6 +2067,15 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                             "warranty.wrong_supplier",
                             "Selected physical unit does not belong to the requested Supplier provenance.");
                     }
+                }
+                if (product.TrackingMode == TrackingMode.Container)
+                {
+                    decimal selectedQuantity = 0m;
+                    foreach (var unit in units)
+                        selectedQuantity += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                    if (selectedQuantity != quantity)
+                        return Result<Guid>.Failure("warranty.container_quantity_mismatch",
+                            "Warranty quantity must match the original physical pack quantities.");
                 }
             }
             else
@@ -2059,6 +2111,19 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                         "warranty.wrong_supplier",
                         "Source purchase Supplier does not match the requested warranty Supplier.");
                 }
+
+                var lotPositions = await _inventory.GetPurchaseItemLotPositionsForUpdateAsync(
+                    sourceItem.Id,
+                    command.SourceBucket,
+                    ct);
+                var lotPosition = lotPositions.FirstOrDefault();
+                if (lotPosition is null || lotPosition.Balance.Quantity < quantity)
+                {
+                    return Result<Guid>.Failure(
+                        "warranty.source_capacity_exceeded",
+                        "Selected source lot has insufficient quantity in the requested bucket.");
+                }
+                targetLot = lotPosition.Lot;
             }
 
             var payloadHash = WarrantyOperationIdentity.Hash(
@@ -2092,7 +2157,7 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                 ProductId = command.ProductId,
                 BaseQuantity = quantity,
                 SupplierId = command.SupplierId,
-                SourcePurchaseItemId = command.SourcePurchaseItemId,
+                SourcePurchaseItemId = units is not null ? null : command.SourcePurchaseItemId,
                 FaultDescription = command.FaultDescription.Trim(),
                 Status = ShopWarrantyCaseStatus.Open,
                 CreatedAt = now,
@@ -2112,12 +2177,66 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                     "SHOP_WARRANTY",
                     warrantyCase.Id,
                     command.InventoryUnitIds,
-                    InventoryMovementType.SendToSupplierWarranty),
+                    InventoryMovementType.SendToSupplierWarranty,
+                    TargetLotId: targetLot?.Id,
+                    CorrelationId: command.ClientOperationId),
                 ct);
 
             if (!transfer.IsSuccess)
             {
                 return Result<Guid>.Failure(transfer.Error!.Code, transfer.Error.Message);
+            }
+
+            if (targetLot is not null)
+            {
+                var costState = await _inventory.GetCostStateForUpdateAsync(command.ProductId, ct);
+                var sendTimeMwa = costState is not null && costState.CostedQty > 0
+                    ? Cost(costState.TotalInventoryCost / costState.CostedQty)
+                    : targetLot.OriginalUnitCost;
+                var sendTimeCarrying = Cost(sendTimeMwa * quantity);
+
+                _warranty.AddShopWarrantySendAllocation(new ShopWarrantySendAllocation
+                {
+                    CaseId = warrantyCase.Id,
+                    OriginalInventoryLotId = targetLot.Id,
+                    SendMovementId = transfer.Value,
+                    BaseQuantity = quantity,
+                    SourceUnitCostSnapshot = targetLot.OriginalUnitCost,
+                    SendTimeMwaUnitCostSnapshot = sendTimeMwa,
+                    SendTimeCarryingValueSnapshot = sendTimeCarrying,
+                    ClientOperationId = command.ClientOperationId,
+                    ActorId = command.ActorId,
+                    OccurredAt = now
+                });
+            }
+            else if (units is not null)
+            {
+                var costState = await _inventory.GetCostStateForUpdateAsync(command.ProductId, ct);
+                foreach (var unitGroup in units.GroupBy(u => u.InventoryLotId!.Value).OrderBy(x => x.Key))
+                {
+                    decimal groupQty = 0m;
+                    foreach (var u in unitGroup)
+                    {
+                        groupQty += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(u, ct);
+                    }
+                    var lot = await _inventory.GetInventoryLotForUpdateAsync(unitGroup.Key, ct);
+                    var sendTimeMwa = costState is not null && costState.CostedQty > 0
+                        ? Cost(costState.TotalInventoryCost / costState.CostedQty)
+                        : (lot?.OriginalUnitCost ?? 0m);
+                    _warranty.AddShopWarrantySendAllocation(new ShopWarrantySendAllocation
+                    {
+                        CaseId = warrantyCase.Id,
+                        OriginalInventoryLotId = unitGroup.Key,
+                        SendMovementId = transfer.Value,
+                        BaseQuantity = groupQty,
+                        SourceUnitCostSnapshot = lot?.OriginalUnitCost ?? 0m,
+                        SendTimeMwaUnitCostSnapshot = sendTimeMwa,
+                        SendTimeCarryingValueSnapshot = Cost(sendTimeMwa * groupQty),
+                        ClientOperationId = command.ClientOperationId,
+                        ActorId = command.ActorId,
+                        OccurredAt = now
+                    });
+                }
             }
 
             warrantyCase.Status = ShopWarrantyCaseStatus.WithSupplier;
@@ -2147,6 +2266,12 @@ public sealed class SendShopStockToSupplierWarrantyHandler
             return Result<Guid>.Success(warrantyCase.Id);
         }, cancellationToken);
     }
+
+    private static decimal Money(decimal value) =>
+        decimal.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static decimal Cost(decimal value) =>
+        decimal.Round(value, 6, MidpointRounding.AwayFromZero);
 }
 
 public sealed record ReplacementSerializedUnitInput(
@@ -2163,7 +2288,8 @@ public sealed record ReceiveShopStockWarrantyCommand(
     string? Note,
     Guid ClientOperationId,
     decimal? SupplierCreditAmount = null,
-    string? SupplierReference = null);
+    string? SupplierReference = null,
+    decimal? ResolvedQuantity = null);
 
 public sealed class ReceiveShopStockWarrantyHandler
 {
@@ -2183,6 +2309,7 @@ public sealed class ReceiveShopStockWarrantyHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
 
     public ReceiveShopStockWarrantyHandler(
         ICatalogRepository catalog,
@@ -2200,7 +2327,8 @@ public sealed class ReceiveShopStockWarrantyHandler
         IBusinessAuditWriter audit,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -2218,6 +2346,7 @@ public sealed class ReceiveShopStockWarrantyHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _physicalUnits = physicalUnitCreationAuthority;
     }
 
     public Task<Result> HandleAsync(
@@ -2251,6 +2380,13 @@ public sealed class ReceiveShopStockWarrantyHandler
             return Task.FromResult(Result.Failure(
                 "warranty.credit_input_required",
                 "Warranty credit requires ClientOperationId and a positive SupplierCreditAmount."));
+        }
+
+        if (command.ResolvedQuantity is <= 0m)
+        {
+            return Task.FromResult(Result.Failure(
+                "validation.resolved_quantity_invalid",
+                "Resolved quantity must be greater than zero."));
         }
 
         return _transactions.ExecuteAsync(async ct =>
@@ -2287,26 +2423,47 @@ public sealed class ReceiveShopStockWarrantyHandler
                 WarrantyResolutionType.Credited => WarrantyOperationType.ShopSupplierCredit,
                 _ => throw new BusinessRuleException("warranty.shop_resolution_invalid", "Unsupported shop warranty resolution.")
             };
+            string replacementPayload;
+            try
+            {
+                replacementPayload = System.Text.Json.JsonSerializer.Serialize(
+                    (command.ReplacementUnits ?? Array.Empty<ReplacementSerializedUnitInput>())
+                        .Select(x => WarrantyOperationIdentity.ManufacturerIdentity(x.SerialNumber, x.Imei1, x.Imei2)));
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result.Failure(ex.Code, ex.Message);
+            }
             var payloadHash = WarrantyOperationIdentity.Hash(
                 "SHOP_STOCK",
                 "RECEIVE",
                 command.CaseId.ToString("D"),
                 command.Resolution.ToString(),
                 string.Join(",", (command.OriginalInventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).Select(x => x.ToString("D"))),
-                string.Join(";", (command.ReplacementUnits ?? Array.Empty<ReplacementSerializedUnitInput>()).Select(x =>
-                    $"{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}")),
+                replacementPayload,
                 WarrantyOperationIdentity.Normalize(command.Note),
                 command.SupplierCreditAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                WarrantyOperationIdentity.Normalize(command.SupplierReference),
+                command.ResolvedQuantity?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var legacyPayloadHash = WarrantyOperationIdentity.Hash("SHOP_STOCK", "RECEIVE", command.CaseId.ToString("D"),
+                command.Resolution.ToString(), string.Join(",", (command.OriginalInventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).Select(x => x.ToString("D"))),
+                string.Join(";", (command.ReplacementUnits ?? Array.Empty<ReplacementSerializedUnitInput>()).Select(x =>
+                    $"{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}")),
+                WarrantyOperationIdentity.Normalize(command.Note), command.SupplierCreditAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 WarrantyOperationIdentity.Normalize(command.SupplierReference));
-            var existingOperation = await _warranty.GetOperationByClientOperationIdAsync(command.ClientOperationId, ct);
+            var existingOperation = await _warranty.GetOperationForReplayAsync(command.ClientOperationId, ct);
             if (existingOperation is not null)
             {
                 if (existingOperation.OperationType != operationType ||
                     existingOperation.TargetType != "SHOP_STOCK" ||
-                    existingOperation.TargetId != command.CaseId ||
-                    existingOperation.PayloadHash != payloadHash)
+                    existingOperation.TargetId != command.CaseId)
                 {
                     return Result.Failure("payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
+                }
+                if (existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
+                {
+                    return Result.Failure("warranty.replay_reconciliation_required",
+                        "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
                 }
                 return Result.Success();
             }
@@ -2314,16 +2471,8 @@ public sealed class ReceiveShopStockWarrantyHandler
             await _resourceLock.AcquireAsync("warranty-case", command.CaseId, ct);
             await _resourceLock.AcquireAsync("product", preview.ProductId, ct);
 
-            var product = await _catalog.GetProductAsync(preview.ProductId, ct);
-            if (product is null)
-            {
-                return Result.Failure(
-                    "catalog.product_not_found",
-                    "Warranty product was not found.");
-            }
+            if (command.Resolution == WarrantyResolutionType.Replaced)
 
-            if (command.Resolution == WarrantyResolutionType.Replaced &&
-                product.TrackingMode == TrackingMode.Serialized)
             {
                 await _resourceLock.AcquireAsync(
                     "supplier-product",
@@ -2376,6 +2525,15 @@ public sealed class ReceiveShopStockWarrantyHandler
                     "Shop warranty case was not found.");
             }
 
+            if (warrantyCase.ProductId != preview.ProductId || warrantyCase.SupplierId != preview.SupplierId)
+            {
+                return Result.Failure("warranty.shop_context_changed_retry", "Warranty Product or Supplier changed; reload the case before retrying.");
+            }
+            var product = await _catalog.GetProductForUpdateAsync(preview.ProductId, ct);
+            if (product is null)
+            {
+                return Result.Failure("catalog.product_not_found", "Warranty product was not found.");
+            }
             if (warrantyCase.Status == ShopWarrantyCaseStatus.Closed &&
                 command.ClientOperationId is Guid replayId &&
                 warrantyCase.ResolutionClientOperationId == replayId)
@@ -2390,34 +2548,138 @@ public sealed class ReceiveShopStockWarrantyHandler
                     "Warranty case is not currently with the Supplier.");
             }
 
-            if (product.TrackingMode == TrackingMode.Serialized || (command.OriginalInventoryUnitIds is { Count: > 0 }))
+            if (product.TrackingMode is TrackingMode.Quantity or TrackingMode.Length &&
+                command.OriginalInventoryUnitIds is { Count: > 0 })
             {
-                var sentUnitIds = await _inventory.GetMovementUnitIdsByReferenceAsync(
-                    "SHOP_WARRANTY",
-                    warrantyCase.Id,
-                    ct);
-
-                if (sentUnitIds.Count > 0)
-                {
-                    var sentSet = sentUnitIds.ToHashSet();
-                    if (command.OriginalInventoryUnitIds is null ||
-                        command.OriginalInventoryUnitIds.Count != sentUnitIds.Count ||
-                        command.OriginalInventoryUnitIds.Any(id => !sentSet.Contains(id)))
-                    {
-                        return Result.Failure(
-                            "warranty.case_unit_mismatch",
-                            "One or more units were not sent for this warranty case.");
-                    }
-                }
+                return Result.Failure(
+                    "warranty.units_not_allowed",
+                    "Quantity/length warranty does not accept exact InventoryUnit IDs.");
             }
 
+            var sends = await _warranty.GetShopWarrantySendAllocationsByCaseIdAsync(warrantyCase.Id, ct);
+            var resolutions = await _warranty.GetShopWarrantyResolutionAllocationsByCaseIdAsync(warrantyCase.Id, ct);
+            var exact = product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container;
+            if (sends.Any(x => x.CaseId != warrantyCase.Id || x.BaseQuantity <= 0m) ||
+                resolutions.Any(x => x.ResolvedBaseQuantity <= 0m || !sends.Any(a => a.Id == x.SendAllocationId)) ||
+                sends.Any(x => resolutions.Where(r => r.SendAllocationId == x.Id).Sum(r => r.ResolvedBaseQuantity) > x.BaseQuantity) ||
+                (sends.Count > 0 && sends.Sum(x => x.BaseQuantity) != warrantyCase.BaseQuantity) ||
+                (!exact && sends.Count > 1))
+            {
+                return Result.Failure("warranty.source_evidence_invalid", "Warranty source allocation evidence is missing or inconsistent.");
+            }
+
+            var remaining = QuantityMath.RoundQuantity((sends.Count == 0 ? warrantyCase.BaseQuantity : sends.Sum(x => x.BaseQuantity)) - resolutions.Sum(x => x.ResolvedBaseQuantity));
+            var groups = new List<ResolutionSource>();
+            decimal resolvedQuantity;
+            if (exact)
+            {
+                var links = sends.Count > 0
+                    ? await _warranty.GetShopWarrantyMovementUnitsAsync(warrantyCase.Id, ct)
+                    : Array.Empty<InventoryMovementUnit>();
+                var sentLinks = links.Where(x => sends.Any(a => a.SendMovementId == x.MovementId) && x.ToStatus == InventoryUnitStatus.WithSupplier).ToArray();
+                var resolvedLinks = links.Where(x => resolutions.Any(a => a.ResolutionMovementId == x.MovementId) && x.FromStatus == InventoryUnitStatus.WithSupplier).ToArray();
+                if (sends.Count == 0)
+                {
+                    var evidence = await _inventory.GetMovementsByReferenceAsync("SHOP_WARRANTY", warrantyCase.Id, ct);
+                    var graphResult = await ValidateLegacyExactGraphAsync(warrantyCase, product, evidence, ct);
+                    if (!graphResult.IsSuccess)
+                    {
+                        return Result.Failure(graphResult.Error!.Code, graphResult.Error.Message);
+                    }
+                    sentLinks = evidence.Where(x => x.Movement.MovementType == InventoryMovementType.SendToSupplierWarranty)
+                        .SelectMany(x => x.Units).ToArray();
+                    resolvedLinks = evidence.Where(x => IsShopResolutionMovement(x.Movement.MovementType))
+                        .SelectMany(x => x.Units).Where(x => x.FromStatus == InventoryUnitStatus.WithSupplier).ToArray();
+                    remaining = graphResult.Value;
+                }
+                var sentIds = sentLinks.Select(x => x.InventoryUnitId).ToHashSet();
+                var resolvedIds = resolvedLinks.Select(x => x.InventoryUnitId).ToHashSet();
+                var selected = command.OriginalInventoryUnitIds;
+                if (sentIds.Count != sentLinks.Length || resolvedIds.Count != resolvedLinks.Length ||
+                    !resolvedIds.IsSubsetOf(sentIds) || selected is null || selected.Count == 0 ||
+                    selected.Distinct().Count() != selected.Count || selected.Any(x => !sentIds.Contains(x) || resolvedIds.Contains(x)))
+                {
+                    return Result.Failure("warranty.case_unit_mismatch", "Selected identities must be distinct unresolved originals sent in this warranty case.");
+                }
+                var units = await _inventory.GetInventoryUnitsForUpdateAsync(product.Id, selected, ct);
+                if (units.Count != selected.Count || units.Any(x => x.ProductId != product.Id || x.Status != InventoryUnitStatus.WithSupplier || x.InventoryLotId is null))
+                {
+                    return Result.Failure("warranty.case_unit_mismatch", "Selected identities no longer match warranty custody and provenance.");
+                }
+                foreach (var unit in units.OrderBy(x => x.Id))
+                {
+                    if (unit.SupplierProductId is not Guid supplierProductId)
+                    {
+                        return Result.Failure("warranty.supplier_provenance_missing", "Original physical unit Supplier provenance is missing.");
+                    }
+                    var supplierProduct = await _traceability.GetSupplierProductByIdForUpdateAsync(supplierProductId, ct);
+                    if (supplierProduct is null || supplierProduct.ProductId != product.Id || supplierProduct.SupplierId != warrantyCase.SupplierId)
+                    {
+                        return Result.Failure("warranty.wrong_supplier", "Original physical unit Supplier provenance does not match the case.");
+                    }
+                    var link = sentLinks.Single(x => x.InventoryUnitId == unit.Id);
+                    var sources = sends.Where(x => x.SendMovementId == link.MovementId && x.OriginalInventoryLotId == unit.InventoryLotId).ToArray();
+                    if (sends.Count > 0 && sources.Length != 1)
+                    {
+                        return Result.Failure("warranty.source_evidence_invalid", "Original identity source allocation is ambiguous.");
+                    }
+                    var physicalQuantity = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                    if (physicalQuantity <= 0m || (product.TrackingMode != TrackingMode.Container && physicalQuantity != 1m))
+                    {
+                        return Result.Failure("warranty.source_evidence_invalid", "Original physical quantity evidence is invalid.");
+                    }
+                    var source = sources.SingleOrDefault();
+                    var group = groups.SingleOrDefault(x => source is not null
+                        ? x.Send?.Id == source.Id
+                        : x.Send is null && x.SourceLotId == unit.InventoryLotId && x.SendMovementId == link.MovementId);
+                    if (group is null)
+                    {
+                        group = new ResolutionSource(source, unit.InventoryLotId!.Value, link.MovementId);
+                        groups.Add(group);
+                    }
+                    group.UnitIds.Add(unit.Id);
+                    group.Quantity += physicalQuantity;
+                    group.ExactCarrying += Cost(physicalQuantity * (unit.AcquisitionCost / physicalQuantity));
+                }
+                groups = groups.OrderBy(x => x.SourceLotId).ThenBy(x => x.SendMovementId).ThenBy(x => x.Send?.Id).ToList();
+                resolvedQuantity = groups.Sum(x => x.Quantity);
+                if (command.ResolvedQuantity is decimal explicitQuantity && explicitQuantity != resolvedQuantity)
+                {
+                    return Result.Failure("warranty.resolved_quantity_mismatch", "Resolved quantity must equal selected original physical quantity.");
+                }
+                if (groups.Any(x => x.Send is { } send && x.Quantity > send.BaseQuantity - resolutions.Where(r => r.SendAllocationId == send.Id).Sum(r => r.ResolvedBaseQuantity)))
+                {
+                    return Result.Failure("warranty.resolution_quantity_exceeds_remaining", "Selected quantity exceeds original source remaining quantity.");
+                }
+            }
+            else
+            {
+                resolvedQuantity = command.ResolvedQuantity is decimal quantity ? QuantityMath.RoundQuantity(quantity) : remaining;
+                if (sends.Count == 1)
+                {
+                    groups.Add(new ResolutionSource(sends[0]) { Quantity = resolvedQuantity });
+                }
+            }
+            if (resolvedQuantity <= 0m)
+            {
+                return Result.Failure("validation.resolved_quantity_invalid", "Resolved quantity must be greater than zero.");
+            }
+            if (remaining <= 0m || resolvedQuantity > remaining)
+            {
+                return Result.Failure("warranty.resolution_quantity_exceeds_remaining", "Resolution quantity exceeds remaining unresolved quantity.");
+            }
+            var sendAllocation = exact ? null : sends.SingleOrDefault();
+
+
             if (command.Resolution == WarrantyResolutionType.Replaced &&
-                product.TrackingMode == TrackingMode.Serialized)
+                product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
             {
                 var replacementResult = await ReceiveSerializedReplacementAsync(
                     warrantyCase,
                     product,
                     command,
+                    groups,
+                    resolvedQuantity,
                     ct);
 
                 if (!replacementResult.IsSuccess)
@@ -2431,6 +2693,8 @@ public sealed class ReceiveShopStockWarrantyHandler
                     warrantyCase,
                     product,
                     command,
+                    groups,
+                    resolvedQuantity,
                     ct);
 
                 if (!creditResult.IsSuccess)
@@ -2462,37 +2726,87 @@ public sealed class ReceiveShopStockWarrantyHandler
                     _ => InventoryMovementType.ReceiveRepairedFromSupplier
                 };
 
+                decimal? mwaBeforeScrap = null;
+                if (command.Resolution == WarrantyResolutionType.Scrapped && !exact)
+                {
+                    var costState = await _inventory.GetCostStateForUpdateAsync(product.Id, ct);
+                    mwaBeforeScrap = costState is not null && costState.CostedQty > 0
+                        ? Cost(costState.TotalInventoryCost / costState.CostedQty)
+                        : 0m;
+                }
+
                 var transfer = await _conditions.TransferAsync(
                     new TransferInventoryConditionCommand(
                         product.Id,
                         InventoryBucket.WithSupplier,
                         destination,
-                        warrantyCase.BaseQuantity,
+                        resolvedQuantity,
                         command.ActorId,
                         $"SUPPLIER_WARRANTY_{command.Resolution.ToString().ToUpperInvariant()}",
                         command.Note,
                         "SHOP_WARRANTY",
                         warrantyCase.Id,
                         command.OriginalInventoryUnitIds,
-                        movementType),
+                        movementType,
+                        TargetLotId: sendAllocation?.OriginalInventoryLotId,
+                        CorrelationId: command.ClientOperationId),
                     ct);
 
                 if (!transfer.IsSuccess)
                 {
                     return Result.Failure(transfer.Error!.Code, transfer.Error.Message);
                 }
+
+                foreach (var group in groups)
+                {
+                    var actualCarrying = command.Resolution == WarrantyResolutionType.Scrapped
+                        ? (exact ? group.ExactCarrying : Cost((mwaBeforeScrap ?? 0m) * group.Quantity)) : 0m;
+                    if (command.Resolution == WarrantyResolutionType.Scrapped)
+                    {
+                        warrantyCase.InventoryCarryingCostResolved = (warrantyCase.InventoryCarryingCostResolved ?? 0m) + actualCarrying;
+                        warrantyCase.RecoveryDifference = (warrantyCase.RecoveryDifference ?? 0m) - actualCarrying;
+                    }
+                    if (group.Send is null)
+                    {
+                        continue;
+                    }
+                    _warranty.AddShopWarrantyResolutionAllocation(new ShopWarrantyResolutionAllocation
+                    {
+                        SendAllocationId = group.Send.Id,
+                        ResolutionMovementId = transfer.Value,
+                        ResolvedBaseQuantity = group.Quantity,
+                        ResolutionOutcome = command.Resolution,
+                        // The legacy-named column requires a forensic per-base ratio for both valuation modes.
+                        ResolutionTimeMwaUnitCostSnapshot = command.Resolution == WarrantyResolutionType.Scrapped
+                            ? (exact ? Cost(actualCarrying / group.Quantity) : mwaBeforeScrap) : null,
+                        ActualResolvedCarryingValue = actualCarrying,
+                        ClientOperationId = command.ClientOperationId,
+                        ActorId = command.ActorId,
+                        OccurredAt = _clock.UtcNow
+                    });
+                }
             }
 
+            var now = _clock.UtcNow;
+            var remainingAfter = QuantityMath.RoundQuantity(remaining - resolvedQuantity);
             warrantyCase.ResolutionType = command.Resolution;
             warrantyCase.SupplierReference = NormalizeNullable(command.SupplierReference)
                 ?? warrantyCase.SupplierReference;
-            warrantyCase.ReceivedAt = _clock.UtcNow;
-            warrantyCase.ClosedAt = _clock.UtcNow;
-            warrantyCase.Status = command.Resolution == WarrantyResolutionType.Scrapped
-                ? ShopWarrantyCaseStatus.WrittenOff
-                : ShopWarrantyCaseStatus.Closed;
-            warrantyCase.ResolutionClientOperationId = command.ClientOperationId;
+            warrantyCase.ReceivedAt = now;
             warrantyCase.Version++;
+
+            if (remainingAfter == 0m)
+            {
+                warrantyCase.ClosedAt = now;
+                warrantyCase.Status = command.Resolution == WarrantyResolutionType.Scrapped
+                    ? ShopWarrantyCaseStatus.WrittenOff
+                    : ShopWarrantyCaseStatus.Closed;
+                warrantyCase.ResolutionClientOperationId = command.ClientOperationId;
+            }
+            else
+            {
+                warrantyCase.Status = ShopWarrantyCaseStatus.WithSupplier;
+            }
 
             _warranty.AddOperation(new WarrantyOperation
             {
@@ -2503,7 +2817,7 @@ public sealed class ReceiveShopStockWarrantyHandler
                 ActorId = command.ActorId,
                 PayloadHash = payloadHash,
                 ResultId = warrantyCase.Id,
-                OccurredAt = warrantyCase.ReceivedAt!.Value
+                OccurredAt = now
             });
 
             _audit.Record(
@@ -2514,7 +2828,7 @@ public sealed class ReceiveShopStockWarrantyHandler
                 warrantyCase.Id,
                 command.ActorId,
                 command.ClientOperationId,
-                $"Case {warrantyCase.CaseNumber}; resolution={command.Resolution}; supplier={warrantyCase.SupplierId:D}.");
+                $"Case {warrantyCase.CaseNumber}; resolution={command.Resolution}; supplier={warrantyCase.SupplierId:D}; qty={resolvedQuantity}; remaining={remainingAfter}.");
 
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
@@ -2525,15 +2839,18 @@ public sealed class ReceiveShopStockWarrantyHandler
         ShopStockWarrantyCase warrantyCase,
         Product product,
         ReceiveShopStockWarrantyCommand command,
+        IReadOnlyList<ResolutionSource> groups,
+        decimal resolvedQuantity,
         CancellationToken cancellationToken)
     {
-        var quantity = warrantyCase.BaseQuantity;
+        var quantity = resolvedQuantity;
         if (!QuantityMath.IsWhole(quantity) ||
             command.OriginalInventoryUnitIds is null ||
-            command.OriginalInventoryUnitIds.Count != decimal.ToInt32(quantity) ||
+            command.OriginalInventoryUnitIds.Count == 0 ||
+            (product.TrackingMode != TrackingMode.Container && command.OriginalInventoryUnitIds.Count != quantity) ||
             command.OriginalInventoryUnitIds.Distinct().Count() != command.OriginalInventoryUnitIds.Count ||
             command.ReplacementUnits is null ||
-            command.ReplacementUnits.Count != decimal.ToInt32(quantity))
+            command.ReplacementUnits.Count != command.OriginalInventoryUnitIds.Count)
         {
             return Result.Failure(
                 "warranty.serialized_replacement_count",
@@ -2601,6 +2918,15 @@ public sealed class ReceiveShopStockWarrantyHandler
                     "Original unit Supplier does not match the warranty case Supplier.");
             }
         }
+        if (product.TrackingMode == TrackingMode.Container)
+        {
+            decimal originalQuantity = 0m;
+            foreach (var oldUnit in oldUnits)
+                originalQuantity += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(oldUnit, cancellationToken);
+            if (originalQuantity != quantity)
+                return Result.Failure("warranty.container_quantity_mismatch",
+                    "Replacement quantity must match the original physical pack quantities.");
+        }
 
         var seenSerials = new HashSet<string>(StringComparer.Ordinal);
         var seenImeis = new HashSet<string>(StringComparer.Ordinal);
@@ -2662,12 +2988,10 @@ public sealed class ReceiveShopStockWarrantyHandler
         var beforeWithSupplier = balance.WithSupplierQty;
         var beforeSellable = balance.SellableQty;
         balance.Transfer(InventoryBucket.WithSupplier, InventoryBucket.Sellable, quantity);
-        await _costAllocator.TransferBucketAsync(
-            product.Id,
-            InventoryBucket.WithSupplier,
-            InventoryBucket.Sellable,
-            quantity,
-            cancellationToken);
+        var lotTransfer = await ExactUnitLotTransfer.TransferAsync(_inventory, oldUnits,
+            InventoryBucket.WithSupplier, InventoryBucket.Sellable, cancellationToken);
+        if (!lotTransfer.IsSuccess)
+            return lotTransfer;
 
         var movement = new InventoryMovement
         {
@@ -2700,20 +3024,43 @@ public sealed class ReceiveShopStockWarrantyHandler
             QuantityAfter = balance.SellableQty
         });
 
-        var sku = TraceabilityCodeRules.NormalizeSku(product.Sku!);
-        var firstSequence = supplierProduct.NextItemSequence;
-        supplierProduct.NextItemSequence = checked(firstSequence + oldUnits.Count);
-        supplierProduct.UpdatedAt = _clock.UtcNow;
-        supplierProduct.Version++;
+        if (_physicalUnits is null)
+        {
+            return Result.Failure(
+                "inventory.physical_unit_authority_unavailable",
+                "Physical-unit creation authority is unavailable.");
+        }
 
         var orderedOldUnits = oldUnits.OrderBy(x => x.Id).ToArray();
+        var entries = orderedOldUnits.Select((oldUnit, index) =>
+        {
+            var input = command.ReplacementUnits[index];
+            return new PhysicalUnitCreationEntry(
+                input.SerialNumber,
+                input.Imei1,
+                input.Imei2,
+                InventoryUnitStatus.InStock,
+                oldUnit.AcquisitionCost,
+                oldUnit.InventoryLotId,
+                InventoryUnitOriginType.WarrantyReplacement,
+                SourceWarrantyCaseId: warrantyCase.Id);
+        }).ToArray();
+        var creation = await _physicalUnits.CreateAsync(
+            warrantyCase.SupplierId,
+            product.Id,
+            entries,
+            cancellationToken);
+        if (!creation.IsSuccess || creation.Value is null)
+        {
+            return Result.Failure(creation.Error!.Code, creation.Error.Message);
+        }
+
         for (var index = 0; index < orderedOldUnits.Length; index++)
         {
             var oldUnit = orderedOldUnits[index];
             var from = oldUnit.Status;
             oldUnit.Status = InventoryUnitStatus.SupplierReturned;
             oldUnit.Version++;
-
             _inventory.AddMovementUnit(new InventoryMovementUnit
             {
                 MovementId = movement.Id,
@@ -2722,41 +3069,33 @@ public sealed class ReceiveShopStockWarrantyHandler
                 ToStatus = oldUnit.Status
             });
 
-            var input = command.ReplacementUnits[index];
-            var itemSequence = checked(firstSequence + index);
-            var trackingCode = TraceabilityCodeRules.BuildTrackingCode(
-                supplier.DealerCode!,
-                sku,
-                itemSequence);
-
-            var replacement = new InventoryUnit
-            {
-                ProductId = product.Id,
-                SupplierProductId = supplierProduct.Id,
-                OriginType = InventoryUnitOriginType.WarrantyReplacement,
-                SourceWarrantyClaimItemId = null,
-                SourceWarrantyCaseId = warrantyCase.Id,
-                SourcePurchaseItemId = null,
-                ItemSequence = itemSequence,
-                TrackingCode = trackingCode,
-                SupplierCodeSnapshot = supplier.DealerCode,
-                ProductSkuSnapshot = sku,
-                SerialNumber = NormalizeSerial(input.SerialNumber),
-                Imei1 = NormalizeImei(input.Imei1),
-                Imei2 = NormalizeImei(input.Imei2),
-                Status = InventoryUnitStatus.InStock,
-                AcquisitionCost = oldUnit.AcquisitionCost,
-                InventoryLotId = oldUnit.InventoryLotId,
-                CreatedAt = _clock.UtcNow
-            };
-
-            _inventory.AddInventoryUnit(replacement);
+            var replacement = creation.Value[index];
             _inventory.AddMovementUnit(new InventoryMovementUnit
             {
                 MovementId = movement.Id,
                 InventoryUnitId = replacement.Id,
                 FromStatus = null,
                 ToStatus = InventoryUnitStatus.InStock
+            });
+        }
+
+        foreach (var group in groups)
+        {
+            if (group.Send is null)
+            {
+                continue;
+            }
+            _warranty.AddShopWarrantyResolutionAllocation(new ShopWarrantyResolutionAllocation
+            {
+                SendAllocationId = group.Send.Id,
+                ResolutionMovementId = movement.Id,
+                ResolvedBaseQuantity = group.Quantity,
+                ResolutionOutcome = WarrantyResolutionType.Replaced,
+                ActualResolvedCarryingValue = 0m,
+                ReplacementInventoryLotId = group.SourceLotId,
+                ClientOperationId = command.ClientOperationId,
+                ActorId = command.ActorId,
+                OccurredAt = _clock.UtcNow
             });
         }
 
@@ -2767,11 +3106,16 @@ public sealed class ReceiveShopStockWarrantyHandler
         ShopStockWarrantyCase warrantyCase,
         Product product,
         ReceiveShopStockWarrantyCommand command,
+        IReadOnlyList<ResolutionSource> groups,
+        decimal resolvedQuantity,
         CancellationToken cancellationToken)
     {
+        var sendAllocation = groups.Count == 1 ? groups[0].Send : null;
+        var exact = product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container;
+        var carryingBySource = new Dictionary<ResolutionSource, decimal>();
         var operationId = command.ClientOperationId;
         var supplierCredit = Money(command.SupplierCreditAmount!.Value);
-        var quantity = warrantyCase.BaseQuantity;
+        var quantity = resolvedQuantity;
 
         var balance = await _inventory.GetStockBalanceForUpdateAsync(product.Id, cancellationToken);
         if (balance is null || balance.WithSupplierQty < quantity)
@@ -2798,11 +3142,12 @@ public sealed class ReceiveShopStockWarrantyHandler
         var before = balance.WithSupplierQty;
         decimal carryingCostRemoved;
 
-        if (product.TrackingMode == TrackingMode.Serialized)
+        if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
         {
             if (!QuantityMath.IsWhole(quantity) ||
                 command.OriginalInventoryUnitIds is null ||
-                command.OriginalInventoryUnitIds.Count != decimal.ToInt32(quantity) ||
+                command.OriginalInventoryUnitIds.Count == 0 ||
+                (product.TrackingMode != TrackingMode.Container && command.OriginalInventoryUnitIds.Count != quantity) ||
                 command.OriginalInventoryUnitIds.Distinct().Count() != command.OriginalInventoryUnitIds.Count)
             {
                 return Result.Failure(
@@ -2824,35 +3169,46 @@ public sealed class ReceiveShopStockWarrantyHandler
             }
 
             carryingCostRemoved = 0m;
+            var quantities = new Dictionary<Guid, decimal>();
+            foreach (var unit in units)
+            {
+                quantities[unit.Id] = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, cancellationToken);
+            }
+            if (quantities.Values.Sum() != quantity)
+            {
+                return Result.Failure("warranty.container_quantity_mismatch",
+                    "Credit quantity must match the original physical quantities.");
+            }
             foreach (var unit in units.OrderBy(x => x.Id))
             {
+                var basePerUnit = quantities[unit.Id];
                 var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
                     unit.InventoryLotId!.Value,
                     InventoryBucket.WithSupplier,
                     cancellationToken);
-                if (lotBalance is null || lotBalance.Quantity < 1m)
+                if (lotBalance is null || lotBalance.Quantity < basePerUnit)
                 {
                     return Result.Failure(
                         "warranty.credit_lot_insufficient",
                         "A warranty unit no longer has recoverable WITH_SUPPLIER lot quantity.");
                 }
 
-                lotBalance.Quantity = QuantityMath.RoundQuantity(lotBalance.Quantity - 1m);
+                lotBalance.Quantity = QuantityMath.RoundQuantity(lotBalance.Quantity - basePerUnit);
                 _inventory.AddLotConsumption(new InventoryLotConsumption
                 {
                     LotId = unit.InventoryLotId.Value,
                     MovementId = movement.Id,
-                    Quantity = 1m,
-                    UnitCostSnapshot = unit.AcquisitionCost,
+                    Quantity = basePerUnit,
+                    UnitCostSnapshot = unit.AcquisitionCost / basePerUnit,
                     TotalCostSnapshot = unit.AcquisitionCost,
                     OccurredAt = _clock.UtcNow
                 });
 
-                carryingCostRemoved += await _costAllocator.RemoveCarryingValueAsync(
-                    product.Id,
-                    1m,
-                    unit.AcquisitionCost,
-                    cancellationToken);
+                var actualRemoved = await _costAllocator.RemoveCarryingValueAsync(
+                    product.Id, basePerUnit, unit.AcquisitionCost / basePerUnit, cancellationToken);
+                carryingCostRemoved += actualRemoved;
+                var source = groups.Single(x => x.UnitIds.Contains(unit.Id));
+                carryingBySource[source] = carryingBySource.GetValueOrDefault(source) + actualRemoved;
 
                 var from = unit.Status;
                 unit.Status = InventoryUnitStatus.SupplierReturned;
@@ -2875,14 +3231,46 @@ public sealed class ReceiveShopStockWarrantyHandler
                     "Quantity/length warranty credit must not submit exact InventoryUnit identities.");
             }
 
-            var unitCost = await _costAllocator.GetCurrentUnitCostAsync(product.Id, cancellationToken) ?? 0m;
-            await _costAllocator.ConsumeBucketAsync(
-                product.Id,
-                InventoryBucket.WithSupplier,
-                quantity,
-                movement.Id,
-                unitCost,
-                cancellationToken);
+            var costState = await _inventory.GetCostStateForUpdateAsync(product.Id, cancellationToken);
+            var currentMwa = costState is not null && costState.CostedQty > 0
+                ? Cost(costState.TotalInventoryCost / costState.CostedQty)
+                : 0m;
+
+            if (sendAllocation is not null)
+            {
+                var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
+                    sendAllocation.OriginalInventoryLotId,
+                    InventoryBucket.WithSupplier,
+                    cancellationToken);
+                if (lotBalance is null || lotBalance.Quantity < quantity)
+                {
+                    return Result.Failure(
+                        "warranty.credit_lot_insufficient",
+                        "A warranty unit no longer has recoverable WITH_SUPPLIER lot quantity.");
+                }
+
+                lotBalance.Quantity = QuantityMath.RoundQuantity(lotBalance.Quantity - quantity);
+                _inventory.AddLotConsumption(new InventoryLotConsumption
+                {
+                    LotId = sendAllocation.OriginalInventoryLotId,
+                    MovementId = movement.Id,
+                    Quantity = quantity,
+                    UnitCostSnapshot = currentMwa,
+                    TotalCostSnapshot = decimal.Round(currentMwa * quantity, 6, MidpointRounding.AwayFromZero),
+                    OccurredAt = _clock.UtcNow
+                });
+            }
+            else
+            {
+                await _costAllocator.ConsumeBucketAsync(
+                    product.Id,
+                    InventoryBucket.WithSupplier,
+                    quantity,
+                    movement.Id,
+                    currentMwa,
+                    cancellationToken);
+            }
+
             carryingCostRemoved = await _costAllocator.RemoveCarryingValueAsync(
                 product.Id,
                 quantity,
@@ -2917,8 +3305,9 @@ public sealed class ReceiveShopStockWarrantyHandler
             EntryType = SupplierAccountEntryType.WarrantyCredit,
             Direction = SupplierAccountDirection.DecreasePayable,
             Amount = supplierCredit,
-            ReferenceType = "WarrantyCase",
-            ReferenceId = warrantyCase.Id,
+            // The real immutable resolution movement is the resolution source identity for this credit.
+            ReferenceType = "WarrantyResolution",
+            ReferenceId = movement.Id,
             OccurredAt = _clock.UtcNow,
             ActorId = command.ActorId,
             ClientOperationId = operationId,
@@ -2928,11 +3317,154 @@ public sealed class ReceiveShopStockWarrantyHandler
         accountEntry.ValidateDirection();
         _supplierAccounts.AddEntry(accountEntry);
 
-        warrantyCase.InventoryCarryingCostResolved = carryingCostRemoved;
-        warrantyCase.SupplierCreditAmount = supplierCredit;
-        warrantyCase.RecoveryDifference = recoveryDifference;
+        warrantyCase.InventoryCarryingCostResolved = (warrantyCase.InventoryCarryingCostResolved ?? 0m) + carryingCostRemoved;
+        warrantyCase.SupplierCreditAmount = (warrantyCase.SupplierCreditAmount ?? 0m) + supplierCredit;
+        warrantyCase.RecoveryDifference = (warrantyCase.RecoveryDifference ?? 0m) + recoveryDifference;
+
+        decimal cumulativeQuantity = 0m;
+        decimal allocatedCredit = 0m;
+        foreach (var group in groups)
+        {
+            cumulativeQuantity += group.Quantity;
+            var cumulativeCredit = cumulativeQuantity == quantity ? supplierCredit : Money(supplierCredit * cumulativeQuantity / quantity);
+            var groupCredit = cumulativeCredit - allocatedCredit;
+            allocatedCredit = cumulativeCredit;
+            var groupCarrying = exact ? Cost(carryingBySource[group]) : carryingCostRemoved;
+            if (group.Send is null)
+            {
+                continue;
+            }
+            _warranty.AddShopWarrantyResolutionAllocation(new ShopWarrantyResolutionAllocation
+            {
+                SendAllocationId = group.Send.Id,
+                ResolutionMovementId = movement.Id,
+                ResolvedBaseQuantity = group.Quantity,
+                ResolutionOutcome = WarrantyResolutionType.Credited,
+                // For exact units this is the actual carrying ratio, not product MWA valuation.
+                ResolutionTimeMwaUnitCostSnapshot = Cost(groupCarrying / group.Quantity),
+                ActualResolvedCarryingValue = groupCarrying,
+                SupplierCreditAmount = groupCredit,
+                ClientOperationId = command.ClientOperationId,
+                ActorId = command.ActorId,
+                OccurredAt = _clock.UtcNow
+            });
+        }
 
         return Result.Success();
+    }
+
+    private async Task<Result<decimal>> ValidateLegacyExactGraphAsync(
+        ShopStockWarrantyCase warrantyCase,
+        Product product,
+        IReadOnlyList<InventoryMovementEvidence> evidence,
+        CancellationToken cancellationToken)
+    {
+        var sends = evidence.Where(x => x.Movement.MovementType == InventoryMovementType.SendToSupplierWarranty).ToArray();
+        var resolutions = evidence.Where(x => IsShopResolutionMovement(x.Movement.MovementType)).ToArray();
+        var sentLinks = sends.SelectMany(x => x.Units).ToArray();
+        var resolvedLinks = resolutions.SelectMany(x => x.Units)
+            .Where(x => x.FromStatus == InventoryUnitStatus.WithSupplier).ToArray();
+        var sentIds = sentLinks.Select(x => x.InventoryUnitId).ToHashSet();
+        var resolvedIds = resolvedLinks.Select(x => x.InventoryUnitId).ToHashSet();
+        if (sends.Length == 0 || sentLinks.Length == 0 || sentLinks.Length != sentIds.Count ||
+            resolvedLinks.Length != resolvedIds.Count || !resolvedIds.IsSubsetOf(sentIds) ||
+            evidence.Any(x => x.Movement.ProductId != product.Id ||
+                x.Movement.ReferenceType != "SHOP_WARRANTY" || x.Movement.ReferenceId != warrantyCase.Id) ||
+            sends.Any(x => x.Units.Any(u => u.MovementId != x.Movement.Id ||
+                u.ToStatus != InventoryUnitStatus.WithSupplier ||
+                u.FromStatus is not (InventoryUnitStatus.Damaged or InventoryUnitStatus.Defective))))
+        {
+            return Result<decimal>.Failure("warranty.source_evidence_invalid", "Legacy exact warranty requires a complete unambiguous immutable send graph.");
+        }
+
+        var originals = await _inventory.GetInventoryUnitsForUpdateAsync(product.Id, sentIds.ToArray(), cancellationToken);
+        if (originals.Count != sentIds.Count || originals.Any(x => x.ProductId != product.Id ||
+            x.InventoryLotId is null ||
+            (!resolvedIds.Contains(x.Id) && x.Status != InventoryUnitStatus.WithSupplier)))
+        {
+            return Result<decimal>.Failure("warranty.source_evidence_invalid", "Legacy original identities lack source provenance or unresolved custody.");
+        }
+
+        var quantities = new Dictionary<Guid, decimal>();
+        foreach (var original in originals.OrderBy(x => x.Id))
+        {
+            var lot = await _inventory.GetInventoryLotForUpdateAsync(original.InventoryLotId!.Value, cancellationToken);
+            var supplierProduct = original.SupplierProductId is Guid supplierProductId
+                ? await _traceability.GetSupplierProductByIdForUpdateAsync(supplierProductId, cancellationToken)
+                : null;
+            var quantity = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(original, cancellationToken);
+            if (lot is null || lot.ProductId != product.Id ||
+                (original.SourcePurchaseItemId is Guid sourcePurchaseItemId && lot.PurchaseItemId != sourcePurchaseItemId) ||
+                supplierProduct is null || supplierProduct.ProductId != product.Id || supplierProduct.SupplierId != warrantyCase.SupplierId ||
+                quantity <= 0m || (product.TrackingMode != TrackingMode.Container && quantity != 1m))
+            {
+                return Result<decimal>.Failure("warranty.source_evidence_invalid", "Legacy original physical source evidence does not match the case.");
+            }
+            quantities.Add(original.Id, quantity);
+        }
+
+        if (quantities.Values.Sum() != warrantyCase.BaseQuantity ||
+            sends.Any(x => x.Effects.Where(e => e.MovementId == x.Movement.Id && e.StockBucket == InventoryBucket.WithSupplier)
+                .Sum(e => e.QuantityDelta) != x.Units.Sum(u => quantities[u.InventoryUnitId])))
+        {
+            return Result<decimal>.Failure("warranty.source_evidence_invalid", "Legacy send physical quantities and immutable effects do not cover the case.");
+        }
+
+        foreach (var resolution in resolutions)
+        {
+            var expectedStatus = resolution.Movement.MovementType switch
+            {
+                InventoryMovementType.ReceiveRepairedFromSupplier => InventoryUnitStatus.InStock,
+                InventoryMovementType.WarrantyRejectedReturn => InventoryUnitStatus.Defective,
+                InventoryMovementType.WriteOffToScrap => InventoryUnitStatus.Scrapped,
+                _ => InventoryUnitStatus.SupplierReturned
+            };
+            var originalLinks = resolution.Units.Where(x => x.FromStatus == InventoryUnitStatus.WithSupplier).ToArray();
+            if (originalLinks.Length == 0 || resolution.Units.Any(x => x.MovementId != resolution.Movement.Id ||
+                (x.FromStatus == InventoryUnitStatus.WithSupplier
+                    ? x.ToStatus != expectedStatus
+                    : resolution.Movement.MovementType != InventoryMovementType.ReceiveReplacementFromSupplier ||
+                      x.FromStatus is not null || x.ToStatus != InventoryUnitStatus.InStock)) ||
+                resolution.Effects.Where(x => x.MovementId == resolution.Movement.Id && x.StockBucket == InventoryBucket.WithSupplier)
+                    .Sum(x => x.QuantityDelta) != -originalLinks.Sum(x => quantities[x.InventoryUnitId]))
+            {
+                return Result<decimal>.Failure("warranty.source_evidence_invalid", "Legacy resolution original identities and effects are inconsistent.");
+            }
+        }
+
+        var remaining = QuantityMath.RoundQuantity(warrantyCase.BaseQuantity - resolvedIds.Sum(x => quantities[x]));
+        if (remaining <= 0m)
+        {
+            return Result<decimal>.Failure("warranty.resolution_quantity_exceeds_remaining", "Legacy warranty case has no unresolved physical quantity.");
+        }
+        return Result<decimal>.Success(remaining);
+    }
+
+    private static bool IsShopResolutionMovement(InventoryMovementType movementType) =>
+        movementType is InventoryMovementType.ReceiveRepairedFromSupplier or
+            InventoryMovementType.ReceiveReplacementFromSupplier or InventoryMovementType.WarrantyRejectedReturn or
+            InventoryMovementType.WriteOffToScrap or InventoryMovementType.WarrantyCreditResolution;
+
+    private sealed class ResolutionSource
+    {
+        public ResolutionSource(ShopWarrantySendAllocation send)
+            : this(send, send.OriginalInventoryLotId, send.SendMovementId)
+        {
+        }
+
+        public ResolutionSource(ShopWarrantySendAllocation? send, Guid sourceLotId, Guid sendMovementId)
+        {
+            Send = send;
+            SourceLotId = sourceLotId;
+            SendMovementId = sendMovementId;
+        }
+
+        public ShopWarrantySendAllocation? Send { get; }
+        public Guid SourceLotId { get; }
+        public Guid SendMovementId { get; }
+        public decimal Quantity { get; set; }
+        public decimal ExactCarrying { get; set; }
+        public HashSet<Guid> UnitIds { get; } = new();
     }
 
     private static decimal Money(decimal value) =>

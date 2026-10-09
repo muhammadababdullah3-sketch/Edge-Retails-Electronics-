@@ -9,7 +9,7 @@
     d:DataContext="{d:DesignInstance Type=viewModels:NewThakaViewModel, IsDesignTimeCreatable=True}"
     Width="480"
     MaxWidth="480"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <Border Padding="24"
             Background="{DynamicResource Brush.Surface.Raised}"
@@ -175,7 +175,7 @@
                     Margin="0,20,0,0"
                     Padding="0,16,0,0"
                     BorderBrush="{DynamicResource Brush.Border.Default}"
-                    BorderThickness="0,1,0,0">
+                    BorderThickness="0,1,0,0" CornerRadius="0">
                 <StackPanel Orientation="Horizontal"
                             HorizontalAlignment="Right">
                     <Button Width="92"

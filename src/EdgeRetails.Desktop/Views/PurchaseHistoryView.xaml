@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
-    Background="{DynamicResource Brush.App.Background}">
+    Background="{DynamicResource Brush.App.Background}" Foreground="{DynamicResource Brush.Text.Primary}">
     <Grid>
         <ContentControl Content="{Binding CurrentNewPurchase}"
                         Visibility="{Binding IsNewPurchaseActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -33,28 +33,21 @@
                                       Tone="Info" IconGeometry="{StaticResource Icon.Nav.Inventory}" />
                 </Grid>
                 <Border Style="{StaticResource Card.Default}" Margin="0,0,0,14">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="300" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="200" />
-                        </Grid.ColumnDefinitions>
-                        <controls:SearchBox Grid.Column="0" IsCompact="True"
+                    <WrapPanel>
+                        <controls:SearchBox Width="300" Margin="0,0,12,6" IsCompact="True"
                             Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                             Placeholder="Search invoice or supplier..." />
-                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,12,6">
                             <Button Content="Today" Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="Today" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
                             <Button Content="This Week" Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="ThisWeek" Style="{StaticResource Button.Neutral}" Margin="0,0,6,0" />
                             <Button Content="This Month" Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="ThisMonth" Style="{StaticResource Button.Neutral}" />
-                        </StackPanel>                        <ComboBox Grid.Column="4" ItemsSource="{Binding Suppliers}"
+                        </StackPanel>                        <ComboBox Width="200" Margin="0,0,0,6" ItemsSource="{Binding Suppliers}"
                                   SelectedItem="{Binding SelectedSupplier, Mode=TwoWay}"
                                   Height="35" VerticalContentAlignment="Center" />
-                    </Grid>
+                    </WrapPanel>
                 </Border>
                 <Border Background="{DynamicResource Brush.Surface.Default}"
                         BorderBrush="{DynamicResource Brush.Border.Default}"
@@ -68,7 +61,8 @@
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True">
-                            <DataGrid.Columns>
+                            <DataGrid.RowStyle><Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}"><Setter Property="controls:OpenOnClick.Command" Value="{Binding DataContext.ViewPurchaseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/><Setter Property="controls:OpenOnClick.CommandParameter" Value="{Binding}"/></Style></DataGrid.RowStyle>
+<DataGrid.Columns>
                                 <DataGridTextColumn Header="PURCHASE" Binding="{Binding PurchaseNumber}" Width="120" />
                                 <DataGridTextColumn Header="DATE" Binding="{Binding DateDisplay}" Width="140" />
                                 <DataGridTextColumn Header="SUPPLIER" Binding="{Binding Supplier}" Width="2*" />
@@ -82,7 +76,7 @@
                                 <DataGridTemplateColumn Header="ACTION" Width="120">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Button Content="View" Style="{StaticResource Button.Text.Primary}"
+                                            <Button Content="View" Style="{StaticResource Button.Text.Borderless}"
                                                     Command="{Binding DataContext.ViewPurchaseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}" />
                                         </DataTemplate>

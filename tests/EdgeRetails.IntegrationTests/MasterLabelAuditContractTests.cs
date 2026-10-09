@@ -86,6 +86,72 @@ public sealed class MasterLabelAuditContractTests
         finally { DeleteOwned(root); }
     }
 
+    // NEW_COVERAGE: the same receipt cannot change event family, and concurrent
+    // sink instances must check and append under the same file lease.
+    [Fact]
+    public async Task ConcurrentAuthenticatedReceiptReplayPreservesFirstRecordAndRejectsChangedEvent()
+    {
+        var root = Directory.CreateTempSubdirectory("edge-label-audit-").FullName;
+        var path = Path.Combine(root, "audit.jsonl");
+        try
+        {
+            var record = new ProductionAuditRecord("DOCUMENT_PRINTED", DateTimeOffset.UtcNow,
+                "ProductUnitLabel", Guid.NewGuid().ToString("D"), "WorkstationReportedSubmission=True", Guid.NewGuid().ToString("D"));
+            await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => new FileProductionAuditSink(path, new KeyProvider()).AppendAsync(record)));
+            var original = await File.ReadAllTextAsync(path);
+            Assert.Single(await File.ReadAllLinesAsync(path));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new FileProductionAuditSink(path, new KeyProvider())
+                .AppendAsync(record with { EventType = "DOCUMENT_PRINT_FAILED" }));
+            Assert.Equal(original, await File.ReadAllTextAsync(path));
+        }
+        finally { DeleteOwned(root); }
+    }
+
+    [Fact]
+    public async Task AuthenticatedReceiptReplayRejectsTamperedHistoryWithoutAppending()
+    {
+        var root = Directory.CreateTempSubdirectory("edge-label-audit-").FullName;
+        var path = Path.Combine(root, "audit.jsonl");
+        try
+        {
+            var record = new ProductionAuditRecord("DOCUMENT_PRINTED", DateTimeOffset.UtcNow,
+                "PhysicalItemSticker", Guid.NewGuid().ToString("D"), "WorkstationReportedSubmission=True", Guid.NewGuid().ToString("D"));
+            await new FileProductionAuditSink(path, new KeyProvider()).AppendAsync(record);
+            var tampered = (await File.ReadAllTextAsync(path)).Replace("Submission=True", "Submission=False", StringComparison.Ordinal);
+            await File.WriteAllTextAsync(path, tampered);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new FileProductionAuditSink(path, new KeyProvider()).AppendAsync(record));
+            Assert.Equal(tampered, await File.ReadAllTextAsync(path));
+        }
+        finally { DeleteOwned(root); }
+    }
+
+    [Fact]
+    public async Task AuditKeyFailureCannotFallBackToPlaintext()
+    {
+        var root = Directory.CreateTempSubdirectory("edge-label-audit-").FullName;
+        var path = Path.Combine(root, "audit.jsonl");
+        try
+        {
+            var record = new ProductionAuditRecord("DOCUMENT_PRINTED", DateTimeOffset.UtcNow,
+                "PhysicalItemSticker", Guid.NewGuid().ToString("D"), "unchanged", Guid.NewGuid().ToString("D"));
+            await Assert.ThrowsAsync<IOException>(() => new FileProductionAuditSink(path, new FailingKeyProvider()).AppendAsync(record));
+            Assert.Empty(await File.ReadAllTextAsync(path));
+        }
+        finally { DeleteOwned(root); }
+    }
+
+    private sealed class KeyProvider : IProductionMaintenanceIntegrityKeyProvider
+    {
+        public Task<byte[]> GetIntegrityKeyAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(Enumerable.Range(1, 32).Select(x => (byte)x).ToArray());
+    }
+
+    private sealed class FailingKeyProvider : IProductionMaintenanceIntegrityKeyProvider
+    {
+        public Task<byte[]> GetIntegrityKeyAsync(CancellationToken cancellationToken = default)
+            => Task.FromException<byte[]>(new IOException("Owned key failure"));
+    }
+
     private static void DeleteOwned(string root)
     {
         if (!Path.GetFullPath(root).StartsWith(Path.Combine(Path.GetTempPath(), "edge-label-audit-"), StringComparison.OrdinalIgnoreCase))

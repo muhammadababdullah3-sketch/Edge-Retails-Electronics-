@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using EdgeRetails.Desktop.Services;
 
@@ -30,11 +31,7 @@ public partial class ModalHost : UserControl
                     return;
                 }
 
-                ModalPresenter.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
-                if (!ModalPresenter.IsKeyboardFocusWithin)
-                {
-                    ModalPresenter.Focus();
-                }
+                FocusFirstContentControl();
             }));
         }
         else
@@ -76,9 +73,39 @@ public partial class ModalHost : UserControl
             {
                 if (IsVisible && !IsKeyboardFocusWithin)
                 {
-                    ModalPresenter.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                    FocusFirstContentControl();
                 }
             }));
         }
+    }
+
+    private void FocusFirstContentControl()
+    {
+        ModalPresenter.UpdateLayout();
+        var control = FindFocusableControl(ModalPresenter);
+        if (control is not null)
+        {
+            Keyboard.Focus(control);
+        }
+    }
+
+    private static Control? FindFocusableControl(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Control { Focusable: true, IsTabStop: true, IsEnabled: true, IsVisible: true } control)
+            {
+                return control;
+            }
+
+            var descendant = FindFocusableControl(child);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 }

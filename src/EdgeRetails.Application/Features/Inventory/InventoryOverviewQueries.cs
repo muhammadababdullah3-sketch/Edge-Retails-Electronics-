@@ -19,7 +19,8 @@ public sealed record InventoryStockRowDto(
     decimal? LastPurchaseCost,
     decimal DefaultSalePrice,
     decimal MinimumStockLevel,
-    bool IsSerialized);
+    bool IsSerialized,
+    EdgeRetails.Domain.Catalog.TrackingMode TrackingMode = EdgeRetails.Domain.Catalog.TrackingMode.Quantity);
 
 public sealed record InventoryMovementRowDto(
     Guid MovementId,
@@ -39,7 +40,9 @@ public sealed record InventoryMovementRowDto(
     string? Brand = null,
     int PageSize = 200,
     string? BeforeName = null,
-    Guid? BeforeProductId = null);
+    Guid? BeforeProductId = null,
+    Guid? ProductId = null,
+    bool IncludeInactive = false);
 
 public interface IInventoryOverviewReadService
 {

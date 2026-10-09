@@ -21,6 +21,8 @@ using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 using Xunit;
 
 namespace EdgeRetails.IntegrationTests;
@@ -30,24 +32,21 @@ public sealed class Phase4MultiTerminalConcurrencyTests
 {
     #region Test Provider & License Double Infrastructure
 
-    private static ServiceProvider BuildProvider(int maxTerminals = 2)
+    private static ServiceProvider BuildProvider(int maxTerminals = 2, string? ownedConnection = null)
     {
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
-        }
-
-        var services = new ServiceCollection();
-        services.AddEdgeRetailsInfrastructure(connectionString);
-
         var licenseStore = new TestLicenseStore();
         var licenseValidator = new TestLicenseValidator(maxTerminals);
         var licenseService = new RuntimeLicenseService(licenseStore, licenseValidator);
-        services.AddSingleton(licenseService);
-
-        return services.BuildServiceProvider();
+        return Phase2PostgresTestHarness.BuildProvider(configure: services =>
+        {
+            services.AddSingleton(licenseService);
+            if (ownedConnection is not null)
+            {
+                services.RemoveAll<EdgeRetailsDbContext>();
+                services.AddScoped(_ => new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
+                    .UseNpgsql(ownedConnection, pg => pg.MigrationsHistoryTable("__ef_migrations_history", "system")).Options));
+            }
+        });
     }
 
     private sealed class TestLicenseStore : ILicenseStore
@@ -91,7 +90,11 @@ public sealed class Phase4MultiTerminalConcurrencyTests
     public async Task Race01_ConcurrentTerminalRegistration_RacingAgainstMaxTerminalsQuota_AllowsExactQuotaCapacity()
     {
         // Quota is set to exactly 2 terminals. Terminal 1 is already registered and active.
-        await using var provider = BuildProvider(maxTerminals: 2);
+        // HARNESS_CORRECTION: quota is global to one database. Earlier fixture
+        // terminals must not consume this test's capacity; the two racing tasks,
+        // exact quota and all original assertions remain unchanged.
+        await using var quotaDatabase = await OwnedQuotaDatabase.CreateAsync();
+        await using var provider = BuildProvider(maxTerminals: 2, ownedConnection: quotaDatabase.ConnectionString);
         await using var setupScope = provider.CreateAsyncScope();
         var setupDb = setupScope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
 
@@ -175,6 +178,51 @@ public sealed class Phase4MultiTerminalConcurrencyTests
     }
 
     #endregion
+
+    private sealed class OwnedQuotaDatabase(string name, NpgsqlConnection admin, string connectionString) : IAsyncDisposable
+    {
+        public string ConnectionString { get; } = connectionString;
+
+        public static async Task<OwnedQuotaDatabase> CreateAsync()
+        {
+            // Attestation verifies the endpoint's data directory belongs to this runner.
+            await using var attested = Phase2PostgresTestHarness.BuildProvider();
+            var builder = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            var name = "edge_retails_terminal_quota_" + Guid.NewGuid().ToString("N");
+            builder.Database = "postgres";
+            var admin = new NpgsqlConnection(builder.ConnectionString);
+            try
+            {
+                await admin.OpenAsync();
+                await using var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin);
+                await create.ExecuteNonQueryAsync();
+            }
+            catch { await admin.DisposeAsync(); throw; }
+            builder.Database = name;
+            var fixture = new OwnedQuotaDatabase(name, admin, builder.ConnectionString);
+            try
+            {
+                await using var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
+                    .UseNpgsql(fixture.ConnectionString, pg => pg.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
+                await db.Database.MigrateAsync();
+                return fixture;
+            }
+            catch { await fixture.DisposeAsync(); throw; }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                if (!name.StartsWith("edge_retails_terminal_quota_", StringComparison.Ordinal) ||
+                    !Guid.TryParseExact(name["edge_retails_terminal_quota_".Length..], "N", out _))
+                { throw new InvalidOperationException("Quota fixture cleanup target escaped its generated database authority."); }
+                await using var drop = new NpgsqlCommand($"DROP DATABASE {name} WITH (FORCE)", admin);
+                await drop.ExecuteNonQueryAsync();
+            }
+            finally { await admin.DisposeAsync(); }
+        }
+    }
 
     #region Race 2: Concurrent Serialized Sales Competing for Last Unit (Exactly 1 Winner)
 

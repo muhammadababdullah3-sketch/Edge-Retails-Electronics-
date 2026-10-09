@@ -9,7 +9,7 @@
     xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
     mc:Ignorable="d"
     d:DataContext="{d:DesignInstance Type=viewModels:SalesHistoryViewModel}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -37,15 +37,18 @@
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="PillBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
+                        
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-        </Style>
+        <Style.Triggers>
+ <MultiDataTrigger><MultiDataTrigger.Conditions><Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/><Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="False"/></MultiDataTrigger.Conditions><Setter Property="Background" Value="{DynamicResource Brush.Hover.Subtle}"/><Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Hover}"/></MultiDataTrigger>
+ <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"><Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}"/><Setter Property="Foreground" Value="{StaticResource Brush.White}"/><Setter Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}"/></DataTrigger>
+ <Trigger Property="IsPressed" Value="True"><Setter Property="Background" Value="{DynamicResource Brush.Selection.Subtle}"/><Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/></Trigger>
+ <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}"/></Trigger>
+ <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
+ </Style.Triggers>
+ </Style>
     </UserControl.Resources>
 
     <Grid Background="{DynamicResource Brush.App.Background}">
@@ -188,72 +191,32 @@
                         <!-- Right: Date Filter Pill Buttons -->
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <!-- Today Pill -->
-                            <Button Content="Today"
+                            <Button Content="Today" Tag="{Binding IsTodaySelected}"
                                     Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="Today">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsTodaySelected}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
-                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}"/></Button.Style>
                             </Button>
 
                             <!-- Yesterday Pill -->
-                            <Button Content="Yesterday"
+                            <Button Content="Yesterday" Tag="{Binding IsYesterdaySelected}"
                                     Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="Yesterday">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsYesterdaySelected}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
-                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}"/></Button.Style>
                             </Button>
 
                             <!-- This Week Pill -->
-                            <Button Content="This Week"
+                            <Button Content="This Week" Tag="{Binding IsThisWeekSelected}"
                                     Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="ThisWeek">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsThisWeekSelected}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
-                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}"/></Button.Style>
                             </Button>
 
                             <!-- This Month Pill -->
-                            <Button Content="This Month"
+                            <Button Content="This Month" Tag="{Binding IsThisMonthSelected}"
                                     Command="{Binding SelectPeriodCommand}"
                                     CommandParameter="ThisMonth"
                                     Margin="0">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsThisMonthSelected}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
-                                                <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Transparent}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Button.FilterPill}"/></Button.Style>
                             </Button>
                         </StackPanel>
                     </Grid>
@@ -278,23 +241,26 @@
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True">
-                            <DataGrid.Columns>
+                            <DataGrid.RowStyle><Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}"><Setter Property="controls:OpenOnClick.Command" Value="{Binding DataContext.ViewInvoiceCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/><Setter Property="controls:OpenOnClick.CommandParameter" Value="{Binding}"/></Style></DataGrid.RowStyle>
+<DataGrid.Columns>
                                 <!-- Invoice # -->
                                 <DataGridTextColumn Header="INVOICE #"
                                                     Binding="{Binding InvoiceDisplay}"
+                                                    MinWidth="110"
                                                     Width="110">
                                     <DataGridTextColumn.ElementStyle>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
                                             <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
                                             <Setter Property="FontSize" Value="13.5" />
                                             <Setter Property="FontWeight" Value="Bold" />
-                                            <Setter Property="Foreground" Value="{StaticResource Brush.Brand.Primary}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Badge.Brand.Text}" />
                                         </Style>
                                     </DataGridTextColumn.ElementStyle>
                                 </DataGridTextColumn>
 
                                 <!-- Date & Time -->
                                 <DataGridTextColumn Header="DATE &amp; TIME"
+                                                    MinWidth="155"
                                                     Binding="{Binding DateTimeDisplay}"
                                                     Width="2*">
                                     <DataGridTextColumn.ElementStyle>
@@ -306,7 +272,7 @@
                                 </DataGridTextColumn>
 
                                 <!-- Customer -->
-                                <DataGridTemplateColumn Header="CUSTOMER" Width="2.2*">
+                                <DataGridTemplateColumn Header="CUSTOMER" Width="2.2*" MinWidth="170">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding CustomerDisplay}"
@@ -319,6 +285,7 @@
 
                                 <!-- Items Count -->
                                 <DataGridTextColumn Header="ITEMS"
+                                                    MinWidth="80"
                                                     Binding="{Binding ItemsCountDisplay}"
                                                     HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
                                                     ElementStyle="{StaticResource Table.TextCell.Numeric}"
@@ -326,6 +293,7 @@
 
                                 <!-- Payment Method -->
                                 <DataGridTextColumn Header="PAYMENT"
+                                                    MinWidth="100"
                                                     Binding="{Binding PaymentMethod}"
                                                     Width="1.3*">
                                     <DataGridTextColumn.ElementStyle>
@@ -338,13 +306,14 @@
 
                                 <!-- Total Amount -->
                                 <DataGridTextColumn Header="TOTAL AMOUNT"
+                                                    MinWidth="140"
                                                     Binding="{Binding TotalAmountDisplay}"
                                                     HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
                                                     ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"
                                                     Width="1.5*" />
 
                                 <!-- Status Badge (PAID / PARTIAL / REFUNDED) -->
-                                <DataGridTemplateColumn Header="STATUS" Width="130">
+                                <DataGridTemplateColumn Header="STATUS" Width="130" MinWidth="130">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <controls:StatusBadge Text="{Binding Status}"
@@ -355,7 +324,7 @@
                                 </DataGridTemplateColumn>
 
                                 <!-- Action (View Invoice) -->
-                                <DataGridTemplateColumn Header="ACTION" Width="120">
+                                <DataGridTemplateColumn Header="ACTION" Width="120" MinWidth="120">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Button Content="View Invoice"

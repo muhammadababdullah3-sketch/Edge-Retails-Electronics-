@@ -37,6 +37,10 @@ public sealed class PosViewModel : ViewModelBase
     private string _searchText = string.Empty;
     private CancellationTokenSource? _catalogSearchCts;
     private long _catalogSearchVersion;
+    private string? _afterCatalogName;
+    private Guid? _afterCatalogId;
+    private bool _hasMoreCatalogProducts;
+    private int _isLoadingMoreCatalog;
     private string _selectedCategory = "All";
     private string _selectedBrand = "All";
     private CustomerDirectoryRecord? _selectedCustomer;
@@ -131,6 +135,8 @@ public sealed class PosViewModel : ViewModelBase
         HoldDraftCommand = new RelayCommand(async () => await SaveDraftAsync(holdAfterSave: true),
             () => CartItems.Count > 0 && !_draftSaveOutcomeUncertain && Volatile.Read(ref _draftSaveInFlight) == 0);
         RecentDraftsCommand = new RelayCommand(OpenRecentDrafts);
+        LoadMoreCatalogCommand = new RelayCommand(async () => await LoadMoreCatalogAsync(),
+            () => HasMoreCatalogProducts && _isLoadingMoreCatalog == 0);
 
         // Sales terminal starts with a clean, empty cart ready for new transactions
         CartItems.Clear();
@@ -194,6 +200,10 @@ public sealed class PosViewModel : ViewModelBase
             if (SetProperty(ref _selectedCategory, value))
             {
                 ApplyFilters();
+                if (_posCatalogGateway is not null)
+                {
+                    _ = ScheduleCatalogSearchAsync(SearchText, immediate: true);
+                }
             }
         }
     }
@@ -206,12 +216,50 @@ public sealed class PosViewModel : ViewModelBase
             if (SetProperty(ref _selectedBrand, value))
             {
                 ApplyFilters();
+                if (_posCatalogGateway is not null)
+                {
+                    _ = ScheduleCatalogSearchAsync(SearchText, immediate: true);
+                }
             }
         }
     }
 
+    public ICommand LoadMoreCatalogCommand { get; }
+
+    public bool HasMoreCatalogProducts
+    {
+        get => _hasMoreCatalogProducts;
+        private set
+        {
+            if (SetProperty(ref _hasMoreCatalogProducts, value))
+            {
+                OnPropertyChanged(nameof(FilteredProductCountText));
+                ((RelayCommand)LoadMoreCatalogCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool IsLoadingMoreCatalog
+    {
+        get => _isLoadingMoreCatalog != 0;
+        private set
+        {
+            OnPropertyChanged();
+            ((RelayCommand)LoadMoreCatalogCommand).NotifyCanExecuteChanged();
+        }
+    }
+
     public string FilteredProductCountText =>
+        _isBackendCatalog && !_hasAuthoritativeCatalogFilters ? $"{FilteredProducts.Count} search results (limit 200)" :
+        HasMoreCatalogProducts ? $"{FilteredProducts.Count}+ products" :
         $"{FilteredProducts.Count} {(FilteredProducts.Count == 1 ? "product" : "products")}";
+
+    private bool _hasAuthoritativeCatalogFilters;
+
+    public bool SupportsCatalogFilters => !_isBackendCatalog || _hasAuthoritativeCatalogFilters;
+    public string CatalogReadLimitNotice => _isBackendCatalog && !_hasAuthoritativeCatalogFilters
+        ? "Search by name or SKU. Results are limited to 200; refine your search. Brand and category browsing are unavailable."
+        : "Choose All filters and use Load More Products to discover additional brands and categories.";
 
     public bool HasNoMatchingProducts => FilteredProducts.Count == 0;
 
@@ -298,11 +346,11 @@ public sealed class PosViewModel : ViewModelBase
 
     public decimal Subtotal { get; private set; }
 
-    public string SubtotalDisplay => $"Rs. {Subtotal:N0}";
+    public string SubtotalDisplay => $"Rs. {Subtotal:N2}";
 
     public decimal Total { get; private set; }
 
-    public string TotalDisplay => $"Rs. {Total:N0}";
+    public string TotalDisplay => $"Rs. {Total:N2}";
 
     public string InvoiceDisplay => "Invoice assigned on completion";
 
@@ -909,71 +957,19 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task PriceCheckAsync()
     {
-        if (_workflowService is null || _dialogService is null)
-        {
-            _toastService?.Show(
-                "Authoritative Price Check is unavailable.",
-                ToastTone.Warning);
-            return;
-        }
-
+        if (_dialogService is null) { return; }
         var input = SearchText.Trim();
-        if (string.IsNullOrWhiteSpace(input) &&
-            SelectedCatalogProduct?.BackendProductId is Guid selectedId)
+        if (string.IsNullOrWhiteSpace(input) && SelectedCatalogProduct is not null)
         {
             input = SelectedCatalogProduct.Sku;
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                var row = AllProducts.FirstOrDefault(x =>
-                    x.BackendProductId == selectedId);
-                input = row?.Name ?? string.Empty;
-            }
         }
-
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            ScannerStatusMessage = "Enter/scan a product identity for Price Check.";
-            return;
-        }
-
-        try
-        {
-            var matches = await _workflowService.ResolveScannerAsync(input);
-            var products = matches
-                .GroupBy(x => x.ProductId)
-                .Select(x => x.First())
-                .ToArray();
-
-            if (products.Length == 0)
-            {
-                ScannerStatusMessage = $"Price Check: no product found for '{input}'.";
-                _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
-                return;
-            }
-
-            if (products.Length > 1)
-            {
-                ScannerStatusMessage =
-                    $"Price Check is ambiguous ({products.Length} products). Refine search.";
-                _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
-                return;
-            }
-
-            _dialogService.Show(new PriceCheckViewModel(products[0], _dialogService));
-        }
-        catch (BackendOperationException ex)
-        {
-            var safeMessage = DesktopErrorPresentation.ForException(
-                ex,
-                "The exact unit could not be added. Refresh the unit list and try again.");
-            ScannerStatusMessage = safeMessage;
-            _toastService?.Show(safeMessage, ToastTone.Danger);
-        }
-        catch (Exception)
-        {
-            ScannerStatusMessage = "Price Check is unavailable. Reconnect and try again.";
-            _toastService?.Show(ScannerStatusMessage, ToastTone.Danger);
-        }
+        var priceCheck = new PriceCheckViewModel(
+            input => _workflowService is null
+                ? Task.FromException<IReadOnlyList<BackendScannerMatch>>(new InvalidOperationException("Authoritative Price Check is unavailable."))
+                : _workflowService.ResolveScannerAsync(input),
+            _dialogService, input);
+        _dialogService.Show(priceCheck);
+        if (!string.IsNullOrWhiteSpace(input)) { await priceCheck.CheckAsync(); }
     }
 
     private async Task<bool> SaveDraftAsync(bool holdAfterSave)
@@ -1458,8 +1454,12 @@ public sealed class PosViewModel : ViewModelBase
         }
     }
 
-    private async Task ScheduleCatalogSearchAsync(string search)
+    private async Task ScheduleCatalogSearchAsync(string search, bool immediate = false)
     {
+        _afterCatalogName = null;
+        _afterCatalogId = null;
+        HasMoreCatalogProducts = false;
+
         var version = Interlocked.Increment(ref _catalogSearchVersion);
         var previous = Interlocked.Exchange(
             ref _catalogSearchCts,
@@ -1470,8 +1470,19 @@ public sealed class PosViewModel : ViewModelBase
         var cts = _catalogSearchCts!;
         try
         {
-            await Task.Delay(250, cts.Token);
-            await LoadBackendCatalogAsync(search, cts.Token, version);
+            if (!immediate)
+            {
+                await Task.Delay(250, cts.Token);
+            }
+            await LoadBackendCatalogAsync(
+                search,
+                SelectedCategory,
+                SelectedBrand,
+                afterName: null,
+                afterId: null,
+                append: false,
+                cancellationToken: cts.Token,
+                expectedVersion: version);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -1488,6 +1499,11 @@ public sealed class PosViewModel : ViewModelBase
 
     private async Task LoadBackendCatalogAsync(
         string? search = null,
+        string? category = null,
+        string? brand = null,
+        string? afterName = null,
+        Guid? afterId = null,
+        bool append = false,
         CancellationToken cancellationToken = default,
         long? expectedVersion = null)
     {
@@ -1500,7 +1516,11 @@ public sealed class PosViewModel : ViewModelBase
         {
             var rows = await _posCatalogGateway.LoadAsync(
                 string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                category,
+                brand,
                 200,
+                afterName,
+                afterId,
                 cancellationToken);
 
             if (expectedVersion is long version &&
@@ -1510,15 +1530,23 @@ public sealed class PosViewModel : ViewModelBase
                 return;
             }
 
-            AllProducts.Clear();
+            if (!append)
+            {
+                AllProducts.Clear();
+            }
 
             foreach (var row in rows)
             {
+                if (append && AllProducts.Any(p => p.BackendProductId == row.ProductId))
+                {
+                    continue;
+                }
+
                 AllProducts.Add(new PosProductItemViewModel(
                     id: row.ProductId.ToString("D"),
                     name: row.Name,
                     sku: row.Sku,
-                    brand: "—",
+                    brand: string.IsNullOrWhiteSpace(row.Brand) ? "—" : row.Brand,
                     category: row.Category,
                     stock: row.SellableStock,
                     price: row.UnitPrice,
@@ -1532,20 +1560,26 @@ public sealed class PosViewModel : ViewModelBase
                     isSerialized: row.IsSerialized));
             }
 
-            ReplaceFilterValues(
-                Categories,
-                rows.Select(row => row.Category));
-            ReplaceFilterValues(Brands, Array.Empty<string>());
-
-            if (!Categories.Contains(SelectedCategory))
+            if (rows.Count == 200)
             {
-                SelectedCategory = "All";
+                _afterCatalogName = rows[^1].Name;
+                _afterCatalogId = rows[^1].ProductId;
+                HasMoreCatalogProducts = true;
+            }
+            else
+            {
+                _afterCatalogName = null;
+                _afterCatalogId = null;
+                HasMoreCatalogProducts = false;
             }
 
-            if (!Brands.Contains(SelectedBrand))
-            {
-                SelectedBrand = "All";
-            }
+            var distinctBrands = rows.Select(row => row.Brand).Where(b => !string.IsNullOrWhiteSpace(b)).Select(b => b!).Distinct().ToArray();
+            MergeFilterValues(Categories, rows.Select(row => row.Category));
+            MergeFilterValues(Brands, distinctBrands);
+            _hasAuthoritativeCatalogFilters = true;
+            OnPropertyChanged(nameof(SupportsCatalogFilters));
+            OnPropertyChanged(nameof(CatalogReadLimitNotice));
+            OnPropertyChanged(nameof(FilteredProductCountText));
 
             ApplyFilters();
         }
@@ -1560,6 +1594,54 @@ public sealed class PosViewModel : ViewModelBase
                     ex,
                     "The product catalog is unavailable. Check the connection and try again."),
                 ToastTone.Danger);
+        }
+    }
+
+    private async Task LoadMoreCatalogAsync()
+    {
+        if (_posCatalogGateway is null || !HasMoreCatalogProducts || Interlocked.CompareExchange(ref _isLoadingMoreCatalog, 1, 0) != 0)
+        {
+            return;
+        }
+
+        IsLoadingMoreCatalog = true;
+        try
+        {
+            var version = Volatile.Read(ref _catalogSearchVersion);
+            var cts = _catalogSearchCts;
+            var ct = cts?.Token ?? CancellationToken.None;
+
+            await LoadBackendCatalogAsync(
+                search: SearchText,
+                category: SelectedCategory,
+                brand: SelectedBrand,
+                afterName: _afterCatalogName,
+                afterId: _afterCatalogId,
+                append: true,
+                cancellationToken: ct,
+                expectedVersion: version);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isLoadingMoreCatalog, 0);
+            IsLoadingMoreCatalog = false;
+        }
+    }
+
+    private static void MergeFilterValues(
+        ObservableCollection<string> target,
+        IEnumerable<string?> values)
+    {
+        foreach (var value in values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!target.Any(t => string.Equals(t, value, StringComparison.OrdinalIgnoreCase)))
+            {
+                target.Add(value);
+            }
         }
     }
 
@@ -1600,13 +1682,13 @@ public sealed class PosViewModel : ViewModelBase
                 p.Sku.Contains(term, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (!string.Equals(SelectedCategory, "All", StringComparison.OrdinalIgnoreCase))
+        if (SupportsCatalogFilters && !string.Equals(SelectedCategory, "All", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(p =>
                 string.Equals(p.Category, SelectedCategory, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (!string.Equals(SelectedBrand, "All", StringComparison.OrdinalIgnoreCase))
+        if (SupportsCatalogFilters && !string.Equals(SelectedBrand, "All", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(p =>
                 string.Equals(p.Brand, SelectedBrand, StringComparison.OrdinalIgnoreCase));

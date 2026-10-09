@@ -12,6 +12,7 @@ namespace EdgeRetails.Server.Controllers;
 public sealed class ThakaController : ControllerBase
 {
     private readonly IThakaReadService _thakaReads;
+    private readonly SetThakaSuspensionHandler _suspensionHandler;
     private readonly CreateThakaProjectHandler _createProjectHandler;
     private readonly IssueThakaMaterialHandler _issueMaterialHandler;
     private readonly RecordThakaPaymentHandler _recordPaymentHandler;
@@ -28,7 +29,8 @@ public sealed class ThakaController : ControllerBase
         SettleThakaHandler settleHandler,
         ReopenThakaHandler reopenHandler,
         ReverseThakaMaterialHandler reverseMaterialHandler,
-        ReverseThakaPaymentHandler reversePaymentHandler)
+        ReverseThakaPaymentHandler reversePaymentHandler,
+        SetThakaSuspensionHandler suspensionHandler)
     {
         _thakaReads = thakaReads;
         _createProjectHandler = createProjectHandler;
@@ -38,6 +40,16 @@ public sealed class ThakaController : ControllerBase
         _reopenHandler = reopenHandler;
         _reverseMaterialHandler = reverseMaterialHandler;
         _reversePaymentHandler = reversePaymentHandler;
+        _suspensionHandler = suspensionHandler;
+    }
+
+    [HttpPost("projects/{id:guid}/suspension")]
+    public async Task<IActionResult> SetSuspension(Guid id, SetThakaSuspensionRequest request, CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        var terminal = HttpContext.Items["CurrentTerminal"] as EdgeRetails.Domain.SystemConfiguration.Terminal;
+        return ToActionResult(await _suspensionHandler.HandleAsync(new(request.ClientOperationId, id,
+            request.IsSuspended, request.Reason, actor?.UserId ?? Guid.Empty, terminal?.Id, actor?.SessionId), cancellationToken));
     }
 
     [HttpGet("projects")]
@@ -266,6 +278,8 @@ public sealed class ThakaController : ControllerBase
         return StatusCode(statusCode, new { code = error.Code, message = error.Message });
     }
 }
+
+public sealed record SetThakaSuspensionRequest(Guid ClientOperationId, bool IsSuspended, string Reason);
 
 public sealed record CreateThakaProjectRequest(
     Guid CustomerId,

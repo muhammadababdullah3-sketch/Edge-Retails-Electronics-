@@ -31,7 +31,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork, outcomeLedger: _fakes.OutcomeLedger, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private CreatePurchaseReturnHandler CreatePurchaseReturnHandler() =>
         new(
@@ -39,6 +39,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Inventory,
             _fakes.CostAllocator,
             _fakes.SupplierAccounts,
+            _fakes.CashMovements,
             _fakes.OperationLock,
             _fakes.ResourceLock,
             _fakes.Audit,
@@ -46,7 +47,8 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            cash: _fakes.Cash);
 
     private VoidPurchaseHandler CreateVoidPurchaseHandler() =>
         new(
@@ -54,6 +56,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Inventory,
             _fakes.CostAllocator,
             _fakes.SupplierAccounts,
+            _fakes.CashMovements,
             _fakes.OperationLock,
             _fakes.ResourceLock,
             _fakes.Audit,
@@ -61,7 +64,8 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            cash: _fakes.Cash);
 
     private CreateSupplierPaymentHandler CreateSupplierPaymentHandler() =>
         new(

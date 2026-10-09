@@ -71,6 +71,7 @@ public sealed class Phase1DExactUnitLifecycleTests
         _fakes.Inventory,
         _fakes.CostAllocator,
         _fakes.SupplierAccounts,
+        _fakes.CashMovements,
         _fakes.OperationLock,
         _fakes.ResourceLock,
         _fakes.Audit,
@@ -93,7 +94,7 @@ public sealed class Phase1DExactUnitLifecycleTests
         _fakes.Clock,
         _fakes.Transactions,
         _fakes.Authorization,
-        _fakes.UnitOfWork);
+        _fakes.UnitOfWork, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private CreateWarrantyClaimHandler CreateWarrantyClaimHandler() => new(
         _fakes.Catalog,
@@ -140,7 +141,7 @@ public sealed class Phase1DExactUnitLifecycleTests
         _fakes.Authorization,
         _fakes.Clock,
         _fakes.Transactions,
-        _fakes.UnitOfWork);
+        _fakes.UnitOfWork, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private SendShopStockToSupplierWarrantyHandler CreateSendShopStockHandler() => new(
         _fakes.Warranty,
@@ -175,7 +176,7 @@ public sealed class Phase1DExactUnitLifecycleTests
         _fakes.Audit,
         _fakes.Clock,
         _fakes.Transactions,
-        _fakes.UnitOfWork);
+        _fakes.UnitOfWork, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private async Task<(Supplier Supplier, Product Product, ProductUnit Unit, SupplierProduct SupplierProduct, Purchase Purchase, PurchaseItem PurchaseItem, CashSession Session)>
         SetupGoldenTraceFixtureAsync()
@@ -209,6 +210,7 @@ public sealed class Phase1DExactUnitLifecycleTests
             Sku = sku,
             BaseUnitId = unit.Id,
             TrackingMode = TrackingMode.Serialized,
+            SerialTrackingEnabled = true,
             IsActive = true,
             DefaultSalePrice = 5000m,
             ReferencePurchaseCost = 4000m

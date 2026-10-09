@@ -2,6 +2,12 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!-- All standalone surfaces start rounded; dividers and full-window scrims opt out explicitly. -->
+    <Style x:Key="Surface.Box" TargetType="Border">
+        <Setter Property="CornerRadius" Value="{StaticResource Radius.Control}" />
+    </Style>
+    <Style TargetType="Border" BasedOn="{StaticResource Surface.Box}" />
+
     <Style x:Key="Card.Default" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Brush.Surface.Raised}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />

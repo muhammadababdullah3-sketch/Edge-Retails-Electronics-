@@ -200,6 +200,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Purchasing.VoidPurchaseHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.TransferInventoryConditionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.CreateStockAdjustmentHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Inventory.FoundInventoryUnitHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Warranty.CreateWarrantyClaimHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Warranty.BeginWarrantyClaimReviewHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Warranty.CancelWarrantyClaimHandler>();
@@ -221,6 +222,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Finance.CreateSupplierRefundHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.ReverseSupplierRefundHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.SupplierAccountAdjustmentHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Finance.SupplierOpeningBalanceHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.OpenCashSessionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.RecordManualCashMovementHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.CloseCashSessionHandler>();
@@ -244,7 +246,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SetUnitActiveHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.ConfigureProductUnitsHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Catalog.SetProductUnitBarcodeHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Catalog.SaveProductAggregateHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Thaka.CreateThakaProjectHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Thaka.SetThakaSuspensionHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Parties.SetCustomerSuspensionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Thaka.IssueThakaMaterialHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Thaka.RecordThakaPaymentHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Thaka.SettleThakaHandler>();

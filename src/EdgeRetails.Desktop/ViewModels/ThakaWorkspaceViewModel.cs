@@ -49,6 +49,10 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     private MaterialLedgerEntry? _selectedMaterial;
     private Guid? _pendingMaterialReversalIssueId;
     private Guid? _pendingMaterialReversalOperationId;
+    private bool _isLoading;
+    private bool _hasSnapshot;
+    private bool _changingSuspension;
+    private string _loadError = string.Empty;
 
     public ThakaWorkspaceViewModel()
         : this(
@@ -72,6 +76,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         _previewRetailState = ResolvePreviewRetailState(backendService);
         _dialogService = dialogService;
         _toastService = toastService;
+        _hasSnapshot = _previewRetailState is not null;
 
         MaterialLedger = _previewRetailState is not null
             ? _previewRetailState.GetMaterialLedger(_project)
@@ -80,9 +85,12 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             ? _previewRetailState.GetPaymentLedger(_project)
             : [];
 
-        AddMaterialCommand = new RelayCommand(OpenAddMaterial, () => !IsSettled);
-        RecordPaymentCommand = new RelayCommand(OpenRecordPayment, () => !IsSettled && Balance > 0m);
-        FinalSettlementCommand = new RelayCommand(OpenFinalSettlement, () => !IsSettled && Balance > 0m);
+        AddMaterialCommand = new RelayCommand(OpenAddMaterial, () => CanMutate && IsActive && _project.CustomerIsActive);
+        RecordPaymentCommand = new RelayCommand(OpenRecordPayment, () => CanMutate && (IsActive || IsSuspended) && Balance > 0m);
+        FinalSettlementCommand = new RelayCommand(OpenFinalSettlement, () => CanMutate && (IsActive || IsSuspended) && Balance > 0m);
+        RefreshCommand = new RelayCommand(async () => await RefreshBackendAsync(), () => !_isLoading && !_changingSuspension);
+        ToggleSuspensionCommand = new RelayCommand(async () => await ToggleSuspensionAsync(),
+            () => CanMutate && _backendService is not null && (IsActive || IsSuspended));
         ReverseMaterialCommand = new RelayCommand(
             async () => await ReverseSelectedMaterialAsync(),
             () => CanReverseSelectedMaterial);
@@ -108,6 +116,13 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public string StartDateFormatted => _project.StartDateFormatted;
     public string StatusDisplay => _project.Status;
     public bool IsActive => _project.IsActive;
+    public bool IsSuspended => _project.IsSuspended;
+    public bool IsCustomerSuspended => !_project.CustomerIsActive;
+    public string SuspensionAction => IsSuspended ? "Resume Khata" : "Suspend Khata";
+    public bool IsLoading => _isLoading;
+    public string LoadError => _loadError;
+    public bool HasLoadError => !string.IsNullOrWhiteSpace(_loadError);
+    private bool CanMutate => _hasSnapshot && !_isLoading && !_changingSuspension && !HasLoadError;
     public bool IsSettled => _project.IsSettled;
     public bool IsSettledBannerVisible => IsSettled;
     public Controls.BadgeTone StatusTone => _project.StatusTone;
@@ -115,11 +130,11 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         $"{CustomerName} · {Phone}  |  {Location}  |  Started: {StartDateFormatted}";
 
     public decimal MaterialValue => _project.MaterialValue;
-    public string MaterialValueFormatted => _project.MaterialValueFormatted;
+    public string MaterialValueFormatted => _hasSnapshot ? _project.MaterialValueFormatted : _isLoading ? "Loading…" : "Unavailable";
     public decimal TotalPaid => _project.Paid;
-    public string TotalPaidFormatted => _project.PaidFormatted;
+    public string TotalPaidFormatted => _hasSnapshot ? _project.PaidFormatted : _isLoading ? "Loading…" : "Unavailable";
     public decimal Balance => _project.Balance;
-    public string BalanceFormatted => _project.BalanceFormatted;
+    public string BalanceFormatted => _hasSnapshot ? _project.BalanceFormatted : _isLoading ? "Loading…" : "Unavailable";
 
     public ObservableCollection<MaterialLedgerEntry> MaterialLedger { get; }
     public ObservableCollection<PaymentLedgerEntry> PaymentLedger { get; }
@@ -144,7 +159,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     }
 
     public bool CanReverseSelectedMaterial =>
-        !IsSettled &&
+        CanMutate && (IsActive || IsSuspended) &&
         _backendService is not null &&
         SelectedMaterial?.BackendMaterialIssueId is Guid;
 
@@ -172,6 +187,33 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public ICommand ReverseMaterialCommand { get; }
     public ICommand GoBackCommand { get; }
     public ICommand SwitchTabCommand { get; }
+    public ICommand RefreshCommand { get; }
+    public ICommand ToggleSuspensionCommand { get; }
+
+    private async Task ToggleSuspensionAsync()
+    {
+        if (!CanMutate || _backendService is null)
+        {
+            return;
+        }
+        _changingSuspension = true;
+        NotifyFinancialState();
+        try
+        {
+            await _backendService.SetSuspensionAsync(_project, !IsSuspended,
+                IsSuspended ? "Resumed from workspace" : "Suspended from workspace");
+            await RefreshBackendAsync();
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(DesktopErrorPresentation.ForException(ex, "Khata status could not be changed."), ToastTone.Danger);
+        }
+        finally
+        {
+            _changingSuspension = false;
+            NotifyFinancialState();
+        }
+    }
 
     public event EventHandler? BackRequested;
     public event EventHandler? ProjectSettled;
@@ -296,14 +338,23 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             return;
         }
 
+        if (_isLoading)
+        {
+            return;
+        }
+        _isLoading = true;
+        _loadError = string.Empty;
+        NotifyFinancialState();
         try
         {
             var snapshot = await _backendService.GetWorkspaceAsync(projectId);
+            _hasSnapshot = true;
 
             _project.MaterialValue = snapshot.Project.MaterialValue;
             _project.Paid = snapshot.Project.Paid;
             _project.SettlementDiscount = snapshot.Project.SettlementDiscount;
             _project.Status = snapshot.Project.Status;
+            _project.CustomerIsActive = snapshot.Project.CustomerIsActive;
             _project.Phone = snapshot.Project.Phone;
             _project.Location = snapshot.Project.Location;
             _project.Notes = snapshot.Project.Notes;
@@ -324,11 +375,18 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _hasSnapshot = false;
+            _loadError = DesktopErrorPresentation.ForException(ex, "Workspace could not be loaded. Retry or contact support if the problem persists.");
             _toastService?.Show(
                 DesktopErrorPresentation.ForException(
                     ex,
-                    "Thaka workspace could not be refreshed. Check the connection and try again."),
+                    "Workspace could not be loaded. Retry or contact support if the problem persists."),
                 ToastTone.Danger);
+        }
+        finally
+        {
+            _isLoading = false;
+            NotifyFinancialState();
         }
     }
 
@@ -355,6 +413,12 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
 
     private void NotifyFinancialState()
     {
+        OnPropertyChanged(nameof(IsCustomerSuspended));
+        OnPropertyChanged(nameof(IsLoading));
+        OnPropertyChanged(nameof(LoadError));
+        OnPropertyChanged(nameof(HasLoadError));
+        OnPropertyChanged(nameof(IsSuspended));
+        OnPropertyChanged(nameof(SuspensionAction));
         OnPropertyChanged(nameof(MaterialValue));
         OnPropertyChanged(nameof(MaterialValueFormatted));
         OnPropertyChanged(nameof(TotalPaid));
@@ -372,5 +436,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         ((RelayCommand)RecordPaymentCommand).NotifyCanExecuteChanged();
         ((RelayCommand)FinalSettlementCommand).NotifyCanExecuteChanged();
         ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)RefreshCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ToggleSuspensionCommand).NotifyCanExecuteChanged();
     }
 }

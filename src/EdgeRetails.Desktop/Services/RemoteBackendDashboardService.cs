@@ -19,6 +19,7 @@ public sealed class RemoteBackendDashboardService(
         IReadOnlyList<EdgeRetails.Desktop.ViewModels.ThakaProjectListItemViewModel> projects = [];
         bool? databaseConnected = null;
         var databaseStatus = "Server status unavailable";
+        var backupStatus = "Backup Status Unavailable";
 
         try
         {
@@ -50,7 +51,7 @@ public sealed class RemoteBackendDashboardService(
         try
         {
             var readiness = await apiClient.GetAsync<ReadyDto>("/api/system/ready", cancellationToken);
-            databaseConnected = string.Equals(readiness.Status, "Ready", StringComparison.Ordinal);
+            databaseConnected = readiness.CanConnect == true || (readiness.CanConnect is null && string.Equals(readiness.Status, "Ready", StringComparison.Ordinal));
             databaseStatus = databaseConnected.Value ? "Database Connected" : "Database Unavailable";
         }
         catch (DesktopApiException ex)
@@ -60,10 +61,20 @@ public sealed class RemoteBackendDashboardService(
             issues.Add($"Server readiness unavailable: {ex.Code}");
         }
 
+        try
+        {
+            var diagnostics = await apiClient.GetAsync<BackupHistoryDiagnosticsResponse>("/api/backups/diagnostics", cancellationToken);
+            backupStatus = BackupDiagnosticsDisplay.Format(diagnostics);
+        }
+        catch (Exception ex) when (ex is DesktopApiException or System.Text.Json.JsonException)
+        {
+            issues.Add("Backup diagnostics unavailable; no backup health confirmation.");
+        }
+
         return new BackendDashboardSnapshot(todaySales, todayProfit, expenses, thakaMaterial, activeCount,
             activeBalance, projects, databaseConnected, databaseStatus, null,
-            "Backup Status Unavailable", issues);
+            backupStatus, issues);
     }
 
-    private sealed record ReadyDto(string Status);
+    private sealed record ReadyDto(string Status, bool? CanConnect = null, bool? HasPendingMigrations = null, string? FailureReason = null);
 }

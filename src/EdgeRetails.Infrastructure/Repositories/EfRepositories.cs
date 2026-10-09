@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
@@ -26,13 +27,22 @@ public sealed class CatalogRepository : ICatalogRepository
         CancellationToken cancellationToken) =>
         _db.Products.SingleOrDefaultAsync(x => x.Id == productId, cancellationToken);
 
-    public Task<Product?> GetProductForUpdateAsync(
+    public async Task<Product?> GetProductForUpdateAsync(
         Guid productId,
-        CancellationToken cancellationToken) =>
-        _db.Products
+        CancellationToken cancellationToken)
+    {
+        var product = await _db.Products
             .FromSqlInterpolated(
                 $"SELECT * FROM catalog.products WHERE id = {productId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+        // EF identity resolution can return a master tracked before this lock.
+        // Policy-dependent preparation must observe the row that won the boundary.
+        if (product is not null)
+        {
+            await _db.Entry(product).ReloadAsync(cancellationToken);
+        }
+        return product;
+    }
 
     public Task<Product?> GetProductBySkuAsync(
         string normalizedSku,
@@ -193,6 +203,9 @@ public sealed class CatalogRepository : ICatalogRepository
             cancellationToken);
     }
 
+    public Task<ProductUnit?> GetProductUnitSnapshotAsync(Guid productUnitId, CancellationToken cancellationToken) =>
+        _db.ProductUnits.AsNoTracking().SingleOrDefaultAsync(x => x.Id == productUnitId, cancellationToken);
+
     public Task<ProductUnit?> GetProductUnitAsync(
         Guid productUnitId,
         CancellationToken cancellationToken) =>
@@ -266,6 +279,9 @@ public sealed class InventoryRepository : IInventoryRepository
     {
         _db = db;
     }
+
+    public Task<StockBalance?> GetStockBalanceAsync(Guid productId, CancellationToken cancellationToken) =>
+        _db.StockBalances.AsNoTracking().SingleOrDefaultAsync(x => x.ProductId == productId, cancellationToken);
 
     public Task<StockBalance?> GetStockBalanceForUpdateAsync(
         Guid productId,
@@ -373,11 +389,245 @@ public sealed class InventoryRepository : IInventoryRepository
 
     public Task<InventoryLot?> GetInventoryLotForUpdateAsync(
         Guid lotId,
-        CancellationToken cancellationToken) =>
-        _db.InventoryLots
+        CancellationToken cancellationToken)
+    {
+        var provisional = _db.InventoryLots.Local.SingleOrDefault(x => x.Id == lotId);
+        if (provisional is not null && _db.Entry(provisional).State == EntityState.Added)
+        {
+            return Task.FromResult<InventoryLot?>(provisional);
+        }
+        return _db.InventoryLots
             .FromSqlInterpolated(
                 $"SELECT * FROM inventory.lots WHERE id = {lotId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(
+        InventoryUnit unit, CancellationToken cancellationToken)
+        => await GetPhysicalUnitBaseQuantitySnapshotAsync(unit, new HashSet<Guid>(), cancellationToken);
+
+    private Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(
+        InventoryUnit unit, HashSet<Guid> recoveryLots, CancellationToken cancellationToken)
+        => GetPhysicalUnitBaseQuantitySnapshotAsync(unit, unit.InventoryLotId ?? Guid.Empty, recoveryLots, cancellationToken);
+
+    private async Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(
+        InventoryUnit unit, Guid lotId, HashSet<Guid> recoveryLots, CancellationToken cancellationToken)
+    {
+        var mode = await _db.Products.AsNoTracking().Where(x => x.Id == unit.ProductId)
+            .Select(x => x.TrackingMode).SingleAsync(cancellationToken);
+        if (mode != TrackingMode.Container)
+        {
+            return 1m;
+        }
+
+        var lot = await _db.InventoryLots.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == lotId, cancellationToken);
+        if (lot is null)
+        {
+            throw new BusinessRuleException("inventory.physical_quantity_reconciliation_required",
+                "Container has no authoritative received-lot quantity snapshot. Reconcile its history before transition.");
+        }
+
+        if (await IsRecoveryLotAsync(lot, cancellationToken))
+        {
+            var carryingMovement = await GetInventoryMovementEvidenceAsync(lot.SourceMovementId, cancellationToken)
+                ?? throw RecoveryLotInvalid();
+            var source = await ValidateRecoveredLotAsync(unit, lot, carryingMovement, recoveryLots, cancellationToken);
+            return source.BaseQuantity;
+        }
+
+        // The received movement's effects and exact-unit links survive later
+        // returns/replacements. Current lot balance or order quantity cannot
+        // establish the size of an original pack after partial intake.
+        var received = await _db.InventoryMovementEffects.AsNoTracking()
+            .Where(x => x.MovementId == lot.SourceMovementId && x.QuantityDelta > 0m)
+            .SumAsync(x => x.QuantityDelta, cancellationToken);
+        var count = await _db.InventoryMovementUnits.AsNoTracking()
+            .Where(x => x.MovementId == lot.SourceMovementId)
+            .Select(x => x.InventoryUnitId).Distinct().CountAsync(cancellationToken);
+        if (received <= 0m || count == 0)
+        {
+            throw new BusinessRuleException("inventory.physical_quantity_reconciliation_required",
+                "Container received movement has no authoritative physical quantity. Reconcile its history before transition.");
+        }
+        var quantity = received / count;
+        if (decimal.Abs(unit.AcquisitionCost - lot.EffectiveUnitCost * quantity) > 0.000001m &&
+            !await HasFrozenCompletedReceiptAllocationAsync(unit, lot, lotId, received, count, quantity, cancellationToken))
+        {
+            throw new BusinessRuleException("inventory.physical_cost_reconciliation_required",
+                "Container acquisition cost is inconsistent with its received pack snapshot. Reconcile historical cost before transition; no value was rewritten.");
+        }
+        return quantity;
+    }
+
+    public async Task<decimal> GetPhysicalUnitCarryingValueSnapshotAsync(
+        InventoryUnit unit, CancellationToken cancellationToken)
+    {
+        if (unit.InventoryLotId is not Guid lotId)
+        {
+            return unit.AcquisitionCost;
+        }
+        var lot = await _db.InventoryLots.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == lotId, cancellationToken);
+        if (lot is null)
+        {
+            return unit.AcquisitionCost;
+        }
+        if (!await IsRecoveryLotAsync(lot, cancellationToken))
+        {
+            return unit.AcquisitionCost;
+        }
+        var evidence = await GetInventoryMovementEvidenceAsync(lot.SourceMovementId, cancellationToken)
+            ?? throw RecoveryLotInvalid();
+        var source = await ValidateRecoveredLotAsync(unit, lot, evidence, new HashSet<Guid>(), cancellationToken);
+        return source.RemovedValue;
+    }
+
+    private Task<bool> IsRecoveryLotAsync(InventoryLot lot, CancellationToken cancellationToken) =>
+        _db.InventoryMovements.AsNoTracking().AnyAsync(x =>
+            x.Id == lot.SourceMovementId && x.ReferenceType == "InventoryLossRecoveryGain", cancellationToken);
+
+    private async Task<MissingRecoverySource> ValidateRecoveredLotAsync(
+        InventoryUnit unit, InventoryLot lot, InventoryMovementEvidence found,
+        HashSet<Guid> recoveryLots, CancellationToken cancellationToken)
+    {
+        if (recoveryLots.Count >= 128 || !recoveryLots.Add(lot.Id))
+        {
+            throw RecoveryLotInvalid();
+        }
+        var movement = found.Movement;
+        if (movement.MovementType != InventoryMovementType.StockAdjustment ||
+            movement.ProductId != unit.ProductId || lot.ProductId != unit.ProductId ||
+            movement.ReferenceId is not Guid missingId || movement.RecognizedLossAmount != 0m ||
+            found.Units.Count != 1 || found.Effects.Count != 1 || found.Consumptions.Count != 0)
+        {
+            throw RecoveryLotInvalid();
+        }
+        var link = found.Units[0];
+        var effect = found.Effects[0];
+        if (link.MovementId != movement.Id || link.InventoryUnitId != unit.Id ||
+            link.FromStatus != InventoryUnitStatus.Missing ||
+            link.ToStatus is not (InventoryUnitStatus.InStock or InventoryUnitStatus.Damaged or InventoryUnitStatus.Defective) ||
+            effect.MovementId != movement.Id || effect.QuantityDelta <= 0m || effect.QuantityBefore < 0m ||
+            effect.QuantityBefore + effect.QuantityDelta != effect.QuantityAfter ||
+            InventoryUnitAccountingPolicy.GetRule(link.ToStatus).AuthoritativeBucket != effect.StockBucket)
+        {
+            throw RecoveryLotInvalid();
+        }
+        var missing = await GetInventoryMovementEvidenceAsync(missingId, cancellationToken)
+            ?? throw RecoveryLotInvalid();
+        var source = await FoundRecoveryAuthority.ValidateSourceAsync(this, unit, missing, cancellationToken);
+        FoundRecoveryAuthority.ValidateFound(found, source);
+        var references = await GetMovementsByReferenceAsync("InventoryLossRecoveryGain", missingId, cancellationToken);
+        if (references.Count != 1 || references[0].Movement.Id != movement.Id ||
+            source.UnitId != unit.Id || source.BaseQuantity != effect.QuantityDelta ||
+            lot.ReceivedQuantity != source.BaseQuantity || lot.PurchaseItemId != unit.SourcePurchaseItemId ||
+            lot.OriginalUnitCost != decimal.Round(source.RemovedValue / source.BaseQuantity, 6, MidpointRounding.AwayFromZero) ||
+            lot.EffectiveUnitCost != lot.OriginalUnitCost)
+        {
+            throw RecoveryLotInvalid();
+        }
+
+        // Prove the frozen pack through the source lot, retaining the ordinary
+        // receipt allocation and acquisition corruption checks at its origin.
+        var quantity = await GetPhysicalUnitBaseQuantitySnapshotAsync(unit, source.LotId, recoveryLots, cancellationToken);
+        if (quantity != source.BaseQuantity)
+        {
+            throw RecoveryLotInvalid();
+        }
+        return source;
+    }
+
+    private static BusinessRuleException RecoveryLotInvalid() => new(
+        "inventory.recovery_lot_reconciliation_required",
+        "Recovered carrying lot does not conclusively reconcile to its exact Missing source and original physical quantity.");
+
+    private async Task<bool> HasFrozenCompletedReceiptAllocationAsync(
+        InventoryUnit unit, InventoryLot lot, Guid effectiveLotId, decimal received, int count,
+        decimal quantity, CancellationToken cancellationToken)
+    {
+        // A completed purchase absorbs its exact landed residual into physical
+        // acquisition amounts. Prove that allocation from original receipt
+        // links and frozen line value; never enlarge the corruption tolerance.
+        if (unit.SourcePurchaseItemId is not Guid itemId || lot.PurchaseItemId != itemId ||
+            (unit.InventoryLotId != lot.Id && effectiveLotId != lot.Id))
+        {
+            return false;
+        }
+        // Returns create new carrying lots. Recover the unique original intake
+        // from its immutable creation link, rather than counting returned lots
+        // as another purchase receipt or allocating over the return's unit set.
+        var receipts = await _db.InventoryLots.AsNoTracking().Where(x =>
+            x.PurchaseItemId == itemId && x.ProductId == unit.ProductId &&
+            _db.InventoryMovements.Any(m => m.Id == x.SourceMovementId &&
+                m.MovementType == InventoryMovementType.PurchaseIn) &&
+            _db.InventoryMovementUnits.Any(link => link.MovementId == x.SourceMovementId &&
+                link.InventoryUnitId == unit.Id && link.FromStatus == null))
+            .ToArrayAsync(cancellationToken);
+        if (receipts.Length != 1)
+        {
+            return false;
+        }
+        var receipt = receipts[0];
+        if (lot.Id != receipt.Id && lot.EffectiveUnitCost !=
+            decimal.Round(unit.AcquisitionCost / quantity, 6, MidpointRounding.AwayFromZero))
+        {
+            return false;
+        }
+        received = await _db.InventoryMovementEffects.AsNoTracking()
+            .Where(x => x.MovementId == receipt.SourceMovementId && x.QuantityDelta > 0m)
+            .SumAsync(x => x.QuantityDelta, cancellationToken);
+        count = await _db.InventoryMovementUnits.AsNoTracking()
+            .Where(x => x.MovementId == receipt.SourceMovementId && x.FromStatus == null)
+            .Select(x => x.InventoryUnitId).Distinct().CountAsync(cancellationToken);
+        if (received <= 0m || count == 0 || receipt.ReceivedQuantity != received || received / count != quantity)
+        {
+            return false;
+        }
+        var item = await _db.PurchaseItems.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == itemId, cancellationToken);
+        if (item is null || item.ProductId != unit.ProductId || item.EffectiveLineCost < 0m ||
+            item.EnteredQuantity <= 0m || quantity <= 0m || decimal.Truncate(quantity) != quantity ||
+            item.FactorToBaseSnapshot != quantity || item.BaseQuantity != item.EnteredQuantity * quantity)
+        {
+            return false;
+        }
+        var totalReceived = await _db.InventoryLots.AsNoTracking().Where(x => x.PurchaseItemId == itemId &&
+            _db.InventoryMovements.Any(m => m.Id == x.SourceMovementId && m.MovementType == InventoryMovementType.PurchaseIn))
+            .SumAsync(x => x.ReceivedQuantity, cancellationToken);
+        var originalUnits = _db.InventoryUnits.AsNoTracking()
+            .Where(x => x.SourcePurchaseItemId == itemId && x.ProductId == unit.ProductId);
+        var totalAcquisition = await originalUnits.SumAsync(x => x.AcquisitionCost, cancellationToken);
+        if (totalReceived != item.BaseQuantity || totalAcquisition != item.EffectiveLineCost)
+        {
+            return false;
+        }
+        var receiptUnits = originalUnits.Where(x => _db.InventoryMovementUnits.Any(link =>
+            link.MovementId == receipt.SourceMovementId && link.InventoryUnitId == x.Id && link.FromStatus == null));
+        if (await receiptUnits.CountAsync(cancellationToken) != count)
+        {
+            return false;
+        }
+        var selected = await receiptUnits.SingleOrDefaultAsync(x => x.Id == unit.Id, cancellationToken);
+        if (selected is null || selected.AcquisitionCost != unit.AcquisitionCost)
+        {
+            return false;
+        }
+        var receiptAcquisition = await receiptUnits.SumAsync(x => x.AcquisitionCost, cancellationToken);
+        var priorAcquisition = totalAcquisition - receiptAcquisition;
+        var allocatedReceiptValue = item.EffectiveLineCost - priorAcquisition;
+        if (allocatedReceiptValue < 0m ||
+            receipt.EffectiveUnitCost != decimal.Round(allocatedReceiptValue / received, 6, MidpointRounding.AwayFromZero))
+        {
+            return false;
+        }
+        // ItemSequence retains creation order even when prior reservations left
+        // gaps. Reconstruct the same cumulative six-place allocation as intake.
+        var index = await receiptUnits.CountAsync(x => x.ItemSequence < selected.ItemSequence, cancellationToken);
+        var expected = decimal.Round(allocatedReceiptValue * (index + 1m) / count, 6, MidpointRounding.AwayFromZero) -
+            decimal.Round(allocatedReceiptValue * index / count, 6, MidpointRounding.AwayFromZero);
+        return unit.AcquisitionCost == expected;
+    }
 
     public Task<bool> HasPurchaseItemConsumptionAsync(
         Guid purchaseItemId,
@@ -392,8 +642,33 @@ public sealed class InventoryRepository : IInventoryRepository
         Guid purchaseItemId,
         CancellationToken cancellationToken) =>
         await _db.InventoryLots
-            .Where(x => x.PurchaseItemId == purchaseItemId)
+            .Where(x => x.PurchaseItemId == purchaseItemId &&
+                _db.InventoryMovements.Any(m => m.Id == x.SourceMovementId &&
+                    m.MovementType == InventoryMovementType.PurchaseIn))
             .SumAsync(x => (decimal?)x.ReceivedQuantity, cancellationToken) ?? 0m;
+
+    public async Task<decimal> GetPurchaseItemReceivedCarryingValueAsync(
+        Guid purchaseItemId,
+        bool physical,
+        CancellationToken cancellationToken)
+    {
+        if (physical)
+        {
+            return await _db.InventoryUnits.Where(x => x.SourcePurchaseItemId == purchaseItemId)
+                .SumAsync(x => (decimal?)x.AcquisitionCost, cancellationToken) ?? 0m;
+        }
+
+        // Original receipt provenance survives consumption and bucket movement.
+        // Return lots retain PurchaseItemId for origin, but are not new intake.
+        // Do not restrict this authority to remaining positive lot balances.
+        var lots = await _db.InventoryLots.AsNoTracking()
+            .Where(x => x.PurchaseItemId == purchaseItemId &&
+                _db.InventoryMovements.Any(m => m.Id == x.SourceMovementId &&
+                    m.MovementType == InventoryMovementType.PurchaseIn))
+            .Select(x => new { x.ReceivedQuantity, x.EffectiveUnitCost })
+            .ToArrayAsync(cancellationToken);
+        return lots.Sum(x => decimal.Round(x.ReceivedQuantity * x.EffectiveUnitCost, 6, MidpointRounding.AwayFromZero));
+    }
 
     public async Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(
         Guid movementId,
@@ -438,29 +713,28 @@ public sealed class InventoryRepository : IInventoryRepository
         var normalizedImei1 = IdentityNormalizationRules.NormalizeOptionalImei(imei1);
         var normalizedImei2 = IdentityNormalizationRules.NormalizeOptionalImei(imei2);
 
-        if (await _db.InventoryUnitIdentityClaims.AnyAsync(
-                x =>
-                    (serial != null &&
-                     x.IdentifierType == ManufacturerIdentifierType.Serial &&
-                     x.NormalizedValue == serial) ||
-                    (normalizedImei1 != null &&
-                     x.IdentifierType == ManufacturerIdentifierType.Imei &&
-                     x.NormalizedValue == normalizedImei1) ||
-                    (normalizedImei2 != null &&
-                     x.IdentifierType == ManufacturerIdentifierType.Imei &&
-                     x.NormalizedValue == normalizedImei2),
-                cancellationToken))
+        var normalized = new[] { serial, normalizedImei1, normalizedImei2 }
+            .Where(x => x is not null)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return normalized.Length > 0 && await _db.InventoryUnitIdentityOwnerships
+            .AnyAsync(x => normalized.Contains(x.NormalizedValue), cancellationToken);
+    }
+
+    public async Task ReleaseManufacturerIdentityOwnershipForReceiptVoidAsync(
+        IReadOnlyCollection<Guid> inventoryUnitIds,
+        CancellationToken cancellationToken)
+    {
+        if (inventoryUnitIds.Count == 0)
         {
-            return true;
+            return;
         }
-        return await _db.InventoryUnits.AnyAsync(
-            x =>
-                (serial != null && x.SerialNumber == serial) ||
-                (normalizedImei1 != null &&
-                 (x.Imei1 == normalizedImei1 || x.Imei2 == normalizedImei1)) ||
-                (normalizedImei2 != null &&
-                 (x.Imei1 == normalizedImei2 || x.Imei2 == normalizedImei2)),
-            cancellationToken);
+
+        var ids = inventoryUnitIds.Distinct().ToArray();
+        await _db.InventoryUnitIdentityOwnerships
+            .Where(x => _db.InventoryUnitIdentityClaims.Any(c =>
+                ids.Contains(c.InventoryUnitId) && c.Id == x.InventoryUnitIdentityClaimId))
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     public Task<bool> IsProductBlockedByCountingStocktakeAsync(
@@ -472,6 +746,61 @@ public sealed class InventoryRepository : IInventoryRepository
                (stocktake.Status == StocktakeStatus.Counting ||
                 stocktake.Status == StocktakeStatus.Review)
          select item.Id).AnyAsync(cancellationToken);
+
+    public async Task<InventoryMovementEvidence?> GetInventoryMovementEvidenceAsync(
+        Guid movementId, CancellationToken cancellationToken)
+    {
+        var movements = await _db.InventoryMovements.AsNoTracking()
+            .Where(x => x.Id == movementId).ToArrayAsync(cancellationToken);
+        var evidence = await ReadMovementEvidenceAsync(movements, cancellationToken);
+        return evidence.SingleOrDefault();
+    }
+
+    public async Task<IReadOnlyList<InventoryMovementEvidence>> GetUnitMovementEvidenceAsync(
+        Guid inventoryUnitId, CancellationToken cancellationToken)
+    {
+        var movements = await _db.InventoryMovements.AsNoTracking()
+            .Where(x => _db.InventoryMovementUnits.Any(link =>
+                link.MovementId == x.Id && link.InventoryUnitId == inventoryUnitId))
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+        return await ReadMovementEvidenceAsync(movements, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<InventoryMovementEvidence>> GetMovementsByReferenceAsync(
+        string referenceType, Guid referenceId, CancellationToken cancellationToken)
+    {
+        // This read is deliberately global: a conflicting reference must not
+        // disappear because it links a different product or physical identity.
+        var movements = await _db.InventoryMovements.AsNoTracking()
+            .Where(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId)
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+        return await ReadMovementEvidenceAsync(movements, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<InventoryMovementEvidence>> ReadMovementEvidenceAsync(
+        IReadOnlyList<InventoryMovement> movements, CancellationToken cancellationToken)
+    {
+        if (movements.Count == 0)
+        {
+            return Array.Empty<InventoryMovementEvidence>();
+        }
+        var ids = movements.Select(x => x.Id).ToArray();
+        // Load every linked row, including siblings of the selected identity.
+        // Restricting these rows to one unit would hide grouped legacy sources.
+        var units = await _db.InventoryMovementUnits.AsNoTracking()
+            .Where(x => ids.Contains(x.MovementId)).OrderBy(x => x.Id).ToArrayAsync(cancellationToken);
+        var effects = await _db.InventoryMovementEffects.AsNoTracking()
+            .Where(x => ids.Contains(x.MovementId)).OrderBy(x => x.Id).ToArrayAsync(cancellationToken);
+        var consumptions = await _db.InventoryLotConsumptions.AsNoTracking()
+            .Where(x => ids.Contains(x.MovementId)).OrderBy(x => x.Id).ToArrayAsync(cancellationToken);
+        return movements.Select(movement => new InventoryMovementEvidence(
+            movement,
+            units.Where(x => x.MovementId == movement.Id).ToArray(),
+            effects.Where(x => x.MovementId == movement.Id).ToArray(),
+            consumptions.Where(x => x.MovementId == movement.Id).ToArray())).ToArray();
+    }
 
     public Task<InventoryMovement?> GetMovementByCorrelationIdAsync(
         Guid correlationId,
@@ -556,7 +885,7 @@ public sealed class InventoryRepository : IInventoryRepository
             return;
         }
 
-        _db.InventoryUnitIdentityClaims.Add(new InventoryUnitIdentityClaim
+        var claim = new InventoryUnitIdentityClaim
         {
             InventoryUnitId = unit.Id,
             IdentifierType = type,
@@ -565,6 +894,13 @@ public sealed class InventoryRepository : IInventoryRepository
             NormalizedValue = normalizedValue,
             NormalizationVersion = IdentityNormalizationRules.ManufacturerIdentityNormalizationVersion,
             CreatedAt = unit.CreatedAt
+        };
+        _db.InventoryUnitIdentityClaims.Add(claim);
+        _db.InventoryUnitIdentityOwnerships.Add(new InventoryUnitIdentityOwnership
+        {
+            NormalizedValue = normalizedValue,
+            IdentityClaim = claim,
+            InventoryUnitIdentityClaimId = claim.Id
         });
     }
     public void AddMovement(InventoryMovement movement) => _db.InventoryMovements.Add(movement);
@@ -651,6 +987,9 @@ public sealed class WarrantyRepository : IWarrantyRepository
         _db = db;
     }
 
+    public Task<WarrantyClaim?> GetClaimAsync(Guid claimId, CancellationToken cancellationToken) =>
+        _db.WarrantyClaims.AsNoTracking().SingleOrDefaultAsync(x => x.Id == claimId, cancellationToken);
+
     public Task<WarrantyClaim?> GetClaimForUpdateAsync(
         Guid claimId,
         CancellationToken cancellationToken) =>
@@ -666,6 +1005,19 @@ public sealed class WarrantyRepository : IWarrantyRepository
             .FromSqlInterpolated(
                 $"SELECT * FROM warranty.claims WHERE client_operation_id = {clientOperationId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<WarrantyOperation?> GetOperationForReplayAsync(Guid clientOperationId, CancellationToken cancellationToken) =>
+        _db.WarrantyOperations.AsNoTracking().SingleOrDefaultAsync(x => x.ClientOperationId == clientOperationId, cancellationToken);
+
+    public async Task<IReadOnlyList<WarrantyClaimItem>> GetClaimItemsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken) =>
+        await _db.WarrantyClaimItems.AsNoTracking().Where(x => x.ClaimId == claimId).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<WarrantyClaimItemUnit>> GetClaimUnitsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken) =>
+        await (from unit in _db.WarrantyClaimItemUnits.AsNoTracking()
+            join item in _db.WarrantyClaimItems.AsNoTracking() on unit.ClaimItemId equals item.Id
+            where item.ClaimId == claimId
+            orderby unit.Id
+            select unit).ToListAsync(cancellationToken);
 
     public Task<WarrantyOperation?> GetOperationByClientOperationIdAsync(
         Guid clientOperationId,
@@ -795,6 +1147,52 @@ public sealed class WarrantyRepository : IWarrantyRepository
         _db.WarrantyOperations.Add(operation);
     public void AddShopStockCase(ShopStockWarrantyCase warrantyCase) =>
         _db.ShopStockWarrantyCases.Add(warrantyCase);
+
+    public Task<ShopWarrantySendAllocation?> GetShopWarrantySendAllocationByCaseIdAsync(
+        Guid caseId,
+        CancellationToken cancellationToken) =>
+        _db.ShopWarrantySendAllocations
+            .Where(x => x.CaseId == caseId)
+            .OrderBy(x => x.OccurredAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsBySendIdAsync(
+        Guid sendAllocationId,
+        CancellationToken cancellationToken) =>
+        await _db.ShopWarrantyResolutionAllocations
+            .Where(x => x.SendAllocationId == sendAllocationId)
+            .OrderBy(x => x.OccurredAt)
+            .ToListAsync(cancellationToken);
+
+    public void AddShopWarrantySendAllocation(ShopWarrantySendAllocation allocation) =>
+        _db.ShopWarrantySendAllocations.Add(allocation);
+
+    public async Task<IReadOnlyList<ShopWarrantySendAllocation>> GetShopWarrantySendAllocationsByCaseIdAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        await _db.ShopWarrantySendAllocations.AsNoTracking().Where(x => x.CaseId == caseId)
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsByCaseIdAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        await _db.ShopWarrantyResolutionAllocations.AsNoTracking()
+            .Where(x => _db.ShopWarrantySendAllocations.Any(s => s.Id == x.SendAllocationId && s.CaseId == caseId))
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<InventoryMovementUnit>> GetShopWarrantyMovementUnitsAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        await _db.InventoryMovementUnits.AsNoTracking()
+            .Where(x => _db.InventoryMovements.Any(m => m.Id == x.MovementId &&
+                m.ReferenceType == "SHOP_WARRANTY" && m.ReferenceId == caseId &&
+                (m.MovementType == InventoryMovementType.SendToSupplierWarranty ||
+                 m.MovementType == InventoryMovementType.ReceiveRepairedFromSupplier ||
+                 m.MovementType == InventoryMovementType.ReceiveReplacementFromSupplier ||
+                 m.MovementType == InventoryMovementType.WarrantyRejectedReturn ||
+                 m.MovementType == InventoryMovementType.WriteOffToScrap ||
+                 m.MovementType == InventoryMovementType.WarrantyCreditResolution)))
+            .OrderBy(x => x.MovementId).ThenBy(x => x.InventoryUnitId).ToListAsync(cancellationToken);
+
+    public void AddShopWarrantyResolutionAllocation(ShopWarrantyResolutionAllocation allocation) =>
+        _db.ShopWarrantyResolutionAllocations.Add(allocation);
 }
 
 public sealed class CashRepository : ICashRepository
@@ -889,6 +1287,100 @@ public sealed class SalesRepository : ISalesRepository
     {
         _db = db;
     }
+
+    public async Task<IReadOnlyList<SoldSourceCapacity>> GetSoldSourceCapacityForUpdateAsync(
+        Guid saleItemId, CancellationToken cancellationToken)
+    {
+        if (_db.Database.CurrentTransaction is null)
+        {
+            throw new BusinessRuleException("sales.source_transaction_required", "Sold-source capacity requires the business transaction.");
+        }
+        var item = await _db.SaleItems.FromSqlInterpolated(
+            $"SELECT * FROM sales.sale_items WHERE id={saleItemId} FOR NO KEY UPDATE").SingleOrDefaultAsync(cancellationToken)
+            ?? throw new BusinessRuleException("sales.source_item_missing", "Original SaleItem was not found.");
+        var movement = await _db.InventoryMovements.FromSqlInterpolated(
+            $"SELECT * FROM inventory.movements WHERE id={item.InventoryMovementId} FOR NO KEY UPDATE").SingleOrDefaultAsync(cancellationToken);
+        var consumed = await _db.InventoryLotConsumptions.FromSqlInterpolated(
+            $"SELECT * FROM inventory.lot_consumptions WHERE movement_id={item.InventoryMovementId} ORDER BY id FOR NO KEY UPDATE")
+            .ToArrayAsync(cancellationToken);
+        if (movement is null || movement.ProductId != item.ProductId || movement.MovementType != InventoryMovementType.SaleOut ||
+            movement.ReferenceType != "SALE" || movement.ReferenceId != item.SaleId ||
+            consumed.Length == 0 || consumed.Sum(x => x.Quantity) != item.BaseQuantity)
+        {
+            throw new BusinessRuleException("sales.source_reconciliation_required", "Original sold-source event quantity or ownership is inconsistent.");
+        }
+        var lotIds = consumed.Select(x => x.LotId).Distinct().OrderBy(x => x).ToArray();
+        var lots = await _db.InventoryLots.FromSqlInterpolated(
+            $"SELECT * FROM inventory.lots WHERE id=ANY({lotIds}) ORDER BY id FOR NO KEY UPDATE").ToArrayAsync(cancellationToken);
+        if (lots.Length != lotIds.Length || lots.Any(x => x.ProductId != item.ProductId))
+        {
+            throw new BusinessRuleException("sales.source_reconciliation_required", "Original sold lots do not belong to the SaleItem.");
+        }
+        var purchaseIds = lots.Where(x => x.PurchaseItemId.HasValue).Select(x => x.PurchaseItemId!.Value).Distinct().ToArray();
+        var provenance = await (from pi in _db.PurchaseItems.AsNoTracking()
+            join p in _db.Purchases.AsNoTracking() on pi.PurchaseId equals p.Id
+            where purchaseIds.Contains(pi.Id)
+            select new { pi.Id, pi.ProductId, p.SupplierId }).ToArrayAsync(cancellationToken);
+        if (provenance.Length != purchaseIds.Length || provenance.Any(x => x.ProductId != item.ProductId))
+        {
+            throw new BusinessRuleException("sales.source_reconciliation_required", "Original purchase provenance cannot be proved.");
+        }
+        // Read fresh committed lifecycle status without acquiring claim-header locks after sale/source locks.
+        var claims = await (from ci in _db.WarrantyClaimItems.AsNoTracking()
+            join c in _db.WarrantyClaims.AsNoTracking() on ci.ClaimId equals c.Id
+            where ci.OriginalSaleItemId == item.Id &&
+                ((c.Status != WarrantyClaimStatus.Closed && c.Status != WarrantyClaimStatus.Cancelled) ||
+                 (c.Status == WarrantyClaimStatus.Closed &&
+                  (ci.ResolutionType == WarrantyResolutionType.Replaced || ci.ResolutionType == WarrantyResolutionType.Refunded)))
+            select new { ci.Id, ci.Quantity }).ToArrayAsync(cancellationToken);
+        var claimIds = claims.Select(x => x.Id).ToArray();
+        var claimFacts = await _db.WarrantyClaimSourceAllocations.AsNoTracking()
+            .Where(x => claimIds.Contains(x.ClaimItemId)).ToArrayAsync(cancellationToken);
+        var returns = await _db.SaleReturnItems.AsNoTracking().Where(x => x.SaleItemId == item.Id).ToArrayAsync(cancellationToken);
+        var returnIds = returns.Select(x => x.Id).ToArray();
+        var returnFacts = await _db.SaleReturnSourceAllocations.AsNoTracking()
+            .Where(x => returnIds.Contains(x.SaleReturnItemId)).ToArrayAsync(cancellationToken);
+        if (claims.Any(x => claimFacts.Where(a => a.ClaimItemId == x.Id).Sum(a => a.BaseQuantity) != x.Quantity) ||
+            returns.Any(x => returnFacts.Where(a => a.SaleReturnItemId == x.Id).Sum(a => a.BaseQuantity) != x.BaseQuantity))
+        {
+            throw new BusinessRuleException("sales.source_reconciliation_required", "Historical claim/return sold-source allocation is ambiguous or absent.");
+        }
+        var consumptionIds = consumed.Select(x => x.Id).ToHashSet();
+        if (claimFacts.Any(x => !consumptionIds.Contains(x.SaleConsumptionId)) ||
+            returnFacts.Any(x => !consumptionIds.Contains(x.SaleConsumptionId)))
+        {
+            throw new BusinessRuleException("sales.source_reconciliation_required", "Source facts belong to a different sold event.");
+        }
+        // Include the current transaction's unsaved allocations, without counting flushed facts twice.
+        var pendingClaims = _db.ChangeTracker.Entries<WarrantyClaimSourceAllocation>()
+            .Where(x => x.State == EntityState.Added).Select(x => x.Entity).ToArray();
+        var pendingReturns = _db.ChangeTracker.Entries<SaleReturnSourceAllocation>()
+            .Where(x => x.State == EntityState.Added).Select(x => x.Entity).ToArray();
+        var result = new List<SoldSourceCapacity>();
+        foreach (var source in consumed.OrderBy(x => x.Id))
+        {
+            var lot = lots.Single(x => x.Id == source.LotId);
+            Guid? supplierId = lot.PurchaseItemId is Guid purchaseItemId
+                ? provenance.Single(x => x.Id == purchaseItemId).SupplierId : null;
+            var used = claimFacts.Where(x => x.SaleConsumptionId == source.Id).Sum(x => x.BaseQuantity)
+                + returnFacts.Where(x => x.SaleConsumptionId == source.Id).Sum(x => x.BaseQuantity)
+                + pendingClaims.Where(x => x.SaleConsumptionId == source.Id).Sum(x => x.BaseQuantity)
+                + pendingReturns.Where(x => x.SaleConsumptionId == source.Id).Sum(x => x.BaseQuantity);
+            var remaining = QuantityMath.RoundQuantity(source.Quantity - used);
+            if (remaining < 0m)
+            {
+                throw new BusinessRuleException("sales.source_capacity_exceeded", "Committed sold-source capacity is over-consumed.");
+            }
+            result.Add(new(source.Id, lot.Id, lot.PurchaseItemId, supplierId, source.Quantity, remaining));
+        }
+        return result;
+    }
+
+    public void AddReturnSourceAllocation(SaleReturnSourceAllocation allocation)
+        => _db.SaleReturnSourceAllocations.Add(allocation);
+
+    public void AddClaimSourceAllocation(WarrantyClaimSourceAllocation allocation)
+        => _db.WarrantyClaimSourceAllocations.Add(allocation);
 
     public Task<Sale?> GetSaleByClientOperationIdAsync(
         Guid clientOperationId,
@@ -1007,6 +1499,9 @@ public sealed class PurchasingRepository : IPurchasingRepository
             x => x.ClientOperationId == clientOperationId,
             cancellationToken);
 
+    public Task<Purchase?> GetPurchaseAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        _db.Purchases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == purchaseId, cancellationToken);
+
     public Task<Purchase?> GetPurchaseForUpdateAsync(
         Guid purchaseId,
         CancellationToken cancellationToken) =>
@@ -1023,6 +1518,9 @@ public sealed class PurchasingRepository : IPurchasingRepository
             x => x.SupplierId == supplierId &&
                  x.NormalizedSupplierInvoiceNumber == normalizedSupplierInvoiceNumber,
             cancellationToken);
+
+    public async Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsForDiscoveryAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        await _db.PurchaseItems.AsNoTracking().Where(x => x.PurchaseId == purchaseId).OrderBy(x => x.Id).ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsAsync(
         Guid purchaseId,

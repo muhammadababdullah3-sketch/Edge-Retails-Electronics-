@@ -46,7 +46,11 @@ Generated\ Files/
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
-.audit-results/
+.audit-results*/
+scratch/
+scratch_*
+failed_tests*.txt
+master_prompt*.txt
 *.trx
 
 # NUnit

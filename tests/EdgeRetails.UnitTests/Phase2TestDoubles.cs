@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
@@ -44,11 +45,16 @@ internal sealed class Phase2TestDoubles
     public FakePermissionAuthorizer Authorization { get; } = new();
     public FakeUnitOfWork UnitOfWork { get; } = new();
     public FakePurchasingReadService PurchasingReads { get; }
+    public FakePhysicalUnitCreationAuthority PhysicalUnits { get; }
+    public CashMovementService CashMovements { get; }
 
     public Phase2TestDoubles()
     {
+        Warranty.Inventory = Inventory;
         CostAllocator = new FakeInventoryCostAllocator(Inventory);
         PurchasingReads = new FakePurchasingReadService(Purchasing, Inventory);
+        PhysicalUnits = new FakePhysicalUnitCreationAuthority(Catalog, Parties, Traceability, Inventory, Clock);
+        CashMovements = new CashMovementService(Cash, Clock);
     }
 }
 
@@ -65,6 +71,9 @@ internal sealed class FakePurchasingRepository : IPurchasingRepository
     public Task<Purchase?> GetPurchaseByClientOperationIdAsync(Guid clientOperationId, CancellationToken cancellationToken) =>
         Task.FromResult(Purchases.Values.FirstOrDefault(p => p.ClientOperationId == clientOperationId));
 
+    public Task<Purchase?> GetPurchaseAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        Task.FromResult(Purchases.TryGetValue(purchaseId, out var p) ? p : null);
+
     public Task<Purchase?> GetPurchaseForUpdateAsync(Guid purchaseId, CancellationToken cancellationToken) =>
         Task.FromResult(Purchases.TryGetValue(purchaseId, out var p) ? p : null);
 
@@ -72,6 +81,9 @@ internal sealed class FakePurchasingRepository : IPurchasingRepository
         Task.FromResult(Purchases.Values.FirstOrDefault(p =>
             p.SupplierId == supplierId &&
             string.Equals(p.SupplierInvoiceNumber, normalizedSupplierInvoiceNumber, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsForDiscoveryAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        GetPurchaseItemsAsync(purchaseId, cancellationToken);
 
     public Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsAsync(Guid purchaseId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<PurchaseItem>>(PurchaseItems.Where(i => i.PurchaseId == purchaseId).ToList());
@@ -160,6 +172,43 @@ internal sealed class FakeSalesRepository : ISalesRepository
     public void AddReturn(SaleReturn saleReturn) => SaleReturns[saleReturn.Id] = saleReturn;
     public void AddReturnItem(SaleReturnItem item) => SaleReturnItems.Add(item);
     public void AddReturnItemUnit(SaleReturnItemUnit itemUnit) => SaleReturnItemUnits.Add(itemUnit);
+
+    public List<SoldSourceCapacity> SoldSourceCapacities { get; } = new();
+    public List<SaleReturnSourceAllocation> ReturnSourceAllocations { get; } = new();
+    public List<WarrantyClaimSourceAllocation> ClaimSourceAllocations { get; } = new();
+
+    public Task<IReadOnlyList<SoldSourceCapacity>> GetSoldSourceCapacityForUpdateAsync(
+        Guid saleItemId, CancellationToken cancellationToken)
+    {
+        if (SoldSourceCapacities.Count > 0)
+        {
+            return Task.FromResult<IReadOnlyList<SoldSourceCapacity>>(SoldSourceCapacities.ToList());
+        }
+        var item = SaleItems.FirstOrDefault(i => i.Id == saleItemId);
+        if (item is null)
+        {
+            return Task.FromResult<IReadOnlyList<SoldSourceCapacity>>(Array.Empty<SoldSourceCapacity>());
+        }
+        var returnedSoFar = ReturnSourceAllocations.Where(r => r.SaleReturnItemId == saleItemId).Sum(r => r.BaseQuantity);
+        var remaining = Math.Max(0m, item.BaseQuantity - returnedSoFar);
+        var list = new List<SoldSourceCapacity>
+        {
+            new SoldSourceCapacity(
+                SaleConsumptionId: Guid.NewGuid(),
+                OriginalLotId: Guid.NewGuid(),
+                PurchaseItemId: Guid.NewGuid(),
+                SupplierId: Guid.NewGuid(),
+                SoldQuantity: item.BaseQuantity,
+                RemainingQuantity: remaining)
+        };
+        return Task.FromResult<IReadOnlyList<SoldSourceCapacity>>(list);
+    }
+
+    public void AddReturnSourceAllocation(SaleReturnSourceAllocation allocation) =>
+        ReturnSourceAllocations.Add(allocation);
+
+    public void AddClaimSourceAllocation(WarrantyClaimSourceAllocation allocation) =>
+        ClaimSourceAllocations.Add(allocation);
 }
 
 internal sealed class FakeQuotationRepository : IQuotationRepository
@@ -252,12 +301,35 @@ internal sealed class FakeSupplierAccountRepository : ISupplierAccountRepository
 
 internal sealed class FakeWarrantyRepository : IWarrantyRepository
 {
+    private static T DetachedSnapshot<T>(T value) =>
+        System.Text.Json.JsonSerializer.Deserialize<T>(System.Text.Json.JsonSerializer.Serialize(value))!;
+
+    public Task<WarrantyOperation?> GetOperationForReplayAsync(Guid clientOperationId, CancellationToken cancellationToken)
+    {
+        var operation = Operations.FirstOrDefault(x => x.ClientOperationId == clientOperationId);
+        return Task.FromResult(operation is null ? null : DetachedSnapshot(operation));
+    }
+
+    public Task<IReadOnlyList<WarrantyClaimItem>> GetClaimItemsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<WarrantyClaimItem>>(ClaimItems.Where(x => x.ClaimId == claimId).Select(DetachedSnapshot).ToArray());
+
+    public Task<IReadOnlyList<WarrantyClaimItemUnit>> GetClaimUnitsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken)
+    {
+        var itemIds = ClaimItems.Where(x => x.ClaimId == claimId).Select(x => x.Id).ToHashSet();
+        return Task.FromResult<IReadOnlyList<WarrantyClaimItemUnit>>(ClaimItemUnits.Where(x => itemIds.Contains(x.ClaimItemId)).Select(DetachedSnapshot).ToArray());
+    }
+
+    // HARNESS_CORRECTION: expose the same persisted fake movement graph through the new plural contract.
+    public FakeInventoryRepository? Inventory { get; set; }
     public Dictionary<Guid, WarrantyClaim> Claims { get; } = new();
     public List<WarrantyClaimItem> ClaimItems { get; } = new();
     public List<WarrantyClaimItemUnit> ClaimItemUnits { get; } = new();
     public List<WarrantyClaimEvent> ClaimEvents { get; } = new();
     public List<WarrantyOperation> Operations { get; } = new();
     public Dictionary<Guid, ShopStockWarrantyCase> ShopStockCases { get; } = new();
+
+    public Task<WarrantyClaim?> GetClaimAsync(Guid claimId, CancellationToken cancellationToken) =>
+        Task.FromResult(Claims.TryGetValue(claimId, out var c) ? c : null);
 
     public Task<WarrantyClaim?> GetClaimForUpdateAsync(Guid claimId, CancellationToken cancellationToken) =>
         Task.FromResult(Claims.TryGetValue(claimId, out var c) ? c : null);
@@ -334,10 +406,13 @@ internal sealed class FakeWarrantyRepository : IWarrantyRepository
     }
 
     public Task<ShopStockWarrantyCase?> GetShopStockCaseAsync(Guid caseId, CancellationToken cancellationToken) =>
-        Task.FromResult(ShopStockCases.TryGetValue(caseId, out var c) ? c : null);
+        Task.FromResult(ShopStockCases.TryGetValue(caseId, out var c) ? DetachedSnapshot(c) : null);
 
     public Task<ShopStockWarrantyCase?> GetShopStockCaseForUpdateAsync(Guid caseId, CancellationToken cancellationToken) =>
-        GetShopStockCaseAsync(caseId, cancellationToken);
+        Task.FromResult(ShopStockCases.TryGetValue(caseId, out var c) ? c : null);
+
+    public List<ShopWarrantySendAllocation> SendAllocations { get; } = new();
+    public List<ShopWarrantyResolutionAllocation> ResolutionAllocations { get; } = new();
 
     public void AddClaim(WarrantyClaim claim) => Claims[claim.Id] = claim;
     public void AddClaimItem(WarrantyClaimItem item) => ClaimItems.Add(item);
@@ -345,6 +420,40 @@ internal sealed class FakeWarrantyRepository : IWarrantyRepository
     public void AddClaimEvent(WarrantyClaimEvent claimEvent) => ClaimEvents.Add(claimEvent);
     public void AddOperation(WarrantyOperation operation) => Operations.Add(operation);
     public void AddShopStockCase(ShopStockWarrantyCase warrantyCase) => ShopStockCases[warrantyCase.Id] = warrantyCase;
+
+    public Task<ShopWarrantySendAllocation?> GetShopWarrantySendAllocationByCaseIdAsync(Guid caseId, CancellationToken cancellationToken) =>
+        Task.FromResult(SendAllocations.FirstOrDefault(a => a.CaseId == caseId));
+
+    public Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsBySendIdAsync(Guid sendAllocationId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<ShopWarrantyResolutionAllocation>>(ResolutionAllocations.Where(a => a.SendAllocationId == sendAllocationId).ToList());
+
+    public void AddShopWarrantySendAllocation(ShopWarrantySendAllocation allocation) => SendAllocations.Add(allocation);
+
+    public Task<IReadOnlyList<ShopWarrantySendAllocation>> GetShopWarrantySendAllocationsByCaseIdAsync(Guid caseId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<ShopWarrantySendAllocation>>(SendAllocations.Where(x => x.CaseId == caseId)
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToArray());
+
+    public Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsByCaseIdAsync(Guid caseId, CancellationToken cancellationToken)
+    {
+        var sends = SendAllocations.Where(x => x.CaseId == caseId).Select(x => x.Id).ToHashSet();
+        return Task.FromResult<IReadOnlyList<ShopWarrantyResolutionAllocation>>(ResolutionAllocations
+            .Where(x => sends.Contains(x.SendAllocationId)).OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToArray());
+    }
+
+    public Task<IReadOnlyList<InventoryMovementUnit>> GetShopWarrantyMovementUnitsAsync(Guid caseId, CancellationToken cancellationToken)
+    {
+        if (Inventory is null)
+        {
+            throw new BusinessRuleException("warranty.physical_authority_unavailable", "Fake movement graph is not configured.");
+        }
+        var movements = Inventory.Movements.Where(x => x.ReferenceType == "SHOP_WARRANTY" && x.ReferenceId == caseId &&
+            x.MovementType is InventoryMovementType.SendToSupplierWarranty or InventoryMovementType.ReceiveRepairedFromSupplier or
+                InventoryMovementType.ReceiveReplacementFromSupplier or InventoryMovementType.WarrantyRejectedReturn or
+                InventoryMovementType.WriteOffToScrap or InventoryMovementType.WarrantyCreditResolution).Select(x => x.Id).ToHashSet();
+        return Task.FromResult<IReadOnlyList<InventoryMovementUnit>>(Inventory.MovementUnits.Where(x => movements.Contains(x.MovementId))
+            .OrderBy(x => x.MovementId).ThenBy(x => x.InventoryUnitId).ToArray());
+    }
+    public void AddShopWarrantyResolutionAllocation(ShopWarrantyResolutionAllocation allocation) => ResolutionAllocations.Add(allocation);
 }
 
 internal sealed class FakePosDraftRepository : IPosDraftRepository
@@ -563,5 +672,142 @@ internal sealed class FakePurchasingReadService : IPurchasingReadService
         }
 
         return Task.FromResult<IReadOnlyList<CommittedInventoryUnitDto>>(units);
+    }
+}
+
+
+internal sealed class FakePhysicalUnitCreationAuthority : IPhysicalUnitCreationAuthority
+{
+    private readonly FakeCatalogRepository _catalog;
+    private readonly FakePartyRepository _parties;
+    private readonly FakeTraceabilityRepository _traceability;
+    private readonly FakeInventoryRepository _inventory;
+    private readonly FakeClock _clock;
+    private readonly ISequenceHighWaterService _highWater;
+
+    public FakePhysicalUnitCreationAuthority(
+        FakeCatalogRepository catalog,
+        FakePartyRepository parties,
+        FakeTraceabilityRepository traceability,
+        FakeInventoryRepository inventory,
+        FakeClock clock,
+        ISequenceHighWaterService? highWater = null)
+    {
+        _catalog = catalog;
+        _parties = parties;
+        _traceability = traceability;
+        _inventory = inventory;
+        _clock = clock;
+        _highWater = highWater ?? NullSequenceHighWaterService.Instance;
+    }
+
+    public async Task<Result<IReadOnlyList<InventoryUnit>>> CreateAsync(
+        Guid supplierId,
+        Guid productId,
+        IReadOnlyList<PhysicalUnitCreationEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        var product = await _catalog.GetProductAsync(productId, cancellationToken);
+        var supplier = await _parties.GetSupplierAsync(supplierId, cancellationToken);
+        if (product is null || supplier is null || string.IsNullOrWhiteSpace(product.Sku) ||
+            string.IsNullOrWhiteSpace(supplier.DealerCode))
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "test.identity_authority_missing_master",
+                "Tracking master data is missing.");
+        }
+
+        var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(
+            supplierId, productId, cancellationToken);
+        if (supplierProduct is null)
+        {
+            supplierProduct = new SupplierProduct
+            {
+                SupplierId = supplierId,
+                ProductId = productId,
+                NextItemSequence = 1,
+                IsActive = true,
+                CreatedAt = _clock.UtcNow,
+                UpdatedAt = _clock.UtcNow,
+                Version = 1
+            };
+            _traceability.AddSupplierProduct(supplierProduct);
+        }
+
+        var machineSequence = _highWater.GetSupplierProductHighWater(supplierId, productId);
+        if (machineSequence > supplierProduct.NextItemSequence)
+        {
+            supplierProduct.NextItemSequence = machineSequence;
+        }
+        var created = new List<InventoryUnit>(entries.Count);
+        var batchSerials = new HashSet<string>(StringComparer.Ordinal);
+        var batchImeis = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var serial = product.SerialTrackingEnabled
+                ? IdentityNormalizationRules.NormalizeOptionalSerialNumber(entry.SerialNumber)
+                : null;
+            var imei1 = product.ImeiTrackingEnabled
+                ? IdentityNormalizationRules.NormalizeOptionalImei(entry.Imei1)
+                : null;
+            var imei2 = product.ImeiTrackingEnabled
+                ? IdentityNormalizationRules.NormalizeOptionalImei(entry.Imei2)
+                : null;
+
+            if (serial is not null && !batchSerials.Add(serial) ||
+                imei1 is not null && !batchImeis.Add(imei1) ||
+                imei2 is not null && !batchImeis.Add(imei2) ||
+                await _inventory.InventoryIdentityExistsAsync(serial, imei1, imei2, cancellationToken))
+            {
+                return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                    "inventory.identity_duplicate",
+                    "Serial or IMEI already exists.");
+            }
+
+            var sequence = supplierProduct.NextItemSequence++;
+            supplierProduct.UpdatedAt = _clock.UtcNow;
+            supplierProduct.Version++;
+            var dealer = supplier.DealerCode.Trim().ToUpperInvariant();
+            var sku = TraceabilityCodeRules.NormalizeSku(product.Sku);
+            var unit = new InventoryUnit
+            {
+                ProductId = productId,
+                SupplierProductId = supplierProduct.Id,
+                OriginType = entry.OriginType,
+                ItemSequence = sequence,
+                TrackingCode = TraceabilityCodeRules.BuildTrackingCode(dealer, sku, sequence),
+                SupplierCodeSnapshot = dealer,
+                ProductSkuSnapshot = sku,
+                SerialNumber = serial,
+                Imei1 = imei1,
+                Imei2 = imei2,
+                Status = entry.Status,
+                AcquisitionCost = entry.AcquisitionCost,
+                InventoryLotId = entry.InventoryLotId,
+                SourcePurchaseItemId = entry.SourcePurchaseItemId,
+                SourceWarrantyClaimItemId = entry.SourceWarrantyClaimItemId,
+                SourceWarrantyCaseId = entry.SourceWarrantyCaseId,
+                SourceStockAdjustmentItemId = entry.SourceStockAdjustmentItemId,
+                CreatedAt = _clock.UtcNow,
+                Version = 1
+            };
+            unit.ValidateOriginInvariants();
+            _inventory.AddInventoryUnit(unit);
+            if (serial is not null)
+            {
+                _inventory.ExistingSerials.Add(serial);
+            }
+            if (imei1 is not null)
+            {
+                _inventory.ExistingImeis.Add(imei1);
+            }
+            if (imei2 is not null)
+            {
+                _inventory.ExistingImeis.Add(imei2);
+            }
+            created.Add(unit);
+        }
+        _highWater.RecordSupplierProductHighWater(supplierId, productId, supplierProduct.NextItemSequence);
+        return Result<IReadOnlyList<InventoryUnit>>.Success(created);
     }
 }

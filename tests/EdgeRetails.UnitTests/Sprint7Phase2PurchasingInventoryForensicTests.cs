@@ -53,7 +53,7 @@ public sealed class Sprint7Phase2PurchasingInventoryForensicTests
         Assert.Contains("bool IsSerialized", contract);
         Assert.Contains("string UnitSymbol", contract);
         Assert.Contains("l.purchase_item_id = pi.id", reads);
-        Assert.Contains("cp.tracking_mode = 3", reads);
+        Assert.Contains("(cp.tracking_mode IN (3, 4, 5)) AS IsSerialized", reads);
         Assert.Contains("inventory.lot_bucket_balances", reads);
         Assert.Contains("lb.stock_bucket = 1", reads);
         Assert.Contains("purchasing.return_items", reads);

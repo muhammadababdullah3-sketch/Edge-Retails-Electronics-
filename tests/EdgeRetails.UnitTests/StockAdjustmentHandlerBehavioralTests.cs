@@ -2,6 +2,7 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Inventory;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
@@ -23,6 +24,8 @@ public sealed class StockAdjustmentHandlerBehavioralTests
     private readonly FakeTransactionRunner _transactions = new();
     private readonly FakePermissionAuthorizer _authorization = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
+    private readonly InMemoryOperationOutcomeLedger _outcomes = new();
+    private readonly FakeOperationLock _operationLock = new();
 
     public StockAdjustmentHandlerBehavioralTests()
     {
@@ -41,7 +44,10 @@ public sealed class StockAdjustmentHandlerBehavioralTests
             _clock,
             _transactions,
             _authorization,
-            _unitOfWork);
+            _unitOfWork,
+            _outcomes,
+            new FakePhysicalUnitCreationAuthority(_catalog, _parties, _traceability, _inventory, _clock),
+            _operationLock);
 
     private static string MakeValidImei(string prefix14)
     {
@@ -265,7 +271,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
     }
 
     [Fact]
-    public async Task Negative_Serialized_Adjustment_Reduces_Authoritative_Bucket_And_Lot_And_Transitions_To_Scrapped()
+    public async Task Negative_Serialized_Adjustment_Reduces_Authoritative_Bucket_And_Lot_And_Transitions_To_Missing()
     {
         // Arrange
         var productId = Guid.NewGuid();
@@ -334,7 +340,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
 
         var command = new CreateStockAdjustmentCommand(
             StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
+            StockAdjustmentReason.Lost, // Explicit recoverable shortage authority.
             [
                 new StockAdjustmentItemCommand(
                     productId,
@@ -344,7 +350,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
                     1m,
                     null,
                     InventoryUnitIds: [unitId],
-                    ReasonDetails: "Water damage during transit")
+                    ReasonDetails: "Confirmed missing identity")
             ],
             actorId,
             Guid.NewGuid());
@@ -360,8 +366,8 @@ public sealed class StockAdjustmentHandlerBehavioralTests
         // StockBalance reduced
         Assert.Equal(0m, balance.SellableQty);
 
-        // Unit transitioned to Scrapped
-        Assert.Equal(InventoryUnitStatus.Scrapped, unit.Status);
+        // Unit transitioned to Missing
+        Assert.Equal(InventoryUnitStatus.Missing, unit.Status);
 
         // Lot bucket reduced to 0
         Assert.Equal(0m, lotBucket.Quantity);
@@ -414,7 +420,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
         // Command incorrectly specifies Sellable as source bucket
         var command = new CreateStockAdjustmentCommand(
             StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
+            StockAdjustmentReason.Other, // Retain the original destructive-correction stock guard.
             [
                 new StockAdjustmentItemCommand(
                     productId,
@@ -474,7 +480,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
         // Command specifies Sellable bucket
         var command = new CreateStockAdjustmentCommand(
             StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
+            StockAdjustmentReason.Other, // Retain the original destructive-correction bucket guard.
             [
                 new StockAdjustmentItemCommand(
                     productId,
@@ -533,7 +539,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
 
         var command = new CreateStockAdjustmentCommand(
             StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
+            StockAdjustmentReason.Other, // Retain the original destructive-correction terminal-state guard.
             [
                 new StockAdjustmentItemCommand(
                     productId,
@@ -1214,7 +1220,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
         var unitToScrap = _inventory.Units.First(u => u.SerialNumber == "SN-TAB-2");
         var outtakeCommand = new CreateStockAdjustmentCommand(
             StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
+            StockAdjustmentReason.Lost, // Explicit recoverable shortage authority.
             [
                 new StockAdjustmentItemCommand(
                     productId,
@@ -1223,7 +1229,7 @@ public sealed class StockAdjustmentHandlerBehavioralTests
                     InventoryBucket.Sellable,
                     1m,
                     null,
-                    InventoryUnitIds: [unitToScrap.Id])
+                    InventoryUnitIds: [unitToScrap.Id], ReasonDetails: "Confirmed missing identity")
             ],
             Guid.NewGuid(),
             Guid.NewGuid());
@@ -1334,6 +1340,9 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
     public Task<bool> IsUnitInUseByActiveCatalogAsync(Guid unitId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
 
+    public Task<ProductUnit?> GetProductUnitSnapshotAsync(Guid productUnitId, CancellationToken cancellationToken) =>
+        GetProductUnitAsync(productUnitId, cancellationToken);
+
     public Task<ProductUnit?> GetProductUnitAsync(Guid productUnitId, CancellationToken cancellationToken) =>
         Task.FromResult(ProductUnits.TryGetValue(productUnitId, out var pu) ? pu : null);
 
@@ -1374,6 +1383,9 @@ internal sealed class FakeInventoryRepository : IInventoryRepository
     public HashSet<string> ExistingImeis { get; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<Guid> BlockedStocktakeProducts { get; } = new();
 
+    public Task<StockBalance?> GetStockBalanceAsync(Guid productId, CancellationToken cancellationToken) =>
+        Task.FromResult(Balances.TryGetValue(productId, out var b) ? b : null);
+
     public Task<StockBalance?> GetStockBalanceForUpdateAsync(Guid productId, CancellationToken cancellationToken) =>
         Task.FromResult(Balances.TryGetValue(productId, out var b) ? b : null);
 
@@ -1403,14 +1415,41 @@ internal sealed class FakeInventoryRepository : IInventoryRepository
     public Task<InventoryLotBucketBalance?> GetLotBucketBalanceForUpdateAsync(Guid lotId, InventoryBucket bucket, CancellationToken cancellationToken) =>
         Task.FromResult(LotBucketBalances.FirstOrDefault(l => l.LotId == lotId && l.StockBucket == bucket));
 
+    public Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(InventoryUnit unit, CancellationToken cancellationToken)
+    {
+        var lot = Lots.SingleOrDefault(x => x.Id == unit.InventoryLotId);
+        var count = MovementUnits.Where(x => x.MovementId == lot?.SourceMovementId)
+            .Select(x => x.InventoryUnitId).Distinct().Count();
+        var received = MovementEffects.Where(x => x.MovementId == lot?.SourceMovementId && x.QuantityDelta > 0m)
+            .Sum(x => x.QuantityDelta);
+        return Task.FromResult(count > 0 && received > 0m ? received / count : 1m);
+    }
+
     public Task<InventoryLot?> GetInventoryLotForUpdateAsync(Guid lotId, CancellationToken cancellationToken) =>
         Task.FromResult(Lots.FirstOrDefault(l => l.Id == lotId));
+
+    // HARNESS_CORRECTION: return the existing fake's complete persisted graph, as the EF repository does.
+    public Task<IReadOnlyList<InventoryMovementEvidence>> GetMovementsByReferenceAsync(
+        string referenceType, Guid referenceId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InventoryMovementEvidence>>(Movements
+            .Where(x => x.ReferenceType == referenceType && x.ReferenceId == referenceId)
+            .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id)
+            .Select(x => new InventoryMovementEvidence(x,
+                MovementUnits.Where(u => u.MovementId == x.Id).ToArray(),
+                MovementEffects.Where(e => e.MovementId == x.Id).ToArray(),
+                LotConsumptions.Where(c => c.MovementId == x.Id).ToArray())).ToArray());
 
     public Task<bool> HasPurchaseItemConsumptionAsync(Guid purchaseItemId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
 
     public Task<decimal> GetPurchaseItemReceivedBaseQuantityAsync(Guid purchaseItemId, CancellationToken cancellationToken) =>
         Task.FromResult(Lots.Where(l => l.PurchaseItemId == purchaseItemId).Sum(l => l.ReceivedQuantity));
+
+    public Task<decimal> GetPurchaseItemReceivedCarryingValueAsync(Guid purchaseItemId, bool physical, CancellationToken cancellationToken) =>
+        Task.FromResult(physical
+            ? Units.Where(x => x.SourcePurchaseItemId == purchaseItemId).Sum(x => x.AcquisitionCost)
+            : Lots.Where(x => x.PurchaseItemId == purchaseItemId)
+                .Sum(x => decimal.Round(x.ReceivedQuantity * x.EffectiveUnitCost, 6, MidpointRounding.AwayFromZero)));
 
     public Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(Guid movementId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<InventoryLotConsumption>>(LotConsumptions.Where(c => c.MovementId == movementId).ToList());
@@ -1478,6 +1517,31 @@ internal sealed class FakeInventoryRepository : IInventoryRepository
         }
 
         return Task.FromResult(false);
+    }
+
+    public Task ReleaseManufacturerIdentityOwnershipForReceiptVoidAsync(IReadOnlyCollection<Guid> inventoryUnitIds, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var unit in Units.Where(x => inventoryUnitIds.Contains(x.Id)))
+        {
+            if (unit.Status != InventoryUnitStatus.ReceiptVoided)
+            {
+                throw new InvalidOperationException("ReceiptVoid ownership release requires the unit to be voided.");
+            }
+            if (unit.SerialNumber is string serial)
+            {
+                ExistingSerials.Remove(serial);
+            }
+            if (unit.Imei1 is string imei1)
+            {
+                ExistingImeis.Remove(imei1);
+            }
+            if (unit.Imei2 is string imei2)
+            {
+                ExistingImeis.Remove(imei2);
+            }
+        }
+        return Task.CompletedTask;
     }
 
     public Task<bool> IsProductBlockedByCountingStocktakeAsync(Guid productId, CancellationToken cancellationToken) =>

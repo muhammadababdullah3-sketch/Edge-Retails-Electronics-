@@ -107,4 +107,8 @@ public interface IProductCatalogSafetyReadService
     Task<bool> HasStockOrHistoryAsync(
         Guid productId,
         CancellationToken cancellationToken);
+
+    Task<bool> HasUnitUsageAsync(
+        Guid productUnitId,
+        CancellationToken cancellationToken) => Task.FromResult(false);
 }

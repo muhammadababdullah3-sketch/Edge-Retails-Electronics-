@@ -11,7 +11,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.Desktop.Services;
 
-public sealed record BackendSupplierOption(Guid Id, string Name);
+public sealed record BackendSupplierOption(Guid Id, string Name, string? City = null, string? Phone = null)
+{
+    public string DisplayName => !string.IsNullOrWhiteSpace(City)
+        ? $"{Name} — {City}"
+        : Name;
+
+    public override string ToString() => DisplayName;
+}
 
 public sealed record BackendSerializedIdentityInput(
     string? SerialNumber,
@@ -35,7 +42,8 @@ public sealed record BackendPurchaseCatalogItem(
     decimal FactorToBaseUnit,
     bool IsSerialized,
     bool SerialTrackingEnabled,
-    bool ImeiTrackingEnabled);
+    bool ImeiTrackingEnabled,
+    EdgeRetails.Domain.Catalog.TrackingMode TrackingMode = EdgeRetails.Domain.Catalog.TrackingMode.Quantity);
 
 public sealed record BackendInventorySnapshot(
     IReadOnlyList<PosProductItemViewModel> Products,
@@ -47,8 +55,12 @@ public sealed record BackendProductSaleHistoryItem(
     string CustomerName,
     decimal Quantity,
     decimal UnitPrice,
-    decimal LineTotal); public interface IBackendPurchasingInventoryService
+    decimal LineTotal);
+
+public interface IBackendPurchasingInventoryService
 {
+    bool ReceivesStockImmediately => false;
+
     Task<IReadOnlyList<BackendSupplierOption>> GetSuppliersAsync(
         CancellationToken cancellationToken = default);
 
@@ -113,7 +125,7 @@ public sealed record BackendProductSaleHistoryItem(
         CancellationToken cancellationToken = default);
 }
 public sealed class BackendPurchasingInventoryService
-    : IBackendPurchasingInventoryService
+    : IBackendPurchasingInventoryService, IBackendPurchaseLookupService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Func<Guid?> _actorUserId;
@@ -124,6 +136,26 @@ public sealed class BackendPurchasingInventoryService
     {
         _scopeFactory = scopeFactory;
         _actorUserId = actorUserId;
+    }
+
+    public bool ReceivesStockImmediately => true;
+
+    public async Task<PurchaseCatalogPageDto> GetCatalogPageAsync(PurchaseCatalogPageQuery query, CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IPurchaseCatalogReadService>().SearchAsync(query, cancellationToken);
+    }
+
+    public async Task<BackendSupplierPage> GetSupplierPageAsync(string? search, int pageSize = 50,
+        string? beforeName = null, Guid? beforeSupplierId = null, CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var take = Math.Clamp(pageSize, 1, 199);
+        var rows = await scope.ServiceProvider.GetRequiredService<IPartyDirectoryReadService>()
+            .GetSuppliersAsync(search, take + 1, cancellationToken, beforeName, beforeSupplierId);
+        var visible = rows.Take(take).ToArray();
+        return new BackendSupplierPage(visible.Select(x => new BackendSupplierOption(x.SupplierId, x.Name, x.City, x.Phone)).ToArray(),
+            rows.Count > take ? visible[^1].Name : null, rows.Count > take ? visible[^1].SupplierId : null);
     }
 
     public async Task<IReadOnlyList<BackendSupplierOption>> GetSuppliersAsync(
@@ -137,7 +169,7 @@ public sealed class BackendPurchasingInventoryService
             .Where(x => x.IsActive)
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Id)
-            .Select(x => new BackendSupplierOption(x.Id, x.Name))
+            .Select(x => new BackendSupplierOption(x.Id, x.Name, x.Location, x.Phone))
             .ToArray();
     }
 
@@ -160,7 +192,8 @@ public sealed class BackendPurchasingInventoryService
             x.FactorToBaseUnit,
             x.IsSerialized,
             x.SerialTrackingEnabled,
-            x.ImeiTrackingEnabled)).ToArray();
+            x.ImeiTrackingEnabled,
+            x.TrackingMode)).ToArray();
     }
 
     public async Task<IReadOnlyList<PurchaseRecord>> GetPurchasesAsync(
@@ -232,7 +265,7 @@ public sealed class BackendPurchasingInventoryService
                 ?? throw new InvalidOperationException(
                     $"Purchase unit for '{line.Product.Name}' is unavailable.");
 
-            if (line.Product.IsSerialized && line.SerializedIdentities.Count == 0)
+            if ((line.Product.SerialTrackingEnabled || line.Product.ImeiTrackingEnabled) && line.SerializedIdentities.Count == 0)
             {
                 throw new BackendOperationException(
                     "purchasing.serialized_identities_required",
@@ -333,7 +366,9 @@ public sealed class BackendPurchasingInventoryService
             if (item.Product.IsSerialized)
             {
                 var exactBaseQuantity =
-                    selection.EnteredQuantity * item.Product.FactorToBaseUnit;
+                    item.Product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                        ? selection.EnteredQuantity
+                        : selection.EnteredQuantity * item.Product.FactorToBaseUnit;
                 if (exactBaseQuantity != decimal.Truncate(exactBaseQuantity) ||
                     selection.InventoryUnitIds.Count != decimal.ToInt32(exactBaseQuantity))
                 {
@@ -506,7 +541,8 @@ public sealed class BackendPurchasingInventoryService
                 model: row.Model ?? string.Empty,
                 backendProductId: row.ProductId,
                 backendProductUnitId: purchaseUnit?.ProductUnitId,
-                isSerialized: row.IsSerialized);
+                isSerialized: row.IsSerialized,
+                trackingMode: row.TrackingMode);
         }).ToArray(); var movementRows = movements.Select(row => new InventoryMovementRecord
         {
             Timestamp = row.OccurredAt.LocalDateTime,

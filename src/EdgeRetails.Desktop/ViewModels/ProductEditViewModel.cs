@@ -92,7 +92,7 @@ public sealed class SupplierLinkEditorItemViewModel : ViewModelBase
     }
 
     public BackendSupplierOption Supplier { get; }
-    public string Name => Supplier.Name;
+    public string Name => $"{Supplier.DisplayName} ({Supplier.Id:D})";
 
     public bool IsLinked
     {
@@ -120,6 +120,11 @@ public sealed class ProductEditViewModel : ViewModelBase
     private string _modelCode = string.Empty;
     private bool _isModelCodeManuallyEdited;
     private bool _isAutoSuggestingModelCode;
+    private string _supplierSearchText = string.Empty;
+    private CancellationTokenSource? _supplierSearchCancellation;
+    private long _supplierGeneration;
+    private string? _nextSupplierName;
+    private Guid? _nextSupplierId;
 
     public ProductEditViewModel(
         BackendProductManagementItem? product,
@@ -184,22 +189,36 @@ public sealed class ProductEditViewModel : ViewModelBase
             TrackingMode.Quantity,
             TrackingMode.Length,
             TrackingMode.IndividualPiece,
-            TrackingMode.Container
+            TrackingMode.Container,
+            TrackingMode.Serialized
         };
 
         UnitConfigurations = [];
         BuildUnitConfigurationRows();
 
-        SupplierLinks = snapshot.Suppliers
+        SupplierLinks = new System.Collections.ObjectModel.ObservableCollection<SupplierLinkEditorItemViewModel>(snapshot.Suppliers
             .OrderBy(x => x.Name)
             .Select(supplier => new SupplierLinkEditorItemViewModel(
                 supplier,
                 product?.SupplierProducts.Any(
                     x => x.SupplierId == supplier.Id && x.IsActive) == true))
-            .ToList();
+            .ToList());
+        // Existing links are authoritative even when their suppliers are inactive/off-page.
+        foreach (var link in product?.SupplierProducts ?? [])
+        {
+            if (!SupplierLinks.Any(x => x.Supplier.Id == link.SupplierId))
+            {
+                SupplierLinks.Add(new(new BackendSupplierOption(link.SupplierId, link.SupplierName), link.IsActive));
+            }
+        }
 
         SaveCommand = new RelayCommand(() => _ = SaveAsync(), () => !IsSaving);
         CancelCommand = new RelayCommand(close);
+        LoadMoreSuppliersCommand = new RelayCommand(() => _ = SearchSuppliersAsync(true), () => HasMoreSuppliers);
+        if (_service is IBackendSupplierLookupService)
+        {
+            _ = SearchSuppliersAsync(false);
+        }
     }
 
     public bool IsEdit => _product is not null;
@@ -329,7 +348,91 @@ public sealed class ProductEditViewModel : ViewModelBase
     public IReadOnlyList<BackendCatalogUnit> Units { get; }
     public IReadOnlyList<TrackingMode> TrackingModes { get; }
     public List<ProductUnitEditorItemViewModel> UnitConfigurations { get; }
-    public List<SupplierLinkEditorItemViewModel> SupplierLinks { get; }
+    public System.Collections.ObjectModel.ObservableCollection<SupplierLinkEditorItemViewModel> SupplierLinks { get; }
+    public ICommand LoadMoreSuppliersCommand { get; }
+    public bool HasMoreSuppliers => _nextSupplierId.HasValue;
+    public string SupplierSearchText
+    {
+        get => _supplierSearchText;
+        set { if (SetProperty(ref _supplierSearchText, value ?? string.Empty))
+            {
+                _ = SearchSuppliersAsync(false);
+            }
+        }
+    }
+
+    public async Task SearchSuppliersAsync(bool append)
+    {
+        if (_service is not IBackendSupplierLookupService lookup)
+        {
+            return;
+        }
+
+        if (append && !HasMoreSuppliers)
+        {
+            return;
+        }
+
+        if (!append)
+        {
+            _nextSupplierName = null;
+            _nextSupplierId = null;
+            OnPropertyChanged(nameof(HasMoreSuppliers));
+            ((RelayCommand)LoadMoreSuppliersCommand).NotifyCanExecuteChanged();
+        }
+        _supplierSearchCancellation?.Cancel();
+        var source = new CancellationTokenSource();
+        _supplierSearchCancellation = source;
+        var generation = ++_supplierGeneration;
+        try
+        {
+            if (!append)
+            {
+                await Task.Delay(250, source.Token);
+            }
+
+            var page = await lookup.GetSupplierPageAsync(SupplierSearchText, 50,
+                append ? _nextSupplierName : null, append ? _nextSupplierId : null, source.Token);
+            if (generation != _supplierGeneration || source.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (!append)
+            {
+                foreach (var row in SupplierLinks.Where(x => !x.IsLinked).ToArray())
+                {
+                    SupplierLinks.Remove(row);
+                }
+            }
+
+            foreach (var supplier in page.Items)
+            {
+                if (!SupplierLinks.Any(x => x.Supplier.Id == supplier.Id))
+                {
+                    SupplierLinks.Add(new(supplier, false));
+                }
+            }
+
+            _nextSupplierName = page.NextName;
+            _nextSupplierId = page.NextSupplierId;
+            OnPropertyChanged(nameof(HasMoreSuppliers));
+            ((RelayCommand)LoadMoreSuppliersCommand).NotifyCanExecuteChanged();
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (generation == _supplierGeneration)
+            {
+                ValidationMessage = DesktopErrorPresentation.ForException(ex, "Supplier search could not be loaded.");
+            }
+        }
+        finally { source.Dispose(); if (ReferenceEquals(_supplierSearchCancellation, source))
+            {
+                _supplierSearchCancellation = null;
+            }
+        }
+    }
     public string ReferencePurchaseCostText { get; set; }
     public string SalePriceText { get; set; }
     public string MinimumStockText { get; set; }
@@ -385,7 +488,14 @@ public sealed class ProductEditViewModel : ViewModelBase
             if (SetProperty(ref _selectedTrackingMode, value))
             {
                 OnPropertyChanged(nameof(IsSerialized));
-                if (!IsSerialized)
+                if (value == TrackingMode.Serialized)
+                {
+                    if (!SerialTrackingEnabled && !ImeiTrackingEnabled)
+                    {
+                        SerialTrackingEnabled = true;
+                    }
+                }
+                else if (value is TrackingMode.Quantity or TrackingMode.Length)
                 {
                     SerialTrackingEnabled = false;
                     ImeiTrackingEnabled = false;
@@ -394,7 +504,7 @@ public sealed class ProductEditViewModel : ViewModelBase
         }
     }
 
-    public bool IsSerialized => SelectedTrackingMode == TrackingMode.Serialized;
+    public bool IsSerialized => SelectedTrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container;
 
     public bool SerialTrackingEnabled
     {
@@ -508,6 +618,12 @@ public sealed class ProductEditViewModel : ViewModelBase
             }
         }
 
+        if (SelectedTrackingMode == TrackingMode.Serialized && !SerialTrackingEnabled && !ImeiTrackingEnabled)
+        {
+            ValidationMessage = "Serialized products require serial and/or IMEI tracking enabled.";
+            return;
+        }
+
         if (!TryParseOptionalDecimal(ReferencePurchaseCostText, out var referenceCost) ||
             !decimal.TryParse(
                 SalePriceText,
@@ -600,7 +716,9 @@ public sealed class ProductEditViewModel : ViewModelBase
                 _toastService.Show("Product updated.", ToastTone.Success);
             }
 
-            await _saved();
+            // The mutation has committed. Refresh failure must never invite another save.
+            try { await _saved(); }
+            catch (Exception) { _toastService.Show("Product saved. Refresh the catalog to display the latest details.", ToastTone.Warning); }
             _close();
         }
         catch (BackendCatalogOperationException ex)

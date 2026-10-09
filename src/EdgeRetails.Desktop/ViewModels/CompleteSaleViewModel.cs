@@ -127,7 +127,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         }
     }
 
-    public string TotalToPayDisplay => $"Rs. {TotalToPay:N0}";
+    public string TotalToPayDisplay => $"Rs. {TotalToPay:N2}";
 
     public PaymentMethod PaymentMethod
     {
@@ -244,11 +244,11 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         }
     }
 
-    public string ChangeReturnedDisplay => $"Rs. {ChangeReturned:N0}";
+    public string ChangeReturnedDisplay => $"Rs. {ChangeReturned:N2}";
     public bool HasChangeReturned => ChangeReturned > 0m;
 
     public decimal RemainingDue => Math.Max(0m, TotalToPay - AmountReceived);
-    public string RemainingDueDisplay => $"Rs. {RemainingDue:N0}";
+    public string RemainingDueDisplay => $"Rs. {RemainingDue:N2}";
     public bool HasRemainingDue => RemainingDue > 0m;
 
     public bool PrintReceipt
@@ -535,7 +535,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
             {
                 ChangeReturned = 0m;
                 var deficit = TotalToPay - AmountReceived;
-                ValidationMessage = $"Insufficient cash: Need Rs. {deficit:N0} more to complete sale.";
+                ValidationMessage = $"Insufficient cash: Need Rs. {deficit:N2} more to complete sale.";
             }
         }
         else
@@ -549,7 +549,7 @@ public sealed class CompleteSaleViewModel : ViewModelBase
             else
             {
                 ChangeReturned = 0m;
-                ValidationMessage = $"{PaymentMethodDisplay} payment requires exact amount (Rs. {TotalToPay:N0}).";
+                ValidationMessage = $"{PaymentMethodDisplay} payment requires exact amount (Rs. {TotalToPay:N2}).";
             }
         }
 

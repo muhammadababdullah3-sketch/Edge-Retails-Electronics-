@@ -34,7 +34,7 @@ public sealed class Sprint9Phase2DemoAuthorityTests
         Assert.Contains("IBackendDashboardService", vm);
         Assert.Contains("_backendService.LoadAsync()", vm);
         Assert.Contains("new BackendDashboardService(", factory);
-        Assert.Contains("_dashboardService)", factory);
+        Assert.Contains("_dashboardService,", factory);
         Assert.DoesNotContain("LoadDemoData", vm);
         Assert.DoesNotContain("84,500", vm);
         Assert.DoesNotContain("13,400", vm);

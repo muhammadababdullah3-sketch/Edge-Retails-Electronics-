@@ -17,6 +17,7 @@
                 <ResourceDictionary Source="Resources/Shadows.xaml" />
                 <ResourceDictionary Source="Resources/Typography.xaml" />
                 <ResourceDictionary Source="Resources/NavigationIcons.xaml" />
+                <ResourceDictionary Source="Resources/Brand.xaml" />
                 <ResourceDictionary Source="Resources/Themes/Light.xaml" />
                 <ResourceDictionary Source="Resources/Buttons.xaml" />
                 <ResourceDictionary Source="Resources/Inputs.xaml" />

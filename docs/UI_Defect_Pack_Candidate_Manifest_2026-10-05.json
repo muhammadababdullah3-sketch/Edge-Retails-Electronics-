@@ -1,0 +1,195 @@
+{
+  "date": "2026-10-05",
+  "timezone": "Asia/Karachi",
+  "verdict": "UI_DEFECT_PACK_PARTIALLY_RESOLVED",
+  "workspace": "C:\\Users\\muham\\OneDrive\\Desktop\\Point of Sale",
+  "normalBuild": "PASS: 0 warnings / 0 errors",
+  "targetedTests": "34 passed / 0 failed / 0 skipped",
+  "shortcut": "C:\\Users\\muham\\OneDrive\\Desktop\\Edge Retails - Latest Build.lnk",
+  "files": [
+    {
+      "path": "src/EdgeRetails.Desktop/App.xaml",
+      "sha256": "2137580F2FA9A1DE4AADC86D53FC07813B6F9F15C5B19090746A1A38BC444297"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/AppSidebar.xaml",
+      "sha256": "E6B5E060F1FC130F116D1DAB04D8B9906EF6275685796D06E2A94BED439D62AB"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/ModalHost.xaml",
+      "sha256": "A165B6B9993D4801C5956CB3CD1FB16842F103869B7FA09B23FA30AFEE23D848"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/ModalHost.xaml.cs",
+      "sha256": "A7D175FDA8F1EDCB31BCDE26EB88DCD42C886AC9E30C493F525EFD033071A32B"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/SearchBox.xaml",
+      "sha256": "EBAE31740B110DC93239D27EE6F99DE7A9215C806152BAA1EFA7A17575D31AA6"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/MainWindow.xaml",
+      "sha256": "6E2A387D93E917129D22EA67E3556D2A2E0F29FF5BA944A3601CB77B193984BE"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Inputs.xaml",
+      "sha256": "5D5E5406865F5099318983D670C5D51C3CD138DC524E8FD51ABDFADB8EAB03FE"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Buttons.xaml",
+      "sha256": "FD422BABDF808D790E098EDC2C9D5400BEA50210E6FB4FFA64A2F2A057A459C0"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Themes/Light.xaml",
+      "sha256": "93C1A0537C1B822E1C2C629ACE5B71FB0084562945E0EA642FE3CB134C1B556A"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Themes/Dark.xaml",
+      "sha256": "D8B25E5E5165633F3600C0AD2ABF06350EE1283CCB613812CF135DB095508101"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Brand.xaml",
+      "sha256": "5296726EF4D0759DBD3062452392A37C1C3A4760BF0D0224A9FBAF0D7290F4B5"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PosViewModel.cs",
+      "sha256": "7D347E82D41D1B9314CFB11F50E3E3A89A38333C090919BC203DF321B1EE8703"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PriceCheckViewModel.cs",
+      "sha256": "9479C4F63D6CD2DB26A7BCA0914663B3E279140D1E84C896C3D978B4E6ACF006"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/PriceCheckDialog.xaml",
+      "sha256": "598B63B16F3C679CA14E7F04F95C04C5497BD99F1D4AEAF75D62BC6D808C9E17"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/SaleCustomerPickerDialog.xaml",
+      "sha256": "4B0384C38E71BF2C751E6F5FBDF47D9949CAD4552FB64CCBBA99AFFAD8695904"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/FirstSetupView.xaml",
+      "sha256": "0A0A16A1D5C2013937448FB6D8659A79B7D94E5A90E16A29FD3CB0E41835FE2F"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/LoginView.xaml",
+      "sha256": "8F4275822337D1D655A2527CEA90A7EB25F103A54080A58428665578A1682A75"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/PosView.xaml",
+      "sha256": "34BA1FDF86BABD6CB928B409BBB996A53A73B84A66C156FCE7F80B2DC0CDCFB8"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/SalesHistoryView.xaml",
+      "sha256": "73F91D82AC58782AC106D10DC5F5824C6F263E619C09F1CA789B025BB0CFDE44"
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/FrontendPass1GeometryBaselineTests.cs",
+      "sha256": "A82FBAD75A7A9E4148E5839B7EEC9FBC4D27D31550467A2C340EFDA83C7C6C76"
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/UserReportedUiDefectRegressionTests.cs",
+      "sha256": "1F846A22F6CA3D0C618CDC0A1BD610C6CCEC131CCAA8359FCCDC0BBEAFB6108A"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/Probe/Program.cs",
+      "sha256": "B28274CFB0C7ED103CD602A164A70F6E1327BC672E53EB78EA6C3D0A8CC5D350"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/Probe/UiDefectProbe.csproj",
+      "sha256": "3C9554391FFD251B20A8DED9C39C8E71A77EB66B4E4020E929C18DC0AEB43328"
+    },
+    {
+      "path": "docs/EDGE_RETAILS_USER_REPORTED_UI_DEFECT_PACK_2026-10-05.md",
+      "sha256": "D5944FB32D075A8C65D5FB445EBBFF230EF7A2463429E39C5B23B7132B7BD9AE"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/bin/Debug/net10.0-windows/EdgeRetails.Desktop.exe",
+      "sha256": "00A37652BCB4915D033A0D9A4A5BA174C4717CB9BE4A96F69DED86CADD7C5F3F"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/bin/Debug/net10.0-windows/EdgeRetails.Desktop.dll",
+      "sha256": "934A7D2A94CEC93535D428C3FB1EF82328AD93DB37E7241C1D68BD18A94C5489"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/pos_placeholder_logo_toolbar.png",
+      "sha256": "647FF2DDDA516CE49696366C698D0BA98274ADDA7075A26583B246E182D7D9E5"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/pos_focused_empty.png",
+      "sha256": "9A719A92AB1338985560244A4E80B10D52CBCCB9FC6C828ED1214C65AB5FE530"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/pos_typed_empty_products.png",
+      "sha256": "DA2B5CE2678C726C64C5CF42C405E3CBFD428A757FAFBA99E88D3F15C5340A54"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/category_open_selected.png",
+      "sha256": "541622CEAADE34835F95CD97F6BEB1493C7F49C87C1BFA509F47D8D97E6622F5"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/category_open_selected_1.png",
+      "sha256": "2AFAD01ADE9914A14C2DCFE2650DBD45B4049186DAC64C93B7A04CC2B0295BBF"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/category_keyboard_item.png",
+      "sha256": "4F87BF05B6E9DBA2C04A576CDBE100CBE32CC7C069BFA3AA5086615CFED0C573"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/category_keyboard_item_1.png",
+      "sha256": "AECE529D5190235E6F46C4CCC6030A488E9EBCAA20CF702CFC067B01D6CA9375"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/brand_open_selected.png",
+      "sha256": "F1EBD8B354FBF68DA545B07FDC464DF7C84BE8C1D8F9DF4E9627E3C5FD200B06"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/brand_open_selected_1.png",
+      "sha256": "F5A119967CF27F6AA95A6DEB0CD036B1B95447D4B87DB8B1A092C908916C1DE3"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/change_customer.png",
+      "sha256": "B8B51864A3E871F91BD934F957B37A143641AFFF029C774DC922EA82DD898E54"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/customer_escape_restores_pos.png",
+      "sha256": "A544FEA51E9A066252449814B61558EFCA1A942DEC844F3F6590DC80BC21F39B"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/period_pills_normal_today_selected.png",
+      "sha256": "FC43B7602CFC7129CAF43E2794B26B7B4D8BDE7D5286EE4D874069EFE15270D8"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/period_pills_yesterday_selected_hover.png",
+      "sha256": "6D02C798F72887535A6E35C9272823AB4FDBCFEC9625D5651839E93BF86636BA"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/period_pills_today_keyboard_focus.png",
+      "sha256": "B9AC8D9AFB9B0784AB0435AA8509DFAD21B16BBD536F7B598309500DF2A2D8F7"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/period_pills_today_selected_yesterday_hover.png",
+      "sha256": "70DD84FB9FEBDFCA0FCFBBC044BC420849407A6CC8D357C79566A144BE2A12AF"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/native-after/price_check_result_keyboard.png",
+      "sha256": "12353A837CC6A07BF81FF6B2A552AC903B461508DEBC3DABDB34144AD4669A51"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/after/price_check_result.png",
+      "sha256": "5CBFFAF245D7504F8A3533FF1E369043E3B107E48E01C272AEEB5E1C3268ED08"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/after/pos_dark_logo.png",
+      "sha256": "14A8C88626F605AD5FFE5693FA75BADF7EFD19445C8B6B1E492641F77759B763"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/after/pos_dark_collapsed_logo.png",
+      "sha256": "07BDF0BDF3CBDB0DA2FEFC83140CA2AB331ADB24E8FA47A14F4F531CDC4A632C"
+    },
+    {
+      "path": "scratch/UserReportedUiDefectPack/2026-10-04/after/runtime.txt",
+      "sha256": "B4875E347A1DE9A00B0A4528E43A79EB95F6C1C599A2F3F195F4EF5E8E70036E"
+    }
+  ]
+}

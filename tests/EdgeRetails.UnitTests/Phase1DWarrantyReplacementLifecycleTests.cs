@@ -84,7 +84,9 @@ public sealed class Phase1DWarrantyReplacementLifecycleTests
             _fakes.Authorization,
             _fakes.Clock,
             _fakes.Transactions,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            physicalUnitCreationAuthority: new FakePhysicalUnitCreationAuthority(
+                _fakes.Catalog, _fakes.Parties, _fakes.Traceability, _fakes.Inventory, _fakes.Clock));
 
     private RecordWarrantyResolutionHandler CreateResolutionHandler() =>
         new(
@@ -142,7 +144,9 @@ public sealed class Phase1DWarrantyReplacementLifecycleTests
             _fakes.Audit,
             _fakes.Clock,
             _fakes.Transactions,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            physicalUnitCreationAuthority: new FakePhysicalUnitCreationAuthority(
+                _fakes.Catalog, _fakes.Parties, _fakes.Traceability, _fakes.Inventory, _fakes.Clock));
 
     private (Supplier Supplier, Customer Customer, Product Product, ProductUnit Unit, InventoryUnit UnitEntity, Sale Sale, SaleItem SaleItem, SupplierProduct SupplierProduct)
         SeedSoldSerializedFixture(string dealerCode = "MT1", string sku = "S24-ULTRA", long nextSequence = 2)
@@ -618,6 +622,146 @@ public sealed class Phase1DWarrantyReplacementLifecycleTests
     }
 
     // 6. Replacement_CreatesNewInventoryUnit
+    [Theory]
+    [InlineData("NEW-AB", "86012345678901", false)]
+    [InlineData(" ｎｅｗ-ａｂ ", "860-123-456-789-01", false)]
+    [InlineData("new-ab", "８６０１２３４５６７８９０１", false)]
+    [InlineData("new-ab", "86012345678901", true)]
+    [InlineData("NEW-AB", "86012345678901", true)]
+    public async Task CustomerReplacement_CanonicalEquivalentReplayDoesNotAllocateAgain(string serial, string imei, bool historical)
+    {
+        var (supplier, customer, product, _, original, sale, saleItem, sequence) = SeedSoldSerializedFixture();
+        var actor = Guid.NewGuid();
+        var claim = await CreateClaimHandler().HandleAsync(new CreateWarrantyClaimCommand(
+            customer.Id, sale.Id, supplier.Id, actor,
+            [new WarrantyClaimItemInput(product.Id, 1m, "Fault", saleItem.Id, saleItem.WarrantyValidUntil,
+                [new WarrantyClaimUnitInput(original.Id, original.SerialNumber)])], Guid.NewGuid()), CancellationToken.None);
+        Assert.True(claim.IsSuccess, claim.Error?.Message);
+        Assert.True((await CreateBeginReviewHandler().HandleAsync(new BeginWarrantyClaimReviewCommand(claim.Value, actor, Guid.NewGuid()), CancellationToken.None)).IsSuccess);
+        Assert.True((await CreateSendClaimToSupplierHandler().HandleAsync(new SendWarrantyClaimToSupplierCommand(claim.Value, actor, Guid.NewGuid()), CancellationToken.None)).IsSuccess);
+        var claimUnit = Assert.Single(await _fakes.Warranty.GetClaimUnitsAsync(claim.Value, CancellationToken.None));
+        var command = new ReceiveCustomerWarrantyReplacementCommand(claim.Value, actor, Guid.NewGuid(),
+            [new CustomerWarrantyReplacementUnitInput(claimUnit.Id, "new-ab", "86012345678901", null)], null);
+        var first = await CreateReceiveCustomerReplacementHandler().HandleAsync(command, CancellationToken.None);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        var replacement = _fakes.Inventory.Units.Single(x => x.Id != original.Id);
+        var next = sequence.NextItemSequence;
+        if (historical)
+        {
+            var operation = _fakes.Warranty.Operations.Single(x => x.ClientOperationId == command.ClientOperationId);
+            operation.PayloadHash = LegacyWarrantyHash("CUSTOMER_CLAIM", command.ClaimId.ToString("D"), "CUSTOMER_REPLACEMENT",
+                $"{claimUnit.Id:D}|new-ab|86012345678901|", "");
+        }
+        var replay = await CreateReceiveCustomerReplacementHandler().HandleAsync(command with
+        {
+            Units = [new CustomerWarrantyReplacementUnitInput(claimUnit.Id, serial, imei, null)]
+        }, CancellationToken.None);
+        if (historical && serial != "new-ab")
+        {
+            Assert.False(replay.IsSuccess);
+            Assert.Equal("warranty.replay_reconciliation_required", replay.Error?.Code);
+        }
+        else
+        {
+            Assert.True(replay.IsSuccess, replay.Error?.Message);
+        }
+        Assert.Equal(2, _fakes.Inventory.Units.Count);
+        Assert.Same(replacement, _fakes.Inventory.Units.Single(x => x.Id != original.Id));
+        Assert.Equal(next, sequence.NextItemSequence);
+    }
+
+    [Theory]
+    [InlineData("NEW-AB", "86012345678901", false)]
+    [InlineData(" ｎｅｗ-ａｂ ", "860-123-456-789-01", false)]
+    [InlineData("new-ab", "86012345678901", true)]
+    [InlineData("NEW-AB", "86012345678901", true)]
+    public async Task ShopReplacement_CanonicalEquivalentReplayDoesNotAllocateAgain(string serial, string imei, bool historical)
+    {
+        var (supplier, _, product, _, original, _, _, sequence) = SeedSoldSerializedFixture();
+        var lot = new InventoryLot { ProductId = product.Id, ReceivedQuantity = 1m, OriginalUnitCost = original.AcquisitionCost, EffectiveUnitCost = original.AcquisitionCost };
+        _fakes.Inventory.AddLot(lot);
+        _fakes.Inventory.AddLotBucketBalance(new InventoryLotBucketBalance { LotId = lot.Id, StockBucket = InventoryBucket.WithSupplier, Quantity = 1m });
+        _fakes.Inventory.AddStockBalance(new StockBalance { ProductId = product.Id, WithSupplierQty = 1m });
+        _fakes.Inventory.AddCostState(new ProductCostState { ProductId = product.Id, CostedQty = 1m, TotalInventoryCost = original.AcquisitionCost, MovingAverageCost = original.AcquisitionCost });
+        original.InventoryLotId = lot.Id;
+        original.Status = InventoryUnitStatus.WithSupplier;
+        var warrantyCase = new ShopStockWarrantyCase { ProductId = product.Id, SupplierId = supplier.Id, BaseQuantity = 1m, Status = ShopWarrantyCaseStatus.WithSupplier, CaseNumber = "REPLAY" };
+        _fakes.Warranty.AddShopStockCase(warrantyCase);
+        // HARNESS_CORRECTION: this replay fixture represents a supported complete legacy
+        // graph, rather than an unexplained WITH_SUPPLIER unit. Replay assertions below are unchanged.
+        lot.PurchaseItemId = original.SourcePurchaseItemId;
+        var intake = new InventoryMovement
+        {
+            ProductId = product.Id, MovementType = InventoryMovementType.PurchaseIn,
+            OccurredAt = _fakes.Clock.UtcNow
+        };
+        lot.SourceMovementId = intake.Id;
+        _fakes.Inventory.AddMovement(intake);
+        _fakes.Inventory.AddMovementEffect(new InventoryMovementEffect
+        {
+            MovementId = intake.Id, StockBucket = InventoryBucket.Sellable,
+            QuantityDelta = 1m, QuantityBefore = 0m, QuantityAfter = 1m
+        });
+        _fakes.Inventory.AddMovementUnit(new InventoryMovementUnit
+        {
+            MovementId = intake.Id, InventoryUnitId = original.Id, ToStatus = InventoryUnitStatus.InStock
+        });
+        var send = new InventoryMovement
+        {
+            ProductId = product.Id, MovementType = InventoryMovementType.SendToSupplierWarranty,
+            ReferenceType = "SHOP_WARRANTY", ReferenceId = warrantyCase.Id, OccurredAt = _fakes.Clock.UtcNow
+        };
+        _fakes.Inventory.AddMovement(send);
+        _fakes.Inventory.AddMovementEffect(new InventoryMovementEffect
+        {
+            MovementId = send.Id, StockBucket = InventoryBucket.WithSupplier,
+            QuantityDelta = 1m, QuantityBefore = 0m, QuantityAfter = 1m
+        });
+        _fakes.Inventory.AddMovementEffect(new InventoryMovementEffect
+        {
+            MovementId = send.Id, StockBucket = InventoryBucket.Damaged,
+            QuantityDelta = -1m, QuantityBefore = 1m, QuantityAfter = 0m
+        });
+        _fakes.Inventory.AddMovementUnit(new InventoryMovementUnit
+        {
+            MovementId = send.Id, InventoryUnitId = original.Id,
+            FromStatus = InventoryUnitStatus.Damaged, ToStatus = InventoryUnitStatus.WithSupplier
+        });
+        var command = new ReceiveShopStockWarrantyCommand(warrantyCase.Id, WarrantyResolutionType.Replaced,
+            Guid.NewGuid(), [original.Id], [new ReplacementSerializedUnitInput("new-ab", "86012345678901", null)],
+            Note: null, ClientOperationId: Guid.NewGuid());
+        var first = await CreateReceiveShopStockHandler().HandleAsync(command, CancellationToken.None);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        var next = sequence.NextItemSequence;
+        var movementCount = _fakes.Inventory.Movements.Count;
+        if (historical)
+        {
+            var operation = _fakes.Warranty.Operations.Single(x => x.ClientOperationId == command.ClientOperationId);
+            operation.PayloadHash = LegacyWarrantyHash("SHOP_STOCK", "RECEIVE", warrantyCase.Id.ToString("D"),
+                WarrantyResolutionType.Replaced.ToString(), original.Id.ToString("D"), "new-ab|86012345678901|", "", "", "");
+        }
+        var replay = await CreateReceiveShopStockHandler().HandleAsync(command with
+        {
+            ReplacementUnits = [new ReplacementSerializedUnitInput(serial, imei, null)]
+        }, CancellationToken.None);
+        if (historical && serial != "new-ab")
+        {
+            Assert.False(replay.IsSuccess);
+            Assert.Equal("warranty.replay_reconciliation_required", replay.Error?.Code);
+        }
+        else
+        {
+            Assert.True(replay.IsSuccess, replay.Error?.Message);
+        }
+        Assert.Equal(2, _fakes.Inventory.Units.Count);
+        Assert.Equal(next, sequence.NextItemSequence);
+        Assert.Equal(movementCount, _fakes.Inventory.Movements.Count);
+        Assert.Equal(InventoryUnitStatus.SupplierReturned, original.Status);
+    }
+
+    private static string LegacyWarrantyHash(params string[] parts) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join("\u001F", parts))));
+
     [Fact]
     public async Task Replacement_CreatesNewInventoryUnit()
     {

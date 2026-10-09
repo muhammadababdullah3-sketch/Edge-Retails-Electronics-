@@ -137,7 +137,7 @@ public sealed class SettleThakaHandler
 
             await _resourceLock.AcquireAsync("thaka-project", command.ProjectId, ct);
             var project = await _thaka.GetProjectForUpdateAsync(command.ProjectId, ct);
-            if (project is null || project.Status != ThakaProjectStatus.Active)
+            if (project is null || project.Status is not (ThakaProjectStatus.Active or ThakaProjectStatus.Suspended))
             {
                 return Result<SettleThakaResult>.Failure(
                     "thaka.project_not_active",

@@ -1,4 +1,5 @@
 using EdgeRetails.Domain.Catalog;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Purchasing;
@@ -31,6 +32,7 @@ public interface ICatalogRepository
     Task<IReadOnlyList<Unit>> GetUnitsAsync(bool includeInactive, CancellationToken cancellationToken);
     Task<bool> IsUnitInUseByActiveCatalogAsync(Guid unitId, CancellationToken cancellationToken);
     Task<ProductUnit?> GetProductUnitAsync(Guid productUnitId, CancellationToken cancellationToken);
+    Task<ProductUnit?> GetProductUnitSnapshotAsync(Guid productUnitId, CancellationToken cancellationToken);
     Task<ProductUnit?> GetProductUnitAsync(Guid productId, Guid unitId, CancellationToken cancellationToken);
     Task<IReadOnlyList<ProductUnit>> GetProductUnitsAsync(
         Guid productId,
@@ -52,8 +54,15 @@ public sealed record LotBucketPosition(
     InventoryLot Lot,
     InventoryLotBucketBalance Balance);
 
+public sealed record InventoryMovementEvidence(
+    InventoryMovement Movement,
+    IReadOnlyList<InventoryMovementUnit> Units,
+    IReadOnlyList<InventoryMovementEffect> Effects,
+    IReadOnlyList<InventoryLotConsumption> Consumptions);
+
 public interface IInventoryRepository
 {
+    Task<StockBalance?> GetStockBalanceAsync(Guid productId, CancellationToken cancellationToken);
     Task<StockBalance?> GetStockBalanceForUpdateAsync(
         Guid productId,
         CancellationToken cancellationToken);
@@ -75,11 +84,34 @@ public interface IInventoryRepository
     Task<InventoryLot?> GetInventoryLotForUpdateAsync(
         Guid lotId,
         CancellationToken cancellationToken);
+    Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(
+        InventoryUnit unit,
+        CancellationToken cancellationToken);
+    Task<decimal> GetPhysicalUnitCarryingValueSnapshotAsync(
+        InventoryUnit unit,
+        CancellationToken cancellationToken) => Task.FromResult(unit.AcquisitionCost);
+    Task<InventoryMovementEvidence?> GetInventoryMovementEvidenceAsync(
+        Guid movementId,
+        CancellationToken cancellationToken) => throw new BusinessRuleException(
+            "inventory.recovery_evidence_unavailable", "Authoritative inventory movement evidence is unavailable.");
+    Task<IReadOnlyList<InventoryMovementEvidence>> GetUnitMovementEvidenceAsync(
+        Guid inventoryUnitId,
+        CancellationToken cancellationToken) => throw new BusinessRuleException(
+            "inventory.recovery_evidence_unavailable", "Authoritative inventory movement evidence is unavailable.");
+    Task<IReadOnlyList<InventoryMovementEvidence>> GetMovementsByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken) => throw new BusinessRuleException(
+            "inventory.recovery_evidence_unavailable", "Authoritative inventory movement evidence is unavailable.");
     Task<bool> HasPurchaseItemConsumptionAsync(
         Guid purchaseItemId,
         CancellationToken cancellationToken);
     Task<decimal> GetPurchaseItemReceivedBaseQuantityAsync(
         Guid purchaseItemId,
+        CancellationToken cancellationToken);
+    Task<decimal> GetPurchaseItemReceivedCarryingValueAsync(
+        Guid purchaseItemId,
+        bool physical,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<InventoryLotConsumption>> GetMovementLotConsumptionsAsync(
         Guid movementId,
@@ -95,6 +127,9 @@ public interface IInventoryRepository
         string? serialNumber,
         string? imei1,
         string? imei2,
+        CancellationToken cancellationToken);
+    Task ReleaseManufacturerIdentityOwnershipForReceiptVoidAsync(
+        IReadOnlyCollection<Guid> inventoryUnitIds,
         CancellationToken cancellationToken);
     Task<bool> IsProductBlockedByCountingStocktakeAsync(
         Guid productId,
@@ -149,6 +184,10 @@ public interface IInventoryRepository
 
 public interface IWarrantyRepository
 {
+    Task<WarrantyOperation?> GetOperationForReplayAsync(Guid clientOperationId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WarrantyClaimItem>> GetClaimItemsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WarrantyClaimItemUnit>> GetClaimUnitsForDiscoveryAsync(Guid claimId, CancellationToken cancellationToken);
+    Task<WarrantyClaim?> GetClaimAsync(Guid claimId, CancellationToken cancellationToken);
     Task<WarrantyClaim?> GetClaimForUpdateAsync(
         Guid claimId,
         CancellationToken cancellationToken);
@@ -188,12 +227,29 @@ public interface IWarrantyRepository
     Task<ShopStockWarrantyCase?> GetShopStockCaseForUpdateAsync(
         Guid caseId,
         CancellationToken cancellationToken);
+    Task<ShopWarrantySendAllocation?> GetShopWarrantySendAllocationByCaseIdAsync(
+        Guid caseId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsBySendIdAsync(
+        Guid sendAllocationId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<ShopWarrantySendAllocation>> GetShopWarrantySendAllocationsByCaseIdAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        throw new BusinessRuleException("warranty.plural_authority_unavailable", "Immutable warranty source allocations are unavailable.");
+    Task<IReadOnlyList<ShopWarrantyResolutionAllocation>> GetShopWarrantyResolutionAllocationsByCaseIdAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        throw new BusinessRuleException("warranty.plural_authority_unavailable", "Immutable warranty resolution allocations are unavailable.");
+    Task<IReadOnlyList<InventoryMovementUnit>> GetShopWarrantyMovementUnitsAsync(
+        Guid caseId, CancellationToken cancellationToken) =>
+        throw new BusinessRuleException("warranty.physical_authority_unavailable", "Immutable warranty movement identities are unavailable.");
     void AddClaim(WarrantyClaim claim);
     void AddClaimItem(WarrantyClaimItem item);
     void AddClaimItemUnit(WarrantyClaimItemUnit itemUnit);
     void AddClaimEvent(WarrantyClaimEvent claimEvent);
     void AddOperation(WarrantyOperation operation);
     void AddShopStockCase(ShopStockWarrantyCase warrantyCase);
+    void AddShopWarrantySendAllocation(ShopWarrantySendAllocation allocation);
+    void AddShopWarrantyResolutionAllocation(ShopWarrantyResolutionAllocation allocation);
 }
 
 public interface ICashRepository
@@ -232,6 +288,16 @@ public interface IQuotationRepository
 
 public interface ISalesRepository
 {
+    Task<IReadOnlyList<SoldSourceCapacity>> GetSoldSourceCapacityForUpdateAsync(
+        Guid saleItemId, CancellationToken cancellationToken)
+        => throw new EdgeRetails.Domain.Common.BusinessRuleException(
+            "sales.source_authority_unavailable", "Canonical sold-source capacity authority is required.");
+    void AddReturnSourceAllocation(SaleReturnSourceAllocation allocation)
+        => throw new EdgeRetails.Domain.Common.BusinessRuleException(
+            "sales.source_authority_unavailable", "Canonical return source writer is required.");
+    void AddClaimSourceAllocation(WarrantyClaimSourceAllocation allocation)
+        => throw new EdgeRetails.Domain.Common.BusinessRuleException(
+            "warranty.source_authority_unavailable", "Canonical claim source writer is required.");
     Task<Sale?> GetSaleByClientOperationIdAsync(
         Guid clientOperationId,
         CancellationToken cancellationToken);
@@ -274,8 +340,14 @@ public interface ISalesRepository
     void AddReturnItemUnit(SaleReturnItemUnit itemUnit);
 }
 
+public sealed record SoldSourceCapacity(
+    Guid SaleConsumptionId, Guid OriginalLotId, Guid? PurchaseItemId, Guid? SupplierId,
+    decimal SoldQuantity, decimal RemainingQuantity);
+
 public interface IPurchasingRepository
 {
+    Task<Purchase?> GetPurchaseAsync(Guid purchaseId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsForDiscoveryAsync(Guid purchaseId, CancellationToken cancellationToken);
     Task<Purchase?> GetPurchaseByClientOperationIdAsync(
         Guid clientOperationId,
         CancellationToken cancellationToken);

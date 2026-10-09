@@ -22,7 +22,7 @@ public sealed class ReportExpenseBreakdownItem
     public required string Category { get; init; }
     public decimal Amount { get; init; }
     public decimal Share { get; init; }
-    public string AmountDisplay => $"Rs. {Amount:N0}";
+    public string AmountDisplay => $"Rs. {Amount:N2}";
     public string ShareDisplay => $"{Share:P0}";
 }
 
@@ -32,7 +32,7 @@ public sealed class ReportThakaActivityItem
     public int IssueCount { get; init; }
     public decimal MaterialValue { get; init; }
     public string IssueCountDisplay => $"{IssueCount} {(IssueCount == 1 ? "issue" : "issues")}";
-    public string MaterialValueDisplay => $"Rs. {MaterialValue:N0}";
+    public string MaterialValueDisplay => $"Rs. {MaterialValue:N2}";
 }
 
 public sealed class ReportSnapshot

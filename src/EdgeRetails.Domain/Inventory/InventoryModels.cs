@@ -23,7 +23,8 @@ public enum InventoryUnitStatus
     Scrapped = 8,
     ReceiptVoided = 9,
     WarrantyCustomerHeld = 10,
-    WarrantyCustomerHandedOver = 11
+    WarrantyCustomerHandedOver = 11,
+    Missing = 12
 }
 
 public enum InventoryUnitOriginType
@@ -272,6 +273,18 @@ public sealed class InventoryUnitIdentityClaim : Entity
     public string NormalizedValue { get; set; } = string.Empty;
     public int NormalizationVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Current reservation of a normalized manufacturer identifier. The linked
+/// identity claim is immutable historical evidence; this row is the mutable
+/// active-ownership authority released only by governed ReceiptVoid.
+/// </summary>
+public sealed class InventoryUnitIdentityOwnership
+{
+    public string NormalizedValue { get; set; } = string.Empty;
+    public Guid InventoryUnitIdentityClaimId { get; set; }
+    public InventoryUnitIdentityClaim? IdentityClaim { get; set; }
 }
 
 public enum StocktakeStatus
@@ -566,7 +579,7 @@ public static class InventoryUnitAccountingPolicy
                 InventoryUnitStatus.IssuedThaka,
                 ContributesToStockBalance: false,
                 AuthoritativeBucket: null,
-                ContributesToProductCostState: true,
+                ContributesToProductCostState: false,
                 BusinessOwner: BusinessOwner.Shop,
                 MayBeSold: false,
                 MayBeReturned: true,
@@ -616,7 +629,17 @@ public static class InventoryUnitAccountingPolicy
                 InventoryUnitStatus.Scrapped,
                 ContributesToStockBalance: true,
                 AuthoritativeBucket: InventoryBucket.Scrap,
-                ContributesToProductCostState: true,
+                ContributesToProductCostState: false,
+                BusinessOwner: BusinessOwner.Shop,
+                MayBeSold: false,
+                MayBeReturned: false,
+                IsTerminal: true),
+
+            [InventoryUnitStatus.Missing] = new(
+                InventoryUnitStatus.Missing,
+                ContributesToStockBalance: false,
+                AuthoritativeBucket: null,
+                ContributesToProductCostState: false,
                 BusinessOwner: BusinessOwner.Shop,
                 MayBeSold: false,
                 MayBeReturned: false,

@@ -8,7 +8,10 @@ public sealed record CustomerDirectoryDto(
     string? Notes,
     decimal NetSales,
     DateTimeOffset? LastSaleAt,
-    string? ActiveThakaProject);
+    string? ActiveThakaProject,
+    int ActiveThakaCount = 0,
+    decimal CurrentThakaBalance = 0m,
+    bool IsActive = true);
 
 public sealed record SupplierDirectoryDto(
     Guid SupplierId,
@@ -27,7 +30,8 @@ public interface IPartyDirectoryReadService
         int pageSize = 100,
         CancellationToken cancellationToken = default,
         string? beforeName = null,
-        Guid? beforeCustomerId = null);
+        Guid? beforeCustomerId = null,
+        bool includeInactive = false);
 
     Task<IReadOnlyList<SupplierDirectoryDto>> GetSuppliersAsync(
         string? search,

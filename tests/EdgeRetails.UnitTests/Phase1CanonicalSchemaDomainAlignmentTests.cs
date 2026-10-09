@@ -276,7 +276,7 @@ public sealed class Phase1CanonicalSchemaDomainAlignmentTests
         var issuedThaka = InventoryUnitAccountingPolicy.GetRule(InventoryUnitStatus.IssuedThaka);
         Assert.False(issuedThaka.ContributesToStockBalance);
         Assert.Null(issuedThaka.AuthoritativeBucket);
-        Assert.True(issuedThaka.ContributesToProductCostState);
+        Assert.False(issuedThaka.ContributesToProductCostState);
         Assert.Equal(BusinessOwner.Shop, issuedThaka.BusinessOwner);
 
         var withSupplier = InventoryUnitAccountingPolicy.GetRule(InventoryUnitStatus.WithSupplier);

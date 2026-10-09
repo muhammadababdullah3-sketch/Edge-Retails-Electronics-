@@ -263,6 +263,24 @@ public sealed class Phase3OwnerPinRecoveryPostgresTests
             x.EntityId == userId && x.Action == "USER_PIN_RECOVERY_SUCCEEDED" && x.CorrelationId == Guid.Parse(nonce)));
     }
 
+    // NEW_COVERAGE: repeat the original genuinely concurrent, fresh-user/nonce
+    // race without changing its gate or assertions. This does not claim a
+    // deterministic execution of the PostgreSQL deadlock handler branch.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public async Task PostgreSql_repeated_concurrent_signed_nonce_replay_preserves_atomic_winner(int iteration)
+    {
+        Assert.InRange(iteration, 1, 8);
+        await PostgreSql_concurrent_replay_of_same_signed_nonce_is_consumed_once();
+    }
+
     private static ServiceProvider BuildAuthorizedProvider(RecoveryReadGate? readGate = null)
     {
         var services = new ServiceCollection();

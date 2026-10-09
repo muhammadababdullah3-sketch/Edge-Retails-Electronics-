@@ -26,13 +26,14 @@ $masterRunRoot = [IO.Path]::GetFullPath((Join-Path $masterTempRoot ('EdgeRetails
 $masterDataRoot = Join-Path $masterRunRoot 'data'
 $masterPasswordFile = Join-Path $masterRunRoot 'admin.pw'
 $masterUser = 'er_master_admin'
+$masterRuntimeUser = 'er_master_runtime'
 $masterDatabase = 'edge_retails_master_test'
 $masterEnvironmentNames = @(
     'EDGE_RETAILS_DB', 'EDGE_RETAILS_TEST_DB', 'EDGE_RETAILS_TEST_DB_HOST', 'EDGE_RETAILS_TEST_DB_PORT',
     'EDGE_RETAILS_TEST_DB_NAME', 'EDGE_RETAILS_TEST_DB_USER', 'EDGE_RETAILS_TEST_DB_PASSWORD',
     'EDGE_RETAILS_TEST_DB_MAINT_USER', 'EDGE_RETAILS_TEST_DB_MAINT_PASSWORD', 'EDGE_RETAILS_TEST_DB_MAINT_DATABASE',
     'EDGE_RETAILS_HIGHWATER_PATH', 'EDGE_RETAILS_PRODUCTION_STATE_DIR', 'EDGE_RETAILS_BACKUP_KEYRING_PATH',
-    'EDGE_RETAILS_MASTER_PG_RUN_ROOT',
+    'EDGE_RETAILS_MASTER_PG_RUN_ROOT', 'EDGE_RETAILS_SPRINT8_ALLOW_DESTRUCTIVE_CUTOVER_TEST',
     'EDGE_RETAILS_BACKUP_KEY', 'EDGE_RETAILS_BACKUP_DIR', 'EDGE_RETAILS_PG_BIN', 'PGPASSWORD'
 )
 $masterPreviousEnvironment = @{}
@@ -89,6 +90,7 @@ try {
     }
     Set-Acl -LiteralPath $masterRunRoot -AclObject $masterAcl
     $masterPassword = New-MasterRandomHex
+    $masterRuntimePassword = New-MasterRandomHex
     [IO.File]::WriteAllText($masterPasswordFile, $masterPassword, [Text.UTF8Encoding]::new($false))
     & (Join-Path $PgBin 'initdb.exe') -D $masterDataRoot --username=$masterUser --pwfile=$masterPasswordFile --auth-host=scram-sha-256 --auth-local=scram-sha-256 --encoding=UTF8 --no-locale *>> $masterCommandLog
     $masterInitExit = $LASTEXITCODE
@@ -130,8 +132,8 @@ try {
     $env:EDGE_RETAILS_TEST_DB_HOST = '127.0.0.1'
     $env:EDGE_RETAILS_TEST_DB_PORT = $Port.ToString()
     $env:EDGE_RETAILS_TEST_DB_NAME = $masterDatabase
-    $env:EDGE_RETAILS_TEST_DB_USER = $masterUser
-    $env:EDGE_RETAILS_TEST_DB_PASSWORD = $masterPassword
+    $env:EDGE_RETAILS_TEST_DB_USER = $masterRuntimeUser
+    $env:EDGE_RETAILS_TEST_DB_PASSWORD = $masterRuntimePassword
     $env:EDGE_RETAILS_TEST_DB_MAINT_USER = $masterUser
     $env:EDGE_RETAILS_TEST_DB_MAINT_PASSWORD = $masterPassword
     $env:EDGE_RETAILS_TEST_DB_MAINT_DATABASE = 'postgres'
@@ -157,6 +159,36 @@ try {
         $masterModelExit = $LASTEXITCODE
         Add-MasterCommandRecord 'dotnet ef migrations has-pending-model-changes --project src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --startup-project src\EdgeRetails.Infrastructure\EdgeRetails.Infrastructure.csproj --context EdgeRetailsDbContext --configuration Release' $masterModelExit
         if ($masterModelExit -ne 0) { throw 'Current model alignment failed.' }
+        # HARNESS_CORRECTION: recovery retains the owned maintenance identity;
+        # backup/runtime reads use a distinct least-privilege login. The protected
+        # fixture file inherits the run-root ACL; credentials never enter the log.
+        $masterRoleFile = Join-Path $masterRunRoot 'runtime-role.sql'
+        $masterRoleSql = "CREATE ROLE $masterRuntimeUser LOGIN PASSWORD '$masterRuntimePassword' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;`nGRANT CONNECT ON DATABASE $masterDatabase TO $masterRuntimeUser;`n"
+        $masterRoleSql += @'
+DO $$ DECLARE s record; BEGIN
+  FOR s IN SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' LOOP
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO er_master_runtime', s.nspname);
+    EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO er_master_runtime', s.nspname);
+    EXECUTE format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO er_master_runtime', s.nspname);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE er_master_admin IN SCHEMA %I GRANT SELECT ON TABLES TO er_master_runtime', s.nspname);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE er_master_admin IN SCHEMA %I GRANT SELECT ON SEQUENCES TO er_master_runtime', s.nspname);
+  END LOOP;
+END $$;
+'@
+        [IO.File]::WriteAllText($masterRoleFile, $masterRoleSql, [Text.UTF8Encoding]::new($false))
+        try {
+            & (Join-Path $PgBin 'psql.exe') -h 127.0.0.1 -p $Port -U $masterUser -d $masterDatabase -v ON_ERROR_STOP=1 -f $masterRoleFile *>> $masterCommandLog
+            $masterRoleExit = $LASTEXITCODE
+        }
+        finally { Remove-Item -LiteralPath $masterRoleFile -Force }
+        Add-MasterCommandRecord 'provision distinct least-privilege runtime login in attested owned cluster (credentials withheld)' $masterRoleExit
+        if ($masterRoleExit -ne 0) { throw 'Owned runtime role provisioning failed.' }
+        Assert-MasterOwnedRoot
+        if (-not $masterProviderVerified -or -not $masterStarted) { throw 'Disposable cutover authority was not attested.' }
+        # The cutover test creates only its random er_s8_cut_* database on this
+        # exact owned endpoint and checks generated cleanup names before dropping.
+        $env:EDGE_RETAILS_SPRINT8_ALLOW_DESTRUCTIVE_CUTOVER_TEST = 'YES_DISPOSABLE_ONLY'
+        Add-MasterCommandRecord 'arm disposable-only cutover gate after owned PostgreSQL 18 endpoint attestation' 0
         $masterResults = Join-Path $EvidenceDirectory 'test-results'
         New-Item -ItemType Directory -Path $masterResults -Force | Out-Null
         $masterTestErrorPreference = $ErrorActionPreference

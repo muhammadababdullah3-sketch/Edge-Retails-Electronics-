@@ -199,15 +199,18 @@ public sealed class RecordManualCashMovementHandler
     private readonly ICashMovementService _service;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IBusinessAuditWriter _audit;
 
     public RecordManualCashMovementHandler(
         ICashMovementService service,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IBusinessAuditWriter audit)
     {
         _service = service;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _audit = audit;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -216,6 +219,19 @@ public sealed class RecordManualCashMovementHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result<Guid>.Failure("cash.actor_required", "Manual cash movement requires an actor.");
+            }
+            if (command.Direction is not (CashMovementDirection.In or CashMovementDirection.Out))
+            {
+                return Result<Guid>.Failure("cash.direction_invalid", "Manual cash direction is invalid.");
+            }
+            var amount = decimal.Round(command.Amount, 2, MidpointRounding.AwayFromZero);
+            if (amount <= 0m)
+            {
+                return Result<Guid>.Failure("cash.amount_positive", "Cash movement amount must be greater than zero at money precision.");
+            }
             if (string.IsNullOrWhiteSpace(command.Reason))
             {
                 return Result<Guid>.Failure(
@@ -229,11 +245,11 @@ public sealed class RecordManualCashMovementHandler
                         ? CashMovementType.ManualCashIn
                         : CashMovementType.ManualCashOut,
                     command.Direction,
-                    command.Amount,
+                    amount,
                     command.ActorId,
                     null,
                     null,
-                    command.Reason,
+                    command.Reason.Trim(),
                     command.Note),
                 ct);
 
@@ -242,6 +258,8 @@ public sealed class RecordManualCashMovementHandler
                 return result;
             }
 
+            _audit.Record(command.Direction == CashMovementDirection.In ? "MANUAL_CASH_IN" : "MANUAL_CASH_OUT",
+                "CASH_MOVEMENT", result.Value, command.ActorId, result.Value, command.Reason.Trim());
             await _unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken);

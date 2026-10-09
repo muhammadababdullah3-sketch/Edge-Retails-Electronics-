@@ -87,15 +87,41 @@ public sealed class CreateSupplierPaymentHandler
                     authorization.Error.Message);
             }
 
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "1",
+                command.SupplierId.ToString("D"),
+                command.Amount.ToString("0.00"),
+                command.Purpose.ToString(),
+                command.Method.ToString(),
+                Normalize(command.ExternalReference),
+                Normalize(command.Note),
+                command.ActorId.ToString("D"));
+
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
-            var existing = await _accounts.GetPaymentByClientOperationIdAsync(command.ClientOperationId, ct);
-            if (existing is not null)
+            if (_outcomeLedger is not null)
             {
-                if (existing.SupplierId != command.SupplierId || existing.Amount != command.Amount)
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierPayment", StringComparison.OrdinalIgnoreCase))
                 {
                     return Result<SupplierPaymentResult>.Failure(
                         "idempotency.payload_mismatch",
-                        "Operation was previously submitted with a different supplier or amount.");
+                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                }
+            }
+            var existing = await _accounts.GetPaymentByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existing is not null)
+            {
+                if (existing.SupplierId != command.SupplierId ||
+                    existing.Amount != command.Amount ||
+                    existing.Purpose != command.Purpose ||
+                    existing.Method != command.Method ||
+                    existing.ActorId != command.ActorId ||
+                    existing.ExternalReference != Normalize(command.ExternalReference) ||
+                    existing.Note != Normalize(command.Note))
+                {
+                    return Result<SupplierPaymentResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with different supplier payment parameters.");
                 }
 
                 if (_outcomeLedger is not null)
@@ -106,6 +132,7 @@ public sealed class CreateSupplierPaymentHandler
                         existing.Id,
                         existing.PaymentNumber,
                         actorId: command.ActorId,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
                 }
 
@@ -209,6 +236,7 @@ public sealed class CreateSupplierPaymentHandler
                     payment.Id,
                     payment.PaymentNumber,
                     actorId: command.ActorId,
+                    payloadFingerprint: fingerprint,
                     cancellationToken: ct);
             }
 
@@ -290,6 +318,7 @@ public sealed class ReverseSupplierPaymentHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public ReverseSupplierPaymentHandler(
         ISupplierAccountRepository accounts,
@@ -301,7 +330,8 @@ public sealed class ReverseSupplierPaymentHandler
         IClock clock,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _accounts = accounts;
         _cash = cash;
@@ -313,6 +343,7 @@ public sealed class ReverseSupplierPaymentHandler
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(ReverseSupplierPaymentCommand command, CancellationToken cancellationToken)
@@ -336,16 +367,55 @@ public sealed class ReverseSupplierPaymentHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierPaymentReversal", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result.Failure(
+                        "idempotency.payload_mismatch",
+                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                }
+            }
             var payment = await _accounts.GetPaymentForUpdateAsync(command.PaymentId, ct);
             if (payment is null)
             {
                 return Result.Failure("supplier.payment_not_found", "Supplier payment was not found.");
             }
 
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "1",
+                command.PaymentId.ToString("D"),
+                command.Reason.Trim(),
+                command.ActorId.ToString("D"));
+
             await _resourceLock.AcquireAsync("supplier-account", payment.SupplierId, ct);
 
-            if (await _accounts.GetPaymentReversalByPaymentAsync(payment.Id, ct) is not null)
+            var existingReversal = await _accounts.GetPaymentReversalByPaymentAsync(payment.Id, ct);
+            if (existingReversal is not null)
             {
+                if (existingReversal.ClientOperationId != command.ClientOperationId)
+                {
+                    return Result.Failure("supplier.already_reversed", "Supplier payment was already reversed by another operation.");
+                }
+
+                if (existingReversal.Reason != command.Reason.Trim() || existingReversal.ReversedBy != command.ActorId)
+                {
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with different reversal parameters.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "SupplierPaymentReversal",
+                        existingReversal.Id,
+                        payment.PaymentNumber,
+                        actorId: command.ActorId,
+                        payloadFingerprint: fingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result.Success();
             }
 
@@ -412,6 +482,19 @@ public sealed class ReverseSupplierPaymentHandler
                 command.Reason.Trim());
 
             await _unitOfWork.SaveChangesAsync(ct);
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "SupplierPaymentReversal",
+                    reversal.Id,
+                    payment.PaymentNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: fingerprint,
+                    cancellationToken: ct);
+            }
+
             return Result.Success();
         }, cancellationToken);
     }
@@ -443,6 +526,7 @@ public sealed class CreateSupplierRefundHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CreateSupplierRefundHandler(
         ISupplierAccountRepository accounts,
@@ -455,7 +539,8 @@ public sealed class CreateSupplierRefundHandler
         IClock clock,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _accounts = accounts;
         _parties = parties;
@@ -468,129 +553,199 @@ public sealed class CreateSupplierRefundHandler
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result<SupplierRefundResult>> HandleAsync(
         CreateSupplierRefundCommand command,
         CancellationToken cancellationToken)
     {
-        if (command.SupplierId == Guid.Empty || command.ClientOperationId == Guid.Empty || command.Amount <= 0)
-        {
-            return Task.FromResult(Result<SupplierRefundResult>.Failure(
-                "supplier.refund_invalid",
-                "Supplier, positive amount, and client operation id are required."));
-        }
-
         return _transactions.ExecuteAsync(async ct =>
         {
-            var authorization = await _authorization.AuthorizeAsync(
-                command.ActorId,
-                PermissionKeys.SupplierRefundCreate,
-                ct);
-            if (!authorization.IsSuccess)
+            var result = await PostInTransactionAsync(command, null, ct);
+            if (result.IsSuccess && !result.Value!.WasExisting)
             {
-                return Result<SupplierRefundResult>.Failure(
-                    authorization.Error!.Code,
-                    authorization.Error.Message);
+                await _unitOfWork.SaveChangesAsync(ct);
             }
-
-            await _operationLock.AcquireAsync(command.ClientOperationId, ct);
-            var existing = await _accounts.GetRefundByClientOperationIdAsync(command.ClientOperationId, ct);
-            if (existing is not null)
-            {
-                return Result<SupplierRefundResult>.Success(
-                    new(existing.Id, existing.RefundNumber, true));
-            }
-
-            await _resourceLock.AcquireAsync("supplier-account", command.SupplierId, ct);
-            var supplier = await _parties.GetSupplierForUpdateAsync(command.SupplierId, ct);
-            if (supplier is null)
-            {
-                return Result<SupplierRefundResult>.Failure(
-                    "supplier.not_found",
-                    "Supplier was not found.");
-            }
-
-            var balance = await _accounts.GetCurrentBalanceAsync(command.SupplierId, ct);
-            var credit = Math.Max(-balance, 0m);
-            if (command.Amount > credit)
-            {
-                return Result<SupplierRefundResult>.Failure(
-                    "supplier.refund_exceeds_credit",
-                    "Supplier refund cannot exceed the current supplier credit/advance.");
-            }
-
-            var refund = new SupplierRefund
-            {
-                RefundNumber = await _numbers.NextAsync("SR", ct),
-                SupplierId = command.SupplierId,
-                Amount = decimal.Round(command.Amount, 2, MidpointRounding.AwayFromZero),
-                Method = command.Method,
-                ExternalReference = Normalize(command.ExternalReference),
-                ReferenceType = Normalize(command.ReferenceType),
-                ReferenceId = command.ReferenceId,
-                ReceivedAt = _clock.UtcNow,
-                ActorId = command.ActorId,
-                ClientOperationId = command.ClientOperationId,
-                Note = Normalize(command.Note)
-            };
-
-            if (command.Method == SupplierSettlementMethod.CashDrawer)
-            {
-                var cashSession = await _cash.GetOpenSessionForUpdateAsync(ct);
-                if (cashSession is null)
-                {
-                    return Result<SupplierRefundResult>.Failure(
-                        "cash.session_required",
-                        "An open cash session is required for a cash-drawer supplier refund.");
-                }
-
-                refund.CashSessionId = cashSession.Id;
-                _cash.AddMovement(new CashMovement
-                {
-                    CashSessionId = cashSession.Id,
-                    MovementType = CashMovementType.SupplierRefundCashIn,
-                    Direction = CashMovementDirection.In,
-                    Amount = refund.Amount,
-                    SourceType = "SUPPLIER_REFUND",
-                    SourceId = refund.Id,
-                    ActorId = command.ActorId,
-                    OccurredAt = _clock.UtcNow,
-                    Reason = refund.RefundNumber
-                });
-            }
-
-            _accounts.AddRefund(refund);
-            var entry = new SupplierAccountEntry
-            {
-                EntryNumber = await _numbers.NextAsync("SAE", ct),
-                SupplierId = refund.SupplierId,
-                EntryType = SupplierAccountEntryType.SupplierRefundReceived,
-                Direction = SupplierAccountDirection.IncreasePayable,
-                Amount = refund.Amount,
-                ReferenceType = "SupplierRefund",
-                ReferenceId = refund.Id,
-                OccurredAt = _clock.UtcNow,
-                ActorId = command.ActorId,
-                ClientOperationId = command.ClientOperationId,
-                Note = refund.Note,
-                CreatedAt = _clock.UtcNow
-            };
-            entry.ValidateDirection();
-            _accounts.AddEntry(entry);
-
-            _audit.Record(
-                "SUPPLIER_REFUND_POSTED",
-                "SUPPLIER_REFUND",
-                refund.Id,
-                command.ActorId,
-                command.ClientOperationId,
-                $"{refund.RefundNumber}; supplier={command.SupplierId:D}; amount={refund.Amount:0.00}.");
-
-            await _unitOfWork.SaveChangesAsync(ct);
-            return Result<SupplierRefundResult>.Success(
-                new(refund.Id, refund.RefundNumber, false));
+            return result;
         }, cancellationToken);
+    }
+
+    // The caller owns the transaction/save. Only PurchaseReturn supplies an
+    // authoritative balance adjusted for its still-pending goods-return credit.
+    internal async Task<Result<SupplierRefundResult>> PostInTransactionAsync(
+        CreateSupplierRefundCommand command,
+        decimal? authoritativeBalance,
+        CancellationToken ct)
+    {
+        var amount = decimal.Round(command.Amount, 2, MidpointRounding.AwayFromZero);
+        if (command.SupplierId == Guid.Empty || command.ClientOperationId == Guid.Empty ||
+            amount <= 0 || !Enum.IsDefined(command.Method))
+        {
+            return Result<SupplierRefundResult>.Failure(
+                "supplier.refund_invalid",
+                "Supplier, positive monetary amount, valid method, and client operation id are required.");
+        }
+        var authorization = await _authorization.AuthorizeAsync(
+            command.ActorId,
+            PermissionKeys.SupplierRefundCreate,
+            ct);
+        if (!authorization.IsSuccess)
+        {
+            return Result<SupplierRefundResult>.Failure(
+                authorization.Error!.Code,
+                authorization.Error.Message);
+        }
+
+        var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "1",
+            command.SupplierId.ToString("D"),
+            amount.ToString("0.00"),
+            command.Method.ToString(),
+            Normalize(command.ExternalReference),
+            Normalize(command.ReferenceType),
+            command.ReferenceId?.ToString("D"),
+            Normalize(command.Note),
+            command.ActorId.ToString("D"));
+
+        await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+        if (_outcomeLedger is not null)
+        {
+            var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+            if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierRefund", StringComparison.OrdinalIgnoreCase))
+            {
+                return Result<SupplierRefundResult>.Failure(
+                    "idempotency.payload_mismatch",
+                    $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+            }
+        }
+        var existing = await _accounts.GetRefundByClientOperationIdAsync(command.ClientOperationId, ct);
+        if (existing is not null)
+        {
+            if (existing.SupplierId != command.SupplierId || existing.Amount != amount ||
+                existing.Method != command.Method || existing.ActorId != command.ActorId ||
+                existing.ReferenceType != Normalize(command.ReferenceType) || existing.ReferenceId != command.ReferenceId ||
+                existing.ExternalReference != Normalize(command.ExternalReference) || existing.Note != Normalize(command.Note))
+            {
+                return Result<SupplierRefundResult>.Failure(
+                    "idempotency.payload_mismatch", "The refund operation was previously posted with different parameters.");
+            }
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "SupplierRefund",
+                    existing.Id,
+                    existing.RefundNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: fingerprint,
+                    cancellationToken: ct);
+            }
+
+            return Result<SupplierRefundResult>.Success(
+                new(existing.Id, existing.RefundNumber, true));
+        }
+
+        await _resourceLock.AcquireAsync("supplier-account", command.SupplierId, ct);
+        var supplier = await _parties.GetSupplierForUpdateAsync(command.SupplierId, ct);
+        if (supplier is null)
+        {
+            return Result<SupplierRefundResult>.Failure(
+                "supplier.not_found",
+                "Supplier was not found.");
+        }
+
+        var balance = authoritativeBalance ?? await _accounts.GetCurrentBalanceAsync(command.SupplierId, ct);
+        var credit = Math.Max(-balance, 0m);
+        if (amount > credit)
+        {
+            return Result<SupplierRefundResult>.Failure(
+                "supplier.refund_exceeds_credit",
+                "Supplier refund cannot exceed the current supplier credit/advance.");
+        }
+
+        var refund = new SupplierRefund
+        {
+            RefundNumber = await _numbers.NextAsync("SR", ct),
+            SupplierId = command.SupplierId,
+            Amount = amount,
+            Method = command.Method,
+            ExternalReference = Normalize(command.ExternalReference),
+            ReferenceType = Normalize(command.ReferenceType),
+            ReferenceId = command.ReferenceId,
+            ReceivedAt = _clock.UtcNow,
+            ActorId = command.ActorId,
+            ClientOperationId = command.ClientOperationId,
+            Note = Normalize(command.Note)
+        };
+
+        if (command.Method == SupplierSettlementMethod.CashDrawer)
+        {
+            var cashSession = await _cash.GetOpenSessionForUpdateAsync(ct);
+            if (cashSession is null)
+            {
+                return Result<SupplierRefundResult>.Failure(
+                    "cash.session_required",
+                    "An open cash session is required for a cash-drawer supplier refund.");
+            }
+
+            refund.CashSessionId = cashSession.Id;
+            _cash.AddMovement(new CashMovement
+            {
+                CashSessionId = cashSession.Id,
+                MovementType = CashMovementType.SupplierRefundCashIn,
+                Direction = CashMovementDirection.In,
+                Amount = refund.Amount,
+                SourceType = "SUPPLIER_REFUND",
+                SourceId = refund.Id,
+                ActorId = command.ActorId,
+                OccurredAt = _clock.UtcNow,
+                Reason = refund.RefundNumber
+            });
+        }
+
+        _accounts.AddRefund(refund);
+        var entry = new SupplierAccountEntry
+        {
+            EntryNumber = await _numbers.NextAsync("SAE", ct),
+            SupplierId = refund.SupplierId,
+            EntryType = SupplierAccountEntryType.SupplierRefundReceived,
+            Direction = SupplierAccountDirection.IncreasePayable,
+            Amount = refund.Amount,
+            ReferenceType = "SupplierRefund",
+            ReferenceId = refund.Id,
+            OccurredAt = _clock.UtcNow,
+            ActorId = command.ActorId,
+            ClientOperationId = command.ClientOperationId,
+            Note = refund.Note,
+            CreatedAt = _clock.UtcNow
+        };
+        entry.ValidateDirection();
+        _accounts.AddEntry(entry);
+
+        _audit.Record(
+            "SUPPLIER_REFUND_POSTED",
+            "SUPPLIER_REFUND",
+            refund.Id,
+            command.ActorId,
+            command.ClientOperationId,
+            $"{refund.RefundNumber}; supplier={command.SupplierId:D}; amount={refund.Amount:0.00}.");
+
+        if (_outcomeLedger is not null)
+        {
+            await _outcomeLedger.RecordSuccessAsync(
+                command.ClientOperationId,
+                "SupplierRefund",
+                refund.Id,
+                refund.RefundNumber,
+                actorId: command.ActorId,
+                payloadFingerprint: fingerprint,
+                cancellationToken: ct);
+        }
+
+        return Result<SupplierRefundResult>.Success(
+            new(refund.Id, refund.RefundNumber, false));
     }
 
     private static string? Normalize(string? value)
@@ -618,6 +773,7 @@ public sealed class ReverseSupplierRefundHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public ReverseSupplierRefundHandler(
         ISupplierAccountRepository accounts,
@@ -629,7 +785,8 @@ public sealed class ReverseSupplierRefundHandler
         IClock clock,
         IBusinessAuditWriter audit,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _accounts = accounts;
         _cash = cash;
@@ -641,6 +798,7 @@ public sealed class ReverseSupplierRefundHandler
         _audit = audit;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(ReverseSupplierRefundCommand command, CancellationToken cancellationToken)
@@ -657,15 +815,55 @@ public sealed class ReverseSupplierRefundHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierRefundReversal", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result.Failure(
+                        "idempotency.payload_mismatch",
+                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                }
+            }
             var refund = await _accounts.GetRefundForUpdateAsync(command.RefundId, ct);
             if (refund is null)
             {
                 return Result.Failure("supplier.refund_not_found", "Supplier refund was not found.");
             }
 
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "1",
+                command.RefundId.ToString("D"),
+                command.Reason.Trim(),
+                command.ActorId.ToString("D"));
+
             await _resourceLock.AcquireAsync("supplier-account", refund.SupplierId, ct);
-            if (await _accounts.GetRefundReversalByRefundAsync(refund.Id, ct) is not null)
+
+            var existingReversal = await _accounts.GetRefundReversalByRefundAsync(refund.Id, ct);
+            if (existingReversal is not null)
             {
+                if (existingReversal.ClientOperationId != command.ClientOperationId)
+                {
+                    return Result.Failure("supplier.already_reversed", "Supplier refund was already reversed by another operation.");
+                }
+
+                if (existingReversal.Reason != command.Reason.Trim() || existingReversal.ReversedBy != command.ActorId)
+                {
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with different reversal parameters.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "SupplierRefundReversal",
+                        existingReversal.Id,
+                        refund.RefundNumber,
+                        actorId: command.ActorId,
+                        payloadFingerprint: fingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result.Success();
             }
 
@@ -731,6 +929,19 @@ public sealed class ReverseSupplierRefundHandler
                 command.Reason.Trim());
 
             await _unitOfWork.SaveChangesAsync(ct);
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "SupplierRefundReversal",
+                    reversal.Id,
+                    refund.RefundNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: fingerprint,
+                    cancellationToken: ct);
+            }
+
             return Result.Success();
         }, cancellationToken);
     }

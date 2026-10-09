@@ -16,13 +16,34 @@ public sealed class RemoteBackendThakaService(
 {
     private readonly IClientOperationIntentStore _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
+    public async Task SetSuspensionAsync(ThakaProjectListItemViewModel project, bool suspended, string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var id = RequireProject(project);
+        var key = $"thaka:suspension:{id:D}";
+        var operationId = GetOperationId(key, $"{id:D}|{suspended}|{reason.Trim()}");
+        try
+        {
+            await apiClient.PostAsync<SuspensionRequest, Guid>($"/api/thaka/projects/{id:D}/suspension",
+                new(operationId, suspended, reason), cancellationToken);
+            _operationIntents.Complete(key, operationId);
+        }
+        catch (DesktopApiException ex) when (IsDefinitive(ex.StatusCode))
+        {
+            _operationIntents.Complete(key, operationId);
+            throw;
+        }
+    }
+
+    private sealed record SuspensionRequest(Guid ClientOperationId, bool IsSuspended, string Reason);
+
     public async Task<IReadOnlyList<ThakaProjectListItemViewModel>> GetProjectsAsync(CancellationToken cancellationToken = default) =>
         (await GetProjectsPageAsync(null, "ALL", 200, cancellationToken: cancellationToken)).Items;
 
     public async Task<BackendThakaProjectPage> GetProjectsPageAsync(string? search, string filter, int pageSize = 200,
         DateOnly? beforeStartedOn = null, Guid? beforeProjectId = null, CancellationToken cancellationToken = default)
     {
-        var status = filter.Trim().ToUpperInvariant() switch { "ACTIVE" => "Active", "SETTLED" => "Settled", _ => string.Empty };
+        var status = filter.Trim().ToUpperInvariant() switch { "ACTIVE" => "Active", "SETTLED" => "Settled", "SUSPENDED" => "Suspended", _ => string.Empty };
         var query = $"/api/thaka/projects?search={Uri.EscapeDataString(search ?? string.Empty)}&status={status}&pageSize={Math.Clamp(pageSize, 1, 200)}";
         if (beforeStartedOn.HasValue && beforeProjectId.HasValue)
         {
@@ -58,7 +79,7 @@ public sealed class RemoteBackendThakaService(
         var normalizedProjectName = Required(projectName, "Project name");
         var phoneNormalized = Normalize(phone);
         var customers = await apiClient.GetAsync<IReadOnlyList<CustomerDirectoryDto>>(
-            $"/api/customers?search={Uri.EscapeDataString(normalizedName)}&pageSize=200", cancellationToken);
+            $"/api/customers?includeInactive=true&search={Uri.EscapeDataString(normalizedName)}&pageSize=200", cancellationToken);
         var matches = customers.Where(x => string.Equals(x.Name.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase) &&
             (phoneNormalized is null || string.Equals(Normalize(x.Phone), phoneNormalized, StringComparison.OrdinalIgnoreCase))).ToArray();
         if (matches.Length > 1)
@@ -66,6 +87,10 @@ public sealed class RemoteBackendThakaService(
             throw new InvalidOperationException("Multiple backend customers match this name and phone.");
         }
 
+        if (matches.SingleOrDefault() is { IsActive: false })
+        {
+            throw new BackendOperationException("thaka.customer_suspended", "Resume this customer before creating a new khata.");
+        }
         var customerId = matches.SingleOrDefault()?.CustomerId;
         if (!customerId.HasValue)
         {
@@ -173,7 +198,9 @@ public sealed class RemoteBackendThakaService(
             new PosProductItemViewModel(row.ProductId.ToString("D"), row.Name, row.Sku ?? string.Empty, "—", "Thaka",
                 row.SellableStock, row.UnitCharge, unit: row.UnitSymbol,
                 backendProductId: row.ProductId, backendProductUnitId: row.ProductUnitId,
-                isSerialized: row.IsSerialized),
+                isSerialized: row.IsSerialized,
+                factorToBaseUnit: row.FactorToBaseUnit,
+                trackingMode: row.TrackingMode),
             row.UnitCharge))];
     }
 
@@ -187,7 +214,9 @@ public sealed class RemoteBackendThakaService(
 
         var productId = product.BackendProductId ?? throw new BackendOperationException("thaka.product_not_attached", "Product is not attached to backend.");
         var unitId = product.BackendProductUnitId ?? throw new BackendOperationException("thaka.product_unit_not_attached", "Product unit is not attached to backend.");
-        if (product.IsSerialized && (quantity * product.FactorToBaseUnit != inventoryUnitIds.Count || inventoryUnitIds.Distinct().Count() != inventoryUnitIds.Count))
+        var physicalCount = product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+            ? quantity : quantity * product.FactorToBaseUnit;
+        if (product.IsSerialized && (physicalCount != inventoryUnitIds.Count || inventoryUnitIds.Distinct().Count() != inventoryUnitIds.Count))
         {
             throw new BackendOperationException("thaka.exact_unit_count_mismatch", "Serialized Thaka issue requires one exact unit per base quantity.");
         }
@@ -283,8 +312,8 @@ public sealed class RemoteBackendThakaService(
     private static string HashOperationKey(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static ThakaProjectListItemViewModel MapProject(ThakaProjectSummaryDto row) => new(row.ProjectNumber, row.ProjectName,
         row.CustomerName, row.CustomerPhone ?? "N/A", row.SiteAddress ?? "N/A", row.StartedOn.ToDateTime(TimeOnly.MinValue),
-        row.MaterialValue, row.Paid, row.Status == ThakaProjectStatus.Settled ? "SETTLED" : "ACTIVE", row.Note ?? string.Empty,
-        backendProjectId: row.ProjectId, settlementDiscount: row.SettlementDiscount);
+        row.MaterialValue, row.Paid, row.Status.ToString().ToUpperInvariant(), row.Note ?? string.Empty,
+        backendProjectId: row.ProjectId, settlementDiscount: row.SettlementDiscount) { CustomerIsActive = row.CustomerIsActive };
 
     private sealed record SaveCustomerRequest(string Name, string? Phone, string? Address, bool IsActive, string? Notes = null, Guid? ActorId = null, Guid? CorrelationId = null, Guid? ClientOperationId = null);
     private sealed record CreateProjectRequest(Guid CustomerId, string ProjectName, string? SiteAddress, string? Note, DateOnly StartedOn, Guid? ActorId = null, Guid? CorrelationId = null, Guid? ClientOperationId = null);

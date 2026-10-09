@@ -72,17 +72,22 @@ public sealed class ExpenseRecord : ViewModelBase
     }
 
     public string DateDisplay => Date.ToString("dd MMM yyyy");
-    public string AmountDisplay => $"Rs. {Amount:N0}";
+    public string AmountDisplay => $"Rs. {Amount:N2}";
 }
 
 public sealed class CustomerDirectoryRecord : ViewModelBase
 {
+    private bool _isActive = true;
+    public bool IsActive { get => _isActive; set { if (SetProperty(ref _isActive, value)) { OnPropertyChanged(nameof(StatusDisplay)); } } }
+    public string StatusDisplay => IsActive ? "Active" : "Suspended";
     private string _name = string.Empty;
     private string _phone = string.Empty;
     private string _address = string.Empty;
     private string _notes = string.Empty;
     private decimal _localSales;
     private string _activeThaka = "—";
+    private int _activeThakaCount;
+    private decimal _currentThakaBalance;
     private DateTime? _lastSale;
 
     public required string Id { get; init; }
@@ -143,7 +148,19 @@ public sealed class CustomerDirectoryRecord : ViewModelBase
         }
     }
 
-    public string LocalSalesDisplay => $"Rs. {LocalSales:N0}";
+    public int ActiveThakaCount
+    {
+        get => _activeThakaCount;
+        internal set => SetProperty(ref _activeThakaCount, value);
+    }
+
+    public decimal CurrentThakaBalance
+    {
+        get => _currentThakaBalance;
+        internal set => SetProperty(ref _currentThakaBalance, value);
+    }
+
+    public string LocalSalesDisplay => $"Rs. {LocalSales:N2}";
     public string LastSaleDisplay =>
         LastSale is null ? "—" :
         LastSale.Value.Date == DateTime.Today ? "Today" :
@@ -218,7 +235,7 @@ public sealed class SupplierDirectoryRecord : ViewModelBase
         }
     }
 
-    public string TotalPurchasesDisplay => $"Rs. {TotalPurchases:N0}";
+    public string TotalPurchasesDisplay => $"Rs. {TotalPurchases:N2}";
     public string LastPurchaseDisplay => LastPurchase?.ToString("dd MMM") ?? "—";
 }
 public sealed class DemoBusinessDirectoryService
@@ -445,6 +462,10 @@ public sealed class DemoBusinessDirectoryService
             .OrderByDescending(project => project.StartDate)
             .Select(project => project.ProjectName)
             .FirstOrDefault() ?? "—";
+        var activeProjects = _retailState.ThakaProjects.Where(project => project.IsActive)
+            .Where(project => MatchesCustomer(customer, project.CustomerName, project.Phone)).ToArray();
+        customer.ActiveThakaCount = activeProjects.Length;
+        customer.CurrentThakaBalance = activeProjects.Sum(project => project.Balance);
     }
 
     private void RefreshSupplierMetrics()

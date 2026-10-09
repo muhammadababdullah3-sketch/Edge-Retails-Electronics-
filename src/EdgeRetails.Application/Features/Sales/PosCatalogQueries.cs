@@ -10,7 +10,8 @@ public sealed record PosCatalogProductDto(
     decimal SellableStock,
     decimal UnitPrice,
     decimal ReferenceCost,
-    bool IsSerialized);
+    bool IsSerialized,
+    string? Brand = null);
 
 public interface IPosCatalogReadService
 {
@@ -18,6 +19,16 @@ public interface IPosCatalogReadService
         string? search,
         int pageSize,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<PosCatalogProductDto>> GetSellableCatalogAsync(
+        string? search,
+        string? category,
+        string? brand,
+        int pageSize,
+        string? afterName,
+        Guid? afterId,
+        CancellationToken cancellationToken) =>
+        GetSellableCatalogAsync(search, pageSize, cancellationToken);
 }
 
 public sealed class GetPosCatalogHandler
@@ -34,4 +45,14 @@ public sealed class GetPosCatalogHandler
         int pageSize,
         CancellationToken cancellationToken) =>
         _reads.GetSellableCatalogAsync(search, pageSize, cancellationToken);
+
+    public Task<IReadOnlyList<PosCatalogProductDto>> HandleAsync(
+        string? search,
+        string? category,
+        string? brand,
+        int pageSize,
+        string? afterName,
+        Guid? afterId,
+        CancellationToken cancellationToken) =>
+        _reads.GetSellableCatalogAsync(search, category, brand, pageSize, afterName, afterId, cancellationToken);
 }

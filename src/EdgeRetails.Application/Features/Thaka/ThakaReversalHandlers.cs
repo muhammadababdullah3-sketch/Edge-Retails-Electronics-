@@ -118,7 +118,7 @@ public sealed class ReverseThakaMaterialHandler
 
             await _resourceLock.AcquireAsync("thaka-project", command.ProjectId, ct);
             var project = await _thaka.GetProjectForUpdateAsync(command.ProjectId, ct);
-            if (project is null || project.Status != ThakaProjectStatus.Active)
+            if (project is null || project.Status is not (ThakaProjectStatus.Active or ThakaProjectStatus.Suspended))
             {
                 return Result<ReverseThakaMaterialResult>.Failure(
                     "thaka.project_not_active",
@@ -298,17 +298,23 @@ public sealed class ReverseThakaMaterialHandler
         }
 
         var snapshotByUnit = snapshots.ToDictionary(x => x.InventoryUnitId);
+        var basePerUnit = item.BaseQuantity / snapshots.Count;
+        if (basePerUnit <= 0m)
+        {
+            throw new BusinessRuleException("thaka.reversal_quantity_invalid", "Original physical quantity is invalid.");
+        }
         foreach (var unit in units.OrderBy(x => x.Id))
         {
             var snapshot = snapshotByUnit[unit.Id];
             var lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
                 item.ProductId,
-                1m,
-                snapshot.UnitCostSnapshot,
+                basePerUnit,
+                snapshot.UnitCostSnapshot / basePerUnit,
                 reversalMovement.Id,
                 unit.SourcePurchaseItemId,
                 InventoryBucket.Sellable,
-                cancellationToken); var from = unit.Status;
+                cancellationToken);
+            var from = unit.Status;
             unit.Status = InventoryUnitStatus.InStock;
             unit.InventoryLotId = lotId;
             unit.Version++;
@@ -428,7 +434,7 @@ public sealed class ReverseThakaPaymentHandler
 
             await _resourceLock.AcquireAsync("thaka-project", command.ProjectId, ct);
             var project = await _thaka.GetProjectForUpdateAsync(command.ProjectId, ct);
-            if (project is null || project.Status != ThakaProjectStatus.Active)
+            if (project is null || project.Status is not (ThakaProjectStatus.Active or ThakaProjectStatus.Suspended))
             {
                 return Result<ReverseThakaPaymentResult>.Failure(
                     "thaka.project_not_active",

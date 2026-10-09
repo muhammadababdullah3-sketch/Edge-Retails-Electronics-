@@ -141,7 +141,7 @@ public sealed class CreateThakaProjectHandler
                 }
             }
 
-            var customer = await _parties.GetCustomerAsync(command.CustomerId, ct);
+            var customer = await _parties.GetCustomerForUpdateAsync(command.CustomerId, ct);
             if (customer is null || !customer.IsActive || customer.IsWalkIn)
             {
                 return Result<Guid>.Failure(
@@ -195,6 +195,7 @@ public sealed class CreateThakaProjectHandler
 public sealed class IssueThakaMaterialHandler
 {
     private readonly IThakaRepository _thaka;
+    private readonly IPartyRepository _parties;
     private readonly ICatalogRepository _catalog;
     private readonly IInventoryRepository _inventory;
     private readonly IInventoryCostAllocator _costs;
@@ -207,6 +208,7 @@ public sealed class IssueThakaMaterialHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork; public IssueThakaMaterialHandler(
         IThakaRepository thaka,
+        IPartyRepository parties,
         ICatalogRepository catalog,
         IInventoryRepository inventory,
         IInventoryCostAllocator costs,
@@ -221,6 +223,7 @@ public sealed class IssueThakaMaterialHandler
         IOperationOutcomeLedger? outcomeLedger = null)
     {
         _thaka = thaka;
+        _parties = parties;
         _catalog = catalog;
         _inventory = inventory;
         _costs = costs;
@@ -302,6 +305,11 @@ public sealed class IssueThakaMaterialHandler
                     "Material can only be issued to an active Thaka project.");
             }
 
+            var customer = await _parties.GetCustomerForUpdateAsync(project.CustomerId, ct);
+            if (customer is null || !customer.IsActive)
+            {
+                return Result<IssueThakaMaterialResult>.Failure("thaka.customer_suspended", "New material cannot be issued to a suspended customer.");
+            }
             foreach (var productId in command.Lines
                 .Select(x => x.ProductId)
                 .Distinct()
@@ -309,6 +317,18 @@ public sealed class IssueThakaMaterialHandler
             {
                 await _resourceLock.AcquireAsync("product", productId, ct);
             }
+            var allUnitIds = command.Lines
+                .Where(x => x.InventoryUnitIds is not null)
+                .SelectMany(x => x.InventoryUnitIds!)
+                .ToList();
+
+            if (allUnitIds.Distinct().Count() != allUnitIds.Count)
+            {
+                return Result<IssueThakaMaterialResult>.Failure(
+                    "thaka.serial_selection_invalid",
+                    "Serialized issue requires one unique inventory unit per base unit.");
+            }
+
             try
             {
                 var prepared = new List<PreparedThakaLine>();
@@ -372,10 +392,10 @@ public sealed class IssueThakaMaterialHandler
                     stocks[product.Id] = stock;
 
                     IReadOnlyList<InventoryUnit> serialized = Array.Empty<InventoryUnit>();
-                    if (product.TrackingMode == TrackingMode.Serialized)
+                    if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
                     {
                         if (!QuantityMath.IsWhole(quantity.BaseQuantity) ||
-                            input.InventoryUnitIds.Count != decimal.ToInt32(quantity.BaseQuantity) ||
+                            input.InventoryUnitIds.Count != (product.TrackingMode == TrackingMode.Container ? quantity.EnteredQuantity : quantity.BaseQuantity) ||
                             input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
                         {
                             return Result<IssueThakaMaterialResult>.Failure(
@@ -396,6 +416,13 @@ public sealed class IssueThakaMaterialHandler
                                 "thaka.serial_not_available",
                                 "One or more serialized units are not available.");
                         }
+                        if (product.TrackingMode == TrackingMode.Container)
+                        {
+                            foreach (var unit in serialized)
+                                if (await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct) != quantity.BaseQuantity / serialized.Count)
+                                    return Result<IssueThakaMaterialResult>.Failure("thaka.container_quantity_mismatch",
+                                        "Selected issue unit does not match the original physical pack quantity.");
+                        }
                     }
 
                     prepared.Add(new PreparedThakaLine(
@@ -404,7 +431,7 @@ public sealed class IssueThakaMaterialHandler
                         productUnit,
                         quantity,
                         authoritativeCharge,
-                        Money(authoritativeCharge * input.EnteredQuantity),
+                        Money(authoritativeCharge * quantity.BaseQuantity),
                         serialized));
                 }
                 var issue = new ThakaMaterialIssue
@@ -437,7 +464,7 @@ public sealed class IssueThakaMaterialHandler
                     _inventory.AddMovement(movement);
 
                     decimal lineCost;
-                    if (line.Product.TrackingMode == TrackingMode.Serialized)
+                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
                     {
                         lineCost = await ConsumeSerializedAsync(line, movement, ct);
                     }
@@ -560,6 +587,7 @@ public sealed class IssueThakaMaterialHandler
         CancellationToken cancellationToken)
     {
         decimal totalCost = 0m;
+        var basePerUnit = line.Quantity.BaseQuantity / line.SerializedUnits.Count;
         foreach (var unit in line.SerializedUnits.OrderBy(x => x.Id))
         {
             var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
@@ -568,7 +596,7 @@ public sealed class IssueThakaMaterialHandler
                 cancellationToken)
                 ?? throw new BusinessRuleException(
                     "thaka.serial_lot_missing",
-                    "Serialized unit inventory lot was not found."); if (lotBalance.Quantity < 1m)
+                    "Serialized unit inventory lot was not found."); if (lotBalance.Quantity < basePerUnit)
             {
                 throw new BusinessRuleException(
                     "thaka.serial_lot_insufficient",
@@ -576,21 +604,21 @@ public sealed class IssueThakaMaterialHandler
             }
 
             lotBalance.Quantity = QuantityMath.RoundQuantity(
-                lotBalance.Quantity - 1m);
+                lotBalance.Quantity - basePerUnit);
             _inventory.AddLotConsumption(new InventoryLotConsumption
             {
                 LotId = unit.InventoryLotId.Value,
                 MovementId = movement.Id,
-                Quantity = 1m,
-                UnitCostSnapshot = unit.AcquisitionCost,
+                Quantity = basePerUnit,
+                UnitCostSnapshot = unit.AcquisitionCost / basePerUnit,
                 TotalCostSnapshot = unit.AcquisitionCost,
                 OccurredAt = _clock.UtcNow
             });
 
             totalCost += await _costs.RemoveCarryingValueAsync(
                 line.Product.Id,
-                1m,
-                unit.AcquisitionCost,
+                basePerUnit,
+                unit.AcquisitionCost / basePerUnit,
                 cancellationToken);
 
             var from = unit.Status;

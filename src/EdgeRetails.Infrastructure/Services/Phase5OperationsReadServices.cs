@@ -759,7 +759,7 @@ public sealed class WarrantyReadService : IWarrantyReadService
 
                 var eligible = baseEligibility.Item1 && remaining > 0;
                 var code = baseEligibility.Item2;
-                if (eligible && product?.TrackingMode == TrackingMode.Serialized && unitsForItem.Length == 0)
+                if (eligible && product?.TrackingMode is (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container) && unitsForItem.Length == 0)
                 {
                     eligible = false;
                     code = "warranty.serialized_units_missing";

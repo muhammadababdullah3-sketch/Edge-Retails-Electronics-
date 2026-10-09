@@ -6,7 +6,7 @@
         Height="760"
         MinWidth="800"
         MinHeight="600"
-        Background="{DynamicResource Brush.App.Background}"
+        Background="{DynamicResource Brush.App.Background}" Foreground="{DynamicResource Brush.Text.Primary}"
         FontFamily="{StaticResource Font.Primary}"
         WindowStartupLocation="CenterOwner"
         UseLayoutRounding="True"
@@ -30,7 +30,7 @@
                 Background="{DynamicResource Brush.Surface.Raised}"
                 BorderBrush="{DynamicResource Brush.Border.Default}"
                 BorderThickness="0,1,0,0"
-                Padding="16,12">
+                Padding="16,12" CornerRadius="0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Width="110"
                         Margin="0,0,10,0"

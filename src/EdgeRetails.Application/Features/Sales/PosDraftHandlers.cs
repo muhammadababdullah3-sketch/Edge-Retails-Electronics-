@@ -211,8 +211,8 @@ public sealed class SavePosDraftHandler
                     return Result<SavePosDraftResult>.Failure(ex.Code, ex.Message);
                 }
 
-                if (product.TrackingMode == TrackingMode.Serialized &&
-                    (quantity.BaseQuantity != 1m || input.SelectedInventoryUnitId is null))
+                if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container &&
+                    ((product.TrackingMode == TrackingMode.Container ? quantity.EnteredQuantity : quantity.BaseQuantity) != 1m || input.SelectedInventoryUnitId is null))
                 {
                     return Result<SavePosDraftResult>.Failure(
                         "sales.draft_exact_unit_required",
@@ -362,6 +362,7 @@ public sealed class CompletePosDraftHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationLock _operationLock;
 
     public CompletePosDraftHandler(
         IPosDraftRepository drafts,
@@ -370,7 +371,9 @@ public sealed class CompletePosDraftHandler
         CompleteSaleHandler completeSale,
         IClock clock,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationLock operationLock,
+        ISalesRepository? sales = null)
     {
         _drafts = drafts;
         _resourceLock = resourceLock;
@@ -379,6 +382,7 @@ public sealed class CompletePosDraftHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _operationLock = operationLock;
     }
 
     public Task<Result<CompleteSaleResult>> HandleAsync(
@@ -405,6 +409,7 @@ public sealed class CompletePosDraftHandler
                     authorization.Error.Message);
             }
 
+            await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             await _resourceLock.AcquireAsync("pos-draft", command.DraftId, ct);
             var draft = await _drafts.GetForUpdateAsync(command.DraftId, ct);
             if (draft is null)
@@ -414,14 +419,16 @@ public sealed class CompletePosDraftHandler
                     "POS draft was not found.");
             }
 
-            if (draft.Status != PosDraftStatus.Open)
+            var converted = draft.Status == PosDraftStatus.Converted;
+            if (draft.Status != PosDraftStatus.Open && !converted)
             {
                 return Result<CompleteSaleResult>.Failure(
                     "sales.draft_not_open",
                     "Only an open draft can be completed.");
             }
 
-            if (draft.Version != command.ExpectedVersion)
+            if (command.ExpectedVersion == long.MaxValue ||
+                draft.Version != (converted ? command.ExpectedVersion + 1 : command.ExpectedVersion))
             {
                 return Result<CompleteSaleResult>.Failure(
                     "sales.draft_stale",
@@ -466,10 +473,20 @@ public sealed class CompletePosDraftHandler
                     command.AmountTendered,
                     command.PaymentReference,
                     null,
-                    lines),
+                    lines)
+                {
+                    SourceDraftId = draft.Id,
+                    SourceDraftVersion = command.ExpectedVersion,
+                    SourceDraftReplayOnly = converted
+                },
                 ct);
 
             if (!result.IsSuccess)
+            {
+                return result;
+            }
+
+            if (converted)
             {
                 return result;
             }

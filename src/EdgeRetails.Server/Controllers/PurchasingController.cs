@@ -1,6 +1,6 @@
 using EdgeRetails.Application.Common;
-using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Server.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
@@ -58,6 +58,26 @@ public sealed class PurchasingController : ControllerBase
 
         var result = await _purchasingReads.GetHistoryAsync(query, cancellationToken);
         return Ok(result);
+    }
+
+    [HttpGet("catalog")]
+    public async Task<IActionResult> SearchCatalog([FromServices] IPurchaseCatalogReadService reads,
+        [FromQuery] string? search = null, [FromQuery] int pageSize = 50,
+        [FromQuery] string? afterName = null, [FromQuery] Guid? afterProductId = null,
+        [FromQuery] Guid? productId = null, [FromQuery] bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.PurchasingManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+        if (string.IsNullOrWhiteSpace(afterName) != !afterProductId.HasValue)
+        {
+            return BadRequest(new { code = "purchasing.cursor_invalid", message = "Product cursor requires both name and ID." });
+        }
+        return Ok(await reads.SearchAsync(new PurchaseCatalogPageQuery(search, Math.Clamp(pageSize, 1, 200),
+            afterName, afterProductId, productId, includeInactive), cancellationToken));
     }
 
     [HttpGet("returns")]

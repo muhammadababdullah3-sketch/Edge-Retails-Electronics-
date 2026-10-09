@@ -84,7 +84,7 @@ public sealed class Phase2WarrantyLifecycleBehavioralTests
             _fakes.Authorization,
             _fakes.Clock,
             _fakes.Transactions,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private RecordWarrantyResolutionHandler CreateResolutionHandler() =>
         new(
@@ -152,7 +152,7 @@ public sealed class Phase2WarrantyLifecycleBehavioralTests
             _fakes.Audit,
             _fakes.Clock,
             _fakes.Transactions,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private (Supplier Supplier, Customer Customer, Product Product, ProductUnit Unit, InventoryUnit UnitEntity, Sale Sale, SaleItem SaleItem) SeedSoldSerializedFixture()
     {

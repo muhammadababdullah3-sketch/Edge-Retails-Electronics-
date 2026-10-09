@@ -14,13 +14,31 @@ public sealed class PosCatalogReadService : IPosCatalogReadService
         _db = db;
     }
 
-    public async Task<IReadOnlyList<PosCatalogProductDto>> GetSellableCatalogAsync(
+    public Task<IReadOnlyList<PosCatalogProductDto>> GetSellableCatalogAsync(
         string? search,
         int pageSize,
+        CancellationToken cancellationToken) =>
+        GetSellableCatalogAsync(search, null, null, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<PosCatalogProductDto>> GetSellableCatalogAsync(
+        string? search,
+        string? category,
+        string? brand,
+        int pageSize,
+        string? afterName,
+        Guid? afterId,
         CancellationToken cancellationToken)
     {
-        var take = Math.Clamp(pageSize, 1, 200);
+        if (string.IsNullOrWhiteSpace(afterName) != !afterId.HasValue)
+        {
+            throw new ArgumentException("Both afterName and afterId are required for a catalog cursor.");
+        }
+
+        var take = Math.Clamp(pageSize, 1, 500);
         var term = search?.Trim() ?? string.Empty;
+        var catFilter = category?.Trim();
+        var brandFilter = brand?.Trim();
+
         var query = (
             from product in _db.Products.AsNoTracking()
             join productUnit in _db.ProductUnits.AsNoTracking()
@@ -32,7 +50,7 @@ public sealed class PosCatalogReadService : IPosCatalogReadService
             from stock in stockGroup.DefaultIfEmpty()
             join categoryJoin in _db.Categories.AsNoTracking()
                 on product.CategoryId equals categoryJoin.Id into categoryGroup
-            from category in categoryGroup.DefaultIfEmpty()
+            from cat in categoryGroup.DefaultIfEmpty()
             where product.IsActive &&
                   productUnit.IsActive &&
                   productUnit.CanSell &&
@@ -42,24 +60,42 @@ public sealed class PosCatalogReadService : IPosCatalogReadService
                    ((product.Sku ?? string.Empty).Contains(term)) ||
                    _db.ProductUnitBarcodes.Any(barcode =>
                        barcode.ProductUnitId == productUnit.Id &&
-                       barcode.Barcode.Contains(term)))
-            orderby product.Name, product.Id
-            select new PosCatalogProductDto(
-                product.Id,
-                productUnit.Id,
-                product.Name,
-                product.Sku,
-                category == null ? "Uncategorized" : category.Name!,
-                unit.Symbol,
-                stock == null ? 0m : stock.SellableQty,
+                       barcode.Barcode.Contains(term))) &&
+                  (string.IsNullOrWhiteSpace(catFilter) ||
+                   catFilter == "All" ||
+                   (catFilter == "Uncategorized" ? cat == null : cat != null && cat.Name == catFilter)) &&
+                  (string.IsNullOrWhiteSpace(brandFilter) ||
+                   brandFilter == "All" ||
+                   (brandFilter == "Unbranded" ? (product.Brand == null || product.Brand == "") : product.Brand == brandFilter))
+            select new { product, productUnit, unit, stock, cat });
+
+        if (!string.IsNullOrEmpty(afterName) && afterId.HasValue)
+        {
+            query = query.Where(x =>
+                string.Compare(x.product.Name, afterName) > 0 ||
+                (x.product.Name == afterName && x.product.Id.CompareTo(afterId.Value) > 0));
+        }
+
+        var resultQuery = query
+            .OrderBy(x => x.product.Name)
+            .ThenBy(x => x.product.Id)
+            .Select(x => new PosCatalogProductDto(
+                x.product.Id,
+                x.productUnit.Id,
+                x.product.Name,
+                x.product.Sku,
+                x.cat == null ? "Uncategorized" : x.cat.Name!,
+                x.unit.Symbol,
+                x.stock == null ? 0m : x.stock.SellableQty,
                 decimal.Round(
-                    product.DefaultSalePrice * productUnit.FactorToBaseUnit,
+                    x.product.DefaultSalePrice * x.productUnit.FactorToBaseUnit,
                     2,
                     MidpointRounding.AwayFromZero),
-                product.ReferencePurchaseCost ?? 0m,
-                product.TrackingMode == TrackingMode.Serialized))
+                x.product.ReferencePurchaseCost ?? 0m,
+                (x.product.TrackingMode == TrackingMode.Serialized || x.product.TrackingMode == TrackingMode.IndividualPiece || x.product.TrackingMode == TrackingMode.Container),
+                string.IsNullOrWhiteSpace(x.product.Brand) ? null : x.product.Brand))
             .Take(take);
 
-        return await query.ToListAsync(cancellationToken);
+        return await resultQuery.ToListAsync(cancellationToken);
     }
 }

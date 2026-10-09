@@ -166,23 +166,7 @@ public static class SaleMath
                 "Invoice discount requires a positive subtotal.");
         }
 
-        var allocations = new decimal[grossLineTotals.Count];
-        var remaining = discount;
-
-        for (var i = 0; i < grossLineTotals.Count; i++)
-        {
-            var allocated = i == grossLineTotals.Count - 1
-                ? remaining
-                : decimal.Round(
-                    discount * grossLineTotals[i] / subtotal,
-                    2,
-                    MidpointRounding.AwayFromZero);
-
-            allocations[i] = allocated;
-            remaining = decimal.Round(remaining - allocated, 2, MidpointRounding.AwayFromZero);
-        }
-
-        return allocations;
+        return MoneyRoundingPolicy.Allocate(discount, grossLineTotals);
     }
 
     public static InventoryBucket ToInventoryBucket(SaleReturnDisposition disposition) => disposition switch

@@ -3,8 +3,10 @@ using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Parties;
 using EdgeRetails.Application.Features.Reporting;
 using EdgeRetails.Domain.Finance;
+using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Purchasing;
 using EdgeRetails.Domain.Thaka;
+using EdgeRetails.Domain.Warranty;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -146,11 +148,12 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
         int pageSize = 100,
         CancellationToken cancellationToken = default,
         string? beforeName = null,
-        Guid? beforeCustomerId = null)
+        Guid? beforeCustomerId = null,
+        bool includeInactive = false)
     {
         var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500);
         var query = _db.Customers.AsNoTracking()
-            .Where(x => x.IsActive && !x.IsWalkIn);
+            .Where(x => (includeInactive || x.IsActive) && !x.IsWalkIn);
 
         var term = search?.Trim();
         if (!string.IsNullOrWhiteSpace(term))
@@ -178,6 +181,7 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
                 customer.Phone,
                 customer.Address,
                 customer.Notes,
+                customer.IsActive,
                 Gross = _db.Sales
                     .Where(x => x.CustomerId == customer.Id)
                     .Select(sale => (decimal?)sale.GrandTotal)
@@ -207,6 +211,23 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
             })
             .ToListAsync(cancellationToken);
 
+        var customerIds = rows.Select(x => x.Id).ToArray();
+        var projects = await _db.ThakaProjects.AsNoTracking()
+            .Where(x => customerIds.Contains(x.CustomerId) && x.Status == ThakaProjectStatus.Active)
+            .Select(project => new
+            {
+                project.CustomerId,
+                Balance = Math.Max(0m,
+                    (_db.ThakaMaterialIssues.Where(x => x.ProjectId == project.Id).Sum(x => (decimal?)x.TotalCharge) ?? 0m)
+                    - (_db.ThakaMaterialReversals.Where(x => x.ProjectId == project.Id).Sum(x => (decimal?)x.ReversedCharge) ?? 0m)
+                    - (_db.ThakaSettlements.Where(x => x.ProjectId == project.Id).Sum(x => (decimal?)x.SettlementDiscount) ?? 0m)
+                    - (_db.ThakaPayments.Where(x => x.ProjectId == project.Id).Sum(x => (decimal?)x.Amount) ?? 0m)
+                    + (_db.ThakaPaymentReversals.Where(x => x.ProjectId == project.Id).Sum(x => (decimal?)x.Amount) ?? 0m))
+            })
+            .ToListAsync(cancellationToken);
+        var metrics = projects.GroupBy(x => x.CustomerId)
+            .ToDictionary(x => x.Key, x => (Count: x.Count(), Balance: x.Sum(p => p.Balance)));
+
         return rows.Select(x => new CustomerDirectoryDto(
             x.Id,
             x.Name,
@@ -215,7 +236,10 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
             x.Notes,
             Math.Max(0m, decimal.Round(x.Gross - x.Refunds, 2)),
             x.LastSaleAt,
-            x.ActiveThakaProject))
+            x.ActiveThakaProject,
+            metrics.GetValueOrDefault(x.Id).Count,
+            metrics.GetValueOrDefault(x.Id).Balance,
+            x.IsActive))
             .ToArray();
     }
 
@@ -234,9 +258,9 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
         if (!string.IsNullOrWhiteSpace(term))
         {
             query = query.Where(x =>
-                x.Name.Contains(term) ||
-                (x.Phone != null && x.Phone.Contains(term)) ||
-                (x.City != null && x.City.Contains(term)));
+                EF.Functions.ILike(x.Name, "%" + term + "%") ||
+                (x.Phone != null && EF.Functions.ILike(x.Phone, "%" + term + "%")) ||
+                (x.City != null && EF.Functions.ILike(x.City, "%" + term + "%")));
         }
 
         if (!string.IsNullOrWhiteSpace(beforeName) && beforeSupplierId is Guid cursorId)
@@ -385,9 +409,48 @@ public sealed class ReportingReadService : IReportingReadService
             .Where(x => thakaIssueRaw.Select(v => v.ProjectId).Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.ProjectName, cancellationToken);
 
+        var recognizedLossTotal = await _db.InventoryMovements.AsNoTracking()
+            .Where(x => x.OccurredAt >= start && x.OccurredAt < end && x.RecognizedLossAmount > 0m)
+            .Select(x => (decimal?)x.RecognizedLossAmount)
+            .SumAsync(cancellationToken) ?? 0m;
+
+        // D17: Canonical InventoryLossRecoveryGain from persisted Found movements linked to Missing sources
+        var inventoryLossRecoveryGains = await (
+            from recovery in _db.InventoryMovements.AsNoTracking()
+            join source in _db.InventoryMovements.AsNoTracking()
+                on recovery.ReferenceId equals source.Id
+            where recovery.ReferenceType == "InventoryLossRecoveryGain" &&
+                  recovery.OccurredAt >= start && recovery.OccurredAt < end
+            select source.RecognizedLossAmount)
+            .ToListAsync(cancellationToken);
+        var inventoryLossRecoveryGainTotal = inventoryLossRecoveryGains.Sum();
+
+        // D17: Canonical WarrantyRecoveryGain from persisted ShopWarrantyResolutionAllocations
+        var warrantyRecoveryGains = await _db.ShopWarrantyResolutionAllocations.AsNoTracking()
+            .Where(x => x.OccurredAt >= start && x.OccurredAt < end &&
+                        x.ResolutionOutcome == WarrantyResolutionType.Credited &&
+                        x.SupplierCreditAmount.HasValue &&
+                        x.SupplierCreditAmount.Value > x.ActualResolvedCarryingValue)
+            .Select(x => x.SupplierCreditAmount!.Value - x.ActualResolvedCarryingValue)
+            .ToListAsync(cancellationToken);
+
+        // Backwards compatibility for legacy cases prior to resolution allocation table
+        var legacyWarrantyGains = await _db.ShopStockWarrantyCases.AsNoTracking()
+            .Where(x => x.Status == ShopWarrantyCaseStatus.Closed &&
+                        x.ResolutionType == WarrantyResolutionType.Credited &&
+                        x.ClosedAt >= start && x.ClosedAt < end &&
+                        (x.RecoveryDifference > 0m ||
+                         ((x.SupplierCreditAmount ?? 0m) > (x.InventoryCarryingCostResolved ?? 0m))) &&
+                        !_db.ShopWarrantySendAllocations.Any(s => s.CaseId == x.Id))
+            .Select(x => x.RecoveryDifference ?? ((x.SupplierCreditAmount ?? 0m) - (x.InventoryCarryingCostResolved ?? 0m)))
+            .ToListAsync(cancellationToken);
+
+        var warrantyRecoveryGainTotal = warrantyRecoveryGains.Sum() + legacyWarrantyGains.Sum();
+
         var netSales = grossSales - refunds;
-        var grossProfit = netSales - (cogs - reversedCogs);
-        var netProfit = grossProfit - expenseTotal;
+        var netCogs = cogs - reversedCogs;
+        var grossProfit = netSales - netCogs;
+        var netProfit = grossProfit - expenseTotal - recognizedLossTotal + inventoryLossRecoveryGainTotal + warrantyRecoveryGainTotal;
         var netPurchases = purchaseTotal - purchaseReturnTotal;
         var thakaTotal = thakaIssueRaw.Sum(x => x.Amount) - thakaReversalRaw.Values.Sum();
 
@@ -450,7 +513,11 @@ public sealed class ReportingReadService : IReportingReadService
             mode != ReportingPeriodKind.Daily,
             trend,
             breakdown,
-            activity);
+            activity,
+            Round(netCogs),
+            Round(recognizedLossTotal),
+            Round(inventoryLossRecoveryGainTotal),
+            Round(warrantyRecoveryGainTotal));
     }
     private async Task<IReadOnlyList<ReportingTrendPointDto>> BuildTrendAsync(
         ReportingPeriodKind mode,
@@ -508,6 +575,42 @@ public sealed class ReportingReadService : IReportingReadService
                     g.Sum(x => x.Amount)))
                 .ToListAsync(cancellationToken);
 
+        var recognizedLosses = await _db.InventoryMovements.AsNoTracking()
+            .Where(x => x.OccurredAt >= start && x.OccurredAt < end && x.RecognizedLossAmount > 0m)
+            .GroupBy(x => new { Date = x.OccurredAt.Date, x.OccurredAt.Hour })
+            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecognizedLossAmount) })
+            .ToListAsync(cancellationToken);
+
+        var inventoryGains = await (
+            from recovery in _db.InventoryMovements.AsNoTracking()
+            join source in _db.InventoryMovements.AsNoTracking()
+                on recovery.ReferenceId equals source.Id
+            where recovery.ReferenceType == "InventoryLossRecoveryGain" &&
+                  recovery.OccurredAt >= start && recovery.OccurredAt < end
+            group source by new { Date = recovery.OccurredAt.Date, Hour = recovery.OccurredAt.Hour } into g
+            select new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecognizedLossAmount) })
+            .ToListAsync(cancellationToken);
+
+        var warrantyGains = await _db.ShopWarrantyResolutionAllocations.AsNoTracking()
+            .Where(x => x.OccurredAt >= start && x.OccurredAt < end &&
+                        x.ResolutionOutcome == WarrantyResolutionType.Credited &&
+                        x.SupplierCreditAmount.HasValue &&
+                        x.SupplierCreditAmount.Value > x.ActualResolvedCarryingValue)
+            .GroupBy(x => new { Date = x.OccurredAt.Date, Hour = x.OccurredAt.Hour })
+            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.SupplierCreditAmount!.Value - x.ActualResolvedCarryingValue) })
+            .ToListAsync(cancellationToken);
+
+        var legacyWarrantyGains = await _db.ShopStockWarrantyCases.AsNoTracking()
+            .Where(x => x.Status == ShopWarrantyCaseStatus.Closed &&
+                        x.ResolutionType == WarrantyResolutionType.Credited &&
+                        x.ClosedAt >= start && x.ClosedAt < end &&
+                        (x.RecoveryDifference > 0m || 
+                         ((x.SupplierCreditAmount ?? 0m) > (x.InventoryCarryingCostResolved ?? 0m))) &&
+                        !_db.ShopWarrantySendAllocations.Any(s => s.CaseId == x.Id))
+            .GroupBy(x => new { Date = x.ClosedAt!.Value.Date, Hour = x.ClosedAt.Value.Hour })
+            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecoveryDifference ?? ((x.SupplierCreditAmount ?? 0m) - (x.InventoryCarryingCostResolved ?? 0m))) })
+            .ToListAsync(cancellationToken);
+
         var salesMap = sales
             .GroupBy(x => new { x.Date, x.Hour })
             .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
@@ -521,6 +624,17 @@ public sealed class ReportingReadService : IReportingReadService
             .GroupBy(x => new { x.Date, x.Hour })
             .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
         var expenseMap = expenses.ToDictionary(x => DateOnly.FromDateTime(x.Item1), x => x.Item2);
+        var lossMap = recognizedLosses
+            .GroupBy(x => new { x.Date, x.Hour })
+            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+
+        var inventoryGainMap = inventoryGains
+            .GroupBy(x => new { x.Date, x.Hour })
+            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+        var warrantyGainMap = warrantyGains
+            .Concat(legacyWarrantyGains)
+            .GroupBy(x => new { x.Date, x.Hour })
+            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
 
         var results = new List<ReportingTrendPointDto>();
         foreach (var slice in BuildTrendSlices(mode, selectedDate, selectedMonth, selectedYear))
@@ -536,6 +650,9 @@ public sealed class ReportingReadService : IReportingReadService
             decimal refundsAmount = 0m;
             decimal reversedCogsAmount = 0m;
             decimal expenseAmount = 0m;
+            decimal lossAmount = 0m;
+            decimal inventoryGainAmount = 0m;
+            decimal warrantyGainAmount = 0m;
 
             foreach (var day in days)
             {
@@ -546,6 +663,9 @@ public sealed class ReportingReadService : IReportingReadService
                     cogsAmount += itemMap.GetValueOrDefault((day, hour));
                     refundsAmount += returnMap.GetValueOrDefault((day, hour));
                     reversedCogsAmount += returnItemMap.GetValueOrDefault((day, hour));
+                    lossAmount += lossMap.GetValueOrDefault((day, hour));
+                    inventoryGainAmount += inventoryGainMap.GetValueOrDefault((day, hour));
+                    warrantyGainAmount += warrantyGainMap.GetValueOrDefault((day, hour));
                 }
 
                 if (mode != ReportingPeriodKind.Daily)
@@ -558,7 +678,7 @@ public sealed class ReportingReadService : IReportingReadService
             var grossProfit = netSales - (cogsAmount - reversedCogsAmount);
             var profit = mode == ReportingPeriodKind.Daily
                 ? grossProfit
-                : grossProfit - expenseAmount;
+                : grossProfit - expenseAmount - lossAmount + inventoryGainAmount + warrantyGainAmount;
 
             results.Add(new ReportingTrendPointDto(
                 slice.Label,

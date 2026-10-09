@@ -95,12 +95,12 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
         var normalizedSerial = TryNormalizeSerial(term);
         var serialIds = normalizedSerial is null
             ? Array.Empty<Guid>()
-            : await _db.InventoryUnitIdentityClaims
-                .AsNoTracking()
-                .Where(x =>
-                    x.IdentifierType == ManufacturerIdentifierType.Serial &&
-                    x.NormalizedValue == normalizedSerial)
-                .Select(x => x.InventoryUnitId)
+            : await (from ownership in _db.InventoryUnitIdentityOwnerships.AsNoTracking()
+                     join claim in _db.InventoryUnitIdentityClaims.AsNoTracking()
+                         on ownership.InventoryUnitIdentityClaimId equals claim.Id
+                     where ownership.NormalizedValue == normalizedSerial &&
+                           claim.IdentifierType == ManufacturerIdentifierType.Serial
+                     select claim.InventoryUnitId)
                 .Distinct()
                 .ToArrayAsync(cancellationToken);
         if (serialIds.Length > 0)
@@ -115,12 +115,12 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
         var normalizedImei = TryNormalizeImei(term);
         var imeiIds = normalizedImei is null
             ? Array.Empty<Guid>()
-            : await _db.InventoryUnitIdentityClaims
-                .AsNoTracking()
-                .Where(x =>
-                    x.IdentifierType == ManufacturerIdentifierType.Imei &&
-                    x.NormalizedValue == normalizedImei)
-                .Select(x => x.InventoryUnitId)
+            : await (from ownership in _db.InventoryUnitIdentityOwnerships.AsNoTracking()
+                     join claim in _db.InventoryUnitIdentityClaims.AsNoTracking()
+                         on ownership.InventoryUnitIdentityClaimId equals claim.Id
+                     where ownership.NormalizedValue == normalizedImei &&
+                           claim.IdentifierType == ManufacturerIdentifierType.Imei
+                     select claim.InventoryUnitId)
                 .Distinct()
                 .ToArrayAsync(cancellationToken);
         if (imeiIds.Length > 0)
@@ -165,7 +165,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     product.DefaultSalePrice * productUnit.FactorToBaseUnit,
                     2,
                     MidpointRounding.AwayFromZero),
-                product.TrackingMode == TrackingMode.Serialized,
+                (product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece || product.TrackingMode == TrackingMode.Container),
                 null, null, null, null, null, null))
             .Take(20)
             .ToArrayAsync(cancellationToken);
@@ -336,7 +336,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                 product.Id,
                 product.Name,
                 product.Sku,
-                product.TrackingMode == TrackingMode.Serialized,
+                (product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece || product.TrackingMode == TrackingMode.Container),
                 item.ExpectedSellableQty,
                 item.CountedSellableQty,
                 item.CountedSellableQty == null
@@ -448,7 +448,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     x.Product.DefaultSalePrice * x.ProductUnit.FactorToBaseUnit,
                     2,
                     MidpointRounding.AwayFromZero),
-                x.Product.TrackingMode == TrackingMode.Serialized,
+                (x.Product.TrackingMode == TrackingMode.Serialized || x.Product.TrackingMode == TrackingMode.IndividualPiece || x.Product.TrackingMode == TrackingMode.Container),
                 u.Id,
                 u.TrackingCode,
                 u.SerialNumber,
@@ -499,7 +499,7 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     product.DefaultSalePrice * productUnit.FactorToBaseUnit,
                     2,
                     MidpointRounding.AwayFromZero),
-                product.TrackingMode == TrackingMode.Serialized,
+                (product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece || product.TrackingMode == TrackingMode.Container),
                 null, null, null, null, null, null))
             .Take(20)
             .ToArrayAsync(cancellationToken);

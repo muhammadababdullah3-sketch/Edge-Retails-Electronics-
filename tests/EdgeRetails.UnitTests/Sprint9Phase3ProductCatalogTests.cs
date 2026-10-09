@@ -141,7 +141,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             _authorization,
             safety,
             _transactions,
-            _unitOfWork);
+            _unitOfWork, new FakeBusinessAuditWriter());
 
         var result = await handler.HandleAsync(
             new UpdateProductCommand(
@@ -166,7 +166,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             _authorization,
             new Phase3CatalogSafetyReadService(false),
             _transactions,
-            _unitOfWork);
+            _unitOfWork, new FakeBusinessAuditWriter());
 
         var result = await handler.HandleAsync(
             new UpdateProductCommand(
@@ -190,7 +190,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             _authorization,
             new Phase3CatalogSafetyReadService(true),
             _transactions,
-            _unitOfWork);
+            _unitOfWork, new FakeBusinessAuditWriter());
 
         var result = await handler.HandleAsync(
             new UpdateProductCommand(
@@ -218,7 +218,7 @@ public sealed class Sprint9Phase3ProductCatalogTests
             _authorization,
             new Phase3CatalogSafetyReadService(false),
             _transactions,
-            _unitOfWork);
+            _unitOfWork, new FakeBusinessAuditWriter());
 
         var result = await handler.HandleAsync(
             new UpdateProductCommand(

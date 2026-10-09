@@ -20,8 +20,47 @@ public sealed class OperationException : InvalidOperationException
     public string Code { get; }
 }
 
+public sealed record SupplierStatementPage(SupplierAccountWorkspaceDto Workspace, bool HasMore);
+
+public sealed record SupplierHistoryCursor(
+    DateTimeOffset? OccurredAt = null, DateTimeOffset? CreatedAt = null, Guid? EntryId = null,
+    DateTimeOffset? PaymentAt = null, Guid? PaymentId = null,
+    DateTimeOffset? RefundAt = null, Guid? RefundId = null,
+    string? ProductName = null, Guid? ProductId = null);
+
 public interface IBackendOperationsService
 {
+    Task<SupplierAccountWorkspaceDto> GetSupplierHistoryPageAsync(Guid supplierId, int pageSize,
+        SupplierHistoryCursor cursor, CancellationToken cancellationToken = default)
+    {
+        if (cursor.PaymentAt.HasValue || cursor.PaymentId.HasValue || cursor.RefundAt.HasValue ||
+            cursor.RefundId.HasValue || cursor.ProductName is not null || cursor.ProductId.HasValue)
+        {
+            throw new NotSupportedException("This adapter does not support independent history cursors.");
+        }
+        return GetSupplierWorkspaceAsync(supplierId, pageSize, cursor.OccurredAt, cursor.CreatedAt, cursor.EntryId, cancellationToken);
+    }
+
+    async Task<SupplierStatementPage> GetSupplierStatementPageAsync(
+        Guid supplierId, int pageSize = 200,
+        DateTimeOffset? beforeOccurredAt = null, DateTimeOffset? beforeCreatedAt = null,
+        Guid? beforeEntryId = null, CancellationToken cancellationToken = default)
+    {
+        var size = Math.Clamp(pageSize, 1, 200);
+        var workspace = await GetSupplierWorkspaceAsync(supplierId, size,
+            beforeOccurredAt, beforeCreatedAt, beforeEntryId, cancellationToken);
+        var hasMore = false;
+        if (workspace.Statement.Count == size)
+        {
+            var oldest = workspace.Statement.OrderBy(x => x.OccurredAt)
+                .ThenBy(x => x.CreatedAt).ThenBy(x => x.EntryId).First();
+            var probe = await GetSupplierWorkspaceAsync(supplierId, 1,
+                oldest.OccurredAt, oldest.CreatedAt, oldest.EntryId, cancellationToken);
+            hasMore = probe.Statement.Count > 0;
+        }
+        return new(workspace, hasMore);
+    }
+
     Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(
         Guid supplierId,
         int pageSize = 200,
@@ -188,6 +227,18 @@ public sealed class BackendOperationsService : IBackendOperationsService
             beforeCreatedAt,
             beforeEntryId,
             cancellationToken);
+    }
+
+    public async Task<SupplierAccountWorkspaceDto> GetSupplierHistoryPageAsync(Guid supplierId, int pageSize,
+        SupplierHistoryCursor cursor, CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        await AuthorizeAsync(scope.ServiceProvider, actor, PermissionKeys.SupplierAccountView, cancellationToken);
+        return await scope.ServiceProvider.GetRequiredService<ISupplierAccountReadService>().GetWorkspaceAsync(
+            supplierId, Math.Clamp(pageSize, 1, 200), cursor.OccurredAt, cursor.CreatedAt, cursor.EntryId,
+            cancellationToken, cursor.PaymentAt, cursor.PaymentId, cursor.RefundAt, cursor.RefundId,
+            cursor.ProductName, cursor.ProductId);
     }
 
     public async Task CreateSupplierPaymentAsync(

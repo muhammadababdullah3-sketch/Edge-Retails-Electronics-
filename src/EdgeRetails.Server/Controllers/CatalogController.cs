@@ -24,6 +24,7 @@ public sealed class CatalogController : ControllerBase
     private readonly SetSupplierProductActiveHandler _setSupplierProductActiveHandler;
     private readonly ConfigureProductUnitsHandler _configureUnitsHandler;
     private readonly SetProductUnitBarcodeHandler _setBarcodeHandler;
+    private readonly SaveProductAggregateHandler _saveProductAggregateHandler;
 
     public CatalogController(
         IProductManagementReadService productReads,
@@ -39,7 +40,8 @@ public sealed class CatalogController : ControllerBase
         SetUnitActiveHandler setUnitActiveHandler,
         SetSupplierProductActiveHandler setSupplierProductActiveHandler,
         ConfigureProductUnitsHandler configureUnitsHandler,
-        SetProductUnitBarcodeHandler setBarcodeHandler)
+        SetProductUnitBarcodeHandler setBarcodeHandler,
+        SaveProductAggregateHandler saveProductAggregateHandler)
     {
         _productReads = productReads;
         _createProductHandler = createProductHandler;
@@ -55,6 +57,7 @@ public sealed class CatalogController : ControllerBase
         _setSupplierProductActiveHandler = setSupplierProductActiveHandler;
         _configureUnitsHandler = configureUnitsHandler;
         _setBarcodeHandler = setBarcodeHandler;
+        _saveProductAggregateHandler = saveProductAggregateHandler;
     }
 
     [HttpGet("products")]
@@ -137,6 +140,17 @@ public sealed class CatalogController : ControllerBase
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _createProductHandler.HandleAsync(sanitized, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("products/aggregate")]
+    public async Task<IActionResult> SaveProductAggregate(
+        [FromBody] SaveProductAggregateCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
+        var result = await _saveProductAggregateHandler.HandleAsync(sanitized, cancellationToken);
         return ToActionResult(result);
     }
 

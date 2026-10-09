@@ -46,17 +46,20 @@ public sealed class SaveCompanyHandler
     private readonly IApplicationPermissionAuthorizer _authorizer;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductCatalogSafetyReadService? _safety;
 
     public SaveCompanyHandler(
         ICatalogRepository catalog,
         IApplicationPermissionAuthorizer authorizer,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IProductCatalogSafetyReadService? safety = null)
     {
         _catalog = catalog;
         _authorizer = authorizer;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _safety = safety;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -121,6 +124,19 @@ public sealed class SaveCompanyHandler
                                 "Company code cannot be modified once products are assigned.");
                         }
 
+                        if (_safety is not null)
+                        {
+                            var affectedProducts = await _catalog.GetProductsAsync(true, ct);
+                            foreach (var product in affectedProducts.Where(x => x.CompanyId == company.Id))
+                            {
+                                if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                                {
+                                    return Result<Guid>.Failure(
+                                        "catalog.company_code_immutable",
+                                        "Company code cannot be modified after affected products have inventory or transaction history.");
+                                }
+                            }
+                        }
                         if (companies.Any(x => x.Id != company.Id && string.Equals(x.Code, normalizedCode, StringComparison.OrdinalIgnoreCase)))
                         {
                             return Result<Guid>.Failure(
@@ -243,17 +259,20 @@ public sealed class SaveCategoryHandler
     private readonly IApplicationPermissionAuthorizer _authorizer;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductCatalogSafetyReadService? _safety;
 
     public SaveCategoryHandler(
         ICatalogRepository catalog,
         IApplicationPermissionAuthorizer authorizer,
         ITransactionRunner transactions,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IProductCatalogSafetyReadService? safety = null)
     {
         _catalog = catalog;
         _authorizer = authorizer;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _safety = safety;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -318,6 +337,19 @@ public sealed class SaveCategoryHandler
                                 "Category identity symbol cannot be modified once products are assigned.");
                         }
 
+                        if (_safety is not null)
+                        {
+                            var affectedProducts = await _catalog.GetProductsAsync(true, ct);
+                            foreach (var product in affectedProducts.Where(x => x.CategoryId == category.Id))
+                            {
+                                if (await _safety.HasStockOrHistoryAsync(product.Id, ct))
+                                {
+                                    return Result<Guid>.Failure(
+                                        "catalog.category_symbol_immutable",
+                                        "Category identity symbol cannot be modified after affected products have inventory or transaction history.");
+                                }
+                            }
+                        }
                         if (categories.Any(x => x.Id != category.Id && string.Equals(x.IdentitySymbol, normalizedSymbol, StringComparison.OrdinalIgnoreCase)))
                         {
                             return Result<Guid>.Failure(

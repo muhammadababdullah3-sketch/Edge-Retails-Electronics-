@@ -9,11 +9,20 @@ namespace EdgeRetails.Desktop.Services;
 
 public interface IBackendBusinessOperationsService
 {
+    Task SetCustomerSuspensionAsync(CustomerDirectoryRecord customer, bool suspended,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("Customer suspension authority is not attached.");
     Task<IReadOnlyList<string>> GetExpenseCategoriesAsync(
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(
+        int pageSize,
+        DateOnly? beforeExpenseDate = null,
+        Guid? beforeExpenseId = null,
+        CancellationToken cancellationToken = default) =>
+        GetExpensesAsync(cancellationToken);
 
     Task<ExpenseRecord> PostExpenseAsync(
         string category,
@@ -24,10 +33,25 @@ public interface IBackendBusinessOperationsService
         string note,
         CancellationToken cancellationToken = default);
 
+    Task VoidExpenseAsync(
+        Guid expenseId,
+        string reason,
+        Guid? clientOperationId = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Void expense authority is not supported on this adapter.");
+
     Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(
         string? search,
         int pageSize = 100,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(
+        string? search,
+        int pageSize,
+        string? beforeName,
+        Guid? beforeCustomerId,
+        CancellationToken cancellationToken = default) =>
+        GetCustomersAsync(search, pageSize, cancellationToken);
 
     Task SaveCustomerAsync(
         CustomerDirectoryRecord? existing,
@@ -42,6 +66,14 @@ public interface IBackendBusinessOperationsService
         int pageSize = 100,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(
+        string? search,
+        int pageSize,
+        string? beforeName,
+        Guid? beforeSupplierId,
+        CancellationToken cancellationToken = default) =>
+        GetSuppliersAsync(search, pageSize, cancellationToken);
+
     Task SaveSupplierAsync(
         SupplierDirectoryRecord? existing,
         string name,
@@ -49,7 +81,19 @@ public interface IBackendBusinessOperationsService
         string city,
         string address,
         string notes,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default) =>
+        SaveSupplierAsync(existing, name, phone, city, address, notes, null, cancellationToken);
+
+    Task SaveSupplierAsync(
+        SupplierDirectoryRecord? existing,
+        string name,
+        string phone,
+        string city,
+        string address,
+        string notes,
+        string? explicitDealerPrefix,
+        CancellationToken cancellationToken = default) =>
+        SaveSupplierAsync(existing, name, phone, city, address, notes, cancellationToken);
 
     Task<ReportSnapshot> GetReportAsync(
         ReportPeriodMode mode,
@@ -81,12 +125,24 @@ public sealed class BackendBusinessOperationsService
         return rows.Select(x => x.Name).ToArray();
     }
 
+    public Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(
+        CancellationToken cancellationToken = default) =>
+        GetExpensesAsync(100, null, null, cancellationToken);
+
     public async Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(
+        int pageSize,
+        DateOnly? beforeExpenseDate = null,
+        Guid? beforeExpenseId = null,
         CancellationToken cancellationToken = default)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var reads = scope.ServiceProvider.GetRequiredService<IExpenseReadService>();
-        var rows = await reads.GetExpensesAsync(cancellationToken);
+        var rows = await reads.GetExpensesPageAsync(
+            new GetExpensesPageQuery(
+                PageSize: Math.Clamp(pageSize, 1, 200),
+                BeforeExpenseDate: beforeExpenseDate,
+                BeforeExpenseId: beforeExpenseId),
+            cancellationToken);
 
         return rows.Select(x => new ExpenseRecord
         {
@@ -148,10 +204,16 @@ public sealed class BackendBusinessOperationsService
                 result.Error?.Message ?? "Expense could not be posted.");
         }
 
-        var all = await reads.GetExpensesAsync(cancellationToken);
-        var row = all.SingleOrDefault(x => x.ExpenseId == result.Value.ExpenseId)
-            ?? throw new InvalidOperationException(
-                "Expense was posted but could not be read back.");
+        var firstPage = await reads.GetExpensesPageAsync(new GetExpensesPageQuery(PageSize: 50), cancellationToken);
+        var row = firstPage.SingleOrDefault(x => x.ExpenseId == result.Value.ExpenseId);
+        if (row is null)
+        {
+            var expenseDate = DateOnly.FromDateTime(date);
+            var targeted = await reads.GetExpensesPageAsync(
+                new GetExpensesPageQuery(FromDate: expenseDate, ToDate: expenseDate, PageSize: 50), cancellationToken);
+            row = targeted.SingleOrDefault(x => x.ExpenseId == result.Value.ExpenseId)
+                ?? throw new InvalidOperationException("Expense was posted but could not be read back.");
+        }
 
         return new ExpenseRecord
         {
@@ -166,14 +228,50 @@ public sealed class BackendBusinessOperationsService
             Note = row.Reference ?? string.Empty
         };
     }
-    public async Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(
+    public async Task VoidExpenseAsync(
+        Guid expenseId,
+        string reason,
+        Guid? clientOperationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<VoidExpenseHandler>();
+        var command = new VoidExpenseCommand(
+            ExpenseId: expenseId,
+            ActorId: actor,
+            ClientOperationId: clientOperationId ?? Guid.NewGuid(),
+            Reason: reason?.Trim() ?? string.Empty);
+
+        var result = await handler.HandleAsync(command, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.Error?.Message ?? "Failed to void expense.");
+        }
+    }
+
+    public Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(
         string? search = null,
         int pageSize = 100,
+        CancellationToken cancellationToken = default) =>
+        GetCustomersAsync(search, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(
+        string? search,
+        int pageSize,
+        string? beforeName,
+        Guid? beforeCustomerId,
         CancellationToken cancellationToken = default)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var reads = scope.ServiceProvider.GetRequiredService<IPartyDirectoryReadService>();
-        var rows = await reads.GetCustomersAsync(search, Math.Clamp(pageSize, 1, 200), cancellationToken);
+        var rows = await reads.GetCustomersAsync(
+            search,
+            Math.Clamp(pageSize, 1, 200),
+            cancellationToken,
+            beforeName,
+            beforeCustomerId,
+            includeInactive: true);
 
         return rows.Select(x => new CustomerDirectoryRecord
         {
@@ -185,8 +283,23 @@ public sealed class BackendBusinessOperationsService
             Notes = x.Notes ?? string.Empty,
             LocalSales = x.NetSales,
             LastSale = x.LastSaleAt?.LocalDateTime,
-            ActiveThaka = x.ActiveThakaProject ?? "—"
+            ActiveThaka = x.ActiveThakaProject ?? "—",
+            ActiveThakaCount = x.ActiveThakaCount,
+            CurrentThakaBalance = x.CurrentThakaBalance, IsActive = x.IsActive
         }).ToArray();
+    }
+
+    public async Task SetCustomerSuspensionAsync(CustomerDirectoryRecord customer, bool suspended,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<SetCustomerSuspensionHandler>();
+        var id = customer.BackendId ?? throw new InvalidOperationException("Customer is not attached to backend authority.");
+        var result = await handler.HandleAsync(new(Guid.CreateVersion7(), id, suspended, RequireActor()), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(result.Error!.Code, result.Error.Message);
+        }
     }
 
     public async Task SaveCustomerAsync(
@@ -206,10 +319,11 @@ public sealed class BackendBusinessOperationsService
                 Required(name, "Customer name"),
                 Normalize(phone),
                 Normalize(address),
-                true,
+                existing?.IsActive ?? true,
                 actor,
                 Guid.CreateVersion7(),
-                Normalize(notes)),
+                Normalize(notes),
+                PreserveActivityStatus: true),
             cancellationToken);
 
         if (!result.IsSuccess)
@@ -219,14 +333,27 @@ public sealed class BackendBusinessOperationsService
         }
     }
 
-    public async Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(
+    public Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(
         string? search = null,
         int pageSize = 100,
+        CancellationToken cancellationToken = default) =>
+        GetSuppliersAsync(search, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(
+        string? search,
+        int pageSize,
+        string? beforeName,
+        Guid? beforeSupplierId,
         CancellationToken cancellationToken = default)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var reads = scope.ServiceProvider.GetRequiredService<IPartyDirectoryReadService>();
-        var rows = await reads.GetSuppliersAsync(search, Math.Clamp(pageSize, 1, 200), cancellationToken);
+        var rows = await reads.GetSuppliersAsync(
+            search,
+            Math.Clamp(pageSize, 1, 200),
+            cancellationToken,
+            beforeName,
+            beforeSupplierId);
 
         return rows.Select(x => new SupplierDirectoryRecord
         {
@@ -249,6 +376,7 @@ public sealed class BackendBusinessOperationsService
         string city,
         string address,
         string notes,
+        string? explicitDealerPrefix = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -264,7 +392,8 @@ public sealed class BackendBusinessOperationsService
                 true,
                 actor,
                 Guid.CreateVersion7(),
-                Normalize(notes)),
+                Normalize(notes),
+                Normalize(explicitDealerPrefix)),
             cancellationToken);
 
         if (!result.IsSuccess)

@@ -9,6 +9,54 @@ namespace EdgeRetails.Desktop.PerformanceTests;
 
 public sealed class Phase3ThakaDurableIntentTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SuspensionRetryAfterRestartReusesOperationAndClearsIntent(bool customer)
+    {
+        var directory = Directory.CreateTempSubdirectory("edge-retails-suspension-intent-");
+        var storePath = Path.Combine(directory.FullName, "operations.json");
+        var id = Guid.CreateVersion7();
+        Guid? first = null;
+        Guid? second = null;
+        var expected = customer ? $"/api/customers/{id}/suspension" : $"/api/thaka/projects/{id}/suspension";
+        async Task Send(DesktopApiClient api)
+        {
+            var store = new FileClientOperationIntentStore(storePath);
+            if (customer)
+            {
+                await new RemoteBackendBusinessOperationsService(api, store).SetCustomerSuspensionAsync(
+                    new CustomerDirectoryRecord { Id = "customer", BackendId = id }, true);
+            }
+            else
+            {
+                await new RemoteBackendThakaService(api, store).SetSuspensionAsync(Project(id), true, "Account suspended by owner");
+            }
+        }
+        using (var api = CreateClient(async request =>
+        {
+            Assert.Equal(expected, request.RequestUri!.AbsolutePath);
+            first = await ReadOperationIdAsync(request);
+            throw new HttpRequestException("Response lost after commit");
+        }))
+        {
+            await Assert.ThrowsAsync<DesktopApiException>(() => Send(api));
+        }
+        Assert.NotNull(first);
+        Assert.Contains(first.Value.ToString("D"), File.ReadAllText(storePath), StringComparison.OrdinalIgnoreCase);
+        using (var api = CreateClient(async request =>
+        {
+            Assert.Equal(expected, request.RequestUri!.AbsolutePath);
+            second = await ReadOperationIdAsync(request);
+            return JsonResponse(JsonSerializer.Serialize(id));
+        }))
+        {
+            await Send(api);
+        }
+        Assert.Equal(first, second);
+        Assert.DoesNotContain(first.Value.ToString("D"), File.ReadAllText(storePath), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task PaymentRetryAfterDesktopServiceRestartReusesOperationIdAndClearsIntent()
     {

@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     MinWidth="360"
     MaxWidth="440"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
     <Border Margin="24"
             Padding="24"
             Background="{DynamicResource Brush.Surface.Raised}"

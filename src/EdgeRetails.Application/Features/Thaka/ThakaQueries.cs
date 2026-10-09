@@ -32,7 +32,7 @@ public sealed record ThakaProjectSummaryDto(
     decimal Paid,
     decimal SettlementDiscount,
     decimal Balance,
-    string? Note); public sealed record ThakaMaterialLedgerRowDto(
+    string? Note, bool CustomerIsActive = true); public sealed record ThakaMaterialLedgerRowDto(
     Guid MaterialIssueId,
     string ChallanNumber,
     DateTimeOffset IssuedAt,
@@ -67,7 +67,9 @@ public sealed record ThakaCatalogItemDto(
     string UnitSymbol,
     decimal SellableStock,
     decimal UnitCharge,
-    bool IsSerialized); public interface IThakaReadService
+    bool IsSerialized,
+    decimal FactorToBaseUnit = 1m,
+    EdgeRetails.Domain.Catalog.TrackingMode TrackingMode = EdgeRetails.Domain.Catalog.TrackingMode.Quantity); public interface IThakaReadService
 {
     Task<IReadOnlyList<ThakaProjectSummaryDto>> GetProjectsAsync(
         CancellationToken cancellationToken);

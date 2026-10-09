@@ -68,7 +68,7 @@ public sealed class PosCartItemViewModel : ViewModelBase
     }
     public string PriceOverrideButtonLabel => IsPriceOverridden ? "Edit override" : "Override price";
     public string PriceOverrideSummary => IsPriceOverridden
-        ? $"Price override · list Rs. {ListUnitPrice:N0} → Rs. {UnitPrice:N0} · {_priceOverrideReason}"
+        ? $"Price override · list Rs. {ListUnitPrice:N2} → Rs. {UnitPrice:N2} · {_priceOverrideReason}"
         : string.Empty;
 
     public string PriceOverrideUnitPriceText
@@ -133,10 +133,10 @@ public sealed class PosCartItemViewModel : ViewModelBase
 
     public string QuantityDisplay => _quantity.ToString("0.##", CultureInfo.InvariantCulture);
     public string UnitPriceCalculationDisplay => HasExactUnit
-        ? $"{ExactIdentityDisplay} · Rs. {UnitPrice:N0}"
-        : $"Rs. {UnitPrice:N0} × {QuantityDisplay}";
+        ? $"{ExactIdentityDisplay} · Rs. {UnitPrice:N2}"
+        : $"Rs. {UnitPrice:N2} × {QuantityDisplay}";
     public decimal LineTotal => Math.Round(UnitPrice * _quantity, 2);
-    public string LineTotalDisplay => $"Rs. {LineTotal:N0}";
+    public string LineTotalDisplay => $"Rs. {LineTotal:N2}";
     public bool CanIncrement => !HasExactUnit && Quantity < Product.Stock;
     public ICommand IncrementCommand { get; }
     public ICommand DecrementCommand { get; }

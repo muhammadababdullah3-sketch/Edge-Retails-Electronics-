@@ -8,7 +8,7 @@
     xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
     mc:Ignorable="d"
     d:DataContext="{d:DesignInstance Type=viewModels:DashboardViewModel, IsDesignTimeCreatable=True}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <!-- Icon Geometries -->
@@ -115,7 +115,7 @@
                                 Padding="14,10.5"
                                 SnapsToDevicePixels="True"
                                 BorderThickness="0,0,0,1"
-                                BorderBrush="{DynamicResource Brush.Border.Soft}">
+                                BorderBrush="{DynamicResource Brush.Border.Soft}" CornerRadius="0">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -470,7 +470,7 @@
                         <!-- Footer: "View All Projects" -->
                         <Border Grid.Row="2"
                                 BorderThickness="0,1,0,0"
-                                BorderBrush="{DynamicResource Brush.Border.Soft}">
+                                BorderBrush="{DynamicResource Brush.Border.Soft}" CornerRadius="0">
                             <Button Style="{StaticResource Button.CardFooter.Link}"
                                     Command="{Binding ViewAllProjectsCommand}">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -530,7 +530,7 @@
                                 <DataTemplate>
                                     <Border BorderThickness="0,0,0,1"
                                             BorderBrush="{DynamicResource Brush.Border.Soft}"
-                                            Padding="14,9">
+                                            Padding="14,9" CornerRadius="0">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
@@ -630,7 +630,7 @@
                                 <DataTemplate>
                                     <Border BorderThickness="0,0,0,1"
                                             BorderBrush="{DynamicResource Brush.Border.Soft}"
-                                            Padding="14,9">
+                                            Padding="14,9" CornerRadius="0">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />

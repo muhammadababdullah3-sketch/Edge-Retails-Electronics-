@@ -18,7 +18,8 @@ public sealed record ProductUnitInput(
 public sealed record ConfigureProductUnitsCommand(
     Guid ProductId,
     IReadOnlyList<ProductUnitInput> Units,
-    Guid ActorId = default);
+    Guid ActorId = default,
+    long? ExpectedVersion = null);
 
 public sealed class ConfigureProductUnitsHandler
 {
@@ -26,17 +27,23 @@ public sealed class ConfigureProductUnitsHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IApplicationPermissionAuthorizer? _authorizer;
+    private readonly IProductCatalogSafetyReadService? _safety;
+    private readonly IResourceLock? _resourceLock;
 
     public ConfigureProductUnitsHandler(
         ICatalogRepository catalog,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IApplicationPermissionAuthorizer? authorizer = null)
+        IApplicationPermissionAuthorizer? authorizer = null,
+        IProductCatalogSafetyReadService? safety = null,
+        IResourceLock? resourceLock = null)
     {
         _catalog = catalog;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _authorizer = authorizer;
+        _safety = safety;
+        _resourceLock = resourceLock;
     }
 
     public Task<Result> HandleAsync(
@@ -57,10 +64,23 @@ public sealed class ConfigureProductUnitsHandler
                 }
             }
 
-            var product = await _catalog.GetProductAsync(command.ProductId, ct);
+            if (_resourceLock is not null)
+            {
+                await _resourceLock.AcquireAsync("product", command.ProductId, ct);
+            }
+
+            var product = await _catalog.GetProductForUpdateAsync(command.ProductId, ct)
+                          ?? await _catalog.GetProductAsync(command.ProductId, ct);
             if (product is null)
             {
                 return Result.Failure("catalog.product_not_found", "Product was not found.");
+            }
+
+            if (command.ExpectedVersion.HasValue && product.Version != command.ExpectedVersion.Value)
+            {
+                return Result.Failure(
+                    "catalog.concurrency_conflict",
+                    "Product has been modified by another operation.");
             }
 
             if (command.Units.Count == 0)
@@ -116,6 +136,14 @@ public sealed class ConfigureProductUnitsHandler
                         "Conversion factor must be greater than zero.");
                 }
 
+                if (product.TrackingMode == TrackingMode.Container &&
+                    !QuantityMath.IsWhole(input.FactorToBaseUnit))
+                {
+                    return Result.Failure(
+                        "catalog.container_conversion_whole",
+                        "Container conversion factor must be an exact whole integer count.");
+                }
+
                 if (product.TrackingMode == TrackingMode.Serialized &&
                     !QuantityMath.IsWhole(input.FactorToBaseUnit))
                 {
@@ -145,6 +173,16 @@ public sealed class ConfigureProductUnitsHandler
                     continue;
                 }
 
+                if (QuantityMath.RoundFactor(incoming.FactorToBaseUnit) != QuantityMath.RoundFactor(current.FactorToBaseUnit))
+                {
+                    if (_safety is not null && await _safety.HasUnitUsageAsync(current.Id, ct))
+                    {
+                        return Result.Failure(
+                            "catalog.product_unit_factor_locked",
+                            $"Conversion factor for unit '{current.UnitId}' cannot be modified after commercial or stock history exists.");
+                    }
+                }
+
                 Apply(current, incoming);
             }
 
@@ -164,6 +202,7 @@ public sealed class ConfigureProductUnitsHandler
                 _catalog.AddProductUnit(productUnit);
             }
 
+            product.Version++;
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);

@@ -53,7 +53,8 @@ public sealed class PhysicalReceivingForensicTests
                 Doubles.Authorization,
                 Doubles.UnitOfWork,
                 NullSequenceHighWaterService.Instance,
-                Doubles.OutcomeLedger);
+                Doubles.OutcomeLedger,
+                Doubles.PhysicalUnits);
         }
 
         public async Task<(Purchase purchase, PurchaseItem item, Product product, SupplierProduct supplierProduct)> SeedSetupAsync(
@@ -132,6 +133,8 @@ public sealed class PhysicalReceivingForensicTests
                 EnteredUnitCost = 300m,
                 BaseQuantity = 10m,
                 EffectiveBaseUnitCost = 300m,
+                FactorToBaseSnapshot = (10m) / (10m),
+                EffectiveLineCost = (10m) * (300m),
                 BaseLineTotal = 3000m
             };
             Doubles.Purchasing.AddPurchaseItem(item);
@@ -170,6 +173,7 @@ public sealed class PhysicalReceivingForensicTests
         services.AddSingleton<IApplicationPermissionAuthorizer>(fakes.Authorization);
         services.AddSingleton<IUnitOfWork>(fakes.UnitOfWork);
         services.AddSingleton<ISequenceHighWaterService>(NullSequenceHighWaterService.Instance);
+        services.AddSingleton<IPhysicalUnitCreationAuthority>(fakes.PhysicalUnits);
 
         services.AddScoped<ReceiveProductIntakeHandler>();
         return services.BuildServiceProvider();
@@ -439,6 +443,8 @@ public sealed class PhysicalReceivingForensicTests
             EnteredUnitCost = 200m,
             BaseQuantity = 5m,
             EffectiveBaseUnitCost = 200m,
+            FactorToBaseSnapshot = (5m) / (5m),
+            EffectiveLineCost = (5m) * (200m),
             BaseLineTotal = 1000m
         };
         sharedFakes.Purchasing.AddPurchaseItem(purchaseItem);

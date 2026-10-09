@@ -17,50 +17,64 @@ namespace EdgeRetails.Desktop.Services;
 public sealed class RemotePurchasingInventoryService(
     DesktopApiClient apiClient,
     Func<Guid?> actorUserId,
-    IClientOperationIntentStore? operationIntents = null) : IBackendPurchasingInventoryService, IBackendLabelService
+    IClientOperationIntentStore? operationIntents = null) : IBackendPurchasingInventoryService, IBackendLabelService, IBackendPurchaseLookupService
 {
     private readonly IClientOperationIntentStore _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
     private readonly RemotePhysicalStickerPrintService _stickerPrinter = new(apiClient);
 
-    public async Task<IReadOnlyList<BackendSupplierOption>> GetSuppliersAsync(
-        CancellationToken cancellationToken = default)
+    public bool ReceivesStockImmediately => false;
+
+    public async Task<BackendSupplierPage> GetSupplierPageAsync(string? search, int pageSize = 50,
+        string? beforeName = null, Guid? beforeSupplierId = null, CancellationToken cancellationToken = default)
     {
-        var rows = await apiClient.GetAsync<SupplierDirectoryDto[]>(
-            "/api/suppliers?pageSize=200", cancellationToken);
-        return [.. rows
-            .Select(x => new BackendSupplierOption(x.SupplierId, x.Name))
-            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)];
+        if (string.IsNullOrWhiteSpace(beforeName) != !beforeSupplierId.HasValue)
+        {
+            throw new ArgumentException("Supplier cursor requires both name and ID.");
+        }
+        var take = Math.Clamp(pageSize, 1, 200);
+        var query = $"/api/suppliers?pageSize={take + 1}";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query += $"&search={Uri.EscapeDataString(search.Trim())}";
+        }
+        if (beforeSupplierId is Guid cursor)
+        {
+            query += $"&beforeName={Uri.EscapeDataString(beforeName!)}&beforeSupplierId={cursor:D}";
+        }
+        var rows = await apiClient.GetAsync<SupplierDirectoryDto[]>(query, cancellationToken);
+        var visible = rows.Take(take).ToArray();
+        return new BackendSupplierPage(visible.Select(x => new BackendSupplierOption(x.SupplierId, x.Name, x.City, x.Phone)).ToArray(),
+            rows.Length > take ? visible[^1].Name : null, rows.Length > take ? visible[^1].SupplierId : null);
     }
 
-    public async Task<IReadOnlyList<BackendPurchaseCatalogItem>> GetCatalogAsync(
-        CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<BackendSupplierOption>> GetSuppliersAsync(CancellationToken cancellationToken = default)
+        => (await GetSupplierPageAsync(null, 200, cancellationToken: cancellationToken)).Items;
+
+    public Task<PurchaseCatalogPageDto> GetCatalogPageAsync(PurchaseCatalogPageQuery request, CancellationToken cancellationToken = default)
     {
-        var products = await apiClient.GetAsync<ProductManagementRowDto[]>(
-            "/api/catalog/products?isActive=true&pageSize=500", cancellationToken);
-        var stock = await apiClient.GetAsync<InventoryStockRowDto[]>(
-            "/api/inventory/stock?pageSize=500", cancellationToken);
-        var stockByProduct = stock.ToDictionary(x => x.ProductId);
-        return [.. products.SelectMany(product => product.ProductUnits
-                .Where(unit => unit.IsActive && unit.CanPurchase)
-                .Select(unit =>
-                {
-                    stockByProduct.TryGetValue(product.ProductId, out var balance);
-                    return new BackendPurchaseCatalogItem(
-                        product.ProductId,
-                        unit.ProductUnitId,
-                        product.Name,
-                        product.Sku,
-                        product.Category,
-                        unit.UnitSymbol,
-                        balance?.SellableQty ?? 0m,
-                        product.ReferencePurchaseCost ?? balance?.MovingAverageCost ?? 0m,
-                        product.DefaultSalePrice,
-                        unit.FactorToBaseUnit,
-                        product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.IndividualPiece,
-                        product.SerialTrackingEnabled,
-                        product.ImeiTrackingEnabled);
-                }))];
+        var query = $"/api/purchasing/catalog?pageSize={Math.Clamp(request.PageSize, 1, 200)}&includeInactive={request.IncludeInactive.ToString().ToLowerInvariant()}";
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            query += $"&search={Uri.EscapeDataString(request.Search.Trim())}";
+        }
+        if (request.AfterProductId is Guid cursor)
+        {
+            query += $"&afterName={Uri.EscapeDataString(request.AfterName!)}&afterProductId={cursor:D}";
+        }
+        if (request.ProductId is Guid productId)
+        {
+            query += $"&productId={productId:D}";
+        }
+        return apiClient.GetAsync<PurchaseCatalogPageDto>(query, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<BackendPurchaseCatalogItem>> GetCatalogAsync(CancellationToken cancellationToken = default)
+        => (await GetCatalogPageAsync(new PurchaseCatalogPageQuery(PageSize: 200), cancellationToken)).Items.Select(MapCatalog).ToArray();
+
+    internal static BackendPurchaseCatalogItem MapCatalog(PurchaseCatalogProductDto x) => new(
+        x.ProductId, x.ProductUnitId, x.Name, x.Sku ?? string.Empty, x.Category, x.UnitSymbol,
+        x.SellableStock, x.ReferenceCost, x.DefaultSalePrice, x.FactorToBaseUnit, x.IsSerialized,
+        x.SerialTrackingEnabled, x.ImeiTrackingEnabled, x.TrackingMode);
 
     public async Task<IReadOnlyList<PurchaseRecord>> GetPurchasesAsync(
         string? search = null,
@@ -134,19 +148,15 @@ public sealed class RemotePurchasingInventoryService(
         {
             return null;
         }
-        var inventory = await apiClient.GetAsync<InventoryStockRowDto[]>(
-            "/api/inventory/stock?pageSize=500", cancellationToken);
-        var products = await apiClient.GetAsync<ProductManagementRowDto[]>(
-            "/api/catalog/products?isActive=false&pageSize=500", cancellationToken);
-        var catalog = products.SelectMany(p => p.ProductUnits.Select(u => (p, u)))
-            .ToDictionary(x => x.u.ProductUnitId, x => new PurchaseCatalogProductDto(
-                x.p.ProductId, x.u.ProductUnitId, x.p.Name, x.p.Sku, x.p.Category,
-                x.u.UnitSymbol, 0m, x.p.ReferencePurchaseCost ?? 0m,
-                x.p.DefaultSalePrice, x.u.FactorToBaseUnit,
-                x.p.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.IndividualPiece,
-                x.p.SerialTrackingEnabled, x.p.ImeiTrackingEnabled));
-        return BackendPurchasingInventoryService.ProjectPurchase(
-            document, inventory.ToDictionary(x => x.ProductId), catalog);
+        // Historical quantities, return eligibility and tracking are purchase snapshots.
+        // A purchasing read must not depend on InventoryManage or current catalog state.
+        var record = BackendPurchasingInventoryService.ProjectPurchase(document,
+            new Dictionary<Guid, InventoryStockRowDto>(), new Dictionary<Guid, PurchaseCatalogProductDto>());
+        foreach (var item in record.Items)
+        {
+            item.Product.Category = "Not provided in purchase document";
+        }
+        return record;
     }
 
     public async Task<PurchaseRecord> CreatePurchaseAsync(
@@ -188,8 +198,18 @@ public sealed class RemotePurchasingInventoryService(
             result = await RecoverPurchaseAsync(command, cancellationToken);
         }
 
-        return await GetPurchaseAsync(result.PurchaseId, cancellationToken)
-            ?? throw Error("purchasing.readback_missing", "Purchase was committed but its document could not be read back.");
+        try
+        {
+            var record = await GetPurchaseAsync(result.PurchaseId, cancellationToken)
+                ?? throw Error("purchasing.readback_missing", "Purchase was committed but its document could not be read back.");
+            record.StockReceivedImmediately = false;
+            return record;
+        }
+        catch (Exception ex)
+        {
+            // The authoritative POST result must survive even cancellation of display readback.
+            throw new PurchaseCommittedReadbackException(result, ex);
+        }
     }
 
     public async Task<decimal> ReturnPurchaseAsync(
@@ -210,7 +230,8 @@ public sealed class RemotePurchasingInventoryService(
                 var selection = selectionsByPurchaseItem[id];
                 if (item.Product.IsSerialized)
                 {
-                    var baseQuantity = selection.EnteredQuantity * item.Product.FactorToBaseUnit;
+                    var baseQuantity = item.Product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                        ? selection.EnteredQuantity : selection.EnteredQuantity * item.Product.FactorToBaseUnit;
                     if (baseQuantity != decimal.Truncate(baseQuantity) ||
                         selection.InventoryUnitIds.Count != decimal.ToInt32(baseQuantity))
                     {
@@ -375,7 +396,8 @@ public sealed class RemotePurchasingInventoryService(
                 isSerialized: row.IsSerialized,
                 serialTrackingEnabled: unit?.SerialTrackingEnabled ?? false,
                 imeiTrackingEnabled: unit?.ImeiTrackingEnabled ?? false,
-                factorToBaseUnit: unit?.FactorToBaseUnit ?? 1m);
+                factorToBaseUnit: unit?.FactorToBaseUnit ?? 1m,
+                trackingMode: row.TrackingMode);
         }).ToArray();
         var movementRecords = movements.Select(row => new InventoryMovementRecord
         {

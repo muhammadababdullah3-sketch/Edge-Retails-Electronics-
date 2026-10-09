@@ -1013,6 +1013,10 @@ public sealed class InMemoryPurchasingRepository : IPurchasingRepository
         return Task.FromResult(v);
     }
 
+    public Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsForDiscoveryAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        GetPurchaseItemsAsync(purchaseId, cancellationToken);
+    public Task<Purchase?> GetPurchaseAsync(Guid purchaseId, CancellationToken cancellationToken) =>
+        Task.FromResult(_purchasesByOpId.Values.FirstOrDefault(x => x.Id == purchaseId));
     public Task<Purchase?> GetPurchaseForUpdateAsync(Guid purchaseId, CancellationToken cancellationToken) => Task.FromResult<Purchase?>(null);
     public Task<Purchase?> GetPurchaseBySupplierInvoiceAsync(Guid supplierId, string normalizedSupplierInvoiceNumber, CancellationToken cancellationToken) => Task.FromResult<Purchase?>(null);
     public Task<IReadOnlyList<PurchaseItem>> GetPurchaseItemsAsync(Guid purchaseId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<PurchaseItem>>([]);

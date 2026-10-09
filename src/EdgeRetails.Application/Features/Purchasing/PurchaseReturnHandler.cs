@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
@@ -22,7 +23,10 @@ public sealed record CreatePurchaseReturnCommand(
     PurchaseReturnSettlementMode SettlementMode,
     Guid CreatedBy,
     Guid ClientOperationId,
-    IReadOnlyList<PurchaseReturnLineInput> Lines);
+    IReadOnlyList<PurchaseReturnLineInput> Lines,
+    SupplierSettlementMethod? ImmediateRefundMethod = null,
+    decimal? ImmediateRefundAmount = null,
+    string? RefundExternalReference = null);
 
 public sealed record CreatePurchaseReturnResult(
     Guid PurchaseReturnId,
@@ -37,6 +41,7 @@ public sealed class CreatePurchaseReturnHandler
     private readonly IInventoryRepository _inventory;
     private readonly IInventoryCostAllocator _costs;
     private readonly ISupplierAccountRepository _supplierAccounts;
+    private readonly ICashMovementService _cashMovements;
     private readonly IOperationLock _operationLock;
     private readonly IResourceLock _resourceLock;
     private readonly IBusinessAuditWriter _audit;
@@ -45,12 +50,14 @@ public sealed class CreatePurchaseReturnHandler
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly CreateSupplierRefundHandler? _refunds;
 
     public CreatePurchaseReturnHandler(
         IPurchasingRepository purchases,
         IInventoryRepository inventory,
         IInventoryCostAllocator costs,
         ISupplierAccountRepository supplierAccounts,
+        ICashMovementService cashMovements,
         IOperationLock operationLock,
         IResourceLock resourceLock,
         IBusinessAuditWriter audit,
@@ -59,12 +66,15 @@ public sealed class CreatePurchaseReturnHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        ICashRepository? cash = null,
+        CreateSupplierRefundHandler? refunds = null)
     {
         _purchases = purchases;
         _inventory = inventory;
         _costs = costs;
         _supplierAccounts = supplierAccounts;
+        _cashMovements = cashMovements;
         _operationLock = operationLock;
         _resourceLock = resourceLock;
         _audit = audit;
@@ -74,9 +84,12 @@ public sealed class CreatePurchaseReturnHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _cash = cash;
+        _refunds = refunds;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly ICashRepository? _cash;
 
     public async Task<Result<CreatePurchaseReturnResult>> HandleAsync(
         CreatePurchaseReturnCommand command,
@@ -97,6 +110,30 @@ public sealed class CreatePurchaseReturnHandler
                 "purchasing.return_duplicate_item",
                 "A purchase item may appear only once in a return.");
         }
+
+        var refundMethod = command.SettlementMode == PurchaseReturnSettlementMode.CashDrawer
+            ? SupplierSettlementMethod.CashDrawer : command.ImmediateRefundMethod;
+        if (!Enum.IsDefined(command.SettlementMode) ||
+            (command.ImmediateRefundMethod is { } explicitMethod && !Enum.IsDefined(explicitMethod)) ||
+            (command.SettlementMode == PurchaseReturnSettlementMode.CashDrawer &&
+                command.ImmediateRefundMethod is { } drawerMethod && drawerMethod != SupplierSettlementMethod.CashDrawer) ||
+            (command.ImmediateRefundAmount is { } refundAmount && (refundMethod is null || Money(refundAmount) <= 0m)))
+        {
+            return Result<CreatePurchaseReturnResult>.Failure(
+                "purchasing.return_refund_invalid", "Immediate refund requires a valid, consistent method and positive monetary amount.");
+        }
+
+        var fingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            command.PurchaseId, command.CreatedBy, Reason = command.Reason.Trim(), Note = command.Note?.Trim(),
+            command.SettlementMode, RefundMethod = refundMethod, command.ImmediateRefundAmount,
+            ExternalReference = command.RefundExternalReference?.Trim(),
+            Lines = command.Lines.OrderBy(x => x.PurchaseItemId).Select(x => new
+            {
+                x.PurchaseItemId, x.EnteredQuantity, x.SupplierUnitReturnValue,
+                UnitIds = x.InventoryUnitIds.OrderBy(id => id).ToArray()
+            }).ToArray()
+        }));
 
         var result = await _transactions.ExecuteAsync(async ct =>
         {
@@ -126,18 +163,50 @@ public sealed class CreatePurchaseReturnHandler
 
                 if (_outcomeLedger is not null)
                 {
+                    var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                    if (!string.IsNullOrEmpty(outcome?.PayloadFingerprint) && outcome.PayloadFingerprint != fingerprint)
+                    {
+                        return Result<CreatePurchaseReturnResult>.Failure(
+                            "idempotency.payload_mismatch", "The return operation was previously posted with different parameters.");
+                    }
+                    if (refundMethod is not null && string.IsNullOrEmpty(outcome?.PayloadFingerprint))
+                    {
+                        return Result<CreatePurchaseReturnResult>.Failure(
+                            "idempotency.legacy_replay_requires_review", "The historical return lacks a proven immediate-refund payload. Review is required.");
+                    }
                     await _outcomeLedger.RecordSuccessAsync(
                         command.ClientOperationId,
                         "PurchaseReturn",
                         existing.Id,
                         existing.ReturnNumber,
                         actorId: command.CreatedBy,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
                 }
 
                 return Result<CreatePurchaseReturnResult>.Success(new(
                     existing.Id, existing.ReturnNumber, existing.SupplierReturnValue,
                     existing.InventoryCostRemoved, true));
+            }
+
+            if (refundMethod is not null)
+            {
+                if (_refunds is null || _outcomeLedger is null)
+                {
+                    return Result<CreatePurchaseReturnResult>.Failure(
+                        "purchasing.refund_authority_unavailable", "Canonical refund and durable return replay authority are required.");
+                }
+                var refundAuthorization = await _authorization.AuthorizeAsync(command.CreatedBy, PermissionKeys.SupplierRefundCreate, ct);
+                if (!refundAuthorization.IsSuccess)
+                {
+                    return Result<CreatePurchaseReturnResult>.Failure(refundAuthorization.Error!.Code, refundAuthorization.Error.Message);
+                }
+                if (refundMethod == SupplierSettlementMethod.CashDrawer && _cash is not null &&
+                    await _cash.GetOpenSessionForUpdateAsync(ct) is null)
+                {
+                    return Result<CreatePurchaseReturnResult>.Failure(
+                        "cash.session_required", "Open a cash session before posting a drawer-affecting cash transaction.");
+                }
             }
 
             try
@@ -183,6 +252,8 @@ public sealed class CreatePurchaseReturnHandler
                 }
 
                 await _resourceLock.AcquireAsync("supplier-account", purchase.SupplierId, ct);
+                var balanceBeforeReturn = refundMethod is not null
+                    ? await _supplierAccounts.GetCurrentBalanceAsync(purchase.SupplierId, ct) : 0m;
 
                 foreach (var inventoryUnitId in command.Lines
                     .SelectMany(x => x.InventoryUnitIds)
@@ -241,7 +312,7 @@ public sealed class CreatePurchaseReturnHandler
                         }
 
                         baseQuantity = exactBaseQuantity;
-                        if (input.InventoryUnitIds.Count != decimal.ToInt32(baseQuantity))
+                        if (input.InventoryUnitIds.Count == 0 || input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
                         {
                             return Result<CreatePurchaseReturnResult>.Failure(
                                 "purchasing.return_serial_count_mismatch",
@@ -260,14 +331,25 @@ public sealed class CreatePurchaseReturnHandler
                         baseQuantity = QuantityMath.RoundQuantity(exactBaseQuantity);
                     }
 
+                    var alreadyReceived = await _inventory.GetPurchaseItemReceivedBaseQuantityAsync(
+                        item.Id, ct);
                     var alreadyReturned = await _purchases.GetReturnedBaseQuantityAsync(
                         item.Id, ct);
-                    if (baseQuantity >
-                        QuantityMath.RoundQuantity(item.BaseQuantity - alreadyReturned))
+
+                    if (baseQuantity + alreadyReturned > item.BaseQuantity)
                     {
                         return Result<CreatePurchaseReturnResult>.Failure(
                             "purchasing.return_exceeds_original",
-                            "Purchase return exceeds remaining original quantity.");
+                            "Total returned quantity cannot exceed original purchase quantity.");
+                    }
+
+                    var maxReturnable = Math.Max(0m, QuantityMath.RoundQuantity(alreadyReceived - alreadyReturned));
+
+                    if (baseQuantity > maxReturnable)
+                    {
+                        return Result<CreatePurchaseReturnResult>.Failure(
+                            "purchasing.return_exceeds_received",
+                            "Purchase return exceeds remaining received quantity.");
                     }
 
                     if (await _inventory.IsProductBlockedByCountingStocktakeAsync(
@@ -394,8 +476,22 @@ public sealed class CreatePurchaseReturnHandler
                     };
                     accountEntry.ValidateDirection();
                     _supplierAccounts.AddEntry(accountEntry);
+
                 }
 
+                if (refundMethod is { } method)
+                {
+                    var refundResult = await _refunds!.PostInTransactionAsync(
+                        new CreateSupplierRefundCommand(purchase.SupplierId,
+                            command.ImmediateRefundAmount ?? purchaseReturn.SupplierReturnValue, method,
+                            command.CreatedBy, command.ClientOperationId, command.RefundExternalReference,
+                            "PurchaseReturn", purchaseReturn.Id, command.Reason.Trim()),
+                        balanceBeforeReturn - purchaseReturn.SupplierReturnValue, ct);
+                    if (!refundResult.IsSuccess)
+                    {
+                        return Result<CreatePurchaseReturnResult>.Failure(refundResult.Error!.Code, refundResult.Error.Message);
+                    }
+                }
                 _audit.Record(
                     "PURCHASE_RETURN_COMPLETED",
                     "PURCHASE_RETURN",
@@ -412,6 +508,7 @@ public sealed class CreatePurchaseReturnHandler
                         purchaseReturn.Id,
                         purchaseReturn.ReturnNumber,
                         actorId: command.CreatedBy,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
                 }
 
@@ -435,6 +532,7 @@ public sealed class CreatePurchaseReturnHandler
                 result.Error?.Code ?? "purchasing.return_failed",
                 result.Error?.Message ?? "Purchase return failed.",
                 actorId: command.CreatedBy,
+                payloadFingerprint: fingerprint,
                 cancellationToken: cancellationToken);
         }
 
@@ -498,7 +596,7 @@ public sealed class CreatePurchaseReturnHandler
         CancellationToken ct)
     {
         if (!QuantityMath.IsWhole(baseQuantity) ||
-            input.InventoryUnitIds.Count != decimal.ToInt32(baseQuantity) ||
+            input.InventoryUnitIds.Count == 0 ||
             input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
         {
             throw new BusinessRuleException(
@@ -552,34 +650,41 @@ public sealed class CreatePurchaseReturnHandler
         }
 
         decimal removed = 0m;
+        var quantities = new Dictionary<Guid, decimal>();
+        foreach (var unit in units)
+            quantities[unit.Id] = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+        if (quantities.Values.Sum() != baseQuantity)
+            throw new BusinessRuleException("purchasing.return_serial_count_mismatch",
+                "Purchase return quantity must match the original received physical quantities.");
         foreach (var unit in units.OrderBy(x => x.Id))
         {
+            var basePerUnit = quantities[unit.Id];
             var balance = await _inventory.GetLotBucketBalanceForUpdateAsync(
                 unit.InventoryLotId!.Value, InventoryBucket.Sellable, ct)
                 ?? throw new BusinessRuleException(
                     "purchasing.return_lot_missing",
                     "Serialized unit lot balance was not found.");
-            if (balance.Quantity < 1m)
+            if (balance.Quantity < basePerUnit)
             {
                 throw new BusinessRuleException(
                     "purchasing.return_lot_insufficient",
                     "Serialized unit lot is no longer available.");
             }
 
-            balance.Quantity = QuantityMath.RoundQuantity(balance.Quantity - 1m);
+            balance.Quantity = QuantityMath.RoundQuantity(balance.Quantity - basePerUnit);
 
             _inventory.AddLotConsumption(new InventoryLotConsumption
             {
                 LotId = unit.InventoryLotId.Value,
                 MovementId = movement.Id,
-                Quantity = 1m,
-                UnitCostSnapshot = unit.AcquisitionCost,
+                Quantity = basePerUnit,
+                UnitCostSnapshot = unit.AcquisitionCost / basePerUnit,
                 TotalCostSnapshot = unit.AcquisitionCost,
                 OccurredAt = _clock.UtcNow
             });
 
             removed += await _costs.RemoveCarryingValueAsync(
-                item.ProductId, 1m, unit.AcquisitionCost, ct);
+                item.ProductId, basePerUnit, unit.AcquisitionCost / basePerUnit, ct);
 
             var from = unit.Status;
             unit.Status = InventoryUnitStatus.SupplierReturned;

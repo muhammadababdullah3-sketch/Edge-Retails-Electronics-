@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
-    Background="{DynamicResource Brush.Surface.Raised}">
+    Background="{DynamicResource Brush.Surface.Raised}" Foreground="{DynamicResource Brush.Text.Primary}">
     <Grid Width="760">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -10,7 +10,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Padding="21,14" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1">
+        <Border Padding="21,14" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="0">
             <Grid>
                 <StackPanel>
                     <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="Bold"
@@ -121,6 +121,7 @@
                                 </Border>
                             </Grid>
 
+                            <TextBlock Text="{Binding FinancialOperationStatus}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                             <TextBlock Text="Post Supplier Financial Event" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -131,19 +132,19 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                     <TextBlock Text="Amount" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                    <TextBox Text="{Binding TransactionAmount, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                                    <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding TransactionAmount, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                     <TextBlock Text="Method" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                    <ComboBox ItemsSource="{Binding SettlementMethods}" SelectedItem="{Binding SelectedMethod}" Margin="0,4,0,0"/>
+                                    <ComboBox IsEnabled="{Binding CanEditFinancialFields}" ItemsSource="{Binding SettlementMethods}" SelectedItem="{Binding SelectedMethod}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Margin="0,0,8,0">
                                     <TextBlock Text="External Reference" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                    <TextBox Text="{Binding ExternalReference, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                                    <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding ExternalReference, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="3">
                                     <TextBlock Text="Note / Advance Reason" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                    <TextBox Text="{Binding TransactionNote, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                                    <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding TransactionNote, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
@@ -156,32 +157,47 @@
                             </StackPanel>
                             <TextBlock Text="Reversal reason" Margin="0,18,0,0" FontSize="11"
                                        Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBox Text="{Binding ReversalReason, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                            <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding ReversalReason, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
 
                 <TabItem Header="Khata">
-                    <DataGrid ItemsSource="{Binding Workspace.Statement}" AutoGenerateColumns="False"
-                              Style="{StaticResource Table.DataGrid}"
-                              IsReadOnly="True" CanUserAddRows="False" Margin="8">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Date" Binding="{Binding OccurredAt, StringFormat={}{0:dd MMM yyyy HH:mm}}" Width="145"/>
-                            <DataGridTextColumn Header="Entry" Binding="{Binding EntryNumber}" Width="125"/>
-                            <DataGridTextColumn Header="Type" Binding="{Binding EntryType}" Width="170"/>
-                            <DataGridTextColumn Header="Reference" Binding="{Binding ReferenceType}" Width="120"/>
-                            <DataGridTextColumn Header="Effect" Binding="{Binding SignedAmount, StringFormat={}{0:N2}}" Width="100"
-                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
-                                                ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
-                            <DataGridTextColumn Header="Running Balance" Binding="{Binding RunningBalance, StringFormat={}{0:N2}}" Width="130"
-                                                HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
-                                                ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"/>
-                            <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <DataGrid ItemsSource="{Binding Workspace.Statement}" AutoGenerateColumns="False"
+                                  Style="{StaticResource Table.DataGrid}"
+                                  IsReadOnly="True" CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Date" Binding="{Binding OccurredAt, StringFormat={}{0:dd MMM yyyy HH:mm}}" Width="145"/>
+                                <DataGridTextColumn Header="Entry" Binding="{Binding EntryNumber}" Width="125"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding EntryType}" Width="170"/>
+                                <DataGridTextColumn Header="Reference" Binding="{Binding ReferenceType}" Width="120"/>
+                                <DataGridTextColumn Header="Effect" Binding="{Binding SignedAmount, StringFormat={}{0:N2}}" Width="100"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric}"/>
+                                <DataGridTextColumn Header="Running Balance" Binding="{Binding RunningBalance, StringFormat={}{0:N2}}" Width="130"
+                                                    HeaderStyle="{StaticResource Table.ColumnHeader.Numeric}"
+                                                    ElementStyle="{StaticResource Table.TextCell.Numeric.Bold}"/>
+                                <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Content="Latest entries" Command="{Binding ReloadStatementCommand}" Style="{StaticResource Button.Text.Neutral}"/>
+                            <Button Content="Load older entries" Command="{Binding LoadMoreStatementCommand}" Style="{StaticResource Button.Text.Neutral}"/>
+                        </StackPanel>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="Payments / Advances">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Content="Reload first page" Command="{Binding ReloadPaymentsCommand}" Style="{StaticResource Button.Text.Neutral}"/>
+                            <Button Content="Load more" Command="{Binding LoadMorePaymentsCommand}" IsEnabled="{Binding HasMorePayments}" Style="{StaticResource Button.Text.Neutral}"/>
+                        </StackPanel>
                     <DataGrid ItemsSource="{Binding Workspace.Payments}" AutoGenerateColumns="False"
                               Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
@@ -206,9 +222,15 @@
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </DockPanel>
                 </TabItem>
 
                 <TabItem Header="Refunds">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Content="Reload first page" Command="{Binding ReloadRefundsCommand}" Style="{StaticResource Button.Text.Neutral}"/>
+                            <Button Content="Load more" Command="{Binding LoadMoreRefundsCommand}" IsEnabled="{Binding HasMoreRefunds}" Style="{StaticResource Button.Text.Neutral}"/>
+                        </StackPanel>
                     <DataGrid ItemsSource="{Binding Workspace.Refunds}" AutoGenerateColumns="False"
                               Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
@@ -233,9 +255,15 @@
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </DockPanel>
                 </TabItem>
 
                 <TabItem Header="Products Supplied">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Content="Reload first page" Command="{Binding ReloadProductsCommand}" Style="{StaticResource Button.Text.Neutral}"/>
+                            <Button Content="Load more" Command="{Binding LoadMoreProductsCommand}" IsEnabled="{Binding HasMoreProducts}" Style="{StaticResource Button.Text.Neutral}"/>
+                        </StackPanel>
                     <DataGrid ItemsSource="{Binding Workspace.SuppliedProducts}" AutoGenerateColumns="False"
                               Style="{StaticResource Table.DataGrid}"
                               IsReadOnly="True" CanUserAddRows="False" Margin="8">
@@ -245,6 +273,7 @@
                             <DataGridCheckBoxColumn Header="Active" Binding="{Binding IsActive}" Width="80"/>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </DockPanel>
                 </TabItem>
 
                 <TabItem Header="Warranty">
@@ -294,7 +323,7 @@
             </TabControl>
         </Grid>
 
-        <Border Grid.Row="2" Padding="16" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Padding="16" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,1,0,0" CornerRadius="0">
             <Button Content="Edit Supplier" Command="{Binding EditCommand}"
                     Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch"/>
         </Border>

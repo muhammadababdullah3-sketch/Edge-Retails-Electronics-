@@ -98,7 +98,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 25m,
-            EnteredUnitCost: 15m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -131,7 +131,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 100m, // 100 meters
-            EnteredUnitCost: 8m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -168,7 +168,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 3m,
-            EnteredUnitCost: 250m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -213,7 +213,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 2m, // 2 containers = 24 base units
-            EnteredUnitCost: 1200m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -242,7 +242,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 1m,
-            EnteredUnitCost: 500m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: new[] { new SerializedIdentityInput(SerialNumber: "", Imei1: "354891001234567") },
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -257,7 +257,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 2m,
-            EnteredUnitCost: 500m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: new[]
             {
                 new SerializedIdentityInput(SerialNumber: "SN-1001", Imei1: "354891001234561"),
@@ -285,7 +285,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 1m,
-            EnteredUnitCost: 500m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: new[] { new SerializedIdentityInput(SerialNumber: "SN-EXISTING", Imei1: "354891001234563") },
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -300,7 +300,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 1m,
-            EnteredUnitCost: 500m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: new[] { new SerializedIdentityInput(SerialNumber: "SN-9999", Imei1: "") },
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -327,7 +327,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 2m,
-            EnteredUnitCost: 100m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -345,7 +345,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 1m,
-            EnteredUnitCost: 100m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -580,7 +580,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 200m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -645,7 +645,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 150m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -685,7 +685,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 300m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: opId);
@@ -757,7 +757,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 100m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -816,7 +816,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 100m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -891,6 +891,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             EnteredUnitCost = 50m,
             BaseQuantity = 2m,
             EffectiveBaseUnitCost = 50m,
+            FactorToBaseSnapshot = (2m) / (2m),
+            EffectiveLineCost = (2m) * (50m),
             BaseLineTotal = 100m
         };
         testContext.Doubles.Purchasing.AddPurchaseItem(itemA2);
@@ -939,7 +941,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 5m,
-            EnteredUnitCost: 200m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: opId);
@@ -1287,12 +1289,19 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             modelCode: "M9",
             startingSequence: 1);
 
+        // HARNESS_CORRECTION: this scenario asserts a 200 purchase acquisition
+        // snapshot. The shared seed is 250; set the PO, rather than forge receipt cost.
+        item.EnteredUnitCost = 200m;
+        item.EffectiveBaseUnitCost = 200m;
+        item.BaseLineTotal = item.BaseQuantity * 200m;
+        item.EffectiveLineCost = item.BaseQuantity * 200m;
+
         var command = new ReceiveProductIntakeCommand(
             purchase.Id,
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 3m,
-            EnteredUnitCost: 200m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -1334,7 +1343,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 2m,
-            EnteredUnitCost: 150m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -1352,7 +1361,7 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
             item.ProductId,
             item.ProductUnitId,
             EnteredQuantity: 3m,
-            EnteredUnitCost: 150m,
+            EnteredUnitCost: item.EnteredUnitCost,
             SerializedUnits: Array.Empty<SerializedIdentityInput>(),
             CreatedBy: testContext.ActorId,
             ClientOperationId: Guid.NewGuid());
@@ -1457,7 +1466,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 Doubles.Authorization,
                 Doubles.UnitOfWork,
                 NullSequenceHighWaterService.Instance,
-                Doubles.OutcomeLedger);
+                Doubles.OutcomeLedger,
+                Doubles.PhysicalUnits);
 
             CreatePurchaseHandler = new CreatePurchaseHandler(
                 Doubles.Purchasing,
@@ -1476,7 +1486,9 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 Doubles.Transactions,
                 Doubles.Authorization,
                 Doubles.UnitOfWork,
-                NullSequenceHighWaterService.Instance);
+                NullSequenceHighWaterService.Instance,
+                Doubles.OutcomeLedger,
+                Doubles.PhysicalUnits);
         }
 
         public async Task<(Supplier supplier, Product productA, ProductUnit productUnitA, Product productB, ProductUnit productUnitB)> SetupCatalogForPurchasingAsync()
@@ -1596,6 +1608,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 50m,
                 BaseQuantity = 10m,
                 EffectiveBaseUnitCost = 50m,
+                FactorToBaseSnapshot = (10m) / (10m),
+                EffectiveLineCost = (10m) * (50m),
                 BaseLineTotal = 500m
             };
             var itemB = new PurchaseItem
@@ -1608,6 +1622,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 120m,
                 BaseQuantity = 5m,
                 EffectiveBaseUnitCost = 120m,
+                FactorToBaseSnapshot = (5m) / (5m),
+                EffectiveLineCost = (5m) * (120m),
                 BaseLineTotal = 600m
             };
 
@@ -1676,6 +1692,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 10m,
                 BaseQuantity = 100m,
                 EffectiveBaseUnitCost = 10m,
+                FactorToBaseSnapshot = (100m) / (100m),
+                EffectiveLineCost = (100m) * (10m),
                 BaseLineTotal = 1000m
             };
             Doubles.Purchasing.AddPurchaseItem(item);
@@ -1750,6 +1768,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 250m,
                 BaseQuantity = 10m,
                 EffectiveBaseUnitCost = 250m,
+                FactorToBaseSnapshot = (10m) / (10m),
+                EffectiveLineCost = (10m) * (250m),
                 BaseLineTotal = 2500m
             };
             Doubles.Purchasing.AddPurchaseItem(item);
@@ -1825,6 +1845,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 1200m,
                 BaseQuantity = 5m * unitsPerPack,
                 EffectiveBaseUnitCost = 100m,
+                FactorToBaseSnapshot = (5m * unitsPerPack) / (5m),
+                EffectiveLineCost = (5m * unitsPerPack) * (100m),
                 BaseLineTotal = 6000m
             };
             Doubles.Purchasing.AddPurchaseItem(item);
@@ -1896,6 +1918,8 @@ public sealed class Phase1CReceivingAndLabelPrintingTests
                 EnteredUnitCost = 500m,
                 BaseQuantity = 5m,
                 EffectiveBaseUnitCost = 500m,
+                FactorToBaseSnapshot = (5m) / (5m),
+                EffectiveLineCost = (5m) * (500m),
                 BaseLineTotal = 2500m
             };
             Doubles.Purchasing.AddPurchaseItem(item);

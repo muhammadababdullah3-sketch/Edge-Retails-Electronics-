@@ -30,11 +30,6 @@ public sealed record CreateSaleReturnResult(
     decimal RefundAmount,
     bool WasExisting);
 
-internal sealed record OriginalLotReturnAllocation(
-    Guid LotId,
-    Guid? PurchaseItemId,
-    decimal Quantity);
-
 public sealed class CreateSaleReturnHandler
 {
     private readonly ISalesRepository _sales;
@@ -336,11 +331,9 @@ public sealed class CreateSaleReturnHandler
                             priorCost,
                             6);
 
-                        originAllocations = await ResolveOriginalLotAllocationsAsync(
-                            item,
-                            priorQty,
-                            baseQuantity,
-                            ct);
+                        originAllocations = SoldSourceAllocationAuthority.Select(
+                            await _sales.GetSoldSourceCapacityForUpdateAsync(item.Id, ct),
+                            baseQuantity);
                     }
 
                     var destination = SaleMath.ToInventoryBucket(input.Disposition);
@@ -373,23 +366,22 @@ public sealed class CreateSaleReturnHandler
                         QuantityAfter = stock.Get(destination)
                     });
 
+                    var returnItemId = Guid.NewGuid();
                     if (serialized)
                     {
                         await RestoreSerializedUnitsAsync(
                             serializedUnits,
+                            item.BaseQuantity / saleItemUnits.Count,
                             input.Disposition,
                             movement,
                             ct);
                     }
                     else
                     {
-                        await RestoreQuantityReturnLotsAsync(
-                            item,
-                            originAllocations,
-                            input.Disposition,
-                            originalCostAmount,
-                            movement,
-                            ct);
+                        await SoldSourceAllocationAuthority.RestoreReturnAsync(
+                            _sales, _inventory, _costs, item, returnItemId,
+                            originAllocations, input.Disposition, originalCostAmount,
+                            movement, movement.OccurredAt, ct);
                     }
 
                     var enteredQuantity = QuantityMath.RoundQuantity(
@@ -397,6 +389,7 @@ public sealed class CreateSaleReturnHandler
 
                     var returnItem = new SaleReturnItem
                     {
+                        Id = returnItemId,
                         SaleReturnId = saleReturn.Id,
                         SaleItemId = item.Id,
                         ProductId = item.ProductId,
@@ -507,8 +500,10 @@ public sealed class CreateSaleReturnHandler
             IReadOnlyList<SaleItemUnit> soldUnits,
             CancellationToken ct)
     {
-        if (!QuantityMath.IsWhole(baseQuantity) ||
-            input.InventoryUnitIds.Count != decimal.ToInt32(baseQuantity) ||
+        var basePerUnit = item.BaseQuantity / soldUnits.Count;
+        var physicalQuantity = baseQuantity / basePerUnit;
+        if (!QuantityMath.IsWhole(physicalQuantity) ||
+            input.InventoryUnitIds.Count != physicalQuantity ||
             input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
         {
             throw new BusinessRuleException(
@@ -571,120 +566,9 @@ public sealed class CreateSaleReturnHandler
             .ToArray();
     }
 
-    private async Task<IReadOnlyList<OriginalLotReturnAllocation>>
-        ResolveOriginalLotAllocationsAsync(
-            SaleItem item,
-            decimal priorReturnedBaseQuantity,
-            decimal currentBaseQuantity,
-            CancellationToken ct)
-    {
-        var consumptions = await _inventory.GetMovementLotConsumptionsAsync(
-            item.InventoryMovementId,
-            ct);
-
-        if (consumptions.Count == 0)
-        {
-            throw new BusinessRuleException(
-                "sales.return_consumption_missing",
-                "Original sale lot-consumption history was not found.");
-        }
-
-        var toSkip = QuantityMath.RoundQuantity(priorReturnedBaseQuantity);
-        var remaining = QuantityMath.RoundQuantity(currentBaseQuantity);
-        var result = new List<OriginalLotReturnAllocation>();
-
-        foreach (var consumption in consumptions)
-        {
-            var available = QuantityMath.RoundQuantity(consumption.Quantity);
-
-            if (toSkip > 0)
-            {
-                var skipped = QuantityMath.RoundQuantity(Math.Min(available, toSkip));
-                available = QuantityMath.RoundQuantity(available - skipped);
-                toSkip = QuantityMath.RoundQuantity(toSkip - skipped);
-            }
-
-            if (available <= 0 || remaining <= 0)
-            {
-                continue;
-            }
-
-            var take = QuantityMath.RoundQuantity(Math.Min(available, remaining));
-            var lot = await _inventory.GetInventoryLotForUpdateAsync(
-                consumption.LotId,
-                ct)
-                ?? throw new BusinessRuleException(
-                    "sales.return_origin_lot_missing",
-                    "An original sale inventory lot no longer exists.");
-
-            result.Add(new OriginalLotReturnAllocation(
-                lot.Id,
-                lot.PurchaseItemId,
-                take));
-
-            remaining = QuantityMath.RoundQuantity(remaining - take);
-        }
-
-        if (toSkip > 0 || remaining > 0)
-        {
-            throw new BusinessRuleException(
-                "sales.return_consumption_incomplete",
-                "Original sale lot-consumption history cannot cover this return.");
-        }
-
-        return result;
-    }
-
-    private async Task RestoreQuantityReturnLotsAsync(
-        SaleItem item,
-        IReadOnlyList<OriginalLotReturnAllocation> allocations,
-        SaleReturnDisposition disposition,
-        decimal originalCostAmount,
-        InventoryMovement movement,
-        CancellationToken ct)
-    {
-        var totalQuantity = QuantityMath.RoundQuantity(
-            allocations.Sum(x => x.Quantity));
-
-        if (totalQuantity <= 0)
-        {
-            throw new BusinessRuleException(
-                "sales.return_origin_allocation_missing",
-                "Return origin allocation is required.");
-        }
-
-        var unitCost = Cost(originalCostAmount / totalQuantity);
-        var destination = SaleMath.ToInventoryBucket(disposition);
-
-        foreach (var allocation in allocations)
-        {
-            if (disposition == SaleReturnDisposition.Scrap)
-            {
-                await _costs.AddZeroCarryingLotAsync(
-                    item.ProductId,
-                    allocation.Quantity,
-                    unitCost,
-                    movement.Id,
-                    allocation.PurchaseItemId,
-                    InventoryBucket.Scrap,
-                    ct);
-            }
-            else
-            {
-                await _costs.AddCarryingValueAndLotWithIdAsync(
-                    item.ProductId,
-                    allocation.Quantity,
-                    unitCost,
-                    movement.Id,
-                    allocation.PurchaseItemId,
-                    destination,
-                    ct);
-            }
-        }
-    }
-
     private async Task RestoreSerializedUnitsAsync(
         IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)> units,
+        decimal basePerUnit,
         SaleReturnDisposition disposition,
         InventoryMovement movement,
         CancellationToken ct)
@@ -698,8 +582,8 @@ public sealed class CreateSaleReturnHandler
             {
                 lotId = await _costs.AddZeroCarryingLotAsync(
                     pair.Unit.ProductId,
-                    1m,
-                    pair.Snapshot.UnitCostSnapshot,
+                    basePerUnit,
+                    pair.Snapshot.UnitCostSnapshot / basePerUnit,
                     movement.Id,
                     pair.Unit.SourcePurchaseItemId,
                     InventoryBucket.Scrap,
@@ -709,12 +593,21 @@ public sealed class CreateSaleReturnHandler
             {
                 lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
                     pair.Unit.ProductId,
-                    1m,
-                    pair.Snapshot.UnitCostSnapshot,
+                    basePerUnit,
+                    pair.Snapshot.UnitCostSnapshot / basePerUnit,
                     movement.Id,
                     pair.Unit.SourcePurchaseItemId,
                     destination,
                     ct);
+
+                // The exact sold physical-unit snapshot is carrying authority.
+                // A six-place per-base lot price cannot represent every pack's
+                // total; restore that residual without rewriting the identity.
+                var costState = await _inventory.GetCostStateForUpdateAsync(pair.Unit.ProductId, ct)
+                    ?? throw new BusinessRuleException("inventory.cost_state_missing", "Inventory cost state is required.");
+                var represented = Cost(basePerUnit * Cost(pair.Snapshot.UnitCostSnapshot / basePerUnit));
+                costState.TotalInventoryCost = Cost(costState.TotalInventoryCost + pair.Snapshot.UnitCostSnapshot - represented);
+                costState.MovingAverageCost = Cost(costState.TotalInventoryCost / costState.CostedQty);
             }
 
             var from = pair.Unit.Status;

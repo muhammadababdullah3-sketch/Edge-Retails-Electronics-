@@ -153,21 +153,30 @@ public sealed class PrintingController(
                     .LoadProductLabelAsync(id, cancellationToken);
                 products.Add(productDocument with { IsReprint = request.IsReprint });
             }
-            var bundle = VectorLabelPdfExporter.Export(exact, products);
+            var attemptId = request.ClientExportAttemptId == Guid.Empty ? Guid.NewGuid() : request.ClientExportAttemptId;
+            var bundle = VectorLabelPdfExporter.Export(exact, products) with
+            {
+                ExportAttemptId = attemptId,
+                GenerationAuditPersisted = false
+            };
             if (audit is not null)
             {
+                var persisted = true;
                 foreach (var document in exact)
                 {
-                    await audit.AppendAfterSideEffectAsync(new ProductionAuditRecord("LABEL_PDF_EXPORTED", DateTimeOffset.UtcNow,
+                    var outcome = await audit.AppendAfterSideEffectAsync(new ProductionAuditRecord("LABEL_PDF_GENERATED", DateTimeOffset.UtcNow,
                         "PhysicalItemSticker", document.InventoryUnitId.ToString(),
-                        $"TrackingCode={document.TrackingCode}; Reprint={request.IsReprint}; Actor={HttpContext.GetCurrentUserId()}; PhysicalPaperConfirmed=False", null));
+                        $"TrackingCode={document.TrackingCode}; Reprint={request.IsReprint}; Actor={HttpContext.GetCurrentUserId()}; PhysicalPaperConfirmed=False", attemptId.ToString("D")));
+                    persisted &= outcome.Persisted;
                 }
                 foreach (var document in products)
                 {
-                    await audit.AppendAfterSideEffectAsync(new ProductionAuditRecord("LABEL_PDF_EXPORTED", DateTimeOffset.UtcNow,
+                    var outcome = await audit.AppendAfterSideEffectAsync(new ProductionAuditRecord("LABEL_PDF_GENERATED", DateTimeOffset.UtcNow,
                         "ProductUnitLabel", document.ProductUnitId.ToString(),
-                        $"ProductCode={document.ProductCode}; Reprint={request.IsReprint}; Actor={HttpContext.GetCurrentUserId()}; PhysicalPaperConfirmed=False", null));
+                        $"ProductCode={document.ProductCode}; Reprint={request.IsReprint}; Actor={HttpContext.GetCurrentUserId()}; PhysicalPaperConfirmed=False", attemptId.ToString("D")));
+                    persisted &= outcome.Persisted;
                 }
+                bundle = bundle with { GenerationAuditPersisted = persisted };
             }
             return Ok(bundle);
         }

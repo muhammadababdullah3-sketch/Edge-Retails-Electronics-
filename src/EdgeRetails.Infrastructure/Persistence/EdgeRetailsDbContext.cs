@@ -54,6 +54,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<InventoryMovementUnit> InventoryMovementUnits => Set<InventoryMovementUnit>();
     public DbSet<InventoryUnit> InventoryUnits => Set<InventoryUnit>();
     public DbSet<InventoryUnitIdentityClaim> InventoryUnitIdentityClaims => Set<InventoryUnitIdentityClaim>();
+    public DbSet<InventoryUnitIdentityOwnership> InventoryUnitIdentityOwnerships => Set<InventoryUnitIdentityOwnership>();
     public DbSet<ProductCostState> ProductCostStates => Set<ProductCostState>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<InventoryLotBucketBalance> InventoryLotBucketBalances => Set<InventoryLotBucketBalance>();
@@ -70,6 +71,10 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<WarrantyClaimEvent> WarrantyClaimEvents => Set<WarrantyClaimEvent>();
     public DbSet<WarrantyOperation> WarrantyOperations => Set<WarrantyOperation>();
     public DbSet<ShopStockWarrantyCase> ShopStockWarrantyCases => Set<ShopStockWarrantyCase>();
+    public DbSet<ShopWarrantySendAllocation> ShopWarrantySendAllocations => Set<ShopWarrantySendAllocation>();
+    public DbSet<ShopWarrantyResolutionAllocation> ShopWarrantyResolutionAllocations => Set<ShopWarrantyResolutionAllocation>();
+    public DbSet<WarrantyClaimSourceAllocation> WarrantyClaimSourceAllocations => Set<WarrantyClaimSourceAllocation>();
+    public DbSet<SaleReturnSourceAllocation> SaleReturnSourceAllocations => Set<SaleReturnSourceAllocation>();
 
     public DbSet<CashSession> CashSessions => Set<CashSession>();
     public DbSet<CashMovement> CashMovements => Set<CashMovement>();
@@ -126,29 +131,80 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
         ApplySnakeCaseDatabaseNames(modelBuilder);
     }
 
-    public override int SaveChanges()
+    public override int SaveChanges() => SaveChanges(true);
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnforceAppendOnlyAudit();
-        return base.SaveChanges();
+        EnforceAppendOnlyWarrantyProvenance();
+        EnforcePermanentDealerCode();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => SaveChangesAsync(true, cancellationToken);
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         EnforceAppendOnlyAudit();
-        return base.SaveChangesAsync(cancellationToken);
+        EnforceAppendOnlyWarrantyProvenance();
+        EnforcePermanentDealerCode();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     Task<int> IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken) =>
         SaveChangesAsync(cancellationToken);
 
+    private void EnforcePermanentDealerCode()
+    {
+        foreach (var entry in ChangeTracker.Entries<Supplier>().Where(x => x.State == EntityState.Modified))
+        {
+            var original = entry.Property(x => x.DealerCode).OriginalValue;
+            if (!string.IsNullOrWhiteSpace(original) &&
+                !string.Equals(original, entry.Entity.DealerCode, StringComparison.Ordinal))
+            {
+                throw new EdgeRetails.Domain.Common.BusinessRuleException(
+                    "parties.dealer_code_immutable", "An assigned DealerCode is permanent, including after historical physical-unit use.");
+            }
+        }
+    }
+
     private void EnforceAppendOnlyAudit()
     {
+        ChangeTracker.DetectChanges();
+
         if (ChangeTracker.Entries<BusinessAuditEvent>()
             .Any(x => x.State is EntityState.Modified or EntityState.Deleted))
         {
             throw new InvalidOperationException(
                 "Business audit events are append-only and cannot be modified or deleted.");
+        }
+
+        if (ChangeTracker.Entries<SupplierAccountEntry>()
+            .Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Supplier account entries are append-only ledger facts and cannot be modified or deleted.");
+        }
+
+        if (ChangeTracker.Entries<CashMovement>()
+            .Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Cash movements are append-only ledger facts and cannot be modified or deleted.");
+        }
+    }
+
+    private void EnforceAppendOnlyWarrantyProvenance()
+    {
+        if (ChangeTracker.Entries().Any(entry =>
+                (entry.Entity is ShopWarrantySendAllocation or ShopWarrantyResolutionAllocation or
+                    WarrantyClaimSourceAllocation or SaleReturnSourceAllocation) &&
+                (entry.State is EntityState.Modified or EntityState.Deleted)))
+        {
+            throw new InvalidOperationException(
+                "Warranty provenance allocations are append-only and cannot be modified or deleted.");
         }
     }
 

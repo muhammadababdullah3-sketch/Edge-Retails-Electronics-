@@ -2,10 +2,11 @@
     x:Class="EdgeRetails.Desktop.Controls.DrawerHost"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:EdgeRetails.Desktop.Controls"
     Visibility="{Binding IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
     <Grid>
-        <Border Background="{DynamicResource Brush.Overlay.Scrim}" />
+        <Border Background="{DynamicResource Brush.Overlay.Scrim}"  CornerRadius="0"/>
         <Border Width="{Binding Content.DrawerWidth, FallbackValue=480, TargetNullValue=480}"
                 MinWidth="{StaticResource Dimension.Drawer.Width}"
                 MaxWidth="780"
@@ -13,7 +14,7 @@
                 Background="{DynamicResource Brush.Surface.Raised}"
                 BorderBrush="{DynamicResource Brush.Border.Default}"
                 BorderThickness="1,0,0,0"
-                Effect="{StaticResource Shadow.Card}">
+                Effect="{StaticResource Shadow.Card}" CornerRadius="{StaticResource Radius.Large}" controls:RoundedViewport.Radius="12">
             <ContentControl Content="{Binding Content}" />
         </Border>
     </Grid>

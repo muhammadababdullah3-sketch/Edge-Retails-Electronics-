@@ -238,6 +238,43 @@ public sealed class ReceiveProductIntakeHandler
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
 
+            // Discover resource IDs without row locks. Definitive reads below
+            // revalidate after all command-wide logical locks are held.
+            var discoveredPurchase = await _purchases.GetPurchaseAsync(command.PurchaseId, ct);
+            var discoveredItems = await _purchases.GetPurchaseItemsForDiscoveryAsync(command.PurchaseId, ct);
+            var discoveredMatches = discoveredItems.Where(x => x.ProductId == command.ProductId).ToArray();
+            if (discoveredPurchase is null)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.purchase_not_found", $"Purchase '{command.PurchaseId}' was not found.");
+            }
+            if (discoveredMatches.Length != 1)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.product_not_on_purchase",
+                    $"Product '{command.ProductId}' does not belong to purchase '{discoveredPurchase.PurchaseNumber}'. Receiving session is strictly locked to products on the selected purchase.");
+            }
+            await _resourceLock.AcquireAsync("purchase-item", discoveredMatches[0].Id, ct);
+            await _resourceLock.AcquireAsync("product", command.ProductId, ct);
+            await _resourceLock.AcquireAsync("supplier-product", $"{discoveredPurchase.SupplierId:D}:{command.ProductId:D}", ct);
+            var discoveredProduct = await _catalog.GetProductAsync(command.ProductId, ct);
+            var lockedIdentityKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (discoveredProduct is not null)
+            {
+                try
+                {
+                    foreach (var key in IntakeIdentityKeys(discoveredProduct, command.SerializedUnits))
+                    {
+                        await _resourceLock.AcquireAsync("inventory-identity", key, ct);
+                        lockedIdentityKeys.Add(key);
+                    }
+                }
+                catch (BusinessRuleException ex)
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(ex.Code, ex.Message);
+                }
+            }
+
             // Invariant check: Purchase existence and state
             var purchase = await _purchases.GetPurchaseForUpdateAsync(command.PurchaseId, ct);
             if (purchase is null)
@@ -253,13 +290,58 @@ public sealed class ReceiveProductIntakeHandler
             }
 
             // Invariant check: Product must exist on this purchase
+            if (purchase.SupplierId != discoveredPurchase.SupplierId)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.intake_authority_changed_retry", "Purchase supplier changed during preparation. Retry the complete intake.");
+            }
             var purchaseItems = await _purchases.GetPurchaseItemsAsync(purchase.Id, ct);
-            var purchaseItem = purchaseItems.FirstOrDefault(x => x.ProductId == command.ProductId);
+            var matchingItems = purchaseItems.Where(x => x.ProductId == command.ProductId).ToArray();
+            var purchaseItem = matchingItems.Length == 1 ? matchingItems[0] : null;
             if (purchaseItem is null)
             {
                 return Result<ReceiveProductIntakeResult>.Failure(
                     "purchasing.product_not_on_purchase",
                     $"Product '{command.ProductId}' does not belong to purchase '{purchase.PurchaseNumber}'. Receiving session is strictly locked to products on the selected purchase.");
+            }
+
+            if (purchaseItem.Id != discoveredMatches[0].Id)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.intake_authority_changed_retry", "Ordered item changed during preparation. Retry the complete intake.");
+            }
+
+            if (command.ProductUnitId != purchaseItem.ProductUnitId)
+            {
+                var mismatchedUnit = await _catalog.GetProductUnitAsync(command.ProductUnitId, ct);
+                if (mismatchedUnit is null || mismatchedUnit.ProductId != command.ProductId)
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "purchasing.product_unit_not_allowed",
+                        "Selected unit does not belong to the ordered product.");
+                }
+
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.intake_unit_mismatch",
+                    $"Intake product unit '{command.ProductUnitId}' does not match ordered product unit '{purchaseItem.ProductUnitId}'.");
+            }
+
+            if (purchaseItem.FactorToBaseSnapshot <= 0 || purchaseItem.EnteredQuantity <= 0 ||
+                purchaseItem.BaseQuantity <= 0 ||
+                (purchaseItem.FactorToBaseSnapshot > 1m && purchaseItem.EnteredQuantity > decimal.MaxValue / purchaseItem.FactorToBaseSnapshot) ||
+                QuantityMath.RoundQuantity(purchaseItem.EnteredQuantity * purchaseItem.FactorToBaseSnapshot) != purchaseItem.BaseQuantity)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.purchase_snapshot_invalid",
+                    "Purchase item quantity and factor snapshot is invalid or inconsistent.");
+            }
+
+            if (command.EnteredUnitCost.HasValue &&
+                command.EnteredUnitCost.Value != purchaseItem.EnteredUnitCost)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.receipt_cost_override_not_allowed",
+                    "Physical intake does not allow arbitrary unit cost override. Unit cost is governed by purchase order.");
             }
 
             // Compute authoritative material payload fingerprint with resolved domain identities
@@ -315,7 +397,6 @@ public sealed class ReceiveProductIntakeHandler
                 }
 
                 var productExisting = await _catalog.GetProductAsync(command.ProductId, ct);
-                var productUnitExisting = await _catalog.GetProductUnitAsync(command.ProductUnitId, ct);
                 var supplierExisting = await _parties.GetSupplierAsync(purchase.SupplierId, ct);
                 var dealerCodeExisting = supplierExisting?.DealerCode ?? string.Empty;
 
@@ -329,9 +410,20 @@ public sealed class ReceiveProductIntakeHandler
                 if (existingUnits.Count > 0)
                 {
                     var isContainerExisting = productExisting?.TrackingMode == TrackingMode.Container;
-                    var expectedUnitsCount = isContainerExisting
-                        ? decimal.ToInt32(command.EnteredQuantity)
-                        : decimal.ToInt32(command.EnteredQuantity * (productUnitExisting?.FactorToBaseUnit ?? 1m));
+                    if (purchaseItem.FactorToBaseSnapshot > 1m && command.EnteredQuantity > decimal.MaxValue / purchaseItem.FactorToBaseSnapshot)
+                    {
+                        return Result<ReceiveProductIntakeResult>.Failure(
+                            "idempotency.payload_mismatch", "Operation was previously submitted with a different quantity.");
+                    }
+                    var expectedCount = isContainerExisting
+                        ? command.EnteredQuantity
+                        : command.EnteredQuantity * purchaseItem.FactorToBaseSnapshot;
+                    if (expectedCount <= 0 || expectedCount > 100_000 || !QuantityMath.IsWhole(expectedCount))
+                    {
+                        return Result<ReceiveProductIntakeResult>.Failure(
+                            "idempotency.payload_mismatch", "Operation was previously submitted with a different quantity.");
+                    }
+                    var expectedUnitsCount = decimal.ToInt32(expectedCount);
 
                     if (existingUnits.Count != expectedUnitsCount)
                     {
@@ -390,10 +482,15 @@ public sealed class ReceiveProductIntakeHandler
                         u.AcquisitionCost))
                     .ToList();
 
-                var quantitySnapshotExisting = (productUnitExisting != null && productExisting != null)
-                    ? TransactionQuantitySnapshot.Create(productUnitExisting, command.EnteredQuantity, productExisting.TrackingMode)
-                    : null;
-                var baseQuantityExisting = quantitySnapshotExisting?.BaseQuantity ?? command.EnteredQuantity;
+                if (purchaseItem.FactorToBaseSnapshot > 1m && command.EnteredQuantity > decimal.MaxValue / purchaseItem.FactorToBaseSnapshot)
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "idempotency.payload_mismatch", "Operation was previously submitted with a different quantity.");
+                }
+                // Replay reports the ordered conversion authority, never a later
+                // catalog factor that could reinterpret the committed receipt.
+                var baseQuantityExisting = QuantityMath.RoundQuantity(
+                    command.EnteredQuantity * purchaseItem.FactorToBaseSnapshot);
 
                 Company? companyExisting = null;
                 if (productExisting?.CompanyId.HasValue == true)
@@ -424,7 +521,8 @@ public sealed class ReceiveProductIntakeHandler
             }
 
             // Invariant check: Product master data
-            var product = await _catalog.GetProductAsync(command.ProductId, ct);
+            await _resourceLock.AcquireAsync("product", command.ProductId, ct);
+            var product = await _catalog.GetProductForUpdateAsync(command.ProductId, ct);
             if (product is null)
             {
                 return Result<ReceiveProductIntakeResult>.Failure(
@@ -438,6 +536,18 @@ public sealed class ReceiveProductIntakeHandler
             }
 
             // Unit validation
+            try
+            {
+                if (IntakeIdentityKeys(product, command.SerializedUnits).Any(x => !lockedIdentityKeys.Contains(x)))
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "inventory.physical_unit_policy_changed_retry", "Product requires additional identity locks. Retry the complete intake.");
+                }
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(ex.Code, ex.Message);
+            }
             var productUnit = await _catalog.GetProductUnitAsync(command.ProductUnitId, ct);
             if (productUnit is null || productUnit.ProductId != product.Id || !productUnit.IsActive || !productUnit.CanPurchase)
             {
@@ -461,11 +571,7 @@ public sealed class ReceiveProductIntakeHandler
                     "parties.dealer_code_missing", "Supplier lacks an authoritative dealer code.");
             }
 
-            // Match the canonical product lock used by purchase creation before reading
-            // or creating shared stock/cost rows. Supplier-pair locking alone cannot
-            // serialize receipts for the same product from different suppliers.
-            await _resourceLock.AcquireAsync("product", product.Id, ct);
-
+            // The product resource/row boundary is already held from master validation.
             // Stocktake check
             if (await _inventory.IsProductBlockedByCountingStocktakeAsync(product.Id, ct))
             {
@@ -474,26 +580,67 @@ public sealed class ReceiveProductIntakeHandler
                     $"Product '{product.Name}' is locked by an active stocktake.");
             }
 
-            var stock = await _inventory.GetStockBalanceForUpdateAsync(product.Id, ct);
-            if (stock is null)
+            if (command.EnteredQuantity <= 0)
             {
-                stock = new StockBalance { ProductId = product.Id };
-                _inventory.AddStockBalance(stock);
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "catalog.quantity_positive",
+                    "Entered quantity must be greater than zero.");
             }
-
-            var quantitySnapshot = TransactionQuantitySnapshot.Create(
-                productUnit,
-                command.EnteredQuantity,
-                product.TrackingMode);
-            var baseQuantity = quantitySnapshot.BaseQuantity;
-
-            var effectiveUnitCost = command.EnteredUnitCost.HasValue
-                ? Cost(command.EnteredUnitCost.Value / productUnit.FactorToBaseUnit)
-                : purchaseItem.EffectiveBaseUnitCost;
 
             var isPiece = product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece;
             var isContainer = product.TrackingMode == TrackingMode.Container;
             var isBulk = product.TrackingMode == TrackingMode.Quantity || product.TrackingMode == TrackingMode.Length;
+
+            if (isContainer)
+            {
+                if (!QuantityMath.IsWhole(command.EnteredQuantity))
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "catalog.container_quantity_whole",
+                        "Container quantity must be an exact whole integer count.");
+                }
+
+                if (!QuantityMath.IsWhole(purchaseItem.FactorToBaseSnapshot))
+                {
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "catalog.container_conversion_whole",
+                        "Container conversion factor must be an exact whole integer count.");
+                }
+            }
+
+            if (purchaseItem.FactorToBaseSnapshot > 1m && command.EnteredQuantity > decimal.MaxValue / purchaseItem.FactorToBaseSnapshot)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.physical_unit_count_out_of_range", "Receipt quantity is outside the supported numeric range.");
+            }
+            var exactBaseQuantity = command.EnteredQuantity * purchaseItem.FactorToBaseSnapshot;
+
+            if ((isPiece || isContainer) && !QuantityMath.IsWhole(exactBaseQuantity))
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "catalog.serialized_whole_quantity",
+                    "Tracked product quantity must resolve to an exact whole base quantity before rounding.");
+            }
+
+            var baseQuantity = (isPiece || isContainer)
+                ? exactBaseQuantity
+                : QuantityMath.RoundQuantity(exactBaseQuantity);
+
+            if (baseQuantity <= 0)
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "catalog.quantity_positive", "Receipt quantity must resolve to positive base stock.");
+            }
+
+            var effectiveUnitCost = purchaseItem.EffectiveBaseUnitCost;
+            var requiredUnitCountDecimal = isContainer ? command.EnteredQuantity : baseQuantity;
+            if ((isPiece || isContainer) &&
+                (requiredUnitCountDecimal <= 0 || requiredUnitCountDecimal > 100_000 || !QuantityMath.IsWhole(requiredUnitCountDecimal)))
+            {
+                return Result<ReceiveProductIntakeResult>.Failure(
+                    "purchasing.physical_unit_count_out_of_range",
+                    "Physical unit count must be a positive whole integer within valid range (1 - 100,000).");
+            }
 
             // Tracking policy validation
             if (isBulk && command.SerializedUnits.Count > 0)
@@ -514,9 +661,26 @@ public sealed class ReceiveProductIntakeHandler
                     $"Requested intake quantity ({baseQuantity}) exceeds outstanding quantity ({outstandingQuantity}) for product '{product.Name}'.");
             }
 
-            // Lock resources
-            await _resourceLock.AcquireAsync("purchase-item", purchaseItem.Id, ct);
-            await _resourceLock.AcquireAsync("supplier-product", $"{supplier.Id}:{product.Id}", ct);
+            // Purchase-item and supplier-product logical locks precede rows.
+
+            var priorCarryingValue = await _inventory.GetPurchaseItemReceivedCarryingValueAsync(
+                purchaseItem.Id, isPiece || isContainer, ct);
+            var receiptValue = PurchaseReceiptCost.Allocate(purchaseItem.BaseQuantity,
+                purchaseItem.EffectiveLineCost, alreadyReceived, baseQuantity, priorCarryingValue);
+            var receiptUnitCost = PurchaseReceiptCost.Round(receiptValue / baseQuantity);
+            var completesOrder = alreadyReceived + baseQuantity == purchaseItem.BaseQuantity;
+            if (!completesOrder)
+            {
+                // Persist intermediate realized value in both the lot cost and
+                // physical acquisition amounts, so future receipts can recover it.
+                receiptValue = PurchaseReceiptCost.Round(baseQuantity * receiptUnitCost);
+            }
+            var stock = await _inventory.GetStockBalanceForUpdateAsync(product.Id, ct);
+            if (stock is null)
+            {
+                stock = new StockBalance { ProductId = product.Id };
+                _inventory.AddStockBalance(stock);
+            }
 
             // Execute inventory movement
             var before = stock.SellableQty;
@@ -547,7 +711,7 @@ public sealed class ReceiveProductIntakeHandler
             var lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
                 product.Id,
                 baseQuantity,
-                effectiveUnitCost,
+                receiptUnitCost,
                 movement.Id,
                 purchaseItem.Id,
                 ct);
@@ -563,16 +727,7 @@ public sealed class ReceiveProductIntakeHandler
                         $"Tracked product '{product.Name}' requires an authoritative ProductCode (SKU) before receipt.");
                 }
 
-                var requiredUnitCount = isContainer
-                    ? decimal.ToInt32(quantitySnapshot.EnteredQuantity)
-                    : decimal.ToInt32(baseQuantity);
-
-                if (requiredUnitCount <= 0 || (!isContainer && baseQuantity != requiredUnitCount))
-                {
-                    return Result<ReceiveProductIntakeResult>.Failure(
-                        "purchasing.invalid_base_quantity",
-                        $"Physical intake requires whole integer units. Base quantity: {baseQuantity}.");
-                }
+                var requiredUnitCount = decimal.ToInt32(requiredUnitCountDecimal);
 
                 var lineUnits = command.SerializedUnits;
                 if (lineUnits.Count == 0 && !product.SerialTrackingEnabled && !product.ImeiTrackingEnabled)
@@ -618,110 +773,35 @@ public sealed class ReceiveProductIntakeHandler
                     }
                 }
 
-                if (_physicalUnits is not null)
+                if (_physicalUnits is null)
                 {
-                    var creation = await _physicalUnits.CreateAsync(
-                        supplier.Id,
-                        product.Id,
-                        lineUnits.Select(identity => new PhysicalUnitCreationEntry(
-                            identity.SerialNumber,
-                            identity.Imei1,
-                            identity.Imei2,
-                            InventoryUnitStatus.InStock,
-                            effectiveUnitCost,
-                            lotId,
-                            InventoryUnitOriginType.Purchase,
-                            SourcePurchaseItemId: purchaseItem.Id)).ToArray(),
-                        ct);
-                    if (!creation.IsSuccess || creation.Value is null)
-                    {
-                        return Result<ReceiveProductIntakeResult>.Failure(
-                            creation.Error!.Code,
-                            creation.Error.Message);
-                    }
-
-                    foreach (var unit in creation.Value)
-                    {
-                        _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
-                        {
-                            PurchaseItemId = purchaseItem.Id,
-                            InventoryUnitId = unit.Id
-                        });
-                        _inventory.AddMovementUnit(new InventoryMovementUnit
-                        {
-                            MovementId = movement.Id,
-                            InventoryUnitId = unit.Id,
-                            FromStatus = null,
-                            ToStatus = InventoryUnitStatus.InStock
-                        });
-                        committedUnits.Add(new CommittedInventoryUnitDto(
-                            unit.Id, unit.TrackingCode!, unit.ItemSequence!.Value,
-                            unit.SerialNumber, unit.Imei1, unit.Imei2, effectiveUnitCost));
-                    }
-                }
-                else
-                {                // Resolve SupplierProduct sequence authority
-                var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(supplier.Id, product.Id, ct);
-                if (supplierProduct is null)
-                {
-                    supplierProduct = new SupplierProduct
-                    {
-                        SupplierId = supplier.Id,
-                        ProductId = product.Id,
-                        NextItemSequence = 1,
-                        IsActive = true,
-                        CreatedAt = _clock.UtcNow,
-                        UpdatedAt = _clock.UtcNow
-                    };
-                    _traceability.AddSupplierProduct(supplierProduct);
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        "inventory.physical_unit_authority_unavailable",
+                        "Physical-unit creation authority is unavailable.");
                 }
 
-                var machineSeq = _highWaterService.GetSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId);
-                if (machineSeq > supplierProduct.NextItemSequence)
+                var creation = await _physicalUnits.CreateAsync(
+                    supplier.Id,
+                    product.Id,
+                    lineUnits.Select((identity, index) => new PhysicalUnitCreationEntry(
+                        identity.SerialNumber,
+                        identity.Imei1,
+                        identity.Imei2,
+                        InventoryUnitStatus.InStock,
+                        PurchaseReceiptCost.PhysicalAcquisitionCost(receiptValue, lineUnits.Count, index),
+                        lotId,
+                        InventoryUnitOriginType.Purchase,
+                        SourcePurchaseItemId: purchaseItem.Id)).ToArray(),
+                    ct);
+                if (!creation.IsSuccess || creation.Value is null)
                 {
-                    supplierProduct.NextItemSequence = machineSeq;
+                    return Result<ReceiveProductIntakeResult>.Failure(
+                        creation.Error!.Code,
+                        creation.Error.Message);
                 }
 
-                var firstSequence = supplierProduct.NextItemSequence;
-                supplierProduct.NextItemSequence = checked(firstSequence + requiredUnitCount);
-                supplierProduct.UpdatedAt = _clock.UtcNow;
-                supplierProduct.Version++;
-
-                _highWaterService.RecordSupplierProductHighWater(
-                    supplierProduct.SupplierId,
-                    supplierProduct.ProductId,
-                    supplierProduct.NextItemSequence);
-
-                for (var i = 0; i < requiredUnitCount; i++)
+                foreach (var unit in creation.Value)
                 {
-                    var identity = lineUnits[i];
-                    var itemSequence = checked(firstSequence + i);
-                    var trackingCode = TraceabilityCodeRules.BuildTrackingCode(
-                        dealerCode,
-                        product.Sku!,
-                        itemSequence);
-
-                    var unit = new InventoryUnit
-                    {
-                        ProductId = product.Id,
-                        SupplierProductId = supplierProduct.Id,
-                        OriginType = InventoryUnitOriginType.Purchase,
-                        ItemSequence = itemSequence,
-                        TrackingCode = trackingCode,
-                        SupplierCodeSnapshot = dealerCode,
-                        ProductSkuSnapshot = product.Sku,
-                        SerialNumber = NormalizeSerial(identity.SerialNumber),
-                        Imei1 = NormalizeImei(identity.Imei1),
-                        Imei2 = NormalizeImei(identity.Imei2),
-                        Status = InventoryUnitStatus.InStock,
-                        AcquisitionCost = effectiveUnitCost,
-                        InventoryLotId = lotId,
-                        SourcePurchaseItemId = purchaseItem.Id,
-                        CreatedAt = _clock.UtcNow,
-                        Version = 1
-                    };
-
-                    _inventory.AddInventoryUnit(unit);
                     _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
                     {
                         PurchaseItemId = purchaseItem.Id,
@@ -734,18 +814,10 @@ public sealed class ReceiveProductIntakeHandler
                         FromStatus = null,
                         ToStatus = InventoryUnitStatus.InStock
                     });
-
                     committedUnits.Add(new CommittedInventoryUnitDto(
-                        unit.Id,
-                        trackingCode,
-                        itemSequence,
-                        unit.SerialNumber,
-                        unit.Imei1,
-                        unit.Imei2,
-                        effectiveUnitCost));
-                }
-                }
-            }
+                        unit.Id, unit.TrackingCode!, unit.ItemSequence!.Value,
+                        unit.SerialNumber, unit.Imei1, unit.Imei2, unit.AcquisitionCost));
+                }            }
 
             var costState = await _inventory.GetCostStateForUpdateAsync(product.Id, ct)
                 ?? throw new BusinessRuleException(
@@ -754,6 +826,14 @@ public sealed class ReceiveProductIntakeHandler
 
             costState.LastPurchaseCost = effectiveUnitCost;
             costState.LastPurchaseAt = _clock.UtcNow;
+            costState.TotalInventoryCost = PurchaseReceiptCost.Round(costState.TotalInventoryCost +
+                receiptValue - PurchaseReceiptCost.Round(baseQuantity * receiptUnitCost));
+            costState.MovingAverageCost = PurchaseReceiptCost.Round(costState.TotalInventoryCost / costState.CostedQty);
+            var receivedLot = await _inventory.GetInventoryLotForUpdateAsync(lotId, ct);
+            if (receivedLot is not null)
+            {
+                receivedLot.OriginalUnitCost = effectiveUnitCost;
+            }
 
             if (_outcomeLedger is not null)
             {
@@ -875,6 +955,14 @@ public sealed class ReceiveProductIntakeHandler
 
     private static string? NormalizeImei(string? value) =>
         IdentityNormalizationRules.NormalizeOptionalImei(value);
+
+    private static IEnumerable<string> IntakeIdentityKeys(Product product, IReadOnlyList<SerializedIdentityInput> units) =>
+        units.SelectMany(x => new[]
+        {
+            product.SerialTrackingEnabled && NormalizeSerial(x.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
+            product.ImeiTrackingEnabled && NormalizeImei(x.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
+            product.ImeiTrackingEnabled && NormalizeImei(x.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
+        }).Where(x => x is not null).Select(x => x!).Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal);
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 4, MidpointRounding.AwayFromZero);

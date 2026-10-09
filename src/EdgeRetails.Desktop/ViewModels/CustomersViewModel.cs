@@ -6,6 +6,11 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class CustomerEditViewModel : ViewModelBase
 {
+    private int _submissionGate;
+    private bool _confirmed;
+    public bool IsBusy => Volatile.Read(ref _submissionGate) != 0;
+    public bool CanEdit => !IsBusy && !_confirmed;
+    public string SubmissionStatus => IsBusy ? "Submitting customer…" : string.Empty;
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
     private readonly IBackendBusinessOperationsService? _backendService;
     private readonly CustomerDirectoryRecord? _existing;
@@ -36,7 +41,7 @@ public sealed class CustomerEditViewModel : ViewModelBase
         _address = existing?.Address ?? string.Empty;
         _notes = existing?.Notes ?? string.Empty;
 
-        SaveCommand = new RelayCommand(async () => await SaveAsync());
+        SaveCommand = new RelayCommand(async () => await SaveAsync(), () => !IsBusy && !_confirmed);
         CancelCommand = new RelayCommand(_close);
     }
 
@@ -46,25 +51,25 @@ public sealed class CustomerEditViewModel : ViewModelBase
     public string Name
     {
         get => _name;
-        set => SetProperty(ref _name, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _name, value ?? string.Empty); } }
     }
 
     public string Phone
     {
         get => _phone;
-        set => SetProperty(ref _phone, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _phone, value ?? string.Empty); } }
     }
 
     public string Address
     {
         get => _address;
-        set => SetProperty(ref _address, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _address, value ?? string.Empty); } }
     }
 
     public string Notes
     {
         get => _notes;
-        set => SetProperty(ref _notes, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _notes, value ?? string.Empty); } }
     }
 
     public ICommand SaveCommand { get; }
@@ -72,21 +77,38 @@ public sealed class CustomerEditViewModel : ViewModelBase
 
     private async Task SaveAsync()
     {
+        if (Interlocked.CompareExchange(ref _submissionGate, 1, 0) != 0)
+        {
+            return;
+        }
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(SubmissionStatus));
+        ((RelayCommand)SaveCommand).NotifyCanExecuteChanged();
+        var name = Name;
+        var phone = Phone;
+        var address = Address;
+        var notes = Notes;
         try
         {
+            if (_confirmed)
+            {
+                return;
+            }
             if (_backendService is null)
             {
-                _service.SaveCustomer(_existing, Name, Phone, Address, Notes);
+                _service.SaveCustomer(_existing, name, phone, address, notes);
             }
             else
             {
                 await _backendService.SaveCustomerAsync(
                     _existing,
-                    Name,
-                    Phone,
-                    Address,
-                    Notes);
+                    name,
+                    phone,
+                    address,
+                    notes);
             }
+            _confirmed = true;
             _toastService.Show(
                 _existing is null ? "Customer added." : "Customer updated.",
                 ToastTone.Success);
@@ -96,9 +118,29 @@ public sealed class CustomerEditViewModel : ViewModelBase
         catch (Exception ex)
         {
             _toastService.Show(
-                DesktopErrorPresentation.ForException(ex, "Customer details could not be loaded."),
+                _confirmed
+                    ? "Customer saved. The customer list could not be refreshed; refresh it without saving again."
+                    : CustomerSaveFailure(ex),
                 ToastTone.Danger);
         }
+        finally
+        {
+            Interlocked.Exchange(ref _submissionGate, 0);
+            OnPropertyChanged(nameof(IsBusy));
+            OnPropertyChanged(nameof(CanEdit));
+            OnPropertyChanged(nameof(SubmissionStatus));
+            ((RelayCommand)SaveCommand).NotifyCanExecuteChanged();
+        }
+    }
+
+    private static string CustomerSaveFailure(Exception exception)
+    {
+        var rejected = exception is DesktopApiException apiError && apiError.StatusCode is not null
+            && (int)apiError.StatusCode < 500 && apiError.StatusCode != System.Net.HttpStatusCode.RequestTimeout
+            && apiError.StatusCode != System.Net.HttpStatusCode.Conflict;
+        return rejected
+            ? $"Customer save was rejected. {DesktopErrorPresentation.ForException(exception, "Review the submitted details and permissions.")}"
+            : $"Customer save outcome is unconfirmed. Check the original operation before retrying. {DesktopErrorPresentation.ForException(exception, "The Server did not confirm the save.")}";
     }
 }
 
@@ -127,6 +169,7 @@ public sealed class CustomerDetailViewModel : ViewModelBase
 
         CloseCommand = new RelayCommand(_drawerService.Close);
         EditCommand = new RelayCommand(Edit);
+        ToggleSuspensionCommand = new RelayCommand(async () => await ToggleSuspensionAsync(), () => !_changingStatus);
     }
 
     public CustomerDirectoryRecord Customer { get; }
@@ -135,6 +178,41 @@ public sealed class CustomerDetailViewModel : ViewModelBase
 
     public ICommand CloseCommand { get; }
     public ICommand EditCommand { get; }
+    private bool _changingStatus;
+    public string SuspensionAction => Customer.IsActive ? "Suspend Customer" : "Resume Customer";
+    public ICommand ToggleSuspensionCommand { get; }
+
+    private async Task ToggleSuspensionAsync()
+    {
+        if (_changingStatus)
+        {
+            return;
+        }
+        _changingStatus = true;
+        ((RelayCommand)ToggleSuspensionCommand).NotifyCanExecuteChanged();
+        var target = !Customer.IsActive;
+        try
+        {
+            if (_backendService is null)
+            {
+                throw new InvalidOperationException("Customer status authority is not attached.");
+            }
+            await _backendService.SetCustomerSuspensionAsync(Customer, !target);
+            Customer.IsActive = target;
+            OnPropertyChanged(nameof(SuspensionAction));
+            _updated?.Invoke();
+            _toastService.Show(target ? "Customer resumed." : "Customer suspended. Existing payments and history remain available.", ToastTone.Success);
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(DesktopErrorPresentation.ForException(ex, "Customer status could not be changed."), ToastTone.Danger);
+        }
+        finally
+        {
+            _changingStatus = false;
+            ((RelayCommand)ToggleSuspensionCommand).NotifyCanExecuteChanged();
+        }
+    }
 
     private void Edit()
     {
@@ -157,10 +235,27 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
     private bool _backendLoading;
     private CancellationTokenSource? _searchCts;
     private long _searchVersion;
+    private bool _disposed;
     private readonly IToastService _toastService;
     private readonly IDialogService _dialogService;
     private readonly IDrawerService _drawerService;
     private string _searchText = string.Empty;
+
+    private const int PageSize = 100;
+    private bool _hasMore;
+    public bool HasMoreCustomers
+    {
+        get => _hasMore;
+        private set
+        {
+            if (SetProperty(ref _hasMore, value))
+            {
+                OnPropertyChanged(nameof(CanLoadMoreCustomers));
+                ((RelayCommand)LoadMoreCustomersCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+    public bool CanLoadMoreCustomers => HasMoreCustomers && !_backendLoading;
 
     public CustomersViewModel(
         IToastService toastService,
@@ -176,6 +271,7 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
         FilteredCustomers = [];
         AddCustomerCommand = new RelayCommand(OpenAddCustomer);
         ViewCustomerCommand = new RelayCommand<CustomerDirectoryRecord>(OpenCustomer);
+        LoadMoreCustomersCommand = new RelayCommand(async () => await LoadMoreCustomersAsync(), () => CanLoadMoreCustomers);
 
         if (_backendService is null)
         {
@@ -190,6 +286,11 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        Interlocked.Increment(ref _searchVersion);
+        var pending = Interlocked.Exchange(ref _searchCts, null);
+        pending?.Cancel();
+        pending?.Dispose();
         if (_backendService is null)
         {
             _service.StateChanged -= OnStateChanged;
@@ -212,6 +313,7 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
 
     public ICommand AddCustomerCommand { get; }
     public ICommand ViewCustomerCommand { get; }
+    public ICommand LoadMoreCustomersCommand { get; }
 
     private void OpenAddCustomer()
     {
@@ -264,80 +366,130 @@ public sealed class CustomersViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task RefreshBackendAsync()
+    private Task RefreshBackendAsync() => LoadDirectoryAsync(SearchText, debounce: false);
+
+    private Task ScheduleSearchAsync(string search) => LoadDirectoryAsync(search, debounce: true);
+
+    private async Task LoadDirectoryAsync(string search, bool debounce)
     {
-        if (_backendService is null || _backendLoading)
+        if (_disposed)
         {
             return;
         }
 
+        if (_backendService is null)
+        {
+            Refresh();
+            return;
+        }
+
+        // Every read, including post-save refresh, participates in one ordering domain.
+        var version = Interlocked.Increment(ref _searchVersion);
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var previous = Interlocked.Exchange(ref _searchCts, cts);
+        previous?.Cancel();
+        previous?.Dispose();
         _backendLoading = true;
+        OnPropertyChanged(nameof(CanLoadMoreCustomers));
+        ((RelayCommand)LoadMoreCustomersCommand).NotifyCanExecuteChanged();
         try
         {
-            var customers = await _backendService.GetCustomersAsync(
-                string.IsNullOrWhiteSpace(SearchText) ? null : SearchText,
-                200);
+            if (debounce)
+            {
+                await Task.Delay(250, token);
+            }
+
+            var records = await _backendService.GetCustomersAsync(
+                string.IsNullOrWhiteSpace(search) ? null : search,
+                PageSize,
+                token);
+            if (_disposed || token.IsCancellationRequested || version != Volatile.Read(ref _searchVersion))
+            {
+                return;
+            }
+
             _backendCustomers.Clear();
-            _backendCustomers.AddRange(customers);
+            _backendCustomers.AddRange(records);
             _backendLoaded = true;
+            HasMoreCustomers = records.Count >= PageSize;
+            ApplyFilter(_backendCustomers);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed && !token.IsCancellationRequested && version == Volatile.Read(ref _searchVersion))
+            {
+                _toastService.Show(
+                    DesktopErrorPresentation.ForException(ex, "Customers could not be refreshed. Check the connection and try again."),
+                    ToastTone.Danger);
+            }
+        }
+        finally
+        {
+            if (version == Volatile.Read(ref _searchVersion))
+            {
+                _backendLoading = false;
+                OnPropertyChanged(nameof(CanLoadMoreCustomers));
+                ((RelayCommand)LoadMoreCustomersCommand).NotifyCanExecuteChanged();
+            }
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _searchCts, null, cts), cts))
+            {
+                cts.Dispose();
+            }
+        }
+    }
+
+    private async Task LoadMoreCustomersAsync()
+    {
+        if (_disposed || _backendService is null || _backendLoading || !HasMoreCustomers || _backendCustomers.Count == 0)
+        {
+            return;
+        }
+
+        var version = Volatile.Read(ref _searchVersion);
+        var search = SearchText;
+        _backendLoading = true;
+        OnPropertyChanged(nameof(CanLoadMoreCustomers));
+        ((RelayCommand)LoadMoreCustomersCommand).NotifyCanExecuteChanged();
+        try
+        {
+            // Deterministic keyset tie-breaker: (Name ASC, Id ASC)
+            var last = _backendCustomers[^1];
+            var beforeName = last.Name;
+            var beforeCustomerId = last.BackendId;
+
+            var next = await _backendService.GetCustomersAsync(
+                string.IsNullOrWhiteSpace(search) ? null : search,
+                PageSize,
+                beforeName,
+                beforeCustomerId);
+
+            if (_disposed || version != Volatile.Read(ref _searchVersion))
+            {
+                return;
+            }
+
+            _backendCustomers.AddRange(next);
+            HasMoreCustomers = next.Count >= PageSize;
             ApplyFilter(_backendCustomers);
         }
         catch (Exception ex)
         {
             _toastService.Show(
-                DesktopErrorPresentation.ForException(
-                    ex,
-                    "Customers could not be refreshed. Check the connection and try again."),
+                DesktopErrorPresentation.ForException(ex, "Failed to load more customers."),
                 ToastTone.Danger);
         }
         finally
         {
-            _backendLoading = false;
-        }
-    }
-
-    private async Task ScheduleSearchAsync(string search)
-    {
-        var version = Interlocked.Increment(ref _searchVersion);
-        var previous = Interlocked.Exchange(ref _searchCts, new CancellationTokenSource());
-        previous?.Cancel();
-        previous?.Dispose();
-        var cts = _searchCts!;
-
-        try
-        {
-            await Task.Delay(250, cts.Token);
-            if (_backendService is null || version != Volatile.Read(ref _searchVersion))
+            if (version == Volatile.Read(ref _searchVersion))
             {
-                Refresh();
-                return;
+                _backendLoading = false;
+                OnPropertyChanged(nameof(CanLoadMoreCustomers));
+                ((RelayCommand)LoadMoreCustomersCommand).NotifyCanExecuteChanged();
             }
-
-            var customers = await _backendService.GetCustomersAsync(
-                string.IsNullOrWhiteSpace(search) ? null : search,
-                200,
-                cts.Token);
-
-            if (version != Volatile.Read(ref _searchVersion) || cts.IsCancellationRequested)
-            {
-                return;
-            }
-
-            _backendCustomers.Clear();
-            _backendCustomers.AddRange(customers);
-            _backendLoaded = true;
-            ApplyFilter(_backendCustomers);
-        }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex) when (version == Volatile.Read(ref _searchVersion))
-        {
-            _toastService.Show(
-                DesktopErrorPresentation.ForException(
-                    ex,
-                    "Customer search failed. Check the connection and try again."),
-                ToastTone.Danger);
         }
     }
 

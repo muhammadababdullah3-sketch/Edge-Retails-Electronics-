@@ -16,7 +16,9 @@ public sealed record TransferInventoryConditionCommand(
     string ReferenceType = "INVENTORY_CONDITION",
     Guid? ReferenceId = null,
     IReadOnlyCollection<Guid>? InventoryUnitIds = null,
-    InventoryMovementType? MovementTypeOverride = null);
+    InventoryMovementType? MovementTypeOverride = null,
+    Guid? TargetLotId = null,
+    Guid? CorrelationId = null);
 
 public interface IInventoryConditionService
 {
@@ -95,6 +97,16 @@ public sealed class InventoryConditionService : IInventoryConditionService
                 "Stock-affecting operations are blocked while this product is being counted.");
         }
 
+        if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+        {
+            if (!EdgeRetails.Domain.Common.QuantityMath.IsWhole(command.BaseQuantity))
+            {
+                return Result<Guid>.Failure(
+                    "inventory.serialized_quantity_whole",
+                    "Serialized inventory quantity must be whole.");
+            }
+        }
+
         var quantity = EdgeRetails.Domain.Common.QuantityMath.RoundQuantity(command.BaseQuantity);
         var beforeFrom = balance.Get(command.From);
         var beforeTo = balance.Get(command.To);
@@ -120,28 +132,67 @@ public sealed class InventoryConditionService : IInventoryConditionService
         }
 
         balance.Transfer(command.From, command.To, quantity);
-        await _costAllocator.TransferBucketAsync(
-            product.Id,
-            command.From,
-            command.To,
-            quantity,
-            cancellationToken);
+        if (exactUnitsResult.Value!.Count > 0)
+        {
+            var lotTransfer = await ExactUnitLotTransfer.TransferAsync(_inventory, exactUnitsResult.Value,
+                command.From, command.To, cancellationToken);
+            if (!lotTransfer.IsSuccess)
+                return Result<Guid>.Failure(lotTransfer.Error!.Code, lotTransfer.Error.Message);
+        }
+        else if (command.TargetLotId is Guid targetLotId)
+        {
+            var source = await _inventory.GetLotBucketBalanceForUpdateAsync(targetLotId, command.From, cancellationToken);
+            if (source is null || source.Quantity < quantity)
+            {
+                return Result<Guid>.Failure("warranty.source_capacity_exceeded", "Selected source lot has insufficient quantity in the requested bucket.");
+            }
+            var target = await _inventory.GetLotBucketBalanceForUpdateAsync(targetLotId, command.To, cancellationToken);
+            if (target is null)
+            {
+                target = new InventoryLotBucketBalance { LotId = targetLotId, StockBucket = command.To };
+                _inventory.AddLotBucketBalance(target);
+            }
+            source.Quantity = EdgeRetails.Domain.Common.QuantityMath.RoundQuantity(source.Quantity - quantity);
+            target.Quantity = EdgeRetails.Domain.Common.QuantityMath.RoundQuantity(target.Quantity + quantity);
+        }
+        else
+        {
+            await _costAllocator.TransferBucketAsync(product.Id, command.From, command.To, quantity, cancellationToken);
+        }
 
         decimal recognizedLoss = 0m;
         if (command.To == InventoryBucket.Scrap)
         {
-            decimal? exactCost = null;
-            if (product.TrackingMode == TrackingMode.Serialized)
+            if (product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container))
             {
-                exactCost = exactUnitsResult.Value!
-                    .Sum(x => x.AcquisitionCost);
+                recognizedLoss = await _costAllocator.RemoveCarryingValueAsync(
+                    product.Id,
+                    quantity,
+                    null,
+                    cancellationToken);
             }
+            else
+            {
+                foreach (var u in exactUnitsResult.Value!)
+                {
+                    var unitBaseQuantity = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(u, cancellationToken);
+                    if (unitBaseQuantity <= 0m)
+                    {
+                        return Result<Guid>.Failure(
+                            "inventory.invalid_unit_quantity",
+                            $"Physical unit '{u.TrackingCode}' has invalid base quantity snapshot '{unitBaseQuantity}'.");
+                    }
 
-            recognizedLoss = await _costAllocator.RemoveCarryingValueAsync(
-                product.Id,
-                quantity,
-                exactCost,
-                cancellationToken);
+                    var perBaseCost = u.AcquisitionCost / unitBaseQuantity;
+                    var unitLoss = await _costAllocator.RemoveCarryingValueAsync(
+                        product.Id,
+                        unitBaseQuantity,
+                        perBaseCost,
+                        cancellationToken);
+
+                    recognizedLoss += unitLoss;
+                }
+            }
         }
 
         var movement = new InventoryMovement
@@ -156,7 +207,7 @@ public sealed class InventoryConditionService : IInventoryConditionService
                 MidpointRounding.AwayFromZero),
             ActorId = command.ActorId,
             OccurredAt = _clock.UtcNow,
-            CorrelationId = Guid.CreateVersion7(),
+            CorrelationId = command.CorrelationId ?? Guid.CreateVersion7(),
             Reason = command.Reason.Trim(),
             Note = command.Note?.Trim()
         };
@@ -199,7 +250,7 @@ public sealed class InventoryConditionService : IInventoryConditionService
         decimal quantity,
         CancellationToken cancellationToken)
     {
-        if (product.TrackingMode != TrackingMode.Serialized)
+        if (product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container))
         {
             if (command.InventoryUnitIds is { Count: > 0 })
             {
@@ -219,7 +270,8 @@ public sealed class InventoryConditionService : IInventoryConditionService
         }
 
         if (command.InventoryUnitIds is null ||
-            command.InventoryUnitIds.Count != decimal.ToInt32(quantity))
+            command.InventoryUnitIds.Count == 0 ||
+            (product.TrackingMode != TrackingMode.Container && command.InventoryUnitIds.Count != quantity))
         {
             return Result<IReadOnlyList<InventoryUnit>>.Failure(
                 "inventory.serialized_unit_count",
@@ -243,6 +295,16 @@ public sealed class InventoryConditionService : IInventoryConditionService
             return Result<IReadOnlyList<InventoryUnit>>.Failure(
                 "inventory.serialized_unit_not_found",
                 "One or more selected serialized units were not found.");
+        }
+
+        if (product.TrackingMode == TrackingMode.Container)
+        {
+            decimal selectedQuantity = 0m;
+            foreach (var unit in units)
+                selectedQuantity += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, cancellationToken);
+            if (selectedQuantity != quantity)
+                return Result<IReadOnlyList<InventoryUnit>>.Failure("inventory.container_quantity_mismatch",
+                    "Transfer quantity must match the original physical pack quantities.");
         }
 
         var expected = BucketStatus(command.From);

@@ -20,6 +20,7 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
     private decimal _settlementDiscount;
     private string _status;
     private string _notes;
+    private bool _customerIsActive = true;
 
     public ThakaProjectListItemViewModel(
         string id,
@@ -54,6 +55,7 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
     }
 
     public Guid? BackendProjectId { get; }
+    public bool CustomerIsActive { get => _customerIsActive; set => SetProperty(ref _customerIsActive, value); }
 
     public string Id
     {
@@ -191,6 +193,7 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(IsActive));
                 OnPropertyChanged(nameof(IsSettled));
+                OnPropertyChanged(nameof(IsSuspended));
                 OnPropertyChanged(nameof(StatusTone));
             }
         }
@@ -198,9 +201,11 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
 
     public bool IsActive => string.Equals(Status, "ACTIVE", StringComparison.OrdinalIgnoreCase);
 
+    public bool IsSuspended => string.Equals(Status, "SUSPENDED", StringComparison.OrdinalIgnoreCase);
+
     public bool IsSettled => string.Equals(Status, "SETTLED", StringComparison.OrdinalIgnoreCase);
 
-    public BadgeTone StatusTone => IsActive ? BadgeTone.Success : BadgeTone.Neutral;
+    public BadgeTone StatusTone => IsActive ? BadgeTone.Success : IsSuspended ? BadgeTone.Warning : BadgeTone.Neutral;
 
     public string Notes
     {

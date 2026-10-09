@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="880"
-    MaxHeight="680">
+    MaxHeight="680" Foreground="{DynamicResource Brush.Text.Primary}">
     <Border Background="{DynamicResource Brush.Surface.Raised}"
             BorderBrush="{DynamicResource Brush.Border.Default}"
             BorderThickness="1"
@@ -19,7 +19,7 @@
             <Border Grid.Row="0"
                     Padding="20,14"
                     BorderBrush="{DynamicResource Brush.Border.Default}"
-                    BorderThickness="0,0,0,1">
+                    BorderThickness="0,0,0,1" CornerRadius="0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -37,7 +37,7 @@
                         <TextBlock Text="{Binding PurchaseInfo}"
                                    Margin="0,1,0,0"
                                    FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{StaticResource Brush.Brand.Primary}" />
+                                   Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
                         <TextBlock Text="{Binding TrackingPolicyInfo}"
                                    Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
@@ -64,13 +64,13 @@
                     <Border Background="#FEE2E2" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="6"
                             Padding="10,8" Margin="0,0,0,12"
                             Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="{Binding ValidationMessage}" Foreground="#B91C1C" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource Brush.Badge.Danger.Text}" FontWeight="SemiBold" TextWrapping="Wrap" />
                     </Border>
 
                     <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="6"
                             Padding="10,8" Margin="0,0,0,12"
                             Visibility="{Binding HasPrintStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="{Binding PrintStatusMessage}" Foreground="#92400E" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding PrintStatusMessage}" Foreground="{DynamicResource Brush.Badge.Warning.Text}" FontWeight="SemiBold" TextWrapping="Wrap" />
                     </Border>
 
                     <!-- Intake Input Section (Visible when not completed) -->
@@ -150,7 +150,7 @@
                                 <TextBlock Text="COMMITTED PHYSICAL IDENTITIES"
                                            FontSize="12"
                                            FontWeight="Bold"
-                                           Foreground="{StaticResource Brush.Brand.Primary}" />
+                                           Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
                                 <TextBlock Text="{Binding CommittedUnits.Count, StringFormat=' ({0} units)'}"
                                            FontSize="12"
                                            Foreground="{DynamicResource Brush.Text.Muted}" />
@@ -206,7 +206,7 @@
             <Border Grid.Row="2"
                     Padding="18,12"
                     BorderBrush="{DynamicResource Brush.Border.Default}"
-                    BorderThickness="0,1,0,0">
+                    BorderThickness="0,1,0,0" CornerRadius="0">
                 <Grid>
                     <TextBlock Text="Code 128 barcode encodes full TrackingCode. Reprint preserves tracking code and never increments sequence."
                                FontSize="10.5"

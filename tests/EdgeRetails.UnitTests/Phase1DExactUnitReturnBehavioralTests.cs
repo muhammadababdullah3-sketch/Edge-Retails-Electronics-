@@ -69,7 +69,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork, outcomeLedger: _fakes.OutcomeLedger, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private CreatePurchaseReturnHandler CreatePurchaseReturnHandler() =>
         new(
@@ -77,6 +77,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             _fakes.Inventory,
             _fakes.CostAllocator,
             _fakes.SupplierAccounts,
+            _fakes.CashMovements,
             _fakes.OperationLock,
             _fakes.ResourceLock,
             _fakes.Audit,
@@ -594,7 +595,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
 
         // Unit B received from Supplier B
         var (purchaseB, itemB, _) = await SeedReceivedSerializedUnitAsync(
-            supplierB, product, pu, trackingCode: "AB2-SHARED-000001", itemSequence: 1);
+            supplierB, product, pu, trackingCode: "AB2-SHARED-000001", itemSequence: 1, serialNumber: "SN-SUPPLIER-B");
 
         var returnHandler = CreatePurchaseReturnHandler();
 

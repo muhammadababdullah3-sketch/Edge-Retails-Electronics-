@@ -154,7 +154,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _sessionContext,
                 _navigationService,
                 _toastService,
-                _dashboardService),
+                _dashboardService,
+                project => OnWorkspaceOpened(this, project)),
 
             NavigationTarget.POS => new PosViewModel(
                 _toastService,
@@ -315,7 +316,10 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
             _workflowReadService);
 
         workspace.BackRequested += (_, _) =>
+        {
+            projects.RefreshDirectory();
             _navigationService?.Navigate(NavigationTarget.ThakaProjects);
+        };
 
         return workspace;
     }

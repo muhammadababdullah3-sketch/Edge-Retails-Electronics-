@@ -1,4 +1,4 @@
-﻿# Edge Retails - Final Backend Architecture Report
+# Edge Retails - Final Backend Architecture Report
 ## Final Architecture Baseline Through Section 233
 
 **Product:** Edge Retails  
@@ -257,8 +257,8 @@ AttributesJson
 
 IsActive
 CreatedAt
-UpdatedAt
 Version
+(Note: Product tracks revisions via Version and audit ledger; no UpdatedAt column is mapped)
 ```
 
 Tracking modes:
@@ -266,6 +266,8 @@ Tracking modes:
 ```text
 QUANTITY
 LENGTH
+INDIVIDUAL_PIECE
+CONTAINER
 SERIALIZED
 ```
 
@@ -1262,8 +1264,8 @@ City
 Address
 IsActive
 CreatedAt
-UpdatedAt
 Version
+(Note: Supplier tracks revisions via Version and audit ledger; no UpdatedAt column is mapped)
 ```
 
 DealerCode rules:

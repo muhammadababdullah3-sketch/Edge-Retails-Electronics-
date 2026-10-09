@@ -8,8 +8,9 @@ using EdgeRetails.Domain.Finance;
 namespace EdgeRetails.Desktop.Services;
 
 /// <summary>Supplier/customer directories, expenses, and reports over the local Server API.</summary>
-public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiClient) : IBackendBusinessOperationsService
+public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiClient, IClientOperationIntentStore? operationIntents = null) : IBackendBusinessOperationsService
 {
+    private readonly IClientOperationIntentStore _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
     private Guid? _pendingExpenseOperationId;
     private string? _pendingExpensePayload;
     private Guid? _pendingCustomerOperationId;
@@ -20,10 +21,40 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
     public async Task<IReadOnlyList<string>> GetExpenseCategoriesAsync(CancellationToken cancellationToken = default) =>
         [.. (await apiClient.GetAsync<IReadOnlyList<ExpenseCategoryDto>>("/api/expenses/categories", cancellationToken)).Select(row => row.Name)];
 
-    public async Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(CancellationToken cancellationToken = default) =>
+        GetExpensesAsync(100, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<ExpenseRecord>> GetExpensesAsync(
+        int pageSize,
+        DateOnly? beforeExpenseDate = null,
+        Guid? beforeExpenseId = null,
+        CancellationToken cancellationToken = default)
     {
-        var rows = await GetAllExpensesAsync(cancellationToken);
-        return [.. rows.Select(MapExpense)];
+        var size = Math.Clamp(pageSize, 1, 200);
+        var path = $"/api/expenses?pageSize={size}";
+        if (beforeExpenseDate.HasValue && beforeExpenseId.HasValue)
+        {
+            path += $"&beforeExpenseDate={beforeExpenseDate.Value:yyyy-MM-dd}&beforeExpenseId={beforeExpenseId.Value:D}";
+        }
+
+        var page = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>(path, cancellationToken);
+        return [.. page.Select(MapExpense)];
+    }
+
+    public async Task VoidExpenseAsync(
+        Guid expenseId,
+        string reason,
+        Guid? clientOperationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var opId = clientOperationId ?? Guid.NewGuid();
+        var request = new
+        {
+            ClientOperationId = opId,
+            Reason = reason?.Trim() ?? string.Empty
+        };
+
+        await apiClient.PostAsync<object, object>($"/api/expenses/{expenseId:D}/void", request, cancellationToken);
     }
 
     public async Task<ExpenseRecord> PostExpenseAsync(string category, string subcategory, decimal amount,
@@ -67,32 +98,74 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
             _pendingExpensePayload = null;
             throw;
         }
-        var rows = await GetAllExpensesAsync(cancellationToken);
-        var committed = rows.SingleOrDefault(x => x.ExpenseId == result.ExpenseId)
-            ?? throw new InvalidOperationException("Expense was posted but could not be read back from backend authority; retry with the same operation intent.");
+        var rows = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>("/api/expenses?pageSize=50", cancellationToken);
+        var committed = rows.SingleOrDefault(x => x.ExpenseId == result.ExpenseId);
+        if (committed is null)
+        {
+            var dateOnly = DateOnly.FromDateTime(date);
+            var targeted = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>(
+                $"/api/expenses?pageSize=50&fromDate={dateOnly:yyyy-MM-dd}&toDate={dateOnly:yyyy-MM-dd}", cancellationToken);
+            committed = targeted.SingleOrDefault(x => x.ExpenseId == result.ExpenseId)
+                ?? throw new InvalidOperationException("Expense was posted but could not be read back from backend authority; retry with the same operation intent.");
+        }
         _pendingExpenseOperationId = null;
         _pendingExpensePayload = null;
         return MapExpense(committed);
     }
 
-    public async Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(string? search, int pageSize = 100,
-        CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(string? search, int pageSize = 100,
+        CancellationToken cancellationToken = default) =>
+        GetCustomersAsync(search, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<CustomerDirectoryRecord>> GetCustomersAsync(string? search, int pageSize,
+        string? beforeName, Guid? beforeCustomerId, CancellationToken cancellationToken = default)
     {
-        var rows = await GetAllCustomersAsync(search, cancellationToken);
-        return [.. rows.Select(x => new CustomerDirectoryRecord
+        var size = Math.Clamp(pageSize, 1, 200);
+        var path = $"/api/customers?includeInactive=true&pageSize={size}";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            path += $"&search={Uri.EscapeDataString(search.Trim())}";
+        }
+        if (!string.IsNullOrWhiteSpace(beforeName) && beforeCustomerId.HasValue)
+        {
+            path += $"&beforeName={Uri.EscapeDataString(beforeName)}&beforeCustomerId={beforeCustomerId.Value:D}";
+        }
+
+        var page = await apiClient.GetAsync<IReadOnlyList<CustomerDirectoryDto>>(path, cancellationToken);
+        return [.. page.Select(x => new CustomerDirectoryRecord
         {
             Id = x.CustomerId.ToString("D"), BackendId = x.CustomerId, Name = x.Name, Phone = x.Phone ?? string.Empty,
             Address = x.Address ?? string.Empty, Notes = x.Notes ?? string.Empty, LocalSales = x.NetSales,
-            LastSale = x.LastSaleAt?.LocalDateTime, ActiveThaka = x.ActiveThakaProject ?? "—"
+            LastSale = x.LastSaleAt?.LocalDateTime, ActiveThaka = x.ActiveThakaProject ?? "—",
+            ActiveThakaCount = x.ActiveThakaCount, CurrentThakaBalance = x.CurrentThakaBalance, IsActive = x.IsActive
         })];
     }
 
+    public async Task SetCustomerSuspensionAsync(CustomerDirectoryRecord customer, bool suspended,
+        CancellationToken cancellationToken = default)
+    {
+        var id = customer.BackendId ?? throw new InvalidOperationException("Customer is not attached to backend authority.");
+        var key = $"customer:suspension:{id:D}";
+        var operationId = _operationIntents.GetOrCreate(key, suspended.ToString());
+        try
+        {
+            await apiClient.PostAsync<CustomerSuspensionRequest, Guid>($"/api/customers/{id:D}/suspension",
+                new(operationId, suspended), cancellationToken);
+            _operationIntents.Complete(key, operationId);
+        }
+        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        {
+            _operationIntents.Complete(key, operationId);
+            throw;
+        }
+    }
+    private sealed record CustomerSuspensionRequest(Guid ClientOperationId, bool IsSuspended);
     public async Task SaveCustomerAsync(CustomerDirectoryRecord? existing, string name, string phone, string address,
         string notes, CancellationToken cancellationToken = default)
     {
-        var payload = string.Join("|", existing?.BackendId, name.Trim(), Normalize(phone), Normalize(address), Normalize(notes));
+        var payload = string.Join("|", existing?.BackendId, name.Trim(), Normalize(phone), Normalize(address), Normalize(notes), existing?.IsActive ?? true);
         var operationId = GetStableIntentId(ref _pendingCustomerOperationId, ref _pendingCustomerPayload, payload, "customer");
-        var request = new SaveCustomerRequest(name.Trim(), Normalize(phone), Normalize(address), true, Normalize(notes),
+        var request = new SaveCustomerRequest(name.Trim(), Normalize(phone), Normalize(address), existing?.IsActive ?? true, Normalize(notes),
             CorrelationId: Guid.CreateVersion7(), ClientOperationId: operationId);
         try
         {
@@ -116,11 +189,26 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
         }
     }
 
-    public async Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(string? search, int pageSize = 100,
-        CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(string? search, int pageSize = 100,
+        CancellationToken cancellationToken = default) =>
+        GetSuppliersAsync(search, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<SupplierDirectoryRecord>> GetSuppliersAsync(string? search, int pageSize,
+        string? beforeName, Guid? beforeSupplierId, CancellationToken cancellationToken = default)
     {
-        var rows = await GetAllSuppliersAsync(search, cancellationToken);
-        return [.. rows.Select(x => new SupplierDirectoryRecord
+        var size = Math.Clamp(pageSize, 1, 200);
+        var path = $"/api/suppliers?pageSize={size}";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            path += $"&search={Uri.EscapeDataString(search.Trim())}";
+        }
+        if (!string.IsNullOrWhiteSpace(beforeName) && beforeSupplierId.HasValue)
+        {
+            path += $"&beforeName={Uri.EscapeDataString(beforeName)}&beforeSupplierId={beforeSupplierId.Value:D}";
+        }
+
+        var page = await apiClient.GetAsync<IReadOnlyList<SupplierDirectoryDto>>(path, cancellationToken);
+        return [.. page.Select(x => new SupplierDirectoryRecord
         {
             Id = x.SupplierId.ToString("D"), BackendId = x.SupplierId, Name = x.Name, Phone = x.Phone ?? string.Empty,
             City = x.City ?? string.Empty, Address = x.Address ?? string.Empty, Notes = x.Notes ?? string.Empty,
@@ -129,12 +217,12 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
     }
 
     public async Task SaveSupplierAsync(SupplierDirectoryRecord? existing, string name, string phone, string city,
-        string address, string notes, CancellationToken cancellationToken = default)
+        string address, string notes, string? explicitDealerPrefix = null, CancellationToken cancellationToken = default)
     {
-        var payload = string.Join("|", existing?.BackendId, name.Trim(), Normalize(phone), Normalize(city), Normalize(address), Normalize(notes));
+        var payload = string.Join("|", existing?.BackendId, name.Trim(), Normalize(phone), Normalize(city), Normalize(address), Normalize(notes), Normalize(explicitDealerPrefix));
         var operationId = GetStableIntentId(ref _pendingSupplierOperationId, ref _pendingSupplierPayload, payload, "supplier");
         var request = new SaveSupplierRequest(name.Trim(), Normalize(phone), Normalize(city), Normalize(address), true,
-            Normalize(notes), CorrelationId: Guid.CreateVersion7(), ClientOperationId: operationId);
+            Normalize(notes), ExplicitDealerPrefix: Normalize(explicitDealerPrefix), CorrelationId: Guid.CreateVersion7(), ClientOperationId: operationId);
         try
         {
             if (existing?.BackendId is Guid id)
@@ -181,85 +269,6 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
         };
     }
 
-    private async Task<IReadOnlyList<ExpenseRowDto>> GetAllExpensesAsync(CancellationToken cancellationToken)
-    {
-        const int pageSize = 500;
-        var result = new List<ExpenseRowDto>();
-        DateOnly? beforeDate = null;
-        Guid? beforeId = null;
-        while (true)
-        {
-            var path = $"/api/expenses?pageSize={pageSize}";
-            if (beforeDate.HasValue && beforeId.HasValue)
-            {
-                path += $"&beforeExpenseDate={beforeDate:yyyy-MM-dd}&beforeExpenseId={beforeId:D}";
-            }
-
-            var page = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>(path, cancellationToken);
-            result.AddRange(page);
-            if (page.Count < pageSize)
-            {
-                return result;
-            }
-
-            var last = page[^1];
-            beforeDate = last.ExpenseDate;
-            beforeId = last.ExpenseId;
-        }
-    }
-
-    private async Task<IReadOnlyList<CustomerDirectoryDto>> GetAllCustomersAsync(string? search, CancellationToken cancellationToken)
-    {
-        const int pageSize = 500;
-        var result = new List<CustomerDirectoryDto>();
-        string? beforeName = null;
-        Guid? beforeId = null;
-        while (true)
-        {
-            var path = $"/api/customers?search={Uri.EscapeDataString(search ?? string.Empty)}&pageSize={pageSize}";
-            if (beforeName is not null && beforeId.HasValue)
-            {
-                path += $"&beforeName={Uri.EscapeDataString(beforeName)}&beforeCustomerId={beforeId:D}";
-            }
-
-            var page = await apiClient.GetAsync<IReadOnlyList<CustomerDirectoryDto>>(path, cancellationToken);
-            result.AddRange(page);
-            if (page.Count < pageSize)
-            {
-                return result;
-            }
-
-            beforeName = page[^1].Name;
-            beforeId = page[^1].CustomerId;
-        }
-    }
-
-    private async Task<IReadOnlyList<SupplierDirectoryDto>> GetAllSuppliersAsync(string? search, CancellationToken cancellationToken)
-    {
-        const int pageSize = 500;
-        var result = new List<SupplierDirectoryDto>();
-        string? beforeName = null;
-        Guid? beforeId = null;
-        while (true)
-        {
-            var path = $"/api/suppliers?search={Uri.EscapeDataString(search ?? string.Empty)}&pageSize={pageSize}";
-            if (beforeName is not null && beforeId.HasValue)
-            {
-                path += $"&beforeName={Uri.EscapeDataString(beforeName)}&beforeSupplierId={beforeId:D}";
-            }
-
-            var page = await apiClient.GetAsync<IReadOnlyList<SupplierDirectoryDto>>(path, cancellationToken);
-            result.AddRange(page);
-            if (page.Count < pageSize)
-            {
-                return result;
-            }
-
-            beforeName = page[^1].Name;
-            beforeId = page[^1].SupplierId;
-        }
-    }
-
     private static Guid GetStableIntentId(ref Guid? id, ref string? payload, string requestedPayload, string operation)
     {
         if (id.HasValue && payload != requestedPayload)
@@ -287,7 +296,7 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private sealed record SaveCustomerRequest(string Name, string? Phone, string? Address, bool IsActive, string? Notes, Guid? ActorId = null, Guid? CorrelationId = null, Guid? ClientOperationId = null);
+    private sealed record SaveCustomerRequest(string Name, string? Phone, string? Address, bool IsActive, string? Notes, Guid? ActorId = null, Guid? CorrelationId = null, Guid? ClientOperationId = null, bool PreserveActivityStatus = true);
     private sealed record SaveSupplierRequest(string Name, string? Phone, string? City, string? Address, bool IsActive, string? Notes, string? ExplicitDealerPrefix = null, Guid? ActorId = null, Guid? CorrelationId = null, Guid? ClientOperationId = null);
     private sealed record PostExpenseRequest(Guid ClientOperationId, Guid CategoryId, Guid? SubcategoryId, DateOnly ExpenseDate, decimal Amount, ExpensePaymentMethod PaymentMethod, string Description, string? Reference = null, Guid? ActorId = null);
     private sealed record PostExpenseResult(Guid ExpenseId, string ExpenseNumber, bool WasExisting);

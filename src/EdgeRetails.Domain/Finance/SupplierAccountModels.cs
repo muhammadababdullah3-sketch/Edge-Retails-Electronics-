@@ -32,7 +32,9 @@ public enum SupplierPaymentPurpose
 public enum SupplierSettlementMethod
 {
     CashDrawer = 1,
-    External = 2
+    External = 2,
+    Bank = 3,
+    Other = 4
 }
 
 public enum SupplierSettlementStatus

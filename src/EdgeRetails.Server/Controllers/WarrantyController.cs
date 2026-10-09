@@ -221,7 +221,7 @@ public sealed class WarrantyController : ControllerBase
         var command = new ReceiveShopStockWarrantyCommand(
             id, request.Resolution, RequireActorId(request.ActorId), request.OriginalInventoryUnitIds,
             request.ReplacementUnits, request.Note, request.ClientOperationId,
-            request.SupplierCreditAmount, request.SupplierReference);
+            request.SupplierCreditAmount, request.SupplierReference, request.ResolvedQuantity);
         return ToActionResult(await _receiveShopStockHandler.HandleAsync(command, cancellationToken));
     }
 
@@ -264,4 +264,4 @@ public sealed record WarrantyClaimActionRequest(Guid ClientOperationId, string? 
 public sealed record WarrantyResolutionRequest(Guid ClientOperationId, EdgeRetails.Domain.Warranty.WarrantyResolutionType Resolution, string? Note = null, Guid? ActorId = null);
 public sealed record CustomerWarrantyReplacementRequest(Guid ClientOperationId, IReadOnlyList<CustomerWarrantyReplacementUnitInput> Units, string? Note = null, Guid? ActorId = null);
 public sealed record SendShopStockWarrantyRequest(Guid ProductId, EdgeRetails.Domain.Inventory.InventoryBucket SourceBucket, decimal BaseQuantity, Guid SupplierId, Guid? SourcePurchaseItemId, string FaultDescription, Guid ClientOperationId, IReadOnlyCollection<Guid>? InventoryUnitIds = null, Guid? ActorId = null);
-public sealed record ReceiveShopStockWarrantyRequest(EdgeRetails.Domain.Warranty.WarrantyResolutionType Resolution, Guid ClientOperationId, IReadOnlyCollection<Guid>? OriginalInventoryUnitIds = null, IReadOnlyList<ReplacementSerializedUnitInput>? ReplacementUnits = null, string? Note = null, decimal? SupplierCreditAmount = null, string? SupplierReference = null, Guid? ActorId = null);
+public sealed record ReceiveShopStockWarrantyRequest(EdgeRetails.Domain.Warranty.WarrantyResolutionType Resolution, Guid ClientOperationId, IReadOnlyCollection<Guid>? OriginalInventoryUnitIds = null, IReadOnlyList<ReplacementSerializedUnitInput>? ReplacementUnits = null, string? Note = null, decimal? SupplierCreditAmount = null, string? SupplierReference = null, Guid? ActorId = null, decimal? ResolvedQuantity = null);

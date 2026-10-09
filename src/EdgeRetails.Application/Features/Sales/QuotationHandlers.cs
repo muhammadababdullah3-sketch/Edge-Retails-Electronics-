@@ -92,7 +92,7 @@ public sealed class CreateQuotationHandler
             string? customerNameSnapshot = Normalize(command.CustomerName);
             if (command.CustomerId is not null)
             {
-                var customer = await _parties.GetCustomerAsync(
+                var customer = await _parties.GetCustomerForUpdateAsync(
                     command.CustomerId.Value,
                     ct);
                 if (customer is null || !customer.IsActive)
@@ -308,7 +308,7 @@ public sealed class UpdateQuotationHandler
             string? customerNameSnapshot = NormalizeUpdate(command.CustomerName);
             if (command.CustomerId is not null)
             {
-                var customer = await _parties.GetCustomerAsync(
+                var customer = await _parties.GetCustomerForUpdateAsync(
                     command.CustomerId.Value,
                     ct);
                 if (customer is null || !customer.IsActive)

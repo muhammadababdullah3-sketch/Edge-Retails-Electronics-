@@ -20,7 +20,7 @@
     <sys:Double x:Key="Dimension.TopBar.Height">56</sys:Double>
     <GridLength x:Key="Dimension.TopBar.GridLength">56</GridLength>
     <sys:Double x:Key="Dimension.Control.Standard">36</sys:Double>
-    <sys:Double x:Key="Dimension.Control.Compact">28</sys:Double>
+    <sys:Double x:Key="Dimension.Control.Compact">32</sys:Double>
     <sys:Double x:Key="Dimension.Button.CompactAction">32</sys:Double>
     <sys:Double x:Key="Dimension.Button.Standard">36</sys:Double>
     <sys:Double x:Key="Dimension.Button.PrimaryAction">48</sys:Double>
@@ -38,6 +38,7 @@
 
     <Thickness x:Key="Padding.Control.Standard">14,0</Thickness>
     <Thickness x:Key="Padding.Input.Standard">12,0</Thickness>
+    <Thickness x:Key="Padding.Input.Compact">8,0</Thickness>
     <Thickness x:Key="Padding.Sidebar.Navigation">10.5</Thickness>
     <Thickness x:Key="Padding.TopBar">21,0</Thickness>
     <Thickness x:Key="Padding.Card.Standard">14</Thickness>

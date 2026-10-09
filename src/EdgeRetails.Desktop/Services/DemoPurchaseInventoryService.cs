@@ -78,6 +78,7 @@ public sealed class PurchaseRecord
     public Guid? BackendPurchaseId { get; init; }
     public Guid? BackendSupplierId { get; init; }
     public bool IsVoided { get; init; }
+    public bool StockReceivedImmediately { get; set; } = true;
     public required string PurchaseNumber { get; init; }
     public required string Supplier { get; init; }
     public string? SupplierCode { get; init; }

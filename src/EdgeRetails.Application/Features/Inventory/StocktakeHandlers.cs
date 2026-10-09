@@ -359,7 +359,7 @@ public sealed class RecordStocktakeCountHandler
                     "Product was not found.");
             }
 
-            if (product.TrackingMode == TrackingMode.Serialized)
+            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
             {
                 return Result.Failure(
                     "inventory.serialized_stocktake_scan_required",
@@ -449,7 +449,7 @@ public sealed class RecordSerializedStocktakeHandler
             }
 
             var product = await _catalog.GetProductAsync(command.ProductId, ct);
-            if (product is null || product.TrackingMode != TrackingMode.Serialized)
+            if (product is null || product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container))
             {
                 return Result.Failure(
                     "inventory.product_not_serialized",
@@ -544,6 +544,12 @@ public sealed class RecordSerializedStocktakeHandler
             }
 
             item.CountedSellableQty = foundKnown.Count(x => x.Status == InventoryUnitStatus.InStock);
+            if (product.TrackingMode == TrackingMode.Container)
+            {
+                item.CountedSellableQty = 0m;
+                foreach (var unit in foundKnown.Where(x => x.Status == InventoryUnitStatus.InStock))
+                    item.CountedSellableQty += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+            }
             item.CountedBy = command.ActorId;
             item.CountedAt = _clock.UtcNow;
             item.ReviewNote = command.ReviewNote?.Trim();
@@ -848,6 +854,61 @@ public sealed class PostStocktakeHandler
                     continue;
                 }
 
+                if (variance < 0 &&
+                    product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                {
+                    var removalQty = Math.Abs(variance);
+                    var missingChecks = unitChecks
+                        .Where(x => x.Result == StocktakeUnitCheckResult.Missing)
+                        .ToArray();
+
+                    if (missingChecks.Any(x => x.InventoryUnitId is null) ||
+                        missingChecks.Select(x => x.InventoryUnitId).Distinct().Count() != missingChecks.Length ||
+                        (product.TrackingMode != TrackingMode.Container && missingChecks.Length != removalQty))
+                    {
+                        return Result.Failure(
+                            "inventory.stocktake_serialized_missing_mismatch",
+                            "Distinct missing physical units must match the quantity variance.");
+                    }
+
+                    var missingIds = missingChecks.Select(x => x.InventoryUnitId!.Value).ToArray();
+                    var missingUnits = await _inventory.GetInventoryUnitsForUpdateAsync(product.Id, missingIds, ct);
+                    if (missingUnits.Count != missingIds.Length ||
+                        missingUnits.Any(x => x.Status != InventoryUnitStatus.InStock || x.InventoryLotId is null))
+                    {
+                        return Result.Failure(
+                            "inventory.stocktake_serialized_state_changed",
+                            "A serialized unit changed state or lost its lot origin before posting.");
+                    }
+
+                    var baseQuantities = new Dictionary<Guid, decimal>();
+                    foreach (var unit in missingUnits)
+                        baseQuantities[unit.Id] = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                    if (baseQuantities.Values.Any(x => x <= 0m) || baseQuantities.Values.Sum() != removalQty)
+                    {
+                        return Result.Failure(
+                            "inventory.stocktake_serialized_missing_mismatch",
+                            "Missing physical units do not match the quantity variance.");
+                    }
+
+                    try
+                    {
+                        await ExactMissingSourcePosting.PostAsync(
+                            _inventory, _costAllocator, product.Id, missingUnits, baseQuantities, balance,
+                            InventoryBucket.Sellable, InventoryMovementType.PhysicalCountCorrection,
+                            "STOCKTAKE", stocktake.Id, command.ActorId, command.ClientOperationId,
+                            _clock.UtcNow, "PHYSICAL_COUNT", item.ReviewNote, ct);
+                    }
+                    catch (BusinessRuleException ex)
+                    {
+                        return Result.Failure(ex.Code, ex.Message);
+                    }
+
+                    // The exact-unit source movements already carry the real removal
+                    // effects and allocated loss. Do not add an aggregate duplicate.
+                    continue;
+                }
+
                 var before = balance.SellableQty;
                 var movement = new InventoryMovement
                 {
@@ -865,7 +926,7 @@ public sealed class PostStocktakeHandler
 
                 if (variance > 0)
                 {
-                    if (product.TrackingMode == TrackingMode.Serialized)
+                    if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
                     {
                         return Result.Failure(
                             "inventory.stocktake_serialized_positive_requires_adjustment",
@@ -881,11 +942,11 @@ public sealed class PostStocktakeHandler
                                    product.ReferencePurchaseCost ??
                                    await _costAllocator.GetCurrentUnitCostAsync(product.Id, ct);
 
-                    if (unitCost is null || unitCost <= 0)
+                    if (unitCost is null || unitCost < 0m || (unitCost == 0m && suppliedCost is null))
                     {
                         return Result.Failure(
                             "inventory.stocktake_positive_cost_required",
-                            "Positive stock variance requires a valid unit cost basis.");
+                            "Positive stock variance requires a valid cost basis; free stock must provide zero explicitly.");
                     }
 
                     balance.ApplyDelta(InventoryBucket.Sellable, variance);
@@ -903,103 +964,22 @@ public sealed class PostStocktakeHandler
                 else
                 {
                     var removalQty = Math.Abs(variance);
-                    decimal loss = 0m;
-
-                    if (product.TrackingMode == TrackingMode.Serialized)
-                    {
-                        var missingChecks = unitChecks
-                            .Where(x => x.Result == StocktakeUnitCheckResult.Missing &&
-                                        x.InventoryUnitId is not null)
-                            .ToArray();
-
-                        if (missingChecks.Length != decimal.ToInt32(removalQty))
-                        {
-                            return Result.Failure(
-                                "inventory.stocktake_serialized_missing_mismatch",
-                                "Serialized missing-unit count does not match the quantity variance.");
-                        }
-
-                        var missingIds = missingChecks
-                            .Select(x => x.InventoryUnitId!.Value)
-                            .ToArray();
-
-                        var missingUnits = await _inventory.GetInventoryUnitsForUpdateAsync(
-                            product.Id,
-                            missingIds,
-                            ct);
-
-                        if (missingUnits.Count != missingIds.Length ||
-                            missingUnits.Any(x =>
-                                x.Status != InventoryUnitStatus.InStock ||
-                                x.InventoryLotId is null))
-                        {
-                            return Result.Failure(
-                                "inventory.stocktake_serialized_state_changed",
-                                "A serialized unit changed state or lost its lot origin before posting.");
-                        }
-
-                        foreach (var unit in missingUnits.OrderBy(x => x.Id))
-                        {
-                            var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
-                                unit.InventoryLotId!.Value,
-                                InventoryBucket.Sellable,
-                                ct);
-                            if (lotBalance is null || lotBalance.Quantity < 1m)
-                            {
-                                return Result.Failure(
-                                    "inventory.stocktake_serialized_lot_changed",
-                                    "A serialized unit lot is no longer available for write-off.");
-                            }
-
-                            lotBalance.Quantity = QuantityMath.RoundQuantity(
-                                lotBalance.Quantity - 1m);
-
-                            _inventory.AddLotConsumption(new InventoryLotConsumption
-                            {
-                                LotId = unit.InventoryLotId.Value,
-                                MovementId = movement.Id,
-                                Quantity = 1m,
-                                UnitCostSnapshot = unit.AcquisitionCost,
-                                TotalCostSnapshot = unit.AcquisitionCost,
-                                OccurredAt = _clock.UtcNow
-                            });
-
-                            loss += await _costAllocator.RemoveCarryingValueAsync(
-                                product.Id,
-                                1m,
-                                unit.AcquisitionCost,
-                                ct);
-
-                            unit.Status = InventoryUnitStatus.Scrapped;
-                            unit.Version++;
-                            _inventory.AddMovementUnit(new InventoryMovementUnit
-                            {
-                                MovementId = movement.Id,
-                                InventoryUnitId = unit.Id,
-                                FromStatus = InventoryUnitStatus.InStock,
-                                ToStatus = InventoryUnitStatus.Scrapped
-                            });
-                        }
-                    }
-                    else
-                    {
-                        loss = await _costAllocator.RemoveCarryingValueAsync(
-                            product.Id,
-                            removalQty,
-                            null,
-                            ct);
-                        var stocktakeUnitCost = decimal.Round(
-                            loss / removalQty,
-                            6,
-                            MidpointRounding.AwayFromZero);
-                        await _costAllocator.ConsumeBucketAsync(
-                            product.Id,
-                            InventoryBucket.Sellable,
-                            removalQty,
-                            movement.Id,
-                            stocktakeUnitCost,
-                            ct);
-                    }
+                    var loss = await _costAllocator.RemoveCarryingValueAsync(
+                        product.Id,
+                        removalQty,
+                        null,
+                        ct);
+                    var stocktakeUnitCost = decimal.Round(
+                        loss / removalQty,
+                        6,
+                        MidpointRounding.AwayFromZero);
+                    await _costAllocator.ConsumeBucketAsync(
+                        product.Id,
+                        InventoryBucket.Sellable,
+                        removalQty,
+                        movement.Id,
+                        stocktakeUnitCost,
+                        ct);
 
                     balance.ApplyDelta(InventoryBucket.Sellable, -removalQty);
                     movement.RecognizedLossAmount = decimal.Round(

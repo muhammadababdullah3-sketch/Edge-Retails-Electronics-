@@ -1808,12 +1808,10 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasName("pk_units");
 
                     b.HasIndex("Imei1")
-                        .IsUnique()
                         .HasDatabaseName("ix_units_imei1")
                         .HasFilter("imei1 IS NOT NULL");
 
                     b.HasIndex("Imei2")
-                        .IsUnique()
                         .HasDatabaseName("ix_units_imei2")
                         .HasFilter("imei2 IS NOT NULL");
 
@@ -1821,7 +1819,6 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_units_inventory_lot_id");
 
                     b.HasIndex("SerialNumber")
-                        .IsUnique()
                         .HasDatabaseName("ix_units_serial_number")
                         .HasFilter("serial_number IS NOT NULL");
 
@@ -1904,11 +1901,13 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_unit_identity_claims");
 
+                    b.HasAlternateKey("Id", "NormalizedValue")
+                        .HasName("ak_unit_identity_claims_id_normalized_value");
+
                     b.HasIndex("InventoryUnitId")
                         .HasDatabaseName("ix_unit_identity_claims_inventory_unit_id");
 
                     b.HasIndex("IdentifierType", "NormalizedValue")
-                        .IsUnique()
                         .HasDatabaseName("ix_unit_identity_claims_identifier_type_normalized_value");
 
                     b.HasIndex("InventoryUnitId", "IdentifierSlot")
@@ -1923,6 +1922,30 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_inventory_unit_identity_claim_value_nonempty", "length(btrim(normalized_value)) > 0");
                         });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Inventory.InventoryUnitIdentityOwnership", b =>
+                {
+                    b.Property<string>("NormalizedValue")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("normalized_value");
+
+                    b.Property<Guid>("InventoryUnitIdentityClaimId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_unit_identity_claim_id");
+
+                    b.HasKey("NormalizedValue")
+                        .HasName("pk_unit_identity_ownership");
+
+                    b.HasIndex("InventoryUnitIdentityClaimId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_unit_identity_ownership_inventory_unit_identity_claim_id");
+
+                    b.HasIndex("InventoryUnitIdentityClaimId", "NormalizedValue")
+                        .HasDatabaseName("ix_unit_identity_ownership_inventory_unit_identity_claim_id_no~");
+
+                    b.ToTable("unit_identity_ownership", "inventory");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Inventory.ProductCostState", b =>
@@ -4729,6 +4752,77 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.SaleReturnSourceAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<decimal>("BaseQuantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("base_quantity");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid?>("RestoredInventoryLotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restored_inventory_lot_id");
+
+                    b.Property<Guid>("ReturnMovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("return_movement_id");
+
+                    b.Property<Guid>("SaleConsumptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sale_consumption_id");
+
+                    b.Property<Guid>("SaleReturnItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sale_return_item_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sale_return_source_allocations");
+
+                    b.HasIndex("ActorId")
+                        .HasDatabaseName("ix_sale_return_source_allocations_actor_id");
+
+                    b.HasIndex("ClientOperationId")
+                        .HasDatabaseName("ix_sale_return_source_allocation_operation");
+
+                    b.HasIndex("RestoredInventoryLotId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sale_return_source_allocation_restored_lot")
+                        .HasFilter("restored_inventory_lot_id IS NOT NULL");
+
+                    b.HasIndex("ReturnMovementId")
+                        .HasDatabaseName("ix_sale_return_source_allocations_return_movement_id");
+
+                    b.HasIndex("SaleConsumptionId")
+                        .HasDatabaseName("ix_sale_return_source_allocations_sale_consumption_id");
+
+                    b.HasIndex("SaleReturnItemId", "SaleConsumptionId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sale_return_source_allocation_consumption");
+
+                    b.ToTable("sale_return_source_allocations", "warranty", t =>
+                        {
+                            t.HasCheckConstraint("ck_sale_return_source_allocation_operation_required", "client_operation_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_sale_return_source_allocation_quantity_positive", "base_quantity > 0");
+                        });
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopStockWarrantyCase", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4842,6 +4936,176 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.ToTable("shop_stock_cases", "warranty", t =>
                         {
                             t.HasCheckConstraint("ck_shop_warranty_quantity_positive", "base_quantity > 0");
+                        });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopWarrantyResolutionAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<decimal>("ActualResolvedCarryingValue")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("actual_resolved_carrying_value");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid?>("ReplacementInventoryLotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replacement_inventory_lot_id");
+
+                    b.Property<Guid>("ResolutionMovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resolution_movement_id");
+
+                    b.Property<int>("ResolutionOutcome")
+                        .HasColumnType("integer")
+                        .HasColumnName("resolution_outcome");
+
+                    b.Property<decimal?>("ResolutionTimeMwaUnitCostSnapshot")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("resolution_time_mwa_unit_cost_snapshot");
+
+                    b.Property<decimal>("ResolvedBaseQuantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("resolved_base_quantity");
+
+                    b.Property<Guid>("SendAllocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("send_allocation_id");
+
+                    b.Property<decimal?>("SupplierCreditAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("supplier_credit_amount");
+
+                    b.HasKey("Id")
+                        .HasName("pk_shop_resolution_allocations");
+
+                    b.HasIndex("ActorId")
+                        .HasDatabaseName("ix_shop_resolution_allocations_actor_id");
+
+                    b.HasIndex("ClientOperationId")
+                        .HasDatabaseName("ix_shop_resolution_allocation_operation");
+
+                    b.HasIndex("ReplacementInventoryLotId")
+                        .HasDatabaseName("ix_shop_resolution_allocations_replacement_inventory_lot_id");
+
+                    b.HasIndex("ResolutionMovementId")
+                        .HasDatabaseName("ix_shop_resolution_allocations_resolution_movement_id");
+
+                    b.HasIndex("SendAllocationId", "ClientOperationId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_shop_resolution_allocation_operation");
+
+                    b.ToTable("shop_resolution_allocations", "warranty", t =>
+                        {
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_credit", "(resolution_outcome = 4 AND supplier_credit_amount IS NOT NULL) OR (resolution_outcome <> 4 AND supplier_credit_amount IS NULL)");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_operation_required", "client_operation_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_outcome", "resolution_outcome IN (1, 2, 3, 4, 7)");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_quantity_positive", "resolved_base_quantity > 0");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_replacement", "replacement_inventory_lot_id IS NULL OR resolution_outcome = 2");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_valuation", "(resolution_outcome IN (1, 2, 3) AND actual_resolved_carrying_value = 0 AND resolution_time_mwa_unit_cost_snapshot IS NULL) OR (resolution_outcome IN (4, 7) AND resolution_time_mwa_unit_cost_snapshot IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_shop_resolution_allocation_values_nonnegative", "actual_resolved_carrying_value >= 0 AND (resolution_time_mwa_unit_cost_snapshot IS NULL OR resolution_time_mwa_unit_cost_snapshot >= 0) AND (supplier_credit_amount IS NULL OR supplier_credit_amount >= 0)");
+                        });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopWarrantySendAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<decimal>("BaseQuantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("base_quantity");
+
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("case_id");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid>("OriginalInventoryLotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("original_inventory_lot_id");
+
+                    b.Property<Guid>("SendMovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("send_movement_id");
+
+                    b.Property<decimal>("SendTimeCarryingValueSnapshot")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("send_time_carrying_value_snapshot");
+
+                    b.Property<decimal>("SendTimeMwaUnitCostSnapshot")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("send_time_mwa_unit_cost_snapshot");
+
+                    b.Property<decimal>("SourceUnitCostSnapshot")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("source_unit_cost_snapshot");
+
+                    b.HasKey("Id")
+                        .HasName("pk_shop_send_allocations");
+
+                    b.HasIndex("ActorId")
+                        .HasDatabaseName("ix_shop_send_allocations_actor_id");
+
+                    b.HasIndex("ClientOperationId")
+                        .HasDatabaseName("ix_shop_send_allocation_operation");
+
+                    b.HasIndex("OriginalInventoryLotId")
+                        .HasDatabaseName("ix_shop_send_allocations_original_inventory_lot_id");
+
+                    b.HasIndex("SendMovementId")
+                        .HasDatabaseName("ix_shop_send_allocations_send_movement_id");
+
+                    b.HasIndex("CaseId", "OriginalInventoryLotId", "SendMovementId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_shop_send_allocation_source");
+
+                    b.ToTable("shop_send_allocations", "warranty", t =>
+                        {
+                            t.HasCheckConstraint("ck_shop_send_allocation_operation_required", "client_operation_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_shop_send_allocation_quantity_positive", "base_quantity > 0");
+
+                            t.HasCheckConstraint("ck_shop_send_allocation_values_nonnegative", "source_unit_cost_snapshot >= 0 AND send_time_mwa_unit_cost_snapshot >= 0 AND send_time_carrying_value_snapshot >= 0");
                         });
                 });
 
@@ -5093,6 +5357,61 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasFilter("replacement_inventory_unit_id IS NOT NULL");
 
                     b.ToTable("claim_item_units", "warranty");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.WarrantyClaimSourceAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<decimal>("BaseQuantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("base_quantity");
+
+                    b.Property<Guid>("ClaimItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claim_item_id");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid>("SaleConsumptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sale_consumption_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_claim_source_allocations");
+
+                    b.HasIndex("ActorId")
+                        .HasDatabaseName("ix_claim_source_allocations_actor_id");
+
+                    b.HasIndex("ClientOperationId")
+                        .HasDatabaseName("ix_claim_source_allocation_operation");
+
+                    b.HasIndex("SaleConsumptionId")
+                        .HasDatabaseName("ix_claim_source_allocations_sale_consumption_id");
+
+                    b.HasIndex("ClaimItemId", "SaleConsumptionId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_claim_source_allocation_consumption");
+
+                    b.ToTable("claim_source_allocations", "warranty", t =>
+                        {
+                            t.HasCheckConstraint("ck_claim_source_allocation_operation_required", "client_operation_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_claim_source_allocation_quantity_positive", "base_quantity > 0");
+                        });
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Warranty.WarrantyOperation", b =>
@@ -5535,6 +5854,19 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_unit_identity_claims_units_inventory_unit_id");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Inventory.InventoryUnitIdentityOwnership", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryUnitIdentityClaim", "IdentityClaim")
+                        .WithMany()
+                        .HasForeignKey("InventoryUnitIdentityClaimId", "NormalizedValue")
+                        .HasPrincipalKey("Id", "NormalizedValue")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_unit_identity_ownership_unit_identity_claims_inventory_unit~");
+
+                    b.Navigation("IdentityClaim");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Inventory.ProductCostState", b =>
@@ -6105,6 +6437,43 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_settlements_projects_project_id");
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.SaleReturnSourceAllocation", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sale_return_source_allocation_actor");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLot", null)
+                        .WithMany()
+                        .HasForeignKey("RestoredInventoryLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_sale_return_source_allocation_restored_lot");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("ReturnMovementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sale_return_source_allocation_movement");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLotConsumption", null)
+                        .WithMany()
+                        .HasForeignKey("SaleConsumptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sale_return_source_allocation_consumption");
+
+                    b.HasOne("EdgeRetails.Domain.Sales.SaleReturnItem", null)
+                        .WithMany()
+                        .HasForeignKey("SaleReturnItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sale_return_source_allocation_item");
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopStockWarrantyCase", b =>
                 {
                     b.HasOne("EdgeRetails.Domain.Catalog.Product", null)
@@ -6120,6 +6489,67 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_shop_stock_cases_suppliers_supplier_id");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopWarrantyResolutionAllocation", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_resolution_allocation_actor");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLot", null)
+                        .WithMany()
+                        .HasForeignKey("ReplacementInventoryLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_shop_resolution_allocation_replacement_lot");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("ResolutionMovementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_resolution_allocation_movement");
+
+                    b.HasOne("EdgeRetails.Domain.Warranty.ShopWarrantySendAllocation", null)
+                        .WithMany()
+                        .HasForeignKey("SendAllocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_resolution_allocation_send");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.ShopWarrantySendAllocation", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_send_allocation_actor");
+
+                    b.HasOne("EdgeRetails.Domain.Warranty.ShopStockWarrantyCase", null)
+                        .WithMany()
+                        .HasForeignKey("CaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_send_allocation_case");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLot", null)
+                        .WithMany()
+                        .HasForeignKey("OriginalInventoryLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_send_allocation_original_lot");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("SendMovementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_shop_send_allocation_movement");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Warranty.WarrantyClaim", b =>
@@ -6197,6 +6627,30 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ReplacementInventoryUnitId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_claim_item_units_units_replacement_inventory_unit_id");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Warranty.WarrantyClaimSourceAllocation", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_claim_source_allocation_actor");
+
+                    b.HasOne("EdgeRetails.Domain.Warranty.WarrantyClaimItem", null)
+                        .WithMany()
+                        .HasForeignKey("ClaimItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_claim_source_allocation_item");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLotConsumption", null)
+                        .WithMany()
+                        .HasForeignKey("SaleConsumptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_claim_source_allocation_consumption");
                 });
 #pragma warning restore 612, 618
         }

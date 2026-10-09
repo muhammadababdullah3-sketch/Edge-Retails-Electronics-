@@ -24,7 +24,8 @@ public sealed record PosCatalogGatewayItem(
     decimal SellableStock,
     decimal UnitPrice,
     decimal ReferenceCost,
-    bool IsSerialized);
+    bool IsSerialized,
+    string? Brand = null);
 
 public interface IPosCatalogGateway
 {
@@ -32,6 +33,16 @@ public interface IPosCatalogGateway
         string? search,
         int pageSize,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PosCatalogGatewayItem>> LoadAsync(
+        string? search,
+        string? category,
+        string? brand,
+        int pageSize,
+        string? afterName,
+        Guid? afterId,
+        CancellationToken cancellationToken = default) =>
+        LoadAsync(search, pageSize, cancellationToken);
 }
 
 public sealed class BackendPosCatalogGateway : IPosCatalogGateway
@@ -49,18 +60,49 @@ public sealed class BackendPosCatalogGateway : IPosCatalogGateway
         _scopeFactory = scopeFactory;
     }
 
-    public async Task<IReadOnlyList<PosCatalogGatewayItem>> LoadAsync(
+    public Task<IReadOnlyList<PosCatalogGatewayItem>> LoadAsync(
         string? search,
         int pageSize,
+        CancellationToken cancellationToken = default) =>
+        LoadAsync(search, null, null, pageSize, null, null, cancellationToken);
+
+    public async Task<IReadOnlyList<PosCatalogGatewayItem>> LoadAsync(
+        string? search,
+        string? category,
+        string? brand,
+        int pageSize,
+        string? afterName,
+        Guid? afterId,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(afterName) != !afterId.HasValue)
+        {
+            throw new ArgumentException("Both afterName and afterId are required for a catalog cursor.");
+        }
+
         IReadOnlyList<PosCatalogProductDto> rows;
         if (_apiClient is not null)
         {
-            var query = $"/api/sales/catalog?pageSize={Math.Clamp(pageSize, 1, 200)}";
+            var query = $"/api/sales/catalog?pageSize={Math.Clamp(pageSize, 1, 500)}";
             if (!string.IsNullOrWhiteSpace(search))
             {
                 query += $"&search={Uri.EscapeDataString(search.Trim())}";
+            }
+            if (!string.IsNullOrWhiteSpace(category) && !string.Equals(category, "All", StringComparison.OrdinalIgnoreCase))
+            {
+                query += $"&category={Uri.EscapeDataString(category.Trim())}";
+            }
+            if (!string.IsNullOrWhiteSpace(brand) && !string.Equals(brand, "All", StringComparison.OrdinalIgnoreCase))
+            {
+                query += $"&brand={Uri.EscapeDataString(brand.Trim())}";
+            }
+            if (!string.IsNullOrEmpty(afterName))
+            {
+                query += $"&afterName={Uri.EscapeDataString(afterName)}";
+            }
+            if (afterId.HasValue)
+            {
+                query += $"&afterId={afterId.Value:D}";
             }
 
             rows = await _apiClient.GetAsync<PosCatalogProductDto[]>(query, cancellationToken);
@@ -70,7 +112,7 @@ public sealed class BackendPosCatalogGateway : IPosCatalogGateway
             await using var scope = _scopeFactory!.CreateAsyncScope();
             var reads = scope.ServiceProvider.GetRequiredService<IPosCatalogReadService>();
             rows = await reads.GetSellableCatalogAsync(
-                search, Math.Clamp(pageSize, 1, 200), cancellationToken);
+                search, category, brand, Math.Clamp(pageSize, 1, 500), afterName, afterId, cancellationToken);
         }
 
         return rows.Select(row => new PosCatalogGatewayItem(
@@ -83,7 +125,8 @@ public sealed class BackendPosCatalogGateway : IPosCatalogGateway
             row.SellableStock,
             row.UnitPrice,
             row.ReferenceCost,
-            row.IsSerialized)).ToArray();
+            row.IsSerialized,
+            row.Brand)).ToArray();
     }
 }
 

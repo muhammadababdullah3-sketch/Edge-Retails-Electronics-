@@ -8,6 +8,7 @@
     <SolidColorBrush x:Key="Brush.Surface.Sunken" Color="#F1F5F9" />
     <SolidColorBrush x:Key="Brush.Surface.Raised" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Border.Default" Color="{StaticResource Color.Light.Border}" />
+    <SolidColorBrush x:Key="Brush.Border.Hover" Color="#9A90B2" />
     <SolidColorBrush x:Key="Brush.Border.Soft" Color="{StaticResource Color.Light.BorderSoft}" />
     <SolidColorBrush x:Key="Brush.Text.Primary" Color="{StaticResource Color.Light.TextPrimary}" />
     <SolidColorBrush x:Key="Brush.Text.Secondary" Color="{StaticResource Color.Light.TextSecondary}" />
@@ -18,6 +19,7 @@
     <SolidColorBrush x:Key="Brush.Table.Header" Color="#F4F7FB" />
     <SolidColorBrush x:Key="Brush.Selection.Subtle" Color="#ECEAFF" />
     <SolidColorBrush x:Key="Brush.Selection.Border" Color="#B9B2FF" />
+    <SolidColorBrush x:Key="Brush.Focus.Ring" Color="{StaticResource Color.Brand.Primary}" />
     <SolidColorBrush x:Key="Brush.Hover.Subtle" Color="#F4F7FB" />
     <SolidColorBrush x:Key="Brush.Disabled.Background" Color="#EEF2F7" />
     <SolidColorBrush x:Key="Brush.Disabled.Text" Color="#94A3B8" />

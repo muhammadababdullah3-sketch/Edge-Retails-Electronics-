@@ -6,7 +6,8 @@ public enum ThakaProjectStatus
 {
     Active = 1,
     Settled = 2,
-    Closed = 3
+    Closed = 3,
+    Suspended = 4
 }
 
 public enum ThakaPaymentMethod

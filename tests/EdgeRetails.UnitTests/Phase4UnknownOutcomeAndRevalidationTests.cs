@@ -99,7 +99,7 @@ public sealed class Phase4UnknownOutcomeAndRevalidationTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork, outcomeLedger: _fakes.OutcomeLedger, physicalUnitCreationAuthority: _fakes.PhysicalUnits);
 
     private CreateSupplierPaymentHandler CreateSupplierPaymentHandler() =>
         new(

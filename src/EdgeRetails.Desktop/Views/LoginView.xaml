@@ -7,7 +7,7 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=viewModels:LoginViewModel, IsDesignTimeCreatable=True}"
              Focusable="True"
-             Background="{DynamicResource Brush.App.Background}">
+             Background="{DynamicResource Brush.App.Background}" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <!-- Keypad standard button style -->
@@ -119,11 +119,7 @@
                         <StackPanel Width="342" HorizontalAlignment="Center">
                             <!-- 1. Header Section -->
                             <StackPanel HorizontalAlignment="Center">
-                                <Image Source="/Assets/EdgeLogo.png"
-                                       Width="132"
-                                       Height="42"
-                                       Stretch="Uniform"
-                                       HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Image Source="{StaticResource Brand.Mark}" Width="40" Height="40"/><TextBlock Text="Edge Retails" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/></StackPanel>
 
                                 <TextBlock Text="EdgeRetails POS"
                                            FontFamily="{StaticResource Font.Numeric}"

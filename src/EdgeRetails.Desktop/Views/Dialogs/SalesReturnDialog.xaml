@@ -9,7 +9,7 @@
     d:DataContext="{d:DesignInstance Type=viewModels:SalesReturnViewModel}"
     Width="480"
     Background="{DynamicResource Brush.Surface.Raised}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -26,7 +26,7 @@
             <Setter Property="FontSize" Value="14" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual.Button.Text}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -47,8 +47,7 @@
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
-                                <Setter TargetName="Bd" Property="BorderThickness" Value="1.5" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
@@ -67,7 +66,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual.Button.Text}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -91,8 +90,7 @@
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
-                                <Setter TargetName="Bd" Property="BorderThickness" Value="1.5" />
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -150,7 +148,7 @@
         </Border>
 
         <!-- 1. Top Divider -->
-        <Border Grid.Row="1" Background="{DynamicResource Brush.Border.Default}" />
+        <Border Grid.Row="1" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
         <!-- 2. Scrollable Content Body -->
         <ScrollViewer Grid.Row="2"
@@ -201,9 +199,9 @@
                                                        FontFamily="{StaticResource Font.Primary}"
                                                        FontSize="11.5"
                                                        Foreground="{DynamicResource Brush.Text.Muted}">
-                                                <Run Text="{Binding Brand}" />
+                                                <Run Text="{Binding Brand, Mode=OneWay}" />
                                                 <Run Text=" · SKU: " />
-                                                <Run Text="{Binding Sku}" />
+                                                <Run Text="{Binding Sku, Mode=OneWay}" />
                                             </TextBlock>
                                         </StackPanel>
 
@@ -256,23 +254,37 @@
                                                     Command="{Binding DecrementCommand}"
                                                     Style="{StaticResource Stepper.Button}" />
 
-                                            <Border Width="42"
+                                            <Border x:Name="ReturnQuantityHost"
+                                                    Width="42"
                                                     Height="28"
                                                     Margin="4,0"
                                                     BorderThickness="1"
-                                                    BorderBrush="{DynamicResource Brush.Border.Default}"
                                                     CornerRadius="{StaticResource Radius.Control}"
-                                                    Background="{DynamicResource Brush.Surface.Raised}">
-                                                <TextBox Text="{Binding ReturnQuantityText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         BorderThickness="0"
-                                                         Background="Transparent"
+                                                    Background="{DynamicResource Brush.Surface.Raised}"
+                                                    SnapsToDevicePixels="True">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Hover}" />
+                                                            </Trigger>
+                                                            <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=ReturnQuantityTextBox}" Value="True">
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBox x:Name="ReturnQuantityTextBox"
+                                                         Style="{StaticResource Input.TextBox.Embedded}"
+                                                         Text="{Binding ReturnQuantityText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                          Foreground="{DynamicResource Brush.Text.Primary}"
                                                          FontFamily="{StaticResource Font.Numeric}"
                                                          FontSize="13.5"
                                                          FontWeight="Bold"
                                                          TextAlignment="Center"
-                                                         VerticalContentAlignment="Center"
-                                                         FocusVisualStyle="{x:Null}" />
+                                                         VerticalAlignment="Center"
+                                                         VerticalContentAlignment="Center" />
                                             </Border>
 
                                             <Button Content="+"
@@ -333,6 +345,7 @@
 
                     <!-- 1. Customer Changed Mind / Restock -->
                     <RadioButton Grid.Row="0" Grid.Column="0"
+                                 FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}"
                                  GroupName="ReturnReasonGroup"
                                  IsChecked="{Binding IsDispositionRestock, Mode=OneWay}"
                                  Command="{Binding SetDispositionCommand}"
@@ -371,6 +384,7 @@
 
                     <!-- 2. Defective -->
                     <RadioButton Grid.Row="0" Grid.Column="2"
+                                 FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}"
                                  GroupName="ReturnReasonGroup"
                                  IsChecked="{Binding IsDispositionDefective, Mode=OneWay}"
                                  Command="{Binding SetDispositionCommand}"
@@ -409,6 +423,7 @@
 
                     <!-- 3. Damaged -->
                     <RadioButton Grid.Row="1" Grid.Column="0"
+                                 FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}"
                                  GroupName="ReturnReasonGroup"
                                  IsChecked="{Binding IsDispositionDamaged, Mode=OneWay}"
                                  Command="{Binding SetDispositionCommand}"
@@ -446,6 +461,7 @@
 
                     <!-- 4. Other -->
                     <RadioButton Grid.Row="1" Grid.Column="2"
+                                 FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}"
                                  GroupName="ReturnReasonGroup"
                                  IsChecked="{Binding IsDispositionOther, Mode=OneWay}"
                                  Command="{Binding SetDispositionCommand}"
@@ -593,7 +609,7 @@
         </ScrollViewer>
 
         <!-- 3. Bottom Divider -->
-        <Border Grid.Row="3" Background="{DynamicResource Brush.Border.Default}" />
+        <Border Grid.Row="3" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
         <!-- 4. Footer Actions -->
         <Border Grid.Row="4" Padding="20,16" Background="{DynamicResource Brush.Surface.Raised}">

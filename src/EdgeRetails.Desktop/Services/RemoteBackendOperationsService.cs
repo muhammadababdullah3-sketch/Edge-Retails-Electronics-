@@ -10,117 +10,59 @@ namespace EdgeRetails.Desktop.Services;
 /// <summary>Warranty and supplier ledger adapter for the local Server HTTP boundary.</summary>
 public sealed class RemoteBackendOperationsService(DesktopApiClient apiClient) : IBackendOperationsService
 {
-    public async Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(Guid supplierId, int pageSize = 200,
+    public Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(Guid supplierId, int pageSize = 200,
         DateTimeOffset? beforeOccurredAt = null, DateTimeOffset? beforeCreatedAt = null, Guid? beforeEntryId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        GetSupplierHistoryPageAsync(supplierId, pageSize, new(beforeOccurredAt, beforeCreatedAt, beforeEntryId), cancellationToken);
+
+    public async Task<SupplierAccountWorkspaceDto> GetSupplierHistoryPageAsync(Guid supplierId, int pageSize,
+        SupplierHistoryCursor cursor, CancellationToken cancellationToken = default)
     {
-        ValidateCursor(beforeOccurredAt.HasValue, beforeCreatedAt.HasValue, beforeEntryId.HasValue,
-            "Supplier workspace cursor requires beforeOccurredAt, beforeCreatedAt, and beforeEntryId together.");
+        ValidateCursor(cursor.OccurredAt.HasValue, cursor.CreatedAt.HasValue, cursor.EntryId.HasValue,
+            "Statement cursor requires all three fields.");
+        ValidateCursor(cursor.PaymentAt.HasValue, cursor.PaymentId.HasValue, cursor.PaymentId.HasValue,
+            "Payment cursor requires date and identity.");
+        ValidateCursor(cursor.RefundAt.HasValue, cursor.RefundId.HasValue, cursor.RefundId.HasValue,
+            "Refund cursor requires date and identity.");
+        ValidateCursor(cursor.ProductName is not null, cursor.ProductId.HasValue, cursor.ProductId.HasValue,
+            "Product cursor requires name and identity.");
         var size = Math.Clamp(pageSize, 1, 200);
-        DateTimeOffset? entryCursorOccurredAt = beforeOccurredAt;
-        DateTimeOffset? entryCursorCreatedAt = beforeCreatedAt;
-        Guid? entryCursorId = beforeEntryId;
-        DateTimeOffset? paymentCursorDate = null;
-        Guid? paymentCursorId = null;
-        DateTimeOffset? refundCursorDate = null;
-        Guid? refundCursorId = null;
-        string? productCursorName = null;
-        Guid? productCursorId = null;
-        var statement = new List<SupplierKhataEntryDto>();
-        var payments = new List<SupplierPaymentReadDto>();
-        var refunds = new List<SupplierRefundReadDto>();
-        var products = new List<SupplierProductContextDto>();
-        var statementComplete = false;
-        var paymentsComplete = false;
-        var refundsComplete = false;
-        var productsComplete = false;
-        SupplierAccountWorkspaceDto? first = null;
-        while (true)
+        var path = $"/api/suppliers/{supplierId:D}/workspace?pageSize={size}";
+        if (cursor.OccurredAt.HasValue)
         {
-            var path = $"/api/suppliers/{supplierId:D}/workspace?pageSize={size}";
-            if (entryCursorOccurredAt.HasValue)
-            {
-                path += $"&beforeOccurredAt={Uri.EscapeDataString(entryCursorOccurredAt.Value.ToString("O", CultureInfo.InvariantCulture))}" +
-                        $"&beforeCreatedAt={Uri.EscapeDataString(entryCursorCreatedAt!.Value.ToString("O", CultureInfo.InvariantCulture))}" +
-                        $"&beforeEntryId={entryCursorId:D}";
-            }
-
-            if (paymentCursorDate.HasValue)
-            {
-                path += $"&beforePaymentPaidAt={Uri.EscapeDataString(paymentCursorDate.Value.ToString("O", CultureInfo.InvariantCulture))}&beforePaymentId={paymentCursorId:D}";
-            }
-
-            if (refundCursorDate.HasValue)
-            {
-                path += $"&beforeRefundReceivedAt={Uri.EscapeDataString(refundCursorDate.Value.ToString("O", CultureInfo.InvariantCulture))}&beforeRefundId={refundCursorId:D}";
-            }
-
-            if (productCursorName is not null)
-            {
-                path += $"&beforeProductName={Uri.EscapeDataString(productCursorName)}&beforeProductId={productCursorId:D}";
-            }
-
-            var page = await apiClient.GetAsync<SupplierAccountWorkspaceDto>(path, cancellationToken);
-            first ??= page;
-            if (!statementComplete)
-            {
-                statement.AddRange(page.Statement);
-                statementComplete = page.Statement.Count < size;
-                if (!statementComplete)
-                {
-                    entryCursorOccurredAt = page.Statement[^1].OccurredAt;
-                    entryCursorCreatedAt = page.Statement[^1].CreatedAt;
-                    entryCursorId = page.Statement[^1].EntryId;
-                }
-            }
-
-            if (!paymentsComplete)
-            {
-                payments.AddRange(page.Payments);
-                paymentsComplete = page.Payments.Count < size;
-                if (!paymentsComplete)
-                {
-                    paymentCursorDate = page.Payments[^1].PaidAt;
-                    paymentCursorId = page.Payments[^1].PaymentId;
-                }
-            }
-
-            if (!refundsComplete)
-            {
-                refunds.AddRange(page.Refunds);
-                refundsComplete = page.Refunds.Count < size;
-                if (!refundsComplete)
-                {
-                    refundCursorDate = page.Refunds[^1].ReceivedAt;
-                    refundCursorId = page.Refunds[^1].RefundId;
-                }
-            }
-
-            if (!productsComplete)
-            {
-                products.AddRange(page.SuppliedProducts);
-                productsComplete = page.SuppliedProducts.Count < size;
-                if (!productsComplete)
-                {
-                    productCursorName = page.SuppliedProducts[^1].ProductName;
-                    productCursorId = page.SuppliedProducts[^1].ProductId;
-                }
-            }
-
-            if (statementComplete && paymentsComplete && refundsComplete && productsComplete)
-            {
-                break;
-            }
+            path += $"&beforeOccurredAt={EscapeDate(cursor.OccurredAt.Value)}&beforeCreatedAt={EscapeDate(cursor.CreatedAt!.Value)}&beforeEntryId={cursor.EntryId:D}";
         }
-
-        return first! with
+        if (cursor.PaymentAt.HasValue)
         {
-            Statement = statement,
-            Payments = payments,
-            Refunds = refunds,
-            SuppliedProducts = products
-        };
+            path += $"&beforePaymentPaidAt={EscapeDate(cursor.PaymentAt.Value)}&beforePaymentId={cursor.PaymentId:D}";
+        }
+        if (cursor.RefundAt.HasValue)
+        {
+            path += $"&beforeRefundReceivedAt={EscapeDate(cursor.RefundAt.Value)}&beforeRefundId={cursor.RefundId:D}";
+        }
+        if (cursor.ProductName is not null)
+        {
+            path += $"&beforeProductName={Uri.EscapeDataString(cursor.ProductName)}&beforeProductId={cursor.ProductId:D}";
+        }
+        var page = await apiClient.GetAsync<SupplierAccountWorkspaceDto>(path, cancellationToken);
+        var statement = page.Statement.OrderByDescending(x => x.OccurredAt)
+            .ThenByDescending(x => x.CreatedAt).ThenByDescending(x => x.EntryId).ToArray();
+        ValidatePage(statement, size, [], x => x.EntryId);
+        ValidatePage(page.Payments, size, [], x => x.PaymentId);
+        ValidatePage(page.Refunds, size, [], x => x.RefundId);
+        ValidatePage(page.SuppliedProducts, size, [], x => x.ProductId);
+        if (cursor.OccurredAt.HasValue && statement.Any(x => (x.OccurredAt, x.CreatedAt, x.EntryId)
+            .CompareTo((cursor.OccurredAt.Value, cursor.CreatedAt!.Value, cursor.EntryId!.Value)) >= 0) ||
+            cursor.PaymentAt.HasValue && page.Payments.Any(x => (x.PaidAt, x.PaymentId).CompareTo((cursor.PaymentAt.Value, cursor.PaymentId!.Value)) >= 0) ||
+            cursor.RefundAt.HasValue && page.Refunds.Any(x => (x.ReceivedAt, x.RefundId).CompareTo((cursor.RefundAt.Value, cursor.RefundId!.Value)) >= 0) ||
+            cursor.ProductId.HasValue && page.SuppliedProducts.Any(x => x.ProductId == cursor.ProductId.Value))
+        {
+            throw CursorFailure();
+        }
+        return page with { Statement = statement };
     }
+
+    private static string EscapeDate(DateTimeOffset value) => Uri.EscapeDataString(value.ToString("O", CultureInfo.InvariantCulture));
 
     public async Task CreateSupplierPaymentAsync(Guid supplierId, decimal amount, SupplierPaymentPurpose purpose,
         SupplierSettlementMethod method, Guid clientOperationId, string? externalReference, string? note,
@@ -229,6 +171,25 @@ public sealed class RemoteBackendOperationsService(DesktopApiClient apiClient) :
     private static Guid RequireOperation(Guid operationId) => operationId == Guid.Empty
         ? throw new InvalidOperationException("ClientOperationId is required for this operation.")
         : operationId;
+
+    private static void ValidatePage<T>(IReadOnlyList<T> rows, int size, HashSet<Guid> seen, Func<T, Guid> identity)
+    {
+        if (rows.Count > size)
+        {
+            throw CursorFailure();
+        }
+        foreach (var row in rows)
+        {
+            var id = identity(row);
+            if (id == Guid.Empty || !seen.Add(id))
+            {
+                throw CursorFailure();
+            }
+        }
+    }
+
+    private static DesktopApiException CursorFailure() => new("gateway.cursor_invalid",
+        "Supplier history pagination did not advance safely. Refresh the workspace; incomplete history was not displayed.");
 
     private static void ValidateCursor(bool first, bool second, bool third, string message)
     {

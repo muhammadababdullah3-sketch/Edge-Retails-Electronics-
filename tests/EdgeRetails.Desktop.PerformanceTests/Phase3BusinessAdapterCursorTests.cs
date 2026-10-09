@@ -14,7 +14,7 @@ namespace EdgeRetails.Desktop.PerformanceTests;
 public sealed class Phase3BusinessAdapterCursorTests
 {
     [Fact]
-    public async Task SupplierWorkspace_DoesNotAppendAnExhaustedListAgainWhileOtherListsContinue()
+    public async Task SupplierWorkspace_LoadsOneBoundedPageWithoutDrainingOtherLists()
     {
         var entryId = Guid.CreateVersion7();
         var firstPaymentId = Guid.CreateVersion7();
@@ -48,7 +48,7 @@ public sealed class Phase3BusinessAdapterCursorTests
 
         var result = await service.GetSupplierWorkspaceAsync(Guid.NewGuid(), pageSize: 2);
 
-        Assert.Equal(2, pageNumber);
+        Assert.Equal(1, pageNumber);
         Assert.Single(result.Statement);
         Assert.Equal(2, result.Payments.Count);
     }

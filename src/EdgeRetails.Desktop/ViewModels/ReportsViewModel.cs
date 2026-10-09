@@ -19,6 +19,8 @@ public sealed class ReportAverageMetric
     public required string Value { get; init; }
 }
 
+public enum ReportLoadState { Loading, Loaded, Unavailable, Stale }
+
 public sealed class ReportsViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoReportingService _reportingService = DemoReportingService.Instance;
@@ -32,6 +34,22 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     private ReportSnapshot _snapshot;
     private CancellationTokenSource? _refreshCancellation;
     private long _refreshVersion;
+    private bool _hasSnapshot;
+    private ReportLoadState _loadState = ReportLoadState.Loading;
+    private DateTimeOffset? _loadedAt;
+    private string _loadError = string.Empty;
+
+    public ReportLoadState LoadState => _loadState;
+    public bool HasReportData => _hasSnapshot;
+    public string ReportStatus => _loadState switch
+    {
+        ReportLoadState.Loading => _hasSnapshot
+            ? $"Loading requested report. Showing previous report: {Snapshot.PeriodLabel}; fetched {_loadedAt:g}."
+            : "Loading report — financial values are not yet available.",
+        ReportLoadState.Unavailable => $"Report unavailable. {_loadError}",
+        ReportLoadState.Stale => $"STALE — {Snapshot.PeriodLabel}; fetched {_loadedAt:g}. Requested refresh failed. {_loadError}",
+        _ => $"{Snapshot.PeriodLabel}; fetched {_loadedAt:g}."
+    };
 
     public ReportsViewModel(
         IBackendBusinessOperationsService? backendService = null,
@@ -70,6 +88,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         if (_backendService is null)
         {
             _reportingService.StateChanged += OnReportingStateChanged;
+            MarkLoaded();
             ApplySnapshot(_snapshot);
         }
         else
@@ -124,9 +143,10 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     public bool IsYearly => Mode == ReportPeriodMode.Yearly;
     public bool IsDateSelectorVisible => IsDaily;
     public bool IsMonthSelectorVisible => IsMonthly;
-    public bool IsExpenseBreakdownVisible => IsMonthly;
-    public bool IsThakaActivityVisible => IsMonthly;
-    public bool ShowSecondaryKpis => !IsYearly;
+    public bool IsExpenseBreakdownVisible => _hasSnapshot && Snapshot.Mode == ReportPeriodMode.Monthly;
+    public bool IsThakaActivityVisible => IsExpenseBreakdownVisible;
+    public bool ShowSecondaryKpis => _hasSnapshot && Snapshot.Mode != ReportPeriodMode.Yearly;
+    public bool ShowYearlyKpis => _hasSnapshot && Snapshot.Mode == ReportPeriodMode.Yearly;
     private bool _isLoading;
     public bool IsLoading
     {
@@ -176,19 +196,19 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _snapshot, value);
     }
 
-    public string PeriodLabel => Snapshot.PeriodLabel;
+    public string PeriodLabel => _hasSnapshot ? Snapshot.PeriodLabel : "Report unavailable";
 
-    public string NetSalesDisplay => Currency(Snapshot.NetSales);
-    public string GrossProfitDisplay => Currency(Snapshot.GrossProfit);
-    public string ExpensesDisplay => Currency(Snapshot.Expenses);
-    public string NetProfitDisplay => Currency(Snapshot.NetProfit);
-    public string PurchasesDisplay => Currency(Snapshot.Purchases);
-    public string ThakaMaterialDisplay => Currency(Snapshot.ThakaMaterial);
+    public string NetSalesDisplay => DisplayMoney(Snapshot.NetSales);
+    public string GrossProfitDisplay => DisplayMoney(Snapshot.GrossProfit);
+    public string ExpensesDisplay => DisplayMoney(Snapshot.Expenses);
+    public string NetProfitDisplay => DisplayMoney(Snapshot.NetProfit);
+    public string PurchasesDisplay => DisplayMoney(Snapshot.Purchases);
+    public string ThakaMaterialDisplay => DisplayMoney(Snapshot.ThakaMaterial);
 
     public string ProfitSeriesLabel => Snapshot.ProfitSeriesLabel;
     public bool ShowExpenseSeries => Snapshot.ShowExpenseSeries;
 
-    public string ChartTitle => Mode switch
+    public string ChartTitle => Snapshot.Mode switch
     {
         ReportPeriodMode.Daily => "Hourly Sales & Gross Profit",
         ReportPeriodMode.Monthly => "Daily Sales, Net Profit & Expenses",
@@ -196,7 +216,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         _ => "Performance"
     };
 
-    public string ChartSubtitle => Mode switch
+    public string ChartSubtitle => Snapshot.Mode switch
     {
         ReportPeriodMode.Daily => "Hourly operating trend for the selected day",
         ReportPeriodMode.Monthly => "Calendar days are zero-filled so averages stay honest",
@@ -226,6 +246,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
                 SelectedDate,
                 SelectedMonth.Number,
                 SelectedYear);
+            MarkLoaded();
             ApplySnapshot(Snapshot);
             return;
         }
@@ -253,6 +274,8 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         var selectedYear = SelectedYear;
 
         IsLoading = true;
+        _loadState = ReportLoadState.Loading;
+        NotifyReportState();
         try
         {
             var snapshot = await _backendService.GetReportAsync(
@@ -269,15 +292,20 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
             }
 
             Snapshot = snapshot;
+            MarkLoaded();
             ApplySnapshot(snapshot);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex)
         {
-            if (requestVersion == Volatile.Read(ref _refreshVersion))
+            if (!cancellationToken.IsCancellationRequested && requestVersion == Volatile.Read(ref _refreshVersion))
             {
+                _loadError = DesktopErrorPresentation.ForException(
+                    ex, "Check the connection and retry using Refresh.");
+                _loadState = _hasSnapshot ? ReportLoadState.Stale : ReportLoadState.Unavailable;
+                NotifyReportState();
                 _toastService?.Show(
                     DesktopErrorPresentation.ForException(
                         ex,
@@ -301,7 +329,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         ReplaceCollection(ThakaActivity, snapshot.ThakaActivity);
 
         AverageMetrics.Clear();
-        foreach (var metric in BuildAverageMetrics(snapshot))
+        foreach (var metric in _hasSnapshot ? BuildAverageMetrics(snapshot) : [])
         {
             AverageMetrics.Add(metric);
         }
@@ -317,7 +345,36 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ShowExpenseSeries));
         OnPropertyChanged(nameof(ChartTitle));
         OnPropertyChanged(nameof(ChartSubtitle));
+        OnPropertyChanged(nameof(IsExpenseBreakdownVisible));
+        OnPropertyChanged(nameof(IsThakaActivityVisible));
+        OnPropertyChanged(nameof(ShowSecondaryKpis));
+        OnPropertyChanged(nameof(ShowYearlyKpis));
     }
+
+    private void MarkLoaded()
+    {
+        _hasSnapshot = true;
+        _loadedAt = DateTimeOffset.Now;
+        _loadError = string.Empty;
+        _loadState = ReportLoadState.Loaded;
+        NotifyReportState();
+    }
+
+    private void NotifyReportState()
+    {
+        OnPropertyChanged(nameof(LoadState));
+        OnPropertyChanged(nameof(HasReportData));
+        OnPropertyChanged(nameof(ReportStatus));
+        OnPropertyChanged(nameof(PeriodLabel));
+        OnPropertyChanged(nameof(NetSalesDisplay));
+        OnPropertyChanged(nameof(GrossProfitDisplay));
+        OnPropertyChanged(nameof(ExpensesDisplay));
+        OnPropertyChanged(nameof(NetProfitDisplay));
+        OnPropertyChanged(nameof(PurchasesDisplay));
+        OnPropertyChanged(nameof(ThakaMaterialDisplay));
+    }
+
+    private string DisplayMoney(decimal amount) => _hasSnapshot ? Currency(amount) : "Unavailable";
 
     private IEnumerable<ReportAverageMetric> BuildAverageMetrics(ReportSnapshot snapshot)
     {
@@ -420,5 +477,5 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static string Currency(decimal amount) => $"Rs. {amount:N0}";
+    private static string Currency(decimal amount) => $"Rs. {amount:N2}";
 }

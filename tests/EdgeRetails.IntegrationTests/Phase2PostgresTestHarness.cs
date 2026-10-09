@@ -29,7 +29,7 @@ namespace EdgeRetails.IntegrationTests;
 internal static class Phase2PostgresTestHarness
 {
     private static readonly object SequenceFixtureInitialization = new();
-    public static ServiceProvider BuildProvider()
+    public static ServiceProvider BuildProvider(IClock? clock = null, Action<IServiceCollection>? configure = null)
     {
         var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -56,6 +56,12 @@ internal static class Phase2PostgresTestHarness
         var custody = new OwnedSequenceAuthorityCustody(authorityRoot);
         services.RemoveAll<ISequenceHighWaterService>();
         services.AddSingleton<ISequenceHighWaterService>(new MachineSequenceHighWaterService(manifest, custody));
+        if (clock is not null)
+        {
+            services.RemoveAll<IClock>();
+            services.AddSingleton(clock);
+        }
+        configure?.Invoke(services);
         return services.BuildServiceProvider();
     }
 
@@ -144,7 +150,7 @@ internal static class Phase2PostgresTestHarness
         var supplier = new Supplier
         {
             Name = "Supplier-" + suffix,
-            DealerCode = TraceabilityCodeRules.BuildDealerCode("SU", Random.Shared.Next(1000, 999999)),
+            DealerCode = await AllocateFixtureDealerCodeAsync(db, "SU"),
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -204,7 +210,7 @@ internal static class Phase2PostgresTestHarness
         var supplier = new Supplier
         {
             Name = "Serialized Supplier-" + suffix,
-            DealerCode = TraceabilityCodeRules.BuildDealerCode("SS", Random.Shared.Next(1000, 999999)),
+            DealerCode = await AllocateFixtureDealerCodeAsync(db, "SS"),
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -252,7 +258,7 @@ internal static class Phase2PostgresTestHarness
         var supplier = new Supplier
         {
             Name = $"{name} {suffix}",
-            DealerCode = TraceabilityCodeRules.BuildDealerCode(prefix, Random.Shared.Next(1000, 999999)),
+            DealerCode = await AllocateFixtureDealerCodeAsync(db, prefix),
             Phone = "0300" + Random.Shared.Next(1000000, 9999999),
             Address = "Market Area",
             IsActive = true,
@@ -261,6 +267,22 @@ internal static class Phase2PostgresTestHarness
         db.Suppliers.Add(supplier);
         await db.SaveChangesAsync();
         return supplier;
+    }
+
+    private static async Task<string> AllocateFixtureDealerCodeAsync(EdgeRetailsDbContext db, string prefix)
+    {
+        var persisted = await db.Suppliers.AsNoTracking().Select(x => x.DealerCode).ToListAsync();
+        var used = new HashSet<string>(persisted.OfType<string>(), StringComparer.Ordinal);
+        used.UnionWith(db.ChangeTracker.Entries<Supplier>().Select(x => x.Entity.DealerCode).OfType<string>());
+        for (var number = 1000; number < 999999; number++)
+        {
+            var candidate = TraceabilityCodeRules.BuildDealerCode(prefix, number);
+            if (!used.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+        throw new InvalidOperationException("The isolated fixture dealer-code range is exhausted.");
     }
 
     public static async Task<CashSession> SeedOpenCashSessionAsync(

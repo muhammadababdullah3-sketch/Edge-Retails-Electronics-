@@ -433,8 +433,10 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var serialNum = ("GT-SN-" + suffix).ToUpperInvariant();
         var replacementSerialNum = ("GT-SN-REPL-" + suffix).ToUpperInvariant();
-        var imei1 = "35693803" + suffix[..7];
-        var imei2 = "35693803" + suffix[1..8];
+        // HARNESS_CORRECTION: GUID hex is not a numeric manufacturer IMEI.
+        var imeiSuffix = string.Concat(Guid.NewGuid().ToByteArray().Take(7).Select(value => (value % 10).ToString()));
+        var imei1 = "35693803" + imeiSuffix;
+        var imei2 = "35693804" + imeiSuffix;
 
         await using (var scope = provider.CreateAsyncScope())
         {
@@ -523,7 +525,8 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
                 ReceiveStockImmediately: false);
 
             using var defPurchaseResp = await client.PostAsJsonAsync("/api/purchasing/create", deferredPurchaseCommand);
-            Assert.Equal(HttpStatusCode.OK, defPurchaseResp.StatusCode);
+            Assert.True(defPurchaseResp.StatusCode == HttpStatusCode.OK,
+                $"Deferred purchase failed: {await defPurchaseResp.Content.ReadAsStringAsync()}");
             using var defPurchaseJson = JsonDocument.Parse(await defPurchaseResp.Content.ReadAsStringAsync());
             var deferredPurchaseId = defPurchaseJson.RootElement.GetProperty("purchaseId").GetGuid();
 
@@ -645,7 +648,9 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
                 null,
                 null,
                 [
-                    new CompleteSaleLineInput(pieceProduct.ProductId, pieceProduct.ProductUnitId, 1m, 100m, []),
+                    // HARNESS_CORRECTION: IndividualPiece is exact-unit stock;
+                    // sell the same committed unit used by sticker/scan assertions.
+                    new CompleteSaleLineInput(pieceProduct.ProductId, pieceProduct.ProductUnitId, 1m, 100m, [pieceUnitId1]),
                     new CompleteSaleLineInput(serializedProduct.ProductId, serializedProduct.ProductUnitId, 1m, 2000m, [serializedUnitId]),
                     new CompleteSaleLineInput(imeiProduct.ProductId, imeiProduct.ProductUnitId, 1m, 25000m, [imeiUnitId]),
                     new CompleteSaleLineInput(bulkProduct.ProductId, bulkProduct.ProductUnitId, 2m, 60m, []),

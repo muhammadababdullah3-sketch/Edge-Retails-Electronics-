@@ -30,7 +30,8 @@ public sealed class Phase2SalesAndCommercialExchangeBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            outcomeLedger: _fakes.OutcomeLedger);
 
     private CreateSaleReturnHandler CreateSaleReturnHandler() =>
         new(
@@ -91,7 +92,8 @@ public sealed class Phase2SalesAndCommercialExchangeBehavioralTests
             CreateSaleHandler(),
             _fakes.Clock,
             _fakes.Transactions,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            _fakes.OperationLock);
 
     private (Product Product, ProductUnit Unit) SeedQuantityProduct(string sku = "KEYBOARD-01", decimal cost = 200m, decimal price = 300m, decimal stock = 20m)
     {

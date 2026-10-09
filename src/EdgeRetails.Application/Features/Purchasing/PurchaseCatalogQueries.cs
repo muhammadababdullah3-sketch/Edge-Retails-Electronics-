@@ -13,10 +13,19 @@ public sealed record PurchaseCatalogProductDto(
     decimal FactorToBaseUnit,
     bool IsSerialized,
     bool SerialTrackingEnabled,
-    bool ImeiTrackingEnabled);
+    bool ImeiTrackingEnabled,
+    EdgeRetails.Domain.Catalog.TrackingMode TrackingMode = EdgeRetails.Domain.Catalog.TrackingMode.Quantity);
 
 public interface IPurchaseCatalogReadService
 {
     Task<IReadOnlyList<PurchaseCatalogProductDto>> GetPurchasableCatalogAsync(
         CancellationToken cancellationToken);
+
+    Task<PurchaseCatalogPageDto> SearchAsync(PurchaseCatalogPageQuery query, CancellationToken cancellationToken);
 }
+
+public sealed record PurchaseCatalogPageQuery(string? Search = null, int PageSize = 50,
+    string? AfterName = null, Guid? AfterProductId = null, Guid? ProductId = null, bool IncludeInactive = false);
+
+public sealed record PurchaseCatalogPageDto(IReadOnlyList<PurchaseCatalogProductDto> Items,
+    string? NextName, Guid? NextProductId);

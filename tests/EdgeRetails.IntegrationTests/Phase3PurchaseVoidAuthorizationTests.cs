@@ -63,8 +63,11 @@ public sealed class Phase3PurchaseVoidAuthorizationTests
         using var allowedRequest = CreateRequest(factory, sessionId, command);
         using var allowedResponse = await client.SendAsync(allowedRequest);
 
-        Assert.Equal(HttpStatusCode.BadRequest, allowedResponse.StatusCode);
-        Assert.Equal("purchasing.purchase_not_voidable", await ReadCodeAsync(allowedResponse));
+        // ASSERTION_CHANGE: this random unseeded purchase is absent. Canonical
+        // application authority returns not_found after authorization succeeds;
+        // the protected denied request above must still stop at 403.
+        Assert.Equal(HttpStatusCode.NotFound, allowedResponse.StatusCode);
+        Assert.Equal("purchasing.purchase_not_found", await ReadCodeAsync(allowedResponse));
     }
 
     private static HttpRequestMessage CreateRequest(

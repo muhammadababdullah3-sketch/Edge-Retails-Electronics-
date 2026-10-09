@@ -115,12 +115,19 @@ public sealed class ExpensesController : ControllerBase
     {
         var actor = HttpContext.GetActorContext();
         var actorId = actor?.UserId ?? request.ActorId ?? Guid.Empty;
-        var correlationId = request.CorrelationId ?? Guid.NewGuid();
+        var clientOperationId = request.ClientOperationId ?? request.CorrelationId;
+        if (clientOperationId is null || clientOperationId == Guid.Empty ||
+            (request.ClientOperationId.HasValue && request.CorrelationId.HasValue &&
+                request.ClientOperationId != request.CorrelationId))
+        {
+            return BadRequest(new { code = "expense.void_operation_id_required",
+                message = "Supply one stable operation identity for the expense void." });
+        }
 
         var command = new VoidExpenseCommand(
             ExpenseId: id,
             ActorId: actorId,
-            CorrelationId: correlationId,
+            ClientOperationId: clientOperationId.Value,
             Reason: request.Reason);
 
         var result = await _voidExpenseHandler.HandleAsync(command, cancellationToken);
@@ -184,4 +191,5 @@ public sealed record PostExpenseRequest(
 public sealed record VoidExpenseRequest(
     string Reason,
     Guid? ActorId = null,
-    Guid? CorrelationId = null);
+    Guid? CorrelationId = null,
+    Guid? ClientOperationId = null);

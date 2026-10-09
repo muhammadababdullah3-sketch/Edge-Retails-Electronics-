@@ -3,12 +3,12 @@
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
         <ProgressBar Width="112"
                      Height="3"
                      IsIndeterminate="True"
-                     Foreground="{StaticResource Brush.Brand.Primary}"
+                     Foreground="{DynamicResource Brush.Badge.Brand.Text}"
                      Background="{DynamicResource Brush.Border.Default}" />
         <TextBlock Margin="0,10.5,0,0"
                    Text="{Binding Message, ElementName=Root}"

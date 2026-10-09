@@ -238,7 +238,20 @@ public sealed class IdentityCredentialRecoveryRepository
     {
         try
         {
-            await _db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception error) when (_db.Database.IsNpgsql() &&
+                _db.Database.CurrentTransaction is null && System.Transactions.Transaction.Current is null &&
+                _db.Database.AutoTransactionBehavior != AutoTransactionBehavior.Never && IsDeadlock(error))
+            {
+                // PostgreSQL rolled back the implicit atomic save. Retry these
+                // same staged mutations once; nonce uniqueness/concurrency still
+                // decides the winner. Never retry an aborted caller transaction,
+                // an unknown commit, or any non-deadlock error.
+                await _db.SaveChangesAsync(cancellationToken);
+            }
             return true;
         }
         catch (DbUpdateConcurrencyException)
@@ -260,6 +273,15 @@ public sealed class IdentityCredentialRecoveryRepository
             _db.ChangeTracker.Clear();
             return false;
         }
+    }
+
+    private static bool IsDeadlock(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.DeadlockDetected }) { return true; }
+        }
+        return false;
     }
 }
 

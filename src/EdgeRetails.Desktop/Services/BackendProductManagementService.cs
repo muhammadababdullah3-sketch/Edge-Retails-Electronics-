@@ -215,6 +215,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Func<Guid?> _actorUserId;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Guid> _pendingAggregateOperations = new();
 
     public BackendProductManagementService(
         IServiceScopeFactory scopeFactory,
@@ -330,22 +331,48 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreateProductHandler>();
-        var result = await handler.HandleAsync(
-            new CreateProductCommand(actor, ToInput(request)),
-            cancellationToken);
-        EnsureSuccess(result.IsSuccess, result.Error);
+        var handler = scope.ServiceProvider.GetRequiredService<SaveProductAggregateHandler>();
 
-        var productId = result.Value!.ProductId;
-        await ConfigureUnitsAsync(scope.ServiceProvider, productId, request.BaseUnitId, units, cancellationToken);
-        await SyncSupplierLinksAsync(
-            scope.ServiceProvider,
-            productId,
-            linkedSupplierIds,
+        var normalizedUnits = units
+            .Where(x => x.IsActive)
+            .Select(x => new ProductUnitInput(
+                x.UnitId,
+                x.UnitId == request.BaseUnitId ? 1m : x.FactorToBaseUnit,
+                x.CanPurchase,
+                x.CanSell,
+                x.CanUseInThaka,
+                x.IsDefaultPurchaseUnit,
+                x.IsDefaultSaleUnit))
+            .ToList();
+
+        if (normalizedUnits.All(x => x.UnitId != request.BaseUnitId))
+        {
+            normalizedUnits.Insert(0, new ProductUnitInput(
+                request.BaseUnitId,
+                1m,
+                true,
+                true,
+                true,
+                true,
+                true));
+        }
+
+        var command = new SaveProductAggregateCommand(
             actor,
-            cancellationToken);
+            null,
+            null,
+            ToInput(request),
+            normalizedUnits,
+            linkedSupplierIds.ToList(),
+            null);
+        var fingerprint = ProductAggregatePayloadFingerprint.Compute(command);
+        command = command with { ClientOperationId = _pendingAggregateOperations.GetOrAdd(fingerprint, _ => Guid.NewGuid()) };
 
-        return await ReadRequiredAsync(scope.ServiceProvider, productId, cancellationToken);
+        var result = await handler.HandleAsync(command, cancellationToken);
+        EnsureSuccess(result.IsSuccess, result.Error);
+        _pendingAggregateOperations.TryRemove(fingerprint, out _);
+
+        return await ReadCommittedAggregateAsync(scope.ServiceProvider, result.Value!, request, units, linkedSupplierIds, cancellationToken);
     }
 
     public async Task<BackendProductManagementItem> UpdateProductAsync(
@@ -376,22 +403,82 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
                 "Base unit cannot be changed from the normal edit workflow. Reconfigure product units first.");
         }
 
-        var handler = scope.ServiceProvider.GetRequiredService<UpdateProductHandler>();
-        var result = await handler.HandleAsync(
-            new UpdateProductCommand(actor, productId, expectedVersion, ToInput(request)),
-            cancellationToken);
-        EnsureSuccess(result.IsSuccess, result.Error);
+        var normalizedUnits = units
+            .Where(x => x.IsActive)
+            .Select(x => new ProductUnitInput(
+                x.UnitId,
+                x.UnitId == request.BaseUnitId ? 1m : x.FactorToBaseUnit,
+                x.CanPurchase,
+                x.CanSell,
+                x.CanUseInThaka,
+                x.IsDefaultPurchaseUnit,
+                x.IsDefaultSaleUnit))
+            .ToList();
 
-        await ConfigureUnitsAsync(scope.ServiceProvider, productId, request.BaseUnitId, units, cancellationToken);
-        await SyncSupplierLinksAsync(
-            scope.ServiceProvider,
-            productId,
-            linkedSupplierIds,
+        if (normalizedUnits.All(x => x.UnitId != request.BaseUnitId))
+        {
+            normalizedUnits.Insert(0, new ProductUnitInput(
+                request.BaseUnitId,
+                1m,
+                true,
+                true,
+                true,
+                true,
+                true));
+        }
+
+        var handler = scope.ServiceProvider.GetRequiredService<SaveProductAggregateHandler>();
+        var command = new SaveProductAggregateCommand(
             actor,
-            cancellationToken);
+            productId,
+            expectedVersion,
+            ToInput(request),
+            normalizedUnits,
+            linkedSupplierIds.ToList(),
+            null);
+        var fingerprint = ProductAggregatePayloadFingerprint.Compute(command);
+        command = command with { ClientOperationId = _pendingAggregateOperations.GetOrAdd(fingerprint, _ => Guid.NewGuid()) };
 
-        return await ReadRequiredAsync(scope.ServiceProvider, productId, cancellationToken);
+        var result = await handler.HandleAsync(command, cancellationToken);
+        EnsureSuccess(result.IsSuccess, result.Error);
+        _pendingAggregateOperations.TryRemove(fingerprint, out _);
+
+        return await ReadCommittedAggregateAsync(scope.ServiceProvider, result.Value!, request, units, linkedSupplierIds, cancellationToken);
     }
+
+    private static async Task<BackendProductManagementItem> ReadCommittedAggregateAsync(
+        IServiceProvider services,
+        ProductMutationResult committed,
+        BackendProductCatalogRequest request,
+        IReadOnlyList<BackendProductUnitConfiguration> units,
+        IReadOnlyCollection<Guid> suppliers,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadRequiredAsync(services, committed.ProductId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is BackendCatalogOperationException or System.Data.Common.DbException or InvalidOperationException or OperationCanceledException)
+        {
+            return CommittedAggregateFallback(committed, request, units, suppliers);
+        }
+    }
+
+    internal static BackendProductManagementItem CommittedAggregateFallback(
+        ProductMutationResult committed,
+        BackendProductCatalogRequest request,
+        IReadOnlyList<BackendProductUnitConfiguration> units,
+        IReadOnlyCollection<Guid> suppliers) => new(
+            committed.ProductId, committed.Sku ?? request.Sku, request.Name.Trim(), request.Brand, request.Model,
+            request.CategoryId, string.Empty, request.BaseUnitId,
+            units.FirstOrDefault(x => x.UnitId == request.BaseUnitId)?.UnitName ?? string.Empty,
+            request.TrackingMode, request.SerialTrackingEnabled, request.ImeiTrackingEnabled,
+            request.ReferencePurchaseCost, decimal.Round(request.DefaultSalePrice, 2, MidpointRounding.AwayFromZero),
+            request.MinimumStockLevel, request.DefaultWarrantyMonths, request.AttributesJson,
+            request.AttributesSchemaVersion, true, committed.Version,
+            units.Where(x => x.IsActive).ToArray(),
+            suppliers.Distinct().Select(x => new BackendSupplierProductLink(Guid.Empty, x, string.Empty, true, 0)).ToArray(),
+            request.CompanyId, ModelCode: request.ModelCode);
 
     public async Task<BackendProductManagementItem> SetProductActiveAsync(
         Guid productId,

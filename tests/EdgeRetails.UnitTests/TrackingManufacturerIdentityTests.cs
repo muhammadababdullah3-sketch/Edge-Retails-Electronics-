@@ -8,6 +8,23 @@ namespace EdgeRetails.UnitTests;
 
 public sealed class TrackingManufacturerIdentityTests
 {
+    [Theory]
+    [InlineData("AB\u200BC")]
+    [InlineData("AB\U000E0001C")]
+    [InlineData("AB\u0001C")]
+    public void Serial_rejects_control_and_format_codepoints_including_supplementary(string raw)
+    {
+        var ex = Assert.Throws<EdgeRetails.Domain.Common.BusinessRuleException>(() => IdentityNormalizationRules.NormalizeSerialNumber(raw));
+        Assert.Equal("identity.serial_unsupported_character", ex.Code);
+    }
+
+    [Fact]
+    public void Imei_maps_supplementary_unicode_decimal_digits_to_ascii_without_checksum_semantics()
+    {
+        var raw = string.Concat("86012345678901".Select(c => char.ConvertFromUtf32(0x104A0 + c - '0')));
+        Assert.Equal("86012345678901", IdentityNormalizationRules.NormalizeImeiIdentity(raw));
+    }
+
     [Fact]
     public void Serial_normalization_is_case_insensitive_and_unicode_deterministic()
     {
@@ -56,17 +73,32 @@ public sealed class TrackingManufacturerIdentityTests
     }
 
     [Fact]
-    public void Identity_claim_model_has_global_type_normalized_uniqueness_and_unit_slot_uniqueness()
+    public void Immutable_claim_history_retains_unit_slot_uniqueness_and_active_ownership_is_globally_unique()
     {
         using var db = CreateDb();
         var entity = db.Model.FindEntityType(typeof(InventoryUnitIdentityClaim));
         Assert.NotNull(entity);
         var indexes = entity!.GetIndexes().Where(x => x.IsUnique).ToArray();
 
-        Assert.Contains(indexes, x =>
+        var historyIndex = Assert.Single(entity.GetIndexes(), x =>
             x.Properties.Select(p => p.Name).SequenceEqual(new[] { nameof(InventoryUnitIdentityClaim.IdentifierType), nameof(InventoryUnitIdentityClaim.NormalizedValue) }));
+        Assert.False(historyIndex.IsUnique);
         Assert.Contains(indexes, x =>
             x.Properties.Select(p => p.Name).SequenceEqual(new[] { nameof(InventoryUnitIdentityClaim.InventoryUnitId), nameof(InventoryUnitIdentityClaim.IdentifierSlot) }));
+        var ownership = db.Model.FindEntityType(typeof(InventoryUnitIdentityOwnership));
+        Assert.NotNull(ownership);
+        Assert.Equal(new[] { nameof(InventoryUnitIdentityOwnership.NormalizedValue) },
+            ownership!.FindPrimaryKey()!.Properties.Select(x => x.Name).ToArray());
+        Assert.Contains(ownership.GetIndexes(), x => x.IsUnique && x.Properties.Select(p => p.Name)
+            .SequenceEqual(new[] { nameof(InventoryUnitIdentityOwnership.InventoryUnitIdentityClaimId) }));
+        Assert.Contains(ownership.GetForeignKeys(), x => x.PrincipalEntityType.ClrType == typeof(InventoryUnitIdentityClaim) &&
+            x.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(InventoryUnitIdentityOwnership.InventoryUnitIdentityClaimId), nameof(InventoryUnitIdentityOwnership.NormalizedValue)
+            }) && x.PrincipalKey.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(InventoryUnitIdentityClaim.Id), nameof(InventoryUnitIdentityClaim.NormalizedValue)
+            }));
     }
 
     private static EdgeRetailsDbContext CreateDb()

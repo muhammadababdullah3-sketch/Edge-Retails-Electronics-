@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
 
 namespace EdgeRetails.Application.Features.Finance;
@@ -40,7 +41,8 @@ public sealed class PostExpenseHandler
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationOutcomeLedger outcomeLedger)
     {
         _expenses = expenses;
         _cashMovements = cashMovements;
@@ -51,7 +53,10 @@ public sealed class PostExpenseHandler
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _outcomes = outcomeLedger;
     }
+
+    private readonly IOperationOutcomeLedger _outcomes;
 
     public Task<Result<PostExpenseResult>> HandleAsync(
         PostExpenseCommand command,
@@ -79,11 +84,68 @@ public sealed class PostExpenseHandler
                     authorization.Error.Message);
             }
 
-            await _operationLock.AcquireAsync(command.ClientOperationId, ct);
-            var existing = await _expenses.GetByClientOperationIdAsync(
-                command.ClientOperationId,
-                ct); if (existing is not null)
+            var roundedAmount = decimal.Round(command.Amount, 2, MidpointRounding.AwayFromZero);
+            var normalizedRef = Normalize(command.Reference);
+            var normalizedDesc = command.Description.Trim();
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
             {
+                Version = 1,
+                command.CategoryId,
+                command.SubcategoryId,
+                ExpenseDate = command.ExpenseDate.ToString("O"),
+                Amount = roundedAmount,
+                PaymentMethod = command.PaymentMethod.ToString(),
+                Reference = normalizedRef,
+                Description = normalizedDesc,
+                command.ActorId
+            }));
+
+            await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            var outcome = await _outcomes.GetOutcomeAsync(command.ClientOperationId, ct);
+            var existing = await _expenses.GetByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (outcome is not null)
+            {
+                if (!string.Equals(outcome.OperationType, "Expense", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result<PostExpenseResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                }
+
+                if (outcome.State != OperationOutcomeState.Succeeded ||
+                    !outcome.WasCommitted || existing is null || outcome.EntityId != existing.Id ||
+                    (outcome.ActorId.HasValue && outcome.ActorId != command.ActorId) ||
+                    (outcome.PayloadFingerprint is not null && outcome.PayloadFingerprint != fingerprint))
+                {
+                    return Result<PostExpenseResult>.Failure("idempotency.payload_mismatch",
+                        "Operation identity already belongs to another durable operation.");
+                }
+            }
+            if (existing is not null)
+            {
+                if (existing.CategoryId != command.CategoryId ||
+                    existing.SubcategoryId != command.SubcategoryId ||
+                    existing.ExpenseDate != command.ExpenseDate ||
+                    existing.Amount != roundedAmount ||
+                    existing.PaymentMethod != command.PaymentMethod ||
+                    existing.Reference != normalizedRef ||
+                    existing.Description != normalizedDesc ||
+                    existing.CreatedBy != command.ActorId)
+                {
+                    return Result<PostExpenseResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with different expense parameters.");
+                }
+
+                await _outcomes.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "Expense",
+                    existing.Id,
+                    existing.ExpenseNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: fingerprint,
+                    cancellationToken: ct);
+
                 return Result<PostExpenseResult>.Success(
                     new(existing.Id, existing.ExpenseNumber, true));
             }
@@ -117,14 +179,15 @@ public sealed class PostExpenseHandler
                 CategoryId = command.CategoryId,
                 SubcategoryId = command.SubcategoryId,
                 ExpenseDate = command.ExpenseDate,
-                Amount = decimal.Round(command.Amount, 2),
+                Amount = roundedAmount,
                 PaymentMethod = command.PaymentMethod,
-                Reference = Normalize(command.Reference),
-                Description = command.Description.Trim(),
+                Reference = normalizedRef,
+                Description = normalizedDesc,
                 ClientOperationId = command.ClientOperationId,
                 CreatedBy = command.ActorId,
                 CreatedAt = _clock.UtcNow
-            }; _expenses.AddExpense(expense);
+            };
+            _expenses.AddExpense(expense);
 
             if (command.PaymentMethod == ExpensePaymentMethod.Cash)
             {
@@ -155,6 +218,15 @@ public sealed class PostExpenseHandler
                 command.ClientOperationId,
                 $"{expense.ExpenseNumber}: {expense.Amount:0.00}");
 
+            await _outcomes.RecordSuccessAsync(
+                command.ClientOperationId,
+                "Expense",
+                expense.Id,
+                expense.ExpenseNumber,
+                actorId: command.ActorId,
+                payloadFingerprint: fingerprint,
+                cancellationToken: ct);
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<PostExpenseResult>.Success(
                 new(expense.Id, expense.ExpenseNumber, false));
@@ -170,12 +242,15 @@ public sealed class PostExpenseHandler
 public sealed record VoidExpenseCommand(
     Guid ExpenseId,
     Guid ActorId,
-    Guid CorrelationId,
+    Guid ClientOperationId,
     string Reason);
 
 public sealed class VoidExpenseHandler
 {
+    private readonly IOperationLock _operationLock;
+    private readonly IOperationOutcomeLedger _outcomes;
     private readonly IExpenseRepository _expenses;
+    private readonly ICashMovementService _cashMovements;
     private readonly IBusinessAuditWriter _audit;
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
@@ -184,24 +259,45 @@ public sealed class VoidExpenseHandler
 
     public VoidExpenseHandler(
         IExpenseRepository expenses,
+        ICashMovementService cashMovements,
         IBusinessAuditWriter audit,
         IClock clock,
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOperationLock operationLock,
+        IOperationOutcomeLedger outcomeLedger)
     {
         _expenses = expenses;
+        _cashMovements = cashMovements;
         _audit = audit;
         _clock = clock;
         _transactions = transactions;
         _authorization = authorization;
         _unitOfWork = unitOfWork;
+        _operationLock = operationLock;
+        _outcomes = outcomeLedger;
     }
 
-    public Task<Result> HandleAsync(
+    public async Task<Result> HandleAsync(
         VoidExpenseCommand command,
-        CancellationToken cancellationToken) =>
-        _transactions.ExecuteAsync(async ct =>
+        CancellationToken cancellationToken)
+    {
+        if (command.ClientOperationId == Guid.Empty || command.ExpenseId == Guid.Empty ||
+            command.ActorId == Guid.Empty)
+        {
+            return Result.Failure("expense.void_operation_id_required", "Expense, actor and operation identity are required.");
+        }
+        if (string.IsNullOrWhiteSpace(command.Reason))
+        {
+            return Result.Failure("expense.void_reason_required", "Voiding an expense requires a reason.");
+        }
+        var fingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Version = 1, command.ExpenseId, command.ActorId, Reason = command.Reason.Trim()
+        }));
+        var ownsOutcome = false;
+        var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -212,12 +308,29 @@ public sealed class VoidExpenseHandler
                 return authorization;
             }
 
-            if (string.IsNullOrWhiteSpace(command.Reason))
+            await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            var outcome = await _outcomes.GetOutcomeAsync(command.ClientOperationId, ct);
+            if (outcome is not null)
             {
-                return Result.Failure(
-                    "expense.void_reason_required",
-                    "Voiding an expense requires a reason.");
+                if (outcome.OperationType != "ExpenseVoid" || outcome.ActorId != command.ActorId ||
+                    outcome.PayloadFingerprint != fingerprint ||
+                    (outcome.EntityId.HasValue && outcome.EntityId != command.ExpenseId))
+                {
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was submitted with a different expense void intent.");
+                }
+                if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted &&
+                    outcome.EntityId == command.ExpenseId)
+                {
+                    return Result.Success();
+                }
+                return Result.Failure(outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                    outcome.ErrorMessage ?? "Reconcile the previous void outcome before another execution.");
             }
+            if (await _expenses.GetByClientOperationIdAsync(command.ClientOperationId, ct) is not null)
+            {
+                return Result.Failure("idempotency.payload_mismatch", "Operation identity already belongs to an expense posting.");
+            }
+            ownsOutcome = true;
 
             var expense = await _expenses.GetForUpdateAsync(command.ExpenseId, ct);
             if (expense is null)
@@ -229,7 +342,31 @@ public sealed class VoidExpenseHandler
 
             if (expense.Status == ExpenseStatus.Voided)
             {
+                await _outcomes.RecordSuccessAsync(command.ClientOperationId, "ExpenseVoid", expense.Id,
+                    expense.ExpenseNumber, actorId: command.ActorId, payloadFingerprint: fingerprint, cancellationToken: ct);
+                await _unitOfWork.SaveChangesAsync(ct);
                 return Result.Success();
+            }
+
+            if (expense.PaymentMethod == ExpensePaymentMethod.Cash)
+            {
+                var cashResult = await _cashMovements.RecordAsync(
+                    new RecordCashMovementRequest(
+                        CashMovementType.ManualCashIn,
+                        CashMovementDirection.In,
+                        expense.Amount,
+                        command.ActorId,
+                        "EXPENSE",
+                        expense.Id,
+                        $"Expense void {expense.ExpenseNumber}",
+                        command.Reason.Trim()),
+                    ct);
+                if (!cashResult.IsSuccess)
+                {
+                    return Result.Failure(
+                        cashResult.Error!.Code,
+                        cashResult.Error.Message);
+                }
             }
 
             expense.Status = ExpenseStatus.Voided;
@@ -243,10 +380,47 @@ public sealed class VoidExpenseHandler
                 "EXPENSE",
                 expense.Id,
                 command.ActorId,
-                command.CorrelationId,
+                command.ClientOperationId,
                 command.Reason.Trim());
 
+            await _outcomes.RecordSuccessAsync(command.ClientOperationId, "ExpenseVoid", expense.Id,
+                expense.ExpenseNumber, actorId: command.ActorId, payloadFingerprint: fingerprint, cancellationToken: ct);
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
+        if (!result.IsSuccess && ownsOutcome)
+        {
+            // The failed business transaction released its operation lock. Recheck authority
+            // under a new lock before persisting failure; another intent may have won meanwhile.
+            var settled = await _transactions.ExecuteAsync(async ct =>
+            {
+                await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+                var latest = await _outcomes.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (latest is not null)
+                {
+                    var matches = latest.OperationType == "ExpenseVoid" && latest.ActorId == command.ActorId &&
+                        latest.PayloadFingerprint == fingerprint &&
+                        (!latest.EntityId.HasValue || latest.EntityId == command.ExpenseId);
+                    var replay = !matches
+                        ? Result.Failure("idempotency.payload_mismatch", "Operation identity now belongs to a different intent.")
+                        : latest.State == OperationOutcomeState.Succeeded && latest.WasCommitted && latest.EntityId == command.ExpenseId
+                            ? Result.Success()
+                            : Result.Failure(latest.ErrorCode ?? "idempotency.outcome_unknown",
+                                latest.ErrorMessage ?? "Reconcile the previous void outcome.");
+                    return (Result: replay, Recorded: false);
+                }
+                if (await _expenses.GetByClientOperationIdAsync(command.ClientOperationId, ct) is not null)
+                {
+                    return (Result: Result.Failure("idempotency.payload_mismatch", "Operation identity now belongs to an expense posting."), Recorded: false);
+                }
+                await _outcomes.RecordFailureAsync(command.ClientOperationId, "ExpenseVoid",
+                    result.Error!.Code, result.Error.Message, actorId: command.ActorId,
+                    payloadFingerprint: fingerprint, cancellationToken: ct);
+                // A tuple commits the failure ledger; returning a failed IResult would roll it back.
+                return (Result: result, Recorded: true);
+            }, cancellationToken);
+            return settled.Result;
+        }
+        return result;
+    }
 }

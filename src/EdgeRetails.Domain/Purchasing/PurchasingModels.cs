@@ -173,26 +173,7 @@ public static class PurchaseMath
             return Enumerable.Repeat(0m, baseLineTotals.Count).ToArray();
         }
 
-        var allocations = new decimal[baseLineTotals.Count];
-        var remaining = charges;
-
-        for (var i = 0; i < baseLineTotals.Count; i++)
-        {
-            var allocated = i == baseLineTotals.Count - 1
-                ? remaining
-                : decimal.Round(
-                    charges * baseLineTotals[i] / subtotal,
-                    2,
-                    MidpointRounding.AwayFromZero);
-
-            allocations[i] = allocated;
-            remaining = decimal.Round(
-                remaining - allocated,
-                2,
-                MidpointRounding.AwayFromZero);
-        }
-
-        return allocations;
+        return MoneyRoundingPolicy.Allocate(charges, baseLineTotals);
     }
 }
 

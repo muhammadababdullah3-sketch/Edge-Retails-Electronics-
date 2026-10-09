@@ -16,7 +16,8 @@ if (File.Exists(commonConfig))
     builder.Configuration.AddJsonFile(commonConfig, optional: true, reloadOnChange: false);
 }
 var localConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EdgeRetails", "config.json");
-if (!builder.Environment.IsEnvironment("Testing") && File.Exists(localConfig))
+// Per-user development settings must never redirect the production shop authority.
+if (builder.Environment.IsDevelopment() && File.Exists(localConfig))
 {
     builder.Configuration.AddJsonFile(localConfig, optional: true, reloadOnChange: false);
 }

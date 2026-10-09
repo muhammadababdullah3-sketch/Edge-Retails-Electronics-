@@ -34,6 +34,8 @@ public sealed record BackendThakaProjectPage(
 
 public interface IBackendThakaService
 {
+    Task SetSuspensionAsync(ThakaProjectListItemViewModel project, bool suspended, string reason,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("Account suspension authority is not attached.");
     Task<IReadOnlyList<ThakaProjectListItemViewModel>> GetProjectsAsync(
         CancellationToken cancellationToken = default);
 
@@ -91,6 +93,18 @@ public interface IBackendThakaService
 
 public sealed class BackendThakaService : IBackendThakaService
 {
+    public async Task SetSuspensionAsync(ThakaProjectListItemViewModel project, bool suspended, string reason,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<SetThakaSuspensionHandler>();
+        var result = await handler.HandleAsync(new(Guid.CreateVersion7(), RequireProject(project), suspended,
+            reason, RequireActor()), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(result.Error!.Code, result.Error.Message);
+        }
+    }
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Func<Guid?> _actorUserId;
 
@@ -124,6 +138,7 @@ public sealed class BackendThakaService : IBackendThakaService
         {
             "ACTIVE" => ThakaProjectStatus.Active,
             "SETTLED" => ThakaProjectStatus.Settled,
+            "SUSPENDED" => ThakaProjectStatus.Suspended,
             _ => (ThakaProjectStatus?)null
         };
         var page = await reads.GetProjectsPageAsync(
@@ -311,7 +326,9 @@ public sealed class BackendThakaService : IBackendThakaService
                 minimumStock: 0m,
                 backendProductId: row.ProductId,
                 backendProductUnitId: row.ProductUnitId,
-                isSerialized: row.IsSerialized);
+                isSerialized: row.IsSerialized,
+                factorToBaseUnit: row.FactorToBaseUnit,
+                trackingMode: row.TrackingMode);
 
             return new BackendThakaMaterialCatalogItem(
                 product,
@@ -347,7 +364,8 @@ public sealed class BackendThakaService : IBackendThakaService
 
         if (product.IsSerialized)
         {
-            var baseQuantity = quantity * product.FactorToBaseUnit;
+            var baseQuantity = product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                ? quantity : quantity * product.FactorToBaseUnit;
             if (baseQuantity != decimal.Truncate(baseQuantity) ||
                 inventoryUnitIds.Count != decimal.ToInt32(baseQuantity))
             {
@@ -537,10 +555,8 @@ public sealed class BackendThakaService : IBackendThakaService
             startDate: row.StartedOn.ToDateTime(TimeOnly.MinValue),
             materialValue: row.MaterialValue,
             paid: row.Paid,
-            status: row.Status == ThakaProjectStatus.Settled
-                ? "SETTLED"
-                : "ACTIVE",
+            status: row.Status.ToString().ToUpperInvariant(),
             notes: row.Note ?? string.Empty,
             backendProjectId: row.ProjectId,
-            settlementDiscount: row.SettlementDiscount);
+            settlementDiscount: row.SettlementDiscount) { CustomerIsActive = row.CustomerIsActive };
 }

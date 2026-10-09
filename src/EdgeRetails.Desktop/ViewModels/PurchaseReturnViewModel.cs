@@ -53,7 +53,8 @@ public sealed class PurchaseReturnLineViewModel : ViewModelBase
                 return 0;
             }
 
-            var baseQuantity = ReturnQuantity * Item.Product.FactorToBaseUnit;
+            var baseQuantity = Item.Product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container
+                ? ReturnQuantity : ReturnQuantity * Item.Product.FactorToBaseUnit;
             if (baseQuantity != decimal.Truncate(baseQuantity) ||
                 baseQuantity > int.MaxValue)
             {

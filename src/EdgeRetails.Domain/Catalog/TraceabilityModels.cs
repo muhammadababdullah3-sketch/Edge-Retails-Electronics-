@@ -591,7 +591,15 @@ public static class IdentityNormalizationRules
             throw new BusinessRuleException("identity.serial_required", "Serial number cannot be empty.");
         }
 
-        var normalized = rawSerial.Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+        string normalized;
+        try
+        {
+            normalized = rawSerial.Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+        }
+        catch (ArgumentException)
+        {
+            throw new BusinessRuleException("identity.serial_unsupported_character", "Serial number contains invalid Unicode.");
+        }
         if (normalized.Length > SerialNumberMaxLength)
         {
             throw new BusinessRuleException(
@@ -599,8 +607,8 @@ public static class IdentityNormalizationRules
                 $"Serial number cannot exceed {SerialNumberMaxLength} characters.");
         }
 
-        if (normalized.Any(c => char.IsControl(c) ||
-            CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format))
+        if (normalized.EnumerateRunes().Any(c => Rune.IsControl(c) ||
+            Rune.GetUnicodeCategory(c) == UnicodeCategory.Format))
         {
             throw new BusinessRuleException(
                 "identity.serial_unsupported_character",
@@ -627,19 +635,27 @@ public static class IdentityNormalizationRules
                 $"IMEI input cannot exceed {ImeiRawMaxLength} characters.");
         }
 
-        var input = rawImei.Trim().Normalize(NormalizationForm.FormKC);
-        var digits = new StringBuilder(input.Length);
-        foreach (var c in input)
+        string input;
+        try
         {
-            if (c is >= '0' and <= '9')
+            input = rawImei.Trim().Normalize(NormalizationForm.FormKC);
+        }
+        catch (ArgumentException)
+        {
+            throw new BusinessRuleException("identity.imei_unsupported_character", "IMEI contains invalid Unicode.");
+        }
+        var digits = new StringBuilder(input.Length);
+        foreach (var c in input.EnumerateRunes())
+        {
+            if (c.Value is >= '0' and <= '9')
             {
-                digits.Append(c);
+                digits.Append((char)c.Value);
                 continue;
             }
 
-            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.DecimalDigitNumber)
+            if (Rune.GetUnicodeCategory(c) == UnicodeCategory.DecimalDigitNumber)
             {
-                var digit = CharUnicodeInfo.GetDigitValue(c);
+                var digit = Rune.GetNumericValue(c);
                 if (digit is >= 0 and <= 9)
                 {
                     digits.Append((char)('0' + digit));
@@ -647,7 +663,7 @@ public static class IdentityNormalizationRules
                 }
             }
 
-            if (char.IsWhiteSpace(c) || c == '-')
+            if (Rune.IsWhiteSpace(c) || c.Value == '-')
             {
                 continue;
             }

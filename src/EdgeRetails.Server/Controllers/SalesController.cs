@@ -213,9 +213,18 @@ public sealed class SalesController : ControllerBase
     public async Task<IActionResult> GetPosCatalog(
         [FromServices] IPosCatalogReadService catalogReads,
         [FromQuery] string? search,
+        [FromQuery] string? category = null,
+        [FromQuery] string? brand = null,
         [FromQuery] int pageSize = 50,
+        [FromQuery] string? afterName = null,
+        [FromQuery] Guid? afterId = null,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(afterName) != !afterId.HasValue)
+        {
+            return BadRequest(new { code = "sales.catalog_cursor_invalid", message = "Both afterName and afterId are required for a catalog cursor." });
+        }
+
         var denied = this.RequirePermission(PermissionKeys.SalesPosUse);
         if (denied is not null)
         {
@@ -229,7 +238,11 @@ public sealed class SalesController : ControllerBase
 
         var products = await catalogReads.GetSellableCatalogAsync(
             search?.Trim(),
+            category?.Trim(),
+            brand?.Trim(),
             Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 200),
+            afterName,
+            afterId,
             cancellationToken);
         return Ok(products);
     }

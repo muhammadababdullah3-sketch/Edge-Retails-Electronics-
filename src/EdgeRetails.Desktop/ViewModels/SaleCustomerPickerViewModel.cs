@@ -68,7 +68,7 @@ public sealed class SaleCustomerPickerViewModel : ViewModelBase
 
     private void SelectCustomer(CustomerDirectoryRecord customer)
     {
-        if (customer is null)
+        if (customer is null || !customer.IsActive)
         {
             return;
         }
@@ -80,7 +80,7 @@ public sealed class SaleCustomerPickerViewModel : ViewModelBase
     private void ApplyFilter()
     {
         var term = SearchText.Trim();
-        var query = _source.AsEnumerable();
+        var query = _source.Where(customer => customer.IsActive);
 
         if (!string.IsNullOrWhiteSpace(term))
         {

@@ -1,6 +1,6 @@
 using EdgeRetails.Application.Common;
-using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Server.Middleware;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +22,7 @@ public sealed class InventoryController : ControllerBase
     private readonly ReviewStocktakeHandler _reviewStocktakeHandler;
     private readonly CancelStocktakeHandler _cancelStocktakeHandler;
     private readonly PostStocktakeHandler? _postStocktakeHandler;
+    private readonly FoundInventoryUnitHandler? _foundHandler;
 
     public InventoryController(
         IInventoryOverviewReadService overviewReads,
@@ -34,7 +35,8 @@ public sealed class InventoryController : ControllerBase
         RecordSerializedStocktakeHandler recordSerializedStocktakeHandler,
         ReviewStocktakeHandler reviewStocktakeHandler,
         CancelStocktakeHandler cancelStocktakeHandler,
-        PostStocktakeHandler? postStocktakeHandler = null)
+        PostStocktakeHandler? postStocktakeHandler = null,
+        FoundInventoryUnitHandler? foundHandler = null)
     {
         _overviewReads = overviewReads;
         _provenanceReads = provenanceReads;
@@ -47,6 +49,27 @@ public sealed class InventoryController : ControllerBase
         _reviewStocktakeHandler = reviewStocktakeHandler;
         _cancelStocktakeHandler = cancelStocktakeHandler;
         _postStocktakeHandler = postStocktakeHandler;
+        _foundHandler = foundHandler;
+    }
+
+    [HttpPost("exact-units/found")]
+    public async Task<IActionResult> RecoverFoundUnit([FromBody] FoundInventoryUnitCommand command, CancellationToken cancellationToken)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+        var actor = HttpContext.GetActorContext();
+        if (actor is null)
+        {
+            return Unauthorized();
+        }
+        if (_foundHandler is null)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new { code = "service_unavailable", message = "Found recovery authority is unavailable." });
+        }
+        return ToActionResult(await _foundHandler.HandleAsync(command with { ActorId = actor.UserId }, cancellationToken));
     }
 
     [HttpGet("stock")]
@@ -57,7 +80,9 @@ public sealed class InventoryController : ControllerBase
         [FromQuery] int pageSize = 50,
         [FromQuery] string? beforeName = null,
         [FromQuery] Guid? beforeProductId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromQuery] Guid? productId = null,
+        [FromQuery] bool includeInactive = false)
     {
         var denied = this.RequirePermission(PermissionKeys.InventoryManage);
         if (denied is not null)
@@ -71,7 +96,9 @@ public sealed class InventoryController : ControllerBase
             Brand: brand,
             PageSize: Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 500),
             BeforeName: beforeName,
-            BeforeProductId: beforeProductId);
+            BeforeProductId: beforeProductId,
+            ProductId: productId,
+            IncludeInactive: includeInactive);
 
         var stock = await _overviewReads.GetStockPageAsync(query, cancellationToken);
         return Ok(stock);

@@ -7,6 +7,38 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class ExpenseEditViewModel : ViewModelBase
 {
+    private int _submissionGate;
+    private bool _confirmed;
+    private SubmittedExpense? _submittedExpense;
+    private sealed record SubmittedExpense(string Category, string Subcategory, decimal Amount,
+        DateTime Date, string PaymentMethod, string StaffMember, string Note);
+    public bool IsBusy => Volatile.Read(ref _submissionGate) != 0;
+    private Guid? _voidClientOperationId;
+    private bool _isVoided;
+    private string _voidReason = string.Empty;
+
+    public bool IsReadOnly => _existing?.BackendId is not null;
+    public bool CanVoid => IsReadOnly && !IsBusy && !_isVoided && _backendService is not null;
+    public bool CanEdit => !IsReadOnly && !IsBusy && _submittedExpense is null && !_confirmed;
+
+    public string VoidReason
+    {
+        get => _voidReason;
+        set
+        {
+            if (SetProperty(ref _voidReason, value))
+            {
+                ((RelayCommand)VoidCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string SubmissionStatus => IsReadOnly
+        ? (_isVoided ? "Expense has been voided." : _voidClientOperationId is not null
+            ? "Void outcome unconfirmed. Retry preserves the original void operation identity."
+            : "Posted expense — read only. Enter void reason and click Void Expense to reverse this transaction.")
+        : IsBusy ? "Submitting expense…" : _submittedExpense is not null
+        ? "Outcome unresolved. Retry preserves the original expense; restart recovery is not yet supported." : string.Empty;
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
     private readonly IBackendBusinessOperationsService? _backendService;
     private readonly IReadOnlyList<string> _categories;
@@ -46,62 +78,79 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         _staffMember = existing?.StaffMember ?? string.Empty;
         _note = existing?.Note ?? string.Empty;
 
-        SaveCommand = new RelayCommand(async () => await SaveAsync());
+        SaveCommand = new RelayCommand(async () => await SaveAsync(), () => !IsReadOnly && !IsBusy && !_confirmed);
+        VoidCommand = new RelayCommand(async () => await VoidAsync(), () => CanVoid && !string.IsNullOrWhiteSpace(_voidReason));
         CancelCommand = new RelayCommand(_close);
     }
 
-    public string Title => _existing is null ? "Add Expense" : "Edit Expense";
-    public string SaveButtonText => _existing is null ? "Add Expense" : "Save Changes";
+    public string Title => IsReadOnly ? "View Posted Expense" : _existing is null ? "Add Expense" : "Edit Expense";
+    public string SaveButtonText => IsReadOnly ? "Read only" : _existing is null ? "Add Expense" : "Save Changes";
     public IReadOnlyList<string> Categories => _categories;
     public IReadOnlyList<string> PaymentMethods => _service.PaymentMethods;
 
     public string SelectedCategory
     {
         get => _selectedCategory;
-        set => SetProperty(ref _selectedCategory, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _selectedCategory, value ?? string.Empty); } }
     }
 
     public string Subcategory
     {
         get => _subcategory;
-        set => SetProperty(ref _subcategory, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _subcategory, value ?? string.Empty); } }
     }
 
     public string AmountText
     {
         get => _amountText;
-        set => SetProperty(ref _amountText, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _amountText, value ?? string.Empty); } }
     }
 
     public DateTime Date
     {
         get => _date;
-        set => SetProperty(ref _date, value);
+        set { if (CanEdit) { SetProperty(ref _date, value); } }
     }
 
     public string SelectedPaymentMethod
     {
         get => _selectedPaymentMethod;
-        set => SetProperty(ref _selectedPaymentMethod, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _selectedPaymentMethod, value ?? string.Empty); } }
     }
 
     public string StaffMember
     {
         get => _staffMember;
-        set => SetProperty(ref _staffMember, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _staffMember, value ?? string.Empty); } }
     }
 
     public string Note
     {
         get => _note;
-        set => SetProperty(ref _note, value ?? string.Empty);
+        set { if (CanEdit) { SetProperty(ref _note, value ?? string.Empty); } }
     }
 
     public ICommand SaveCommand { get; }
+    public ICommand VoidCommand { get; }
     public ICommand CancelCommand { get; }
 
     private async Task SaveAsync()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
+        if (Interlocked.CompareExchange(ref _submissionGate, 1, 0) != 0)
+        {
+            return;
+        }
+        NotifySubmissionState();
+        try
+        {
+        if (_confirmed)
+        {
+            return;
+        }
         if (!decimal.TryParse(AmountText, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) &&
             !decimal.TryParse(AmountText, NumberStyles.Number, CultureInfo.CurrentCulture, out amount))
         {
@@ -109,19 +158,22 @@ public sealed class ExpenseEditViewModel : ViewModelBase
             return;
         }
 
+        var submitted = _submittedExpense ?? new SubmittedExpense(SelectedCategory, Subcategory, amount,
+            Date, SelectedPaymentMethod, StaffMember, Note);
+
         try
         {
             if (_backendService is null)
             {
                 _service.SaveExpense(
                     _existing,
-                    SelectedCategory,
-                    Subcategory,
-                    amount,
-                    Date,
-                    SelectedPaymentMethod,
-                    StaffMember,
-                    Note);
+                    submitted.Category,
+                    submitted.Subcategory,
+                    submitted.Amount,
+                    submitted.Date,
+                    submitted.PaymentMethod,
+                    submitted.StaffMember,
+                    submitted.Note);
             }
             else
             {
@@ -131,15 +183,14 @@ public sealed class ExpenseEditViewModel : ViewModelBase
                         "Posted expenses are immutable. Use a void/correction flow instead of editing in place.");
                 }
 
-                await _backendService.PostExpenseAsync(
-                    SelectedCategory,
-                    Subcategory,
-                    amount,
-                    Date,
-                    SelectedPaymentMethod,
-                    Note);
+                _submittedExpense = submitted;
+                NotifySubmissionState();
+                await _backendService.PostExpenseAsync(submitted.Category, submitted.Subcategory,
+                    submitted.Amount, submitted.Date, submitted.PaymentMethod, submitted.Note);
+                _submittedExpense = null;
             }
 
+            _confirmed = true;
             _toastService.Show(
                 _existing is null ? "Expense added." : "Expense updated.",
                 ToastTone.Success);
@@ -152,6 +203,61 @@ public sealed class ExpenseEditViewModel : ViewModelBase
                 DesktopErrorPresentation.ForException(ex, "Expense could not be saved."),
                 ToastTone.Danger);
         }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _submissionGate, 0);
+            NotifySubmissionState();
+        }
+    }
+
+    private async Task VoidAsync()
+    {
+        if (!CanVoid || string.IsNullOrWhiteSpace(_voidReason))
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _submissionGate, 1, 0) != 0)
+        {
+            return;
+        }
+        NotifySubmissionState();
+
+        try
+        {
+            _voidClientOperationId ??= Guid.NewGuid();
+            if (_backendService is not null && _existing?.BackendId is Guid expenseId)
+            {
+                await _backendService.VoidExpenseAsync(expenseId, _voidReason, _voidClientOperationId.Value);
+            }
+
+            _isVoided = true;
+            _toastService.Show("Expense voided successfully.", ToastTone.Success);
+            _close();
+            _saved?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Failed to void expense. Retry preserves exact operation identity."),
+                ToastTone.Danger);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _submissionGate, 0);
+            NotifySubmissionState();
+        }
+    }
+
+    private void NotifySubmissionState()
+    {
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(CanVoid));
+        OnPropertyChanged(nameof(SubmissionStatus));
+        ((RelayCommand)SaveCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)VoidCommand).NotifyCanExecuteChanged();
     }
 }
 
@@ -166,6 +272,22 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
     private readonly IDialogService _dialogService;
     private string _selectedPeriod = "Today";
     private string _selectedCategory = "All";
+
+    private const int PageSize = 100;
+    private bool _hasMoreExpenses;
+    public bool HasMoreExpenses
+    {
+        get => _hasMoreExpenses;
+        private set
+        {
+            if (SetProperty(ref _hasMoreExpenses, value))
+            {
+                OnPropertyChanged(nameof(CanLoadMoreExpenses));
+                ((RelayCommand)LoadMoreExpensesCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+    public bool CanLoadMoreExpenses => HasMoreExpenses && !_backendLoading;
 
     public ExpensesViewModel(
         IToastService toastService,
@@ -182,8 +304,9 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
             : new ObservableCollection<string>(["All"]);
 
         AddExpenseCommand = new RelayCommand(() => OpenExpenseDialog(null));
-        EditExpenseCommand = new RelayCommand<ExpenseRecord>(OpenExpenseDialog);
+        ViewExpenseCommand = new RelayCommand<ExpenseRecord>(OpenExpenseDialog);
         SelectPeriodCommand = new RelayCommand<string>(SelectPeriod);
+        LoadMoreExpensesCommand = new RelayCommand(async () => await LoadMoreExpensesAsync(), () => CanLoadMoreExpenses);
 
         if (_backendService is null)
         {
@@ -241,12 +364,13 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
     public decimal TodayAmount { get; private set; }
     public decimal ThisMonthAmount { get; private set; }
     public string TopCategory { get; private set; } = "—";
-    public string TodayAmountDisplay => $"Rs. {TodayAmount:N0}";
-    public string ThisMonthAmountDisplay => $"Rs. {ThisMonthAmount:N0}";
+    public string TodayAmountDisplay => $"Rs. {TodayAmount:N2}";
+    public string ThisMonthAmountDisplay => $"Rs. {ThisMonthAmount:N2}";
 
     public ICommand AddExpenseCommand { get; }
-    public ICommand EditExpenseCommand { get; }
+    public ICommand ViewExpenseCommand { get; }
     public ICommand SelectPeriodCommand { get; }
+    public ICommand LoadMoreExpensesCommand { get; }
 
     private void OpenExpenseDialog(ExpenseRecord? expense)
     {
@@ -306,14 +430,17 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
         }
 
         _backendLoading = true;
+        OnPropertyChanged(nameof(CanLoadMoreExpenses));
+        ((RelayCommand)LoadMoreExpensesCommand).NotifyCanExecuteChanged();
         try
         {
-            var expenses = await _backendService.GetExpensesAsync();
+            var expenses = await _backendService.GetExpensesAsync(PageSize);
             var categories = await _backendService.GetExpenseCategoriesAsync();
 
             _backendExpenses.Clear();
             _backendExpenses.AddRange(expenses);
             _backendLoaded = true;
+            HasMoreExpenses = expenses.Count >= PageSize;
 
             var selected = SelectedCategory;
             Categories.Clear();
@@ -343,6 +470,44 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
         finally
         {
             _backendLoading = false;
+            OnPropertyChanged(nameof(CanLoadMoreExpenses));
+            ((RelayCommand)LoadMoreExpensesCommand).NotifyCanExecuteChanged();
+        }
+    }
+
+    private async Task LoadMoreExpensesAsync()
+    {
+        if (_backendService is null || _backendLoading || !HasMoreExpenses || _backendExpenses.Count == 0)
+        {
+            return;
+        }
+
+        _backendLoading = true;
+        OnPropertyChanged(nameof(CanLoadMoreExpenses));
+        ((RelayCommand)LoadMoreExpensesCommand).NotifyCanExecuteChanged();
+        try
+        {
+            var last = _backendExpenses[^1];
+            var lastDate = DateOnly.FromDateTime(last.Date);
+            var lastId = last.BackendId ?? Guid.Empty;
+
+            var nextPage = await _backendService.GetExpensesAsync(PageSize, lastDate, lastId);
+            _backendExpenses.AddRange(nextPage);
+            HasMoreExpenses = nextPage.Count >= PageSize;
+
+            ApplyExpenseState(_backendExpenses);
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "Failed to load more expenses."),
+                ToastTone.Danger);
+        }
+        finally
+        {
+            _backendLoading = false;
+            OnPropertyChanged(nameof(CanLoadMoreExpenses));
+            ((RelayCommand)LoadMoreExpensesCommand).NotifyCanExecuteChanged();
         }
     }
 

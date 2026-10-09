@@ -166,8 +166,8 @@ public sealed class PosProductItemViewModel : ViewModelBase
         }
     }
 
-    public string PriceDisplay => $"Rs. {Price:N0}";
-    public string CostDisplay => $"Rs. {Cost:N0}";
+    public string PriceDisplay => $"Rs. {Price:N2}";
+    public string CostDisplay => $"Rs. {Cost:N2}";
     public string MinimumStockDisplay => MinimumStock.ToString("0.##");
 
     public decimal Stock

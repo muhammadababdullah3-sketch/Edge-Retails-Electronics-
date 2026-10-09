@@ -1,7 +1,7 @@
-﻿{
+{
     "ArchitectureVersion":  "EdgeRetails-Backend-V1-2026-09-22-InternationalAuditRemediated",
     "CanonicalRelativePath":  "docs/Edge_Retails_Final_Architecture_Report_v1.md",
-    "CanonicalSha256":  "12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673",
+    "CanonicalSha256":  "059DDB086F822A255BDA7CE4A7E49CC36E3F82F3BC8D6E6F1B7AF0FC40B8BAD6",
     "ArchitectureCoverage":  "Sections 0-233 including authoritative Section 233.1 remediation annex",
     "EffectiveAtUtc":  "2026-09-22",
     "Status":  "FINAL_ARCHITECTURE_BASELINE_AUDIT_REMEDIATED",

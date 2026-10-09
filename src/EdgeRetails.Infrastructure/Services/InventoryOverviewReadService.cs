@@ -41,7 +41,7 @@ public sealed class InventoryOverviewReadService : IInventoryOverviewReadService
             join categoryJoin in _db.Categories.AsNoTracking()
                 on product.CategoryId equals categoryJoin.Id into categoryGroup
             from categoryRow in categoryGroup.DefaultIfEmpty()
-            where product.IsActive
+            where query.IncludeInactive || product.IsActive
             select new
             {
                 product,
@@ -50,6 +50,11 @@ public sealed class InventoryOverviewReadService : IInventoryOverviewReadService
                 cost,
                 categoryRow
             };
+
+        if (query.ProductId is Guid productId)
+        {
+            baseQuery = baseQuery.Where(x => x.product.Id == productId);
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -102,7 +107,8 @@ public sealed class InventoryOverviewReadService : IInventoryOverviewReadService
                 x.cost == null ? null : x.cost.LastPurchaseCost,
                 x.product.DefaultSalePrice,
                 x.product.MinimumStockLevel,
-                x.product.TrackingMode == TrackingMode.Serialized))
+                (x.product.TrackingMode == TrackingMode.Serialized || x.product.TrackingMode == TrackingMode.IndividualPiece || x.product.TrackingMode == TrackingMode.Container),
+                x.product.TrackingMode))
             .ToListAsync(cancellationToken);
     }
 

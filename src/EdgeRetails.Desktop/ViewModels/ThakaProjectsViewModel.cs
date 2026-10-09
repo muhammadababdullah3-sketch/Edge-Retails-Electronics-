@@ -178,6 +178,7 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(IsFilterAll));
                 OnPropertyChanged(nameof(IsFilterActive));
                 OnPropertyChanged(nameof(IsFilterSettled));
+                OnPropertyChanged(nameof(IsFilterSuspended));
                 ScheduleBackendRefresh();
             }
         }
@@ -185,6 +186,7 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
 
     public bool IsFilterAll => string.Equals(SelectedFilter, "All", StringComparison.OrdinalIgnoreCase);
     public bool IsFilterActive => string.Equals(SelectedFilter, "Active", StringComparison.OrdinalIgnoreCase);
+    public bool IsFilterSuspended => string.Equals(SelectedFilter, "Suspended", StringComparison.OrdinalIgnoreCase);
     public bool IsFilterSettled => string.Equals(SelectedFilter, "Settled", StringComparison.OrdinalIgnoreCase);
 
     // View Mode Toggle (Cards vs Table)
@@ -289,6 +291,8 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
 
         _ = RefreshBackendAsync();
     }
+
+    public void RefreshDirectory() => ScheduleBackendRefresh();
 
     public Task<IReadOnlyList<ThakaProjectListItemViewModel>> LoadProjectsAsync(CancellationToken cancellationToken = default)
     {
@@ -501,6 +505,10 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
             query = query.Where(p => p.IsSettled);
         }
 
+        if (IsFilterSuspended)
+        {
+            query = query.Where(p => p.IsSuspended);
+        }
         FilteredProjects.Clear();
         foreach (var project in query)
         {

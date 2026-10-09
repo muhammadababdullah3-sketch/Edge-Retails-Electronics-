@@ -100,7 +100,13 @@ public sealed class EfTransactionRunner : ITransactionRunner
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            try
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            catch
+            {
+            }
             _db.ChangeTracker.Clear();
             throw;
         }
@@ -110,6 +116,8 @@ public sealed class EfTransactionRunner : ITransactionRunner
 public sealed class PostgresOperationLock : IOperationLock, IResourceLock
 {
     private readonly EdgeRetailsDbContext _db;
+    private Guid? _lockTransactionId;
+    private readonly HashSet<string> _heldKeys = new(StringComparer.Ordinal);
 
     public PostgresOperationLock(EdgeRetailsDbContext db)
     {
@@ -161,13 +169,21 @@ public sealed class PostgresOperationLock : IOperationLock, IResourceLock
         string key,
         CancellationToken cancellationToken)
     {
-        if (_db.Database.CurrentTransaction is null)
+        var transaction = _db.Database.CurrentTransaction
+            ?? throw new InvalidOperationException("Advisory locks require an active database transaction.");
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_lockTransactionId != transaction.TransactionId)
         {
-            throw new InvalidOperationException(
-                "Advisory locks require an active database transaction.");
+            _heldKeys.Clear();
+            _lockTransactionId = transaction.TransactionId;
+        }
+        var scopedKey = $"{scope}:{key}";
+        if (_heldKeys.Contains(scopedKey))
+        {
+            return;
         }
 
-        var payload = Encoding.UTF8.GetBytes($"{scope}:{key}");
+        var payload = Encoding.UTF8.GetBytes(scopedKey);
         var hash = SHA256.HashData(payload);
         var lockKey = BitConverter.ToInt64(hash, 0);
 
@@ -187,6 +203,7 @@ public sealed class PostgresOperationLock : IOperationLock, IResourceLock
         command.Parameters.Add(parameter);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+        _heldKeys.Add(scopedKey);
     }
 }
 

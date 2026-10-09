@@ -6,6 +6,26 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <WrapPanel IsItemsHost="True" Margin="0,0,0,8" KeyboardNavigation.TabNavigation="Once"
+                                   KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        <Border Grid.Row="1" Background="{TemplateBinding Background}"
+                                TextElement.Foreground="{DynamicResource Brush.Text.Primary}">
+                            <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"
+                                              Margin="{TemplateBinding Padding}" />
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="Tabs.Item" TargetType="TabItem">
@@ -15,11 +35,11 @@
         <Setter Property="FontFamily" Value="{StaticResource Font.Primary}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="Medium" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
         <Setter Property="Background" Value="{DynamicResource Brush.Surface.Default}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual.Button}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
@@ -29,7 +49,7 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="{StaticResource Radius.Compact}">
-                        <ContentPresenter HorizontalAlignment="Center"
+                        <ContentPresenter x:Name="HeaderContent" TextElement.Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center"
                                           VerticalAlignment="Center"
                                           ContentSource="Header" />
                     </Border>
@@ -37,7 +57,7 @@
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Root" Property="Background" Value="{StaticResource Brush.Brand.Primary}" />
                             <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
-                            <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+                            <Setter TargetName="HeaderContent" Property="TextElement.Foreground" Value="{StaticResource Brush.White}" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />

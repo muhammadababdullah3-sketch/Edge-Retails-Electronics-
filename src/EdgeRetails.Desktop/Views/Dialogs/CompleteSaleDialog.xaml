@@ -8,7 +8,7 @@
     xmlns:vm="clr-namespace:EdgeRetails.Desktop.ViewModels"
     mc:Ignorable="d"
     d:DataContext="{d:DesignInstance vm:CompleteSaleViewModel}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <SolidColorBrush x:Key="Brush.Payment.Primary" Color="{StaticResource Color.Payment.End}" />
@@ -25,26 +25,29 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Border x:Name="Box"
-                                    Width="18"
-                                    Height="18"
-                                    CornerRadius="4"
-                                    BorderBrush="{DynamicResource Brush.Border.Default}"
-                                    BorderThickness="1.5"
-                                    Background="{DynamicResource Brush.Input.Background}"
-                                    Margin="0,0,10,0"
-                                    VerticalAlignment="Center">
-                                <Path x:Name="CheckMark"
-                                      Data="M 3 9 L 7 13 L 15 5"
-                                      Stroke="{StaticResource Brush.White}"
-                                      StrokeThickness="2"
-                                      StrokeStartLineCap="Round"
-                                      StrokeEndLineCap="Round"
-                                      StrokeLineJoin="Round"
-                                      Visibility="Collapsed"
-                                      HorizontalAlignment="Center"
-                                      VerticalAlignment="Center" />
-                            </Border>
+                            <Grid Width="18" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
+                                <Border x:Name="Box"
+                                        CornerRadius="4"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1.5"
+                                        Background="{DynamicResource Brush.Input.Background}">
+                                    <Path x:Name="CheckMark"
+                                          Data="M 3 9 L 7 13 L 15 5"
+                                          Stroke="{StaticResource Brush.White}"
+                                          StrokeThickness="2"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          Visibility="Collapsed"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                                </Border>
+                                <Border x:Name="FocusRing"
+                                        BorderBrush="Transparent"
+                                        BorderThickness="1.5"
+                                        CornerRadius="4"
+                                        IsHitTestVisible="False" />
+                            </Grid>
                             <ContentPresenter VerticalAlignment="Center" />
                         </StackPanel>
                         <ControlTemplate.Triggers>
@@ -57,9 +60,17 @@
                                 <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Brush.Brand.Primary}" />
-                                <Setter TargetName="Box" Property="BorderThickness" Value="2" />
+                                <Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
                             </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="True" />
+                                    <Condition Property="IsKeyboardFocused" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.Surface.Default}" />
+                            </MultiTrigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Box" Property="Opacity" Value="0.5" />
                                 <Setter Property="Opacity" Value="0.6" />
@@ -82,7 +93,7 @@
             <Setter Property="Padding" Value="9,4" />
             <Setter Property="Margin" Value="0,0,6,0" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual.Button.Text}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -102,6 +113,10 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="ChipBorder" Property="Background" Value="{DynamicResource Brush.Brand.Tint}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                                <Setter TargetName="ChipBorder" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -166,7 +181,7 @@
                         Width="32"
                         Height="32"
                         Cursor="Hand"
-                        FocusVisualStyle="{x:Null}">
+                        FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="CloseBorder"
@@ -266,7 +281,7 @@
                             Command="{Binding SelectCashCommand}"
                             Height="76"
                             Cursor="Hand"
-                            FocusVisualStyle="{x:Null}">
+                            FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="CardBorder"
@@ -338,7 +353,7 @@
                             Command="{Binding SelectBankCommand}"
                             Height="76"
                             Cursor="Hand"
-                            FocusVisualStyle="{x:Null}">
+                            FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="CardBorder"
@@ -411,7 +426,7 @@
                             Command="{Binding SelectOtherCommand}"
                             Height="76"
                             Cursor="Hand"
-                            FocusVisualStyle="{x:Null}">
+                            FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="CardBorder"
@@ -501,17 +516,31 @@
                     <Button Grid.Column="1"
                             Command="{Binding SetExactAmountCommand}"
                             Content="Set Exact"
-                            Style="{StaticResource Button.Text.Primary}"
+                            Style="{StaticResource Button.Text.Borderless}"
                             Cursor="Hand" />
                 </Grid>
 
                 <!-- Input Box Container with "Rs." prefix -->
-                <Border Height="46"
+                <Border x:Name="AmountReceivedHost"
+                        Height="46"
                         CornerRadius="8"
                         Background="{DynamicResource Brush.Input.Background}"
-                        BorderBrush="{DynamicResource Brush.Border.Default}"
-                        BorderThickness="1">
-                    <Grid>
+                        BorderThickness="1"
+                        SnapsToDevicePixels="True">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Hover}" />
+                                </Trigger>
+                                <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=AmountReceivedTextBox}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -521,26 +550,24 @@
                         <TextBlock Grid.Column="0"
                                    Text="Rs."
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="16"
+                                   FontSize="18"
                                    FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
-                                   Padding="14,0,4,0"
+                                   Margin="14,0,6,0"
                                    VerticalAlignment="Center" />
 
                         <!-- Numeric Amount TextBox -->
                         <TextBox x:Name="AmountReceivedTextBox"
                                  Grid.Column="1"
+                                 Style="{StaticResource Input.TextBox.Embedded}"
                                  Text="{Binding AmountReceivedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  FontFamily="{StaticResource Font.Numeric}"
                                  FontSize="18"
                                  FontWeight="Bold"
                                  Foreground="{DynamicResource Brush.Text.Primary}"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 VerticalContentAlignment="Center"
-                                 Padding="2,0,14,0"
-                                 CaretBrush="{DynamicResource Brush.Brand.Primary}"
-                                 FocusVisualStyle="{x:Null}" />
+                                 Padding="0,0,14,0"
+                                 VerticalAlignment="Center"
+                                 VerticalContentAlignment="Center" />
                     </Grid>
                 </Border>
 
@@ -794,7 +821,7 @@
                         IsDefault="True"
                         Height="46"
                         Cursor="Hand"
-                        FocusVisualStyle="{x:Null}">
+                        FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="RootBorder"
@@ -874,10 +901,6 @@
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource Gradient.Payment.Pressed}" />
-                                </Trigger>
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource Brush.White}" />
-                                    <Setter TargetName="RootBorder" Property="BorderThickness" Value="2" />
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="RootBorder" Property="Opacity" Value="0.45" />

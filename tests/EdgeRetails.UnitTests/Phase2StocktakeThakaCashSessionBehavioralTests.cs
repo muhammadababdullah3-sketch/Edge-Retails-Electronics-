@@ -25,7 +25,7 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
         new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork);
 
     private RecordManualCashMovementHandler CreateRecordManualCashMovementHandler() =>
-        new(_cashMovementService, _fakes.Transactions, _fakes.UnitOfWork);
+        new(_cashMovementService, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Audit);
 
     private CloseCashSessionHandler CreateCloseCashSessionHandler() =>
         new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork);
@@ -62,6 +62,7 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
     private IssueThakaMaterialHandler CreateIssueThakaMaterialHandler() =>
         new(
             _fakes.Thaka,
+            _fakes.Parties,
             _fakes.Catalog,
             _fakes.Inventory,
             _fakes.CostAllocator,

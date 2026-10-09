@@ -18,7 +18,8 @@ public sealed record SaveCustomerCommand(
     string? Notes = null,
     Guid? ClientOperationId = null,
     Guid? TerminalId = null,
-    Guid? SessionId = null);
+    Guid? SessionId = null,
+    bool PreserveActivityStatus = false);
 
 public sealed record SaveSupplierCommand(
     Guid? SupplierId,
@@ -80,6 +81,10 @@ public sealed class SaveCustomerHandler
         var fingerprint = OperationPayloadFingerprint.ComputeSha256(
             "Customer.Save.v1", command.CustomerId?.ToString("D"), command.Name.Trim(),
             Normalize(command.Phone), Normalize(command.Address), command.IsActive.ToString(), Normalize(command.Notes));
+        if (command.PreserveActivityStatus)
+        {
+            fingerprint = OperationPayloadFingerprint.ComputeSha256("Customer.Save.PreserveStatus.v1", fingerprint);
+        }
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -140,7 +145,10 @@ public sealed class SaveCustomerHandler
             customer.Phone = Normalize(command.Phone);
             customer.Address = Normalize(command.Address);
             customer.Notes = Normalize(command.Notes);
-            customer.IsActive = command.IsActive;
+            if (!command.PreserveActivityStatus || command.CustomerId is null)
+            {
+                customer.IsActive = command.IsActive;
+            }
             customer.Version++;
 
             _audit.Record(

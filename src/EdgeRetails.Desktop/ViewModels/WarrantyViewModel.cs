@@ -618,8 +618,11 @@ public sealed class WarrantyViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsEmpty));
     }
 
+    private long _timelineRequestGeneration;
+
     private async Task LoadTimelineAsync()
     {
+        var currentGen = Interlocked.Increment(ref _timelineRequestGeneration);
         Timeline.Clear();
         if (_operationsService is null ||
             SelectedRow is not { Kind: WarrantyWorkKind.CustomerClaim } selected)
@@ -627,15 +630,26 @@ public sealed class WarrantyViewModel : ViewModelBase
             return;
         }
 
+        var targetWorkId = selected.WorkId;
         try
         {
-            var events = await _operationsService.GetWarrantyClaimTimelineAsync(selected.WorkId);
+            var events = await _operationsService.GetWarrantyClaimTimelineAsync(targetWorkId);
+            if (Volatile.Read(ref _timelineRequestGeneration) != currentGen)
+            {
+                return;
+            }
+            if (SelectedRow?.WorkId != targetWorkId)
+            {
+                return;
+            }
+
+            Timeline.Clear();
             foreach (var entry in events)
             {
                 Timeline.Add(entry);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (Volatile.Read(ref _timelineRequestGeneration) == currentGen)
         {
             _toastService?.Show(
                 DesktopErrorPresentation.ForException(ex, "Warranty history could not be loaded."),
@@ -960,6 +974,8 @@ public sealed class WarrantyViewModel : ViewModelBase
     private static string? NullIfBlank(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 
+    private int _warrantyActionGate;
+
     private async Task ExecuteCustomerActionAsync(
         string operationName,
         Func<IBackendOperationsService, Guid, Guid, Task> action,
@@ -981,6 +997,11 @@ public sealed class WarrantyViewModel : ViewModelBase
             _toastService?.Show(
                 "This action belongs to Customer Warranty Claims. Shop-stock receive/credit actions are wired separately.",
                 ToastTone.Warning);
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _warrantyActionGate, 1, 0) != 0)
+        {
             return;
         }
 
@@ -1015,6 +1036,7 @@ public sealed class WarrantyViewModel : ViewModelBase
         }
         finally
         {
+            Interlocked.Exchange(ref _warrantyActionGate, 0);
             IsLoading = false;
         }
     }

@@ -189,39 +189,12 @@ public sealed class Phase2ReconciliationPostgresTests
             CancellationToken.None);
         Assert.True(srResult.IsSuccess);
 
-        // 4. Stock Adjustment: Transfer 10 units from Sellable to Damaged
-        var adjResult = await adjustHandler.HandleAsync(
-            new CreateStockAdjustmentCommand(
-                StockAdjustmentMode.Delta,
-                StockAdjustmentReason.Damaged,
-                [
-                    new StockAdjustmentItemCommand(
-                        fixture.ProductId,
-                        fixture.ProductUnitId,
-                        StockAdjustmentDirection.Decrease,
-                        InventoryBucket.Sellable,
-                        10m,
-                        100m,
-                        fixture.SupplierId,
-                        null,
-                        null,
-                        "Damaged in store"),
-                    new StockAdjustmentItemCommand(
-                        fixture.ProductId,
-                        fixture.ProductUnitId,
-                        StockAdjustmentDirection.Increase,
-                        InventoryBucket.Damaged,
-                        10m,
-                        100m,
-                        fixture.SupplierId,
-                        null,
-                        null,
-                        "Moved to Damaged bucket")
-                ],
-                fixture.ActorId,
-                Guid.CreateVersion7(),
-                "Water damage during storage"),
-            CancellationToken.None);
+        // HARNESS_CORRECTION: current damage authority is a condition transfer,
+        // preserving all original bucket, quantity and value reconciliation checks.
+        var conditionHandler = ActivatorUtilities.CreateInstance<TransferInventoryConditionHandler>(services);
+        var adjResult = await conditionHandler.HandleAsync(new TransferInventoryConditionCommand(
+            fixture.ProductId, InventoryBucket.Sellable, InventoryBucket.Damaged, 10m,
+            fixture.ActorId, "Water damage during storage", CorrelationId: Guid.CreateVersion7()), CancellationToken.None);
         Assert.True(adjResult.IsSuccess);
 
         db.ChangeTracker.Clear();

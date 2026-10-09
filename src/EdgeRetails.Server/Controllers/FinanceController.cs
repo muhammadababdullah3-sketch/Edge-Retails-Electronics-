@@ -1,6 +1,7 @@
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Domain.Finance;
 using EdgeRetails.Server.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,8 +16,9 @@ public sealed class FinanceController : ControllerBase
     private readonly ReverseSupplierPaymentHandler _reversePaymentHandler;
     private readonly ReverseSupplierRefundHandler _reverseRefundHandler;
     private readonly OpenCashSessionHandler _openCashSessionHandler;
-    private readonly ICashMovementService _cashMovementService;
+    private readonly RecordManualCashMovementHandler _manualCashMovementHandler;
     private readonly ISupplierAccountReadService _supplierAccountReads;
+    private readonly SupplierOpeningBalanceHandler _openingBalanceHandler;
 
     public FinanceController(
         CreateSupplierPaymentHandler paymentHandler,
@@ -24,16 +26,18 @@ public sealed class FinanceController : ControllerBase
         ReverseSupplierPaymentHandler reversePaymentHandler,
         ReverseSupplierRefundHandler reverseRefundHandler,
         OpenCashSessionHandler openCashSessionHandler,
-        ICashMovementService cashMovementService,
-        ISupplierAccountReadService supplierAccountReads)
+        RecordManualCashMovementHandler manualCashMovementHandler,
+        ISupplierAccountReadService supplierAccountReads,
+        SupplierOpeningBalanceHandler openingBalanceHandler)
     {
         _paymentHandler = paymentHandler;
         _refundHandler = refundHandler;
         _reversePaymentHandler = reversePaymentHandler;
         _reverseRefundHandler = reverseRefundHandler;
         _openCashSessionHandler = openCashSessionHandler;
-        _cashMovementService = cashMovementService;
+        _manualCashMovementHandler = manualCashMovementHandler;
         _supplierAccountReads = supplierAccountReads;
+        _openingBalanceHandler = openingBalanceHandler;
     }
 
     [HttpGet("suppliers/{supplierId:guid}/workspace")]
@@ -83,6 +87,16 @@ public sealed class FinanceController : ControllerBase
 
     private static bool HasPartialCursor(params bool[] fields) =>
         fields.Any(x => x) && fields.Any(x => !x);
+
+    [HttpPost("supplier-opening-balance")]
+    public async Task<IActionResult> CreateSupplierOpeningBalance(
+        [FromBody] SupplierOpeningBalanceCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
+        return ToActionResult(await _openingBalanceHandler.HandleAsync(sanitized, cancellationToken));
+    }
 
     [HttpPost("supplier-payment")]
     public async Task<IActionResult> CreateSupplierPayment(
@@ -150,7 +164,13 @@ public sealed class FinanceController : ControllerBase
     {
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? request with { ActorId = actor.UserId } : request;
-        var result = await _cashMovementService.RecordAsync(sanitized, cancellationToken);
+        if ((sanitized.MovementType != CashMovementType.ManualCashIn || sanitized.Direction != CashMovementDirection.In) &&
+            (sanitized.MovementType != CashMovementType.ManualCashOut || sanitized.Direction != CashMovementDirection.Out))
+        {
+            return BadRequest(new { code = "cash.manual_type_required", message = "This endpoint accepts only manual cash in or out." });
+        }
+        var result = await _manualCashMovementHandler.HandleAsync(new RecordManualCashMovementCommand(
+            sanitized.Direction, sanitized.Amount, sanitized.ActorId, sanitized.Reason ?? string.Empty, sanitized.Note), cancellationToken);
         return ToActionResult(result);
     }
 

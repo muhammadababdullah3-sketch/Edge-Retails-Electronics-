@@ -54,8 +54,8 @@ public sealed class PhysicalUnitCreationAuthority : IPhysicalUnitCreationAuthori
             $"{supplierId:D}:{productId:D}",
             cancellationToken);
 
-        var supplier = await _db.Suppliers.SingleOrDefaultAsync(x => x.Id == supplierId, cancellationToken);
-        var product = await _db.Products.SingleOrDefaultAsync(x => x.Id == productId, cancellationToken);
+        var supplier = await _db.Suppliers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == supplierId, cancellationToken);
+        var product = await _db.Products.AsNoTracking().SingleOrDefaultAsync(x => x.Id == productId, cancellationToken);
         if (supplier is null || !supplier.IsActive || string.IsNullOrWhiteSpace(supplier.DealerCode))
         {
             return Result<IReadOnlyList<InventoryUnit>>.Failure(
@@ -115,19 +115,97 @@ public sealed class PhysicalUnitCreationAuthority : IPhysicalUnitCreationAuthori
                 return Result<IReadOnlyList<InventoryUnit>>.Failure("identity.imei_duplicate", "Duplicate normalized IMEI in physical-unit batch.");
             }
 
-            if (await _inventory.InventoryIdentityExistsAsync(serial, imei1, imei2, cancellationToken))
+
+            normalized.Add((entry, serial, imei1, imei2));
+        }
+
+        if (product.TrackingMode is not (TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container))
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "inventory.physical_tracking_required",
+                "Physical units require the locked product to use a physical tracking policy.");
+        }
+
+        // The standalone path acquires every identity before taking a row lock.
+        // Command callers already hold their complete globally sorted logical
+        // lock set. PostgresOperationLock treats held keys as transaction-local
+        // no-ops rather than reacquiring lower-ranked resources in the row phase.
+        foreach (var identityKey in serials.Select(x => $"SERIAL:{x}")
+            .Concat(imeis.Select(x => $"IMEI:{x}"))
+            .OrderBy(x => x, StringComparer.Ordinal))
+        {
+            await _resourceLock.AcquireAsync("inventory-identity", identityKey, cancellationToken);
+        }
+
+        var discoveredPolicy = (product.TrackingMode, product.SerialTrackingEnabled, product.ImeiTrackingEnabled);
+        if (_db.Database.IsRelational())
+        {
+            product = await _db.Products
+                .FromSqlInterpolated($"SELECT * FROM catalog.products WHERE id = {productId} FOR UPDATE")
+                .SingleOrDefaultAsync(cancellationToken);
+            supplier = await _db.Suppliers
+                .FromSqlInterpolated($"SELECT * FROM parties.suppliers WHERE id = {supplierId} FOR SHARE")
+                .SingleOrDefaultAsync(cancellationToken);
+            if (product is not null)
+            {
+                await _db.Entry(product).ReloadAsync(cancellationToken);
+                if (product.CompanyId is Guid companyId)
+                {
+                    await _db.Companies.FromSqlInterpolated($"SELECT * FROM catalog.companies WHERE id = {companyId} FOR SHARE")
+                        .LoadAsync(cancellationToken);
+                }
+                if (product.CategoryId is Guid categoryId)
+                {
+                    await _db.Categories.FromSqlInterpolated($"SELECT * FROM catalog.categories WHERE id = {categoryId} FOR SHARE")
+                        .LoadAsync(cancellationToken);
+                }
+            }
+            if (supplier is not null)
+            {
+                await _db.Entry(supplier).ReloadAsync(cancellationToken);
+            }
+        }
+        if (supplier is null || !supplier.IsActive || string.IsNullOrWhiteSpace(supplier.DealerCode))
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "inventory.supplier_tracking_identity_missing",
+                "An active supplier with a permanent DealerCode is required.");
+        }
+        if (product is null || !product.IsActive || string.IsNullOrWhiteSpace(product.Sku))
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "inventory.product_tracking_identity_missing",
+                "An active product with a canonical ProductCode/SKU is required.");
+        }
+        if ((product.TrackingMode, product.SerialTrackingEnabled, product.ImeiTrackingEnabled) != discoveredPolicy)
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "inventory.physical_unit_policy_changed_retry",
+                "Product tracking policy changed during preparation. Retry the complete operation.");
+        }
+
+        // Current ownership is checked only after logical identity acquisition.
+        // Database uniqueness remains the final authority against bypasses.
+        foreach (var value in normalized)
+        {
+            if (await _inventory.InventoryIdentityExistsAsync(value.Serial, value.Imei1, value.Imei2, cancellationToken))
             {
                 return Result<IReadOnlyList<InventoryUnit>>.Failure(
                     "inventory.identity_duplicate",
                     "Serial or IMEI is already assigned to another physical unit.");
             }
-            normalized.Add((entry, serial, imei1, imei2));
         }
 
         var supplierProduct = _db.SupplierProducts.Local.SingleOrDefault(
             x => x.SupplierId == supplierId && x.ProductId == productId)
             ?? await _traceability.GetSupplierProductForUpdateAsync(
                 supplierId, productId, cancellationToken);
+        if (supplierProduct is not null && !supplierProduct.IsActive)
+        {
+            return Result<IReadOnlyList<InventoryUnit>>.Failure(
+                "inventory.supplier_product_inactive",
+                "Supplier/Product sequence authority is inactive.");
+        }
         if (supplierProduct is null)
         {
             supplierProduct = new SupplierProduct

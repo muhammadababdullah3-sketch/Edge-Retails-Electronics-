@@ -446,12 +446,12 @@ public sealed class StocktakeReconciliationIdempotencyTests
 
         var postCmd = new PostStocktakeCommand(stocktakeId, actorId, null, clientOpId);
 
-        // First post: unit transitioned from InStock to Scrapped
+        // First post: unit transitioned from InStock to Missing
         var res1 = await postHandler.HandleAsync(postCmd, CancellationToken.None);
         Assert.True(res1.IsSuccess);
 
         var unitAfterPost = _fakes.Inventory.Units.First(u => u.Id == unit.Id);
-        Assert.Equal(InventoryUnitStatus.Scrapped, unitAfterPost.Status);
+        Assert.Equal(InventoryUnitStatus.Missing, unitAfterPost.Status);
         Assert.Equal(2, unitAfterPost.Version);
         Assert.Equal(0m, _fakes.Inventory.Balances[product.Id].SellableQty);
         Assert.Single(_fakes.Inventory.Movements);
@@ -461,7 +461,7 @@ public sealed class StocktakeReconciliationIdempotencyTests
         Assert.True(res2.IsSuccess);
 
         var unitAfterReplay = _fakes.Inventory.Units.First(u => u.Id == unit.Id);
-        Assert.Equal(InventoryUnitStatus.Scrapped, unitAfterReplay.Status);
+        Assert.Equal(InventoryUnitStatus.Missing, unitAfterReplay.Status);
         Assert.Equal(2, unitAfterReplay.Version); // Version not incremented again
         Assert.Equal(0m, _fakes.Inventory.Balances[product.Id].SellableQty); // Balance not decremented again
         Assert.Single(_fakes.Inventory.Movements); // No second movement

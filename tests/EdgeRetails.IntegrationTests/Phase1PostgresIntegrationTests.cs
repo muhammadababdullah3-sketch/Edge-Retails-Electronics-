@@ -1,9 +1,9 @@
 using EdgeRetails.Application.Features.Inventory;
+using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Parties;
-using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,18 +15,8 @@ namespace EdgeRetails.IntegrationTests;
 public sealed class Phase1PostgresIntegrationTests
 {
     private static ServiceProvider BuildProvider()
-    {
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
-        }
-
-        var services = new ServiceCollection();
-        services.AddEdgeRetailsInfrastructure(connectionString);
-        return services.BuildServiceProvider();
-    }
+        // HARNESS_CORRECTION: use the owned, initialized high-water authority.
+        => Phase2PostgresTestHarness.BuildProvider();
 
     [Fact]
     public async Task StockAdjustment_And_Items_Persist_With_Relational_Integrity_And_RESTRICT_Foreign_Keys()
@@ -177,7 +167,10 @@ public sealed class Phase1PostgresIntegrationTests
             CreatedAt = DateTimeOffset.UtcNow,
             Version = 1
         };
-        db.InventoryUnits.Add(validUnit);
+        // HARNESS_CORRECTION: current identity authority requires claim + owner;
+        // repository insertion establishes both without bypassing provenance checks.
+        var inventory = scope.ServiceProvider.GetRequiredService<IInventoryRepository>();
+        inventory.AddInventoryUnit(validUnit);
         await db.SaveChangesAsync();
 
         // 2. Invalid OriginType = StockAdjustment with missing SourceStockAdjustmentItemId must fail CHECK constraint
@@ -195,7 +188,7 @@ public sealed class Phase1PostgresIntegrationTests
             CreatedAt = DateTimeOffset.UtcNow,
             Version = 1
         };
-        db.InventoryUnits.Add(invalidUnitMissingSource);
+        inventory.AddInventoryUnit(invalidUnitMissingSource);
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
 
         db.ChangeTracker.Clear();
@@ -216,7 +209,7 @@ public sealed class Phase1PostgresIntegrationTests
             CreatedAt = DateTimeOffset.UtcNow,
             Version = 1
         };
-        db.InventoryUnits.Add(invalidUnitMixed);
+        inventory.AddInventoryUnit(invalidUnitMixed);
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
 
@@ -317,27 +310,19 @@ public sealed class Phase1PostgresIntegrationTests
             Assert.Equal(78000m, u.AcquisitionCost);
         });
 
-        // 2. Negative serialized adjustment (write-off of 1 unit)
+        // HARNESS_CORRECTION + ASSERTION_CHANGE: damage is a recoverable
+        // condition transfer; the explicit subsequent Scrap operation recognizes loss.
+        // Preserve the original exact-unit disposition and carrying-value assertions.
         var unitToWriteOff = units[0];
-        var writeOffCommand = new CreateStockAdjustmentCommand(
-            StockAdjustmentMode.Delta,
-            StockAdjustmentReason.Damaged,
-            [
-                new StockAdjustmentItemCommand(
-                    product.Id,
-                    null,
-                    StockAdjustmentDirection.Decrease,
-                    InventoryBucket.Sellable,
-                    1m,
-                    null,
-                    InventoryUnitIds: [unitToWriteOff.Id],
-                    ReasonDetails: "Damaged in warehouse transit")
-            ],
-            actorId,
-            Guid.NewGuid(),
-            Note: "Write-off damaged unit");
-
-        var writeOffResult = await handler.HandleAsync(writeOffCommand, CancellationToken.None);
+        var conditionHandler = ActivatorUtilities.CreateInstance<TransferInventoryConditionHandler>(services);
+        var damageResult = await conditionHandler.HandleAsync(new TransferInventoryConditionCommand(
+            product.Id, InventoryBucket.Sellable, InventoryBucket.Damaged, 1m, actorId,
+            "Damaged in warehouse transit", InventoryUnitIds: [unitToWriteOff.Id], CorrelationId: Guid.NewGuid()), CancellationToken.None);
+        Assert.True(damageResult.IsSuccess, damageResult.Error?.Message);
+        db.ChangeTracker.Clear();
+        var writeOffResult = await conditionHandler.HandleAsync(new TransferInventoryConditionCommand(
+            product.Id, InventoryBucket.Damaged, InventoryBucket.Scrap, 1m, actorId,
+            "Write-off damaged unit", InventoryUnitIds: [unitToWriteOff.Id], CorrelationId: Guid.NewGuid()), CancellationToken.None);
         Assert.True(writeOffResult.IsSuccess, writeOffResult.Error?.Message);
 
         db.ChangeTracker.Clear();
@@ -351,13 +336,17 @@ public sealed class Phase1PostgresIntegrationTests
         Assert.Equal(78000m, costStateAfter.TotalInventoryCost);
         Assert.Equal(78000m, costStateAfter.MovingAverageCost);
 
-        var lotBalanceAfter = await db.InventoryLotBucketBalances.SingleAsync(x => x.LotId == lot.Id);
-        Assert.Equal(1m, lotBalanceAfter.Quantity);
+        var lotBalancesAfter = await db.InventoryLotBucketBalances.Where(x => x.LotId == lot.Id).ToListAsync();
+        Assert.Equal(1m, Assert.Single(lotBalancesAfter, x => x.StockBucket == InventoryBucket.Sellable).Quantity);
+        Assert.Equal(0m, Assert.Single(lotBalancesAfter, x => x.StockBucket == InventoryBucket.Damaged).Quantity);
+        Assert.Equal(1m, Assert.Single(lotBalancesAfter, x => x.StockBucket == InventoryBucket.Scrap).Quantity);
+        Assert.Equal(2m, lotBalancesAfter.Sum(x => x.Quantity));
 
         var consumptions = await db.InventoryLotConsumptions.Where(x => x.LotId == lot.Id).ToListAsync();
-        Assert.Single(consumptions);
-        Assert.Equal(1m, consumptions[0].Quantity);
-        Assert.Equal(78000m, consumptions[0].TotalCostSnapshot);
+        Assert.Empty(consumptions);
+        var scrapMovement = await db.InventoryMovements.SingleAsync(x => x.Id == writeOffResult.Value);
+        Assert.Equal(78000m, scrapMovement.RecognizedLossAmount);
+        Assert.Equal(unitToWriteOff.Id, (await db.InventoryMovementUnits.SingleAsync(x => x.MovementId == scrapMovement.Id)).InventoryUnitId);
 
         var writtenOffUnit = await db.InventoryUnits.SingleAsync(x => x.Id == unitToWriteOff.Id);
         Assert.Equal(InventoryUnitStatus.Scrapped, writtenOffUnit.Status);

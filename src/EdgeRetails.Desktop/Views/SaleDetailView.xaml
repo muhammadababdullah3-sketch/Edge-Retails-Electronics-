@@ -9,7 +9,7 @@
     xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
     mc:Ignorable="d"
     d:DataContext="{d:DesignInstance Type=viewModels:SaleDetailViewModel}"
-    Focusable="False">
+    Focusable="False" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -196,7 +196,7 @@
                         </StackPanel>
 
                         <!-- Sep 1 -->
-                        <Border Grid.Column="1" Background="{DynamicResource Brush.Border.Default}" />
+                        <Border Grid.Column="1" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
                         <!-- Col 2: Date & Time -->
                         <StackPanel Grid.Column="2" Margin="14,0">
@@ -217,7 +217,7 @@
                         </StackPanel>
 
                         <!-- Sep 2 -->
-                        <Border Grid.Column="3" Background="{DynamicResource Brush.Border.Default}" />
+                        <Border Grid.Column="3" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
                         <!-- Col 4: Cashier -->
                         <StackPanel Grid.Column="4" Margin="14,0">
@@ -235,7 +235,7 @@
                         </StackPanel>
 
                         <!-- Sep 3 -->
-                        <Border Grid.Column="5" Background="{DynamicResource Brush.Border.Default}" />
+                        <Border Grid.Column="5" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
                         <!-- Col 6: Customer -->
                         <StackPanel Grid.Column="6" Margin="14,0">
@@ -254,7 +254,7 @@
                         </StackPanel>
 
                         <!-- Sep 4 -->
-                        <Border Grid.Column="7" Background="{DynamicResource Brush.Border.Default}" />
+                        <Border Grid.Column="7" Background="{DynamicResource Brush.Border.Default}"  CornerRadius="0"/>
 
                         <!-- Col 8: Payment Method -->
                         <StackPanel Grid.Column="8" Margin="14,0">
@@ -291,7 +291,7 @@
                                 Padding="16,12"
                                 BorderBrush="{DynamicResource Brush.Border.Default}"
                                 BorderThickness="0,0,0,1"
-                                Background="{DynamicResource Brush.Table.Header}">
+                                Background="{DynamicResource Brush.Table.Header}" CornerRadius="0">
                             <Grid>
                                 <TextBlock Text="LINE ITEMS"
                                            FontFamily="{StaticResource Font.Primary}"
@@ -494,7 +494,7 @@
                             <!-- Divider -->
                             <Border Height="1"
                                     Background="{DynamicResource Brush.Border.Default}"
-                                    Margin="0,4,0,10" />
+                                    Margin="0,4,0,10"  CornerRadius="0"/>
 
                             <!-- Grand Total -->
                             <Grid Margin="0,0,0,12">
@@ -508,14 +508,14 @@
                                            FontFamily="{StaticResource Font.Numeric}"
                                            FontSize="22"
                                            FontWeight="Bold"
-                                           Foreground="{StaticResource Brush.Brand.Primary}"
+                                           Foreground="{DynamicResource Brush.Badge.Brand.Text}"
                                            HorizontalAlignment="Right" />
                             </Grid>
 
                             <!-- Divider -->
                             <Border Height="1"
                                     Background="{DynamicResource Brush.Border.Default}"
-                                    Margin="0,0,0,10" />
+                                    Margin="0,0,0,10"  CornerRadius="0"/>
 
                             <!-- Payment Received -->
                             <Grid Margin="0,0,0,6">
@@ -554,7 +554,7 @@
         <Grid Visibility="{Binding IsReturnDrawerOpen, Converter={StaticResource BoolToVis}}"
               Focusable="False">
             <!-- Semi-transparent Scrim Overlay -->
-            <Border Background="{DynamicResource Brush.Overlay.Scrim}" />
+            <Border Background="{DynamicResource Brush.Overlay.Scrim}"  CornerRadius="0"/>
 
             <!-- 480px Right Slide Drawer -->
             <Border Width="480"
@@ -562,7 +562,7 @@
                     Background="{DynamicResource Brush.Surface.Raised}"
                     BorderBrush="{DynamicResource Brush.Border.Default}"
                     BorderThickness="1,0,0,0"
-                    Effect="{StaticResource Shadow.Card}">
+                    Effect="{StaticResource Shadow.Card}" CornerRadius="{StaticResource Radius.Large}" controls:RoundedViewport.Radius="12">
                 <dialogs:SalesReturnDialog DataContext="{Binding ActiveReturnViewModel}" />
             </Border>
         </Grid>

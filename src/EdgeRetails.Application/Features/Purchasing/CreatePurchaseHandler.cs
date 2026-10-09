@@ -139,6 +139,41 @@ public sealed class CreatePurchaseHandler
                 "A product may appear only once on a purchase.");
         }
 
+        if (_outcomeLedger is null)
+        {
+            return Result<CreatePurchaseResult>.Failure("purchasing.replay_authority_missing", "Canonical purchase outcome authority is required.");
+        }
+        string fingerprint;
+        try
+        {
+            fingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Operation = "CreatePurchase", Version = 1, command.ClientOperationId, command.SupplierId,
+                Invoice = command.SupplierInvoiceNumber.Trim(), command.PurchaseDate,
+                Note = command.Note?.Trim(), OtherCharges = command.OtherCharges.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                command.SettlementMode, command.CreatedBy, command.ReceiveStockImmediately,
+                InitialPayment = command.InitialPaymentAmount?.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                command.InitialPaymentMethod, InitialReference = command.InitialPaymentExternalReference?.Trim(),
+                Lines = command.Lines.Select(x => new
+                {
+                    x.ProductId, x.ProductUnitId,
+                    Quantity = x.EnteredQuantity.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Cost = x.EnteredUnitCost.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Price = x.BaseUnitSalePrice.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Units = x.SerializedUnits.Select(u => new
+                    {
+                        Serial = IdentityNormalizationRules.NormalizeOptionalSerialNumber(u.SerialNumber),
+                        Imei1 = IdentityNormalizationRules.NormalizeOptionalImei(u.Imei1),
+                        Imei2 = IdentityNormalizationRules.NormalizeOptionalImei(u.Imei2)
+                    }).ToArray()
+                }).ToArray()
+            }));
+        }
+        catch (BusinessRuleException ex)
+        {
+            return Result<CreatePurchaseResult>.Failure(ex.Code, ex.Message);
+        }
+        var ownsOutcome = false;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -153,11 +188,30 @@ public sealed class CreatePurchaseHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+            if (outcome is not null)
+            {
+                if (outcome.OperationType != "Purchase" || outcome.ActorId != command.CreatedBy ||
+                    outcome.PayloadFingerprint != fingerprint)
+                {
+                    return Result<CreatePurchaseResult>.Failure("idempotency.payload_mismatch", "Operation was submitted with a different purchase intent or lacks canonical payload evidence.");
+                }
+                if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted || !outcome.EntityId.HasValue)
+                {
+                    return Result<CreatePurchaseResult>.Failure(outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        outcome.ErrorMessage ?? "Reconcile the previous purchase outcome before another execution.");
+                }
+            }
 
             var existing = await _purchases.GetPurchaseByClientOperationIdAsync(
                 command.ClientOperationId, ct);
             if (existing is not null)
             {
+                if (outcome is null || outcome.EntityId != existing.Id)
+                {
+                    return Result<CreatePurchaseResult>.Failure("idempotency.legacy_purchase_requires_reconciliation",
+                        "Existing purchase has no matching canonical intent evidence; reconcile it before retrying.");
+                }
                 if (existing.SupplierId != command.SupplierId || existing.SupplierInvoiceNumber != command.SupplierInvoiceNumber.Trim())
                 {
                     return Result<CreatePurchaseResult>.Failure(
@@ -165,20 +219,14 @@ public sealed class CreatePurchaseHandler
                         "Operation was previously submitted with a different supplier or invoice number.");
                 }
 
-                if (_outcomeLedger is not null)
-                {
-                    await _outcomeLedger.RecordSuccessAsync(
-                        command.ClientOperationId,
-                        "Purchase",
-                        existing.Id,
-                        existing.PurchaseNumber,
-                        actorId: command.CreatedBy,
-                        cancellationToken: ct);
-                }
-
                 return Result<CreatePurchaseResult>.Success(new(
                     existing.Id, existing.PurchaseNumber, existing.GrandTotal, true));
             }
+            if (outcome is not null)
+            {
+                return Result<CreatePurchaseResult>.Failure("idempotency.outcome_unknown", "Committed purchase outcome has no matching purchase; reconciliation is required.");
+            }
+            ownsOutcome = true;
 
             try
             {
@@ -221,7 +269,7 @@ public sealed class CreatePurchaseHandler
                     await _resourceLock.AcquireAsync("product", productId, ct);
                 }
 
-                var prepared = await PrepareLinesAsync(command.Lines, ct);
+                var prepared = await PrepareLinesAsync(command.Lines, command.ReceiveStockImmediately, ct);
 
                 if (string.IsNullOrWhiteSpace(supplier.DealerCode))
                 {
@@ -230,44 +278,17 @@ public sealed class CreatePurchaseHandler
                         "Supplier requires a permanent DealerCode before inventory can be received.");
                 }
 
-                var supplierProducts = new Dictionary<Guid, SupplierProduct>();
                 if (command.ReceiveStockImmediately)
                 {
                     foreach (var line in prepared.OrderBy(x => x.Product.Id))
                     {
                         var resourceKey = $"{command.SupplierId:D}:{line.Product.Id:D}";
                         await _resourceLock.AcquireAsync("supplier-product", resourceKey, ct);
-
-                        var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(
-                            command.SupplierId,
-                            line.Product.Id,
-                            ct);
-
-                        if (supplierProduct is null)
-                        {
-                            supplierProduct = new SupplierProduct
-                            {
-                                SupplierId = command.SupplierId,
-                                ProductId = line.Product.Id,
-                                NextItemSequence = 1,
-                                IsActive = true,
-                                CreatedAt = _clock.UtcNow,
-                                UpdatedAt = _clock.UtcNow
-                            };
-                            _traceability.AddSupplierProduct(supplierProduct);
-                        }
-                        else if (!supplierProduct.IsActive)
-                        {
-                            return Result<CreatePurchaseResult>.Failure(
-                                "purchasing.supplier_product_inactive",
-                                $"Supplier/Product mapping for '{line.Product.Name}' is inactive.");
-                        }
-
-                        supplierProducts[line.Product.Id] = supplierProduct;
                     }
                 }
 
                 await _resourceLock.AcquireAsync("supplier-account", command.SupplierId, ct);
+                var lockedIdentityKeys = new HashSet<string>(StringComparer.Ordinal);
 
                 if (command.ReceiveStockImmediately)
                 {
@@ -301,6 +322,7 @@ public sealed class CreatePurchaseHandler
                             "inventory-identity",
                             identityKey,
                             ct);
+                        lockedIdentityKeys.Add(identityKey);
                     }
 
                     foreach (var identity in receivedIdentities)
@@ -314,6 +336,61 @@ public sealed class CreatePurchaseHandler
                             return Result<CreatePurchaseResult>.Failure(
                                 "purchasing.identity_already_exists",
                                 "A received Serial/IMEI already exists in inventory history.");
+                        }
+                    }
+                }
+
+                // Every command-wide logical key is held before the row phase.
+                // Reload Product policy under the definitive row locks and rerun
+                // preparation so discovery data cannot authorize stale masters.
+                foreach (var line in prepared.OrderBy(x => x.Product.Id))
+                {
+                    await _catalog.GetProductForUpdateAsync(line.Product.Id, ct);
+                }
+                prepared = await PrepareLinesAsync(command.Lines, command.ReceiveStockImmediately, ct);
+                if (command.ReceiveStockImmediately)
+                {
+                    var refreshedIdentityKeys = prepared
+                        .Where(x => x.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                        .SelectMany(x => x.Input.SerializedUnits)
+                        .SelectMany(x => new[]
+                        {
+                            NormalizeSerial(x.SerialNumber) is string serial ? $"SERIAL:{serial}" : null,
+                            NormalizeImei(x.Imei1) is string imei1 ? $"IMEI:{imei1}" : null,
+                            NormalizeImei(x.Imei2) is string imei2 ? $"IMEI:{imei2}" : null
+                        })
+                        .Where(x => x is not null);
+                    if (refreshedIdentityKeys.Any(x => !lockedIdentityKeys.Contains(x!)))
+                    {
+                        return Result<CreatePurchaseResult>.Failure(
+                            "inventory.physical_unit_policy_changed_retry",
+                            "Product tracking policy requires additional identity locks. Retry the complete operation.");
+                    }
+                }
+
+                if (command.ReceiveStockImmediately)
+                {
+                    foreach (var line in prepared.OrderBy(x => x.Product.Id))
+                    {
+                        var supplierProduct = await _traceability.GetSupplierProductForUpdateAsync(
+                            command.SupplierId, line.Product.Id, ct);
+                        if (supplierProduct is null)
+                        {
+                            _traceability.AddSupplierProduct(new SupplierProduct
+                            {
+                                SupplierId = command.SupplierId,
+                                ProductId = line.Product.Id,
+                                NextItemSequence = 1,
+                                IsActive = true,
+                                CreatedAt = _clock.UtcNow,
+                                UpdatedAt = _clock.UtcNow
+                            });
+                        }
+                        else if (!supplierProduct.IsActive)
+                        {
+                            return Result<CreatePurchaseResult>.Failure(
+                                "purchasing.supplier_product_inactive",
+                                $"Supplier/Product mapping for '{line.Product.Name}' is inactive.");
                         }
                     }
                 }
@@ -423,62 +500,50 @@ public sealed class CreatePurchaseHandler
                             QuantityAfter = stock.SellableQty
                         });
 
+                        var receiptUnitCost = PurchaseReceiptCost.Round(effectiveLineCost / line.Quantity.BaseQuantity);
                         var lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
-                            line.Product.Id, line.Quantity.BaseQuantity, effectiveBaseCost,
+                            line.Product.Id, line.Quantity.BaseQuantity, receiptUnitCost,
                             movement.Id, item.Id, ct);
 
                         if (line.Product.TrackingMode == TrackingMode.Serialized || line.Product.TrackingMode == TrackingMode.IndividualPiece || line.Product.TrackingMode == TrackingMode.Container)
                         {
-                            if (_physicalUnits is not null)
+                            if (_physicalUnits is null)
                             {
-                                var creation = await _physicalUnits.CreateAsync(
-                                    command.SupplierId,
-                                    line.Product.Id,
-                                    line.Input.SerializedUnits.Select(identity => new PhysicalUnitCreationEntry(
-                                        identity.SerialNumber, identity.Imei1, identity.Imei2,
-                                        InventoryUnitStatus.InStock, effectiveBaseCost, lotId,
-                                        InventoryUnitOriginType.Purchase,
-                                        SourcePurchaseItemId: item.Id)).ToArray(),
-                                    ct);
-                                if (!creation.IsSuccess || creation.Value is null)
-                                {
-                                    return Result<CreatePurchaseResult>.Failure(creation.Error!.Code, creation.Error.Message);
-                                }
-                                foreach (var unit in creation.Value)
-                                {
-                                    _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
-                                    {
-                                        PurchaseItemId = item.Id,
-                                        InventoryUnitId = unit.Id
-                                    });
-                                    _inventory.AddMovementUnit(new InventoryMovementUnit
-                                    {
-                                        MovementId = movement.Id,
-                                        InventoryUnitId = unit.Id,
-                                        FromStatus = null,
-                                        ToStatus = InventoryUnitStatus.InStock
-                                    });
-                                }
+                                return Result<CreatePurchaseResult>.Failure(
+                                    "inventory.physical_unit_authority_unavailable",
+                                    "Physical-unit creation authority is unavailable.");
                             }
-                            else
+                            var creation = await _physicalUnits.CreateAsync(
+                                command.SupplierId,
+                                line.Product.Id,
+                                line.Input.SerializedUnits.Select((identity, unitIndex) => new PhysicalUnitCreationEntry(
+                                    identity.SerialNumber, identity.Imei1, identity.Imei2,
+                                    InventoryUnitStatus.InStock,
+                                    PurchaseReceiptCost.PhysicalAcquisitionCost(effectiveLineCost, line.Input.SerializedUnits.Count, unitIndex), lotId,
+                                    InventoryUnitOriginType.Purchase,
+                                    SourcePurchaseItemId: item.Id)).ToArray(),
+                                ct);
+                            if (!creation.IsSuccess || creation.Value is null)
                             {
-                                var supplierProduct = supplierProducts[line.Product.Id];
-                                var unitCount = line.Input.SerializedUnits.Count;
-                                var machineSeq = _highWaterService.GetSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId);
-                                if (machineSeq > supplierProduct.NextItemSequence)
-                                {
-                                    supplierProduct.NextItemSequence = machineSeq;
-                                }
-                                var firstSequence = supplierProduct.NextItemSequence;
-                                supplierProduct.NextItemSequence = checked(firstSequence + unitCount);
-                                supplierProduct.UpdatedAt = _clock.UtcNow;
-                                supplierProduct.Version++;
-                                _highWaterService.RecordSupplierProductHighWater(supplierProduct.SupplierId, supplierProduct.ProductId, supplierProduct.NextItemSequence);
-                                AddSerializedUnits(
-                                    line, item, movement, lotId, effectiveBaseCost, supplierProduct,
-                                    supplier.DealerCode!, TraceabilityCodeRules.NormalizeSku(line.Product.Sku!), firstSequence);
+                                return Result<CreatePurchaseResult>.Failure(creation.Error!.Code, creation.Error.Message);
                             }
-                        }                        else if (line.Input.SerializedUnits.Count > 0)
+                            foreach (var unit in creation.Value)
+                            {
+                                _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
+                                {
+                                    PurchaseItemId = item.Id,
+                                    InventoryUnitId = unit.Id
+                                });
+                                _inventory.AddMovementUnit(new InventoryMovementUnit
+                                {
+                                    MovementId = movement.Id,
+                                    InventoryUnitId = unit.Id,
+                                    FromStatus = null,
+                                    ToStatus = InventoryUnitStatus.InStock
+                                });
+                            }
+                        }
+                        else if (line.Input.SerializedUnits.Count > 0)
                         {
                             return Result<CreatePurchaseResult>.Failure(
                                 "purchasing.serials_not_allowed",
@@ -494,6 +559,14 @@ public sealed class CreatePurchaseHandler
 
                         costState.LastPurchaseCost = effectiveBaseCost;
                         costState.LastPurchaseAt = _clock.UtcNow;
+                        costState.TotalInventoryCost = PurchaseReceiptCost.Round(costState.TotalInventoryCost +
+                            effectiveLineCost - PurchaseReceiptCost.Round(line.Quantity.BaseQuantity * receiptUnitCost));
+                        costState.MovingAverageCost = PurchaseReceiptCost.Round(costState.TotalInventoryCost / costState.CostedQty);
+                        var receivedLot = await _inventory.GetInventoryLotForUpdateAsync(lotId, ct);
+                        if (receivedLot is not null)
+                        {
+                            receivedLot.OriginalUnitCost = effectiveBaseCost;
+                        }
                     }
                 }
 
@@ -607,6 +680,7 @@ public sealed class CreatePurchaseHandler
                         purchase.Id,
                         purchase.PurchaseNumber,
                         actorId: command.CreatedBy,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
                 }
 
@@ -620,15 +694,38 @@ public sealed class CreatePurchaseHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && ownsOutcome)
         {
-            await _outcomeLedger.RecordFailureAsync(
-                command.ClientOperationId,
-                "Purchase",
-                result.Error?.Code ?? "purchasing.failed",
-                result.Error?.Message ?? "Purchase creation failed.",
-                actorId: command.CreatedBy,
-                cancellationToken: cancellationToken);
+            var settled = await _transactions.ExecuteAsync(async ct =>
+            {
+                await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+                var latest = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                var purchase = await _purchases.GetPurchaseByClientOperationIdAsync(command.ClientOperationId, ct);
+                if (latest is not null)
+                {
+                    Result<CreatePurchaseResult> replay;
+                    if (latest.OperationType != "Purchase" || latest.ActorId != command.CreatedBy || latest.PayloadFingerprint != fingerprint)
+                        replay = Result<CreatePurchaseResult>.Failure("idempotency.payload_mismatch", "Operation identity now belongs to a different purchase intent.");
+                    else if (latest.State == OperationOutcomeState.Succeeded && latest.WasCommitted &&
+                             purchase is not null && latest.EntityId == purchase.Id)
+                        replay = Result<CreatePurchaseResult>.Success(new(purchase.Id, purchase.PurchaseNumber, purchase.GrandTotal, true));
+                    else
+                        replay = Result<CreatePurchaseResult>.Failure(latest.ErrorCode ?? "idempotency.outcome_unknown",
+                            latest.ErrorMessage ?? "Reconcile the previous purchase outcome.");
+                    return (Result: replay, Recorded: false);
+                }
+                if (purchase is not null)
+                {
+                    return (Result: Result<CreatePurchaseResult>.Failure("idempotency.legacy_purchase_requires_reconciliation",
+                        "Existing purchase has no canonical intent evidence."), Recorded: false);
+                }
+                await _outcomeLedger.RecordFailureAsync(command.ClientOperationId, "Purchase",
+                    result.Error!.Code, result.Error.Message, actorId: command.CreatedBy,
+                    payloadFingerprint: fingerprint, cancellationToken: ct);
+                // Preserve failure evidence in a committed transaction, without replacing a newer outcome.
+                return (Result: result, Recorded: true);
+            }, cancellationToken);
+            return settled.Result;
         }
 
         return result;
@@ -636,6 +733,7 @@ public sealed class CreatePurchaseHandler
 
     private async Task<IReadOnlyList<PreparedPurchaseLine>> PrepareLinesAsync(
         IReadOnlyList<CreatePurchaseLineInput> lines,
+        bool receiveStockImmediately,
         CancellationToken ct)
     {
         var result = new List<PreparedPurchaseLine>(lines.Count);
@@ -668,11 +766,28 @@ public sealed class CreatePurchaseHandler
                     $"Selected unit is not allowed for '{product.Name}'.");
             }
 
-            var quantity = TransactionQuantitySnapshot.Create(
-                productUnit, input.EnteredQuantity, product.TrackingMode);
-
             var isPiece = product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece;
             var isContainer = product.TrackingMode == TrackingMode.Container;
+
+            if (isContainer)
+            {
+                if (!QuantityMath.IsWhole(input.EnteredQuantity))
+                {
+                    throw new BusinessRuleException(
+                        "catalog.container_quantity_whole",
+                        $"Container quantity for '{product.Name}' must be an exact whole integer count.");
+                }
+
+                if (!QuantityMath.IsWhole(productUnit.FactorToBaseUnit))
+                {
+                    throw new BusinessRuleException(
+                        "catalog.container_conversion_whole",
+                        $"Container conversion factor for '{product.Name}' must be an exact whole integer count.");
+                }
+            }
+
+            var quantity = TransactionQuantitySnapshot.Create(
+                productUnit, input.EnteredQuantity, product.TrackingMode);
 
             if (isPiece || isContainer)
             {
@@ -683,9 +798,26 @@ public sealed class CreatePurchaseHandler
                         $"Tracked product '{product.Name}' requires a permanent SKU before receipt.");
                 }
 
-                var requiredUnitCount = isContainer
-                    ? decimal.ToInt32(quantity.EnteredQuantity)
-                    : decimal.ToInt32(quantity.BaseQuantity);
+                var requiredUnitCountDecimal = isContainer
+                    ? quantity.EnteredQuantity
+                    : quantity.BaseQuantity;
+
+                if (requiredUnitCountDecimal <= 0 || requiredUnitCountDecimal > 100_000 || !QuantityMath.IsWhole(requiredUnitCountDecimal))
+                {
+                    throw new BusinessRuleException(
+                        "purchasing.physical_unit_count_out_of_range",
+                        $"Physical unit count must be a positive whole integer within valid range (1 - 100,000). Evaluated count: {requiredUnitCountDecimal}.");
+                }
+
+                var requiredUnitCount = decimal.ToInt32(requiredUnitCountDecimal);
+
+                if (!receiveStockImmediately && input.SerializedUnits.Count == 0)
+                {
+                    // An order reserves no physical identity; require manufacturer
+                    // identities when its physical receipt actually occurs.
+                    result.Add(new(input, product, productUnit, quantity, Money(quantity.EnteredQuantity * input.EnteredUnitCost)));
+                    continue;
+                }
 
                 var lineInput = input;
                 if (input.SerializedUnits.Count == 0 && !product.SerialTrackingEnabled && !product.ImeiTrackingEnabled)
@@ -723,60 +855,6 @@ public sealed class CreatePurchaseHandler
             }
         }
         return result;
-    }
-
-    private void AddSerializedUnits(
-        PreparedPurchaseLine line,
-        PurchaseItem item,
-        InventoryMovement movement,
-        Guid lotId,
-        decimal acquisitionCost,
-        SupplierProduct supplierProduct,
-        string dealerCode,
-        string productSku,
-        long firstSequence)
-    {
-        for (var index = 0; index < line.Input.SerializedUnits.Count; index++)
-        {
-            var identity = line.Input.SerializedUnits[index];
-            var itemSequence = checked(firstSequence + index);
-            var trackingCode = TraceabilityCodeRules.BuildTrackingCode(
-                dealerCode,
-                productSku,
-                itemSequence);
-
-            var unit = new InventoryUnit
-            {
-                ProductId = line.Product.Id,
-                SupplierProductId = supplierProduct.Id,
-                OriginType = InventoryUnitOriginType.Purchase,
-                ItemSequence = itemSequence,
-                TrackingCode = trackingCode,
-                SupplierCodeSnapshot = dealerCode,
-                ProductSkuSnapshot = productSku,
-                SerialNumber = NormalizeSerial(identity.SerialNumber),
-                Imei1 = NormalizeImei(identity.Imei1),
-                Imei2 = NormalizeImei(identity.Imei2),
-                Status = InventoryUnitStatus.InStock,
-                AcquisitionCost = acquisitionCost,
-                InventoryLotId = lotId,
-                SourcePurchaseItemId = item.Id,
-                CreatedAt = _clock.UtcNow
-            };
-            _inventory.AddInventoryUnit(unit);
-            _purchases.AddPurchaseItemUnit(new PurchaseItemUnit
-            {
-                PurchaseItemId = item.Id,
-                InventoryUnitId = unit.Id
-            });
-            _inventory.AddMovementUnit(new InventoryMovementUnit
-            {
-                MovementId = movement.Id,
-                InventoryUnitId = unit.Id,
-                FromStatus = null,
-                ToStatus = InventoryUnitStatus.InStock
-            });
-        }
     }
 
     private static void ValidateIdentityBatch(

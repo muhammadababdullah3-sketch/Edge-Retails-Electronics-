@@ -8,6 +8,7 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class DashboardThakaItem
 {
+    public ThakaProjectListItemViewModel? Project { get; init; }
     public string ProjectName { get; init; } = string.Empty;
     public string CustomerName { get; init; } = string.Empty;
     public string BalanceFormatted { get; init; } = string.Empty;
@@ -34,6 +35,7 @@ public sealed class DashboardLowStockItem
 /// </summary>
 public sealed class DashboardViewModel : ViewModelBase
 {
+    private readonly Action<ThakaProjectListItemViewModel>? _openWorkspace;
     private readonly INavigationService? _navigationService;
     private readonly IToastService? _toastService;
     private readonly IBackendDashboardService? _backendService;
@@ -72,11 +74,13 @@ public sealed class DashboardViewModel : ViewModelBase
         ISessionContext? sessionContext = null,
         INavigationService? navigationService = null,
         IToastService? toastService = null,
-        IBackendDashboardService? backendService = null)
+        IBackendDashboardService? backendService = null,
+        Action<ThakaProjectListItemViewModel>? openWorkspace = null)
     {
         _navigationService = navigationService;
         _toastService = toastService;
         _backendService = backendService;
+        _openWorkspace = openWorkspace;
 
         if (sessionContext is not null &&
             !string.IsNullOrWhiteSpace(sessionContext.DisplayName))
@@ -277,6 +281,11 @@ public sealed class DashboardViewModel : ViewModelBase
 
     private void ExecuteOpenThakaItem(DashboardThakaItem? item)
     {
+        if (item?.Project is not null && _openWorkspace is not null)
+        {
+            _openWorkspace(item.Project);
+            return;
+        }
         if (item is not null)
         {
             _navigationService?.Navigate(NavigationTarget.ThakaProjects);
@@ -372,6 +381,7 @@ public sealed class DashboardViewModel : ViewModelBase
         {
             ThakaProjects.Add(new DashboardThakaItem
             {
+                Project = project,
                 ProjectName = project.ProjectName,
                 CustomerName = project.CustomerName,
                 BalanceFormatted = project.BalanceFormatted,

@@ -197,13 +197,10 @@ internal sealed class InventoryUnitConfiguration : IEntityTypeConfiguration<Inve
             .IsUnique()
             .HasFilter("supplier_product_id IS NOT NULL AND item_sequence IS NOT NULL");
         builder.HasIndex(x => x.SerialNumber)
-            .IsUnique()
             .HasFilter("serial_number IS NOT NULL");
         builder.HasIndex(x => x.Imei1)
-            .IsUnique()
             .HasFilter("imei1 IS NOT NULL");
         builder.HasIndex(x => x.Imei2)
-            .IsUnique()
             .HasFilter("imei2 IS NOT NULL");
         builder.HasIndex(x => new { x.ProductId, x.Status });
     }
@@ -244,10 +241,29 @@ internal sealed class InventoryUnitIdentityClaimConfiguration
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(x => new { x.IdentifierType, x.NormalizedValue })
-            .IsUnique();
+            .IsDescending(false, false);
         builder.HasIndex(x => new { x.InventoryUnitId, x.IdentifierSlot })
             .IsUnique();
         builder.HasIndex(x => x.InventoryUnitId);
+    }
+}
+
+internal sealed class InventoryUnitIdentityOwnershipConfiguration
+    : IEntityTypeConfiguration<InventoryUnitIdentityOwnership>
+{
+    public void Configure(EntityTypeBuilder<InventoryUnitIdentityOwnership> builder)
+    {
+        builder.ToTable("unit_identity_ownership", "inventory");
+        builder.HasKey(x => x.NormalizedValue);
+        builder.Property(x => x.NormalizedValue).HasMaxLength(160).ValueGeneratedNever();
+        builder.Property(x => x.InventoryUnitIdentityClaimId).IsRequired();
+
+        builder.HasOne(x => x.IdentityClaim)
+            .WithMany()
+            .HasForeignKey(x => new { x.InventoryUnitIdentityClaimId, x.NormalizedValue })
+            .HasPrincipalKey(x => new { x.Id, x.NormalizedValue })
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.InventoryUnitIdentityClaimId).IsUnique();
     }
 }
 

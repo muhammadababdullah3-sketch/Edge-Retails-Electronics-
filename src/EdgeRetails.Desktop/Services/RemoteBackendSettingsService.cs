@@ -70,6 +70,8 @@ public sealed class RemoteBackendSettingsService(
         IReadOnlyList<LoginAccountDto> accounts = [];
         var databaseStatus = "Unavailable";
         var connectionStatus = "Server readiness unavailable";
+        var maintenanceStatus = "Unavailable · maintenance diagnostics not attached";
+        var lastBackup = "Unavailable · backup diagnostics not attached";
 
         try
         {
@@ -92,12 +94,30 @@ public sealed class RemoteBackendSettingsService(
         try
         {
             var ready = await apiClient.GetAsync<ReadyDto>("/api/system/ready", cancellationToken);
-            databaseStatus = string.Equals(ready.Status, "Ready", StringComparison.Ordinal) ? "Ready" : "Unavailable";
-            connectionStatus = databaseStatus == "Ready" ? "Connected · schema ready" : "Database is not ready.";
+            var isDbReady = ready.CanConnect == true || (ready.CanConnect is null && string.Equals(ready.Status, "Ready", StringComparison.Ordinal));
+            databaseStatus = isDbReady ? "Ready" : "Unavailable";
+            connectionStatus = isDbReady ? "Connected · schema ready" : ready.FailureReason ?? "Database is not ready.";
+            maintenanceStatus = string.Equals(ready.MaintenanceState, "Normal", StringComparison.Ordinal)
+                ? "Normal · Server maintenance barrier" : "Unavailable · maintenance state not confirmed";
         }
         catch (DesktopApiException ex)
         {
+            databaseStatus = "Unavailable";
             connectionStatus = $"Server readiness unavailable: {ex.Code}";
+        }
+
+        try
+        {
+            var backups = await apiClient.GetAsync<BackupHistoryDiagnosticsResponse>("/api/backups/diagnostics", cancellationToken);
+            lastBackup = BackupDiagnosticsDisplay.Format(backups);
+            if (backups.InvalidArtifactCount > 0)
+            {
+                issues.Add($"Backup integrity: {backups.InvalidArtifactCount} invalid artifact(s).");
+            }
+        }
+        catch (Exception ex) when (ex is DesktopApiException or JsonException)
+        {
+            issues.Add("Backup diagnostics unavailable; no backup health confirmation.");
         }
 
         var users = accounts.Select(row => new SettingsUserRecord(row.DisplayName, row.RoleName)).ToArray();
@@ -114,18 +134,18 @@ public sealed class RemoteBackendSettingsService(
             settings?.ShowCashier ?? false,
             settings?.AutoPrintDefault ?? false,
             "PostgreSQL",
-            "Unavailable · diagnostics are not exposed by Server",
+            "Unavailable · Storage metrics not exposed by server",
             databaseStatus,
             connectionStatus,
-            "Unavailable · worker diagnostics not attached",
+            "Unavailable · Background worker heartbeat endpoint not attached",
             "Unavailable",
             "Unavailable",
             "Unavailable",
             "Unavailable",
             "Unavailable",
-            "Unavailable · license diagnostics not attached",
-            "Unavailable · backup diagnostics not attached",
-            "Unavailable · maintenance diagnostics not attached",
+            "Unavailable · License server endpoint not attached",
+            lastBackup,
+            maintenanceStatus,
             issues);
     }
 
@@ -167,5 +187,26 @@ public sealed class RemoteBackendSettingsService(
     {
         public override string ToString() => $"CashierRequest {{ ClientOperationId = {ClientOperationId} }}";
     }
-    private sealed record ReadyDto(string Status);
+    private sealed record ReadyDto(string Status, string? MaintenanceState, bool? CanConnect = null, bool? HasPendingMigrations = null, string? FailureReason = null);
+}
+
+internal static class BackupDiagnosticsDisplay
+{
+    public static string Format(BackupHistoryDiagnosticsResponse diagnostics)
+    {
+        if (diagnostics.VerifiedBackups is null || diagnostics.VerifiedBackupCount != diagnostics.VerifiedBackups.Count ||
+            diagnostics.InvalidArtifactCount < 0)
+        {
+            throw new DesktopApiException("gateway.invalid_response", "Backup diagnostics could not be verified.");
+        }
+        var newest = diagnostics.VerifiedBackups.OrderByDescending(row => row.CreatedAtUtc).FirstOrDefault();
+        if (newest is null)
+        {
+            return $"Never Run · No verified backups · {diagnostics.InvalidArtifactCount} invalid artifact(s)";
+        }
+
+        var age = DateTimeOffset.UtcNow - newest.CreatedAtUtc;
+        var freshness = age <= TimeSpan.FromHours(24) ? "Fresh" : "Stale";
+        return $"{freshness} · Last verified backup {newest.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC · {diagnostics.InvalidArtifactCount} invalid artifact(s)";
+    }
 }

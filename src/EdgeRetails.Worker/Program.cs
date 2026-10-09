@@ -11,12 +11,17 @@ if (File.Exists(commonConfig))
     builder.Configuration.AddJsonFile(commonConfig, optional: true, reloadOnChange: false);
 }
 var localConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EdgeRetails", "config.json");
-if (File.Exists(localConfig))
+// Server and Worker use the same machine-wide production configuration.
+if (builder.Environment.IsDevelopment() && File.Exists(localConfig))
 {
     builder.Configuration.AddJsonFile(localConfig, optional: true, reloadOnChange: false);
 }
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+var isolatedTestConnectionString = builder.Environment.IsEnvironment("Testing")
+    ? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
+    : null;
+var connectionString = isolatedTestConnectionString
+    ?? builder.Configuration.GetConnectionString("DefaultConnection")
     ?? builder.Configuration["EDGE_RETAILS_DB"]
     ?? builder.Configuration["DatabaseConnectionString"]
     ?? (builder.Environment.IsEnvironment("Testing") ? Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB") : null)

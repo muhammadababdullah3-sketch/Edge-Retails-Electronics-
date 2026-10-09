@@ -126,10 +126,23 @@ public sealed class SalesFlowForensicAuditTests
         Assert.True(File.Exists(DesktopFile("Assets", "EdgeRetails.ico")));
         Assert.True(File.Exists(DesktopFile("Assets", "EdgeAppIcon.png")));
         Assert.Contains("<ApplicationIcon>Assets\\EdgeRetails.ico</ApplicationIcon>", project);
-        Assert.Contains("Icon=\"Assets/EdgeAppIcon.png\"", window);
-        Assert.Contains("Source=\"/Assets/EdgeLogo.png\"", sidebar);
-        Assert.Contains("Source=\"/Assets/EdgeLogo.png\"", login);
-        Assert.Contains("Source=\"/Assets/EdgeLogo.png\"", setup);
+        Assert.Contains("Icon=\"{StaticResource Brand.Mark}\"", window);
+        Assert.Contains("Source=\"{StaticResource Brand.Mark}\"", sidebar);
+        Assert.Contains("Source=\"{StaticResource Brand.Mark}\"", login);
+        Assert.Contains("Source=\"{StaticResource Brand.Mark}\"", setup);
+        Assert.Contains("Source=\"Resources/Brand.xaml\"", ReadDesktop("App.xaml"));
+        var brand = System.Xml.Linq.XDocument.Load(DesktopFile("Resources", "Brand.xaml"));
+        System.Xml.Linq.XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        System.Xml.Linq.XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var mark = Assert.Single(brand.Descendants(presentation + "DrawingImage"),
+            image => image.Attribute(xaml + "Key")?.Value == "Brand.Mark");
+        var shapes = mark.Descendants(presentation + "GeometryDrawing").ToArray();
+        Assert.NotEmpty(shapes);
+        Assert.All(shapes, shape =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(shape.Attribute("Geometry")?.Value));
+            Assert.False(string.IsNullOrWhiteSpace(shape.Attribute("Brush")?.Value));
+        });
     }
 
     [Fact]
