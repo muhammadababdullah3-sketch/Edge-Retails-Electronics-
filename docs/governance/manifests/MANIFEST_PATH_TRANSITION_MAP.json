@@ -1,0 +1,842 @@
+{
+    "generatedAt":  "2026-10-10T16:51:51.1589040+05:00",
+    "standard":  "International Enterprise Monorepo Repository Structure",
+    "totalFilesRelocated":  139,
+    "zeroDeletionVerified":  true,
+    "mappings":  [
+                     {
+                         "originalPath":  "EDGE_RETAILS_BUSINESS_INVARIANTS_REGISTRY.md",
+                         "newPath":  "docs/architecture/EDGE_RETAILS_BUSINESS_INVARIANTS_REGISTRY.md",
+                         "sha256":  "5D6F9552F4F687B04440269EBBFF92D1463CEF258379C1212B836C5AC9AE634E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_BUSINESS_EVENT_EFFECT_MATRIX.md",
+                         "newPath":  "docs/architecture/EDGE_RETAILS_PHASE7_PASS5_BUSINESS_EVENT_EFFECT_MATRIX.md",
+                         "sha256":  "73F1DDE6CBC2EAF5CAD0AD21847969EBF54D21DC1E7734067F563AF8E00E18B9",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_FROZEN_BUSINESS_AUTHORITY.md",
+                         "newPath":  "docs/architecture/EDGE_RETAILS_PHASE7_PASS5_FROZEN_BUSINESS_AUTHORITY.md",
+                         "sha256":  "0D93BF325DC475A34366D1AC1568D3BC65232216AA354C1F1E13C5728605D306",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_MISSING_UNIT_DOMAIN_SCHEMA_DECISION.md",
+                         "newPath":  "docs/architecture/EDGE_RETAILS_PHASE7_PASS5_MISSING_UNIT_DOMAIN_SCHEMA_DECISION.md",
+                         "sha256":  "B9830945CCEC1B843751D17FD0761B9B102443C0693B3D8398AD78179EA3557B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Edge_Retails_Antigravity_Master_Architecture_Frontend_Backend_Complete_v2_2026-09-24.md",
+                         "newPath":  "docs/architecture/Edge_Retails_Antigravity_Master_Architecture_Frontend_Backend_Complete_v2_2026-09-24.md",
+                         "sha256":  "6DC14120117E2E6F9323452582E191210DA2BC3779EB25B3528C8FFEFD96617A",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/COMMIT_MESSAGE.txt",
+                         "newPath":  "docs/governance/COMMIT_MESSAGE.txt",
+                         "sha256":  "48170235526F74655154789C5E64D4FE062034F993536CD6CD3B2DB87C4E39B8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_17_FINDING_FINAL_STATUS_MATRIX.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_17_FINDING_FINAL_STATUS_MATRIX.md",
+                         "sha256":  "7E2951BFA44010BD35C9813D5681CD14C1D46A4224CBFEDC31C5A411453CF8EB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_17_FINDING_REMEDIATION_ROADMAP.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_17_FINDING_REMEDIATION_ROADMAP.md",
+                         "sha256":  "9502120555C8ACBFEC0D01DECDC996D71EF09646DE4AC5B62D4F3DB7B9979720",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_EXTERNAL_OWNER_HANDOFF.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_EXTERNAL_OWNER_HANDOFF.md",
+                         "sha256":  "B03F5644D99C83074B4537C3AAA593123FAD52A2CF06B025850FD51442F04C5B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FINAL_REMEDIATION_CLOSURE_REPORT.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_FINAL_REMEDIATION_CLOSURE_REPORT.md",
+                         "sha256":  "649F122C38A3D73448276F4426282DED9D70917A1628FC3F6F638A4556849CF2",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_CONTRACT_ACCEPTANCE.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_FRONTEND_CONTRACT_ACCEPTANCE.md",
+                         "sha256":  "936EA0085053735F3E68495C8CC96AFAE1B2E2AE7C49B5A4CA04FAF6F498CCB8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_FINAL_MASTER_CLOSURE.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_FRONTEND_FINAL_MASTER_CLOSURE.md",
+                         "sha256":  "70DBDF165FF133A2A4AC04AF0686C0564D6DC7968F1212C55349748F4794EA3B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_UIUX_FINAL_CERTIFICATION.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_FRONTEND_UIUX_FINAL_CERTIFICATION.md",
+                         "sha256":  "37056939FEB4F1DE58F933784FCD234722D8AA61D49C435366224F9911B28431",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_GITHUB_SAFETY_BACKUP_AUTHORIZATION_AND_INVENTORY_REPORT.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_GITHUB_SAFETY_BACKUP_AUTHORIZATION_AND_INVENTORY_REPORT.md",
+                         "sha256":  "0860FDDD19B943697C944C55C7796F834721C74082BDBA5C55EDBE1C799E5246",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_WORKSPACE_INVENTORY_AND_ORGANIZATION_LEDGER.md",
+                         "newPath":  "docs/governance/EDGE_RETAILS_WORKSPACE_INVENTORY_AND_ORGANIZATION_LEDGER.md",
+                         "sha256":  "73210CC54FCAFF0843CE7BBF5EDEC9272E3D2EC76D4A07DF42108AACB4247BB9",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_DEPENDENCY_FINAL_SOURCE_MANIFEST.sha256",
+                         "newPath":  "docs/governance/manifests/EDGE_RETAILS_PHASE7_PASS2_DEPENDENCY_FINAL_SOURCE_MANIFEST.sha256",
+                         "sha256":  "31A09DAC9C4B501D49F7A8E4168290037BC09B2676C00091AFA940E77F19BE1A",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_FINAL_SOURCE_MANIFEST.sha256",
+                         "newPath":  "docs/governance/manifests/EDGE_RETAILS_PHASE7_PASS2_FINAL_SOURCE_MANIFEST.sha256",
+                         "sha256":  "BAC968434BE8CFEDAD56D93CD33EF6D5EF046424CF78FF740D1BBE996067543C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_FINAL_SOURCE_MANIFEST.sha256",
+                         "newPath":  "docs/governance/manifests/EDGE_RETAILS_PHASE7_PASS3_FINAL_SOURCE_MANIFEST.sha256",
+                         "sha256":  "E20CB2A543F9801E5AD4705E2F06532EFB51B3BF00C18B9E52E4BE3D6CE747B2",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS4_FINAL_SOURCE_MANIFEST.sha256",
+                         "newPath":  "docs/governance/manifests/EDGE_RETAILS_PHASE7_PASS4_FINAL_SOURCE_MANIFEST.sha256",
+                         "sha256":  "F16C47F01362F2000EEE89AF11219F8F4B11F7F20972639C816EB52D13878962",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_FINAL_SOURCE_MANIFEST.sha256",
+                         "newPath":  "docs/governance/manifests/EDGE_RETAILS_PHASE7_PASS5_FINAL_SOURCE_MANIFEST.sha256",
+                         "sha256":  "E19958C8AFED255F360F41035FC06723462CBFD5967A643606FA6AF49966B996",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_CORRECTED_IMPLEMENTATION_CONTRACT_AND_SEQUENCE_REVIEW.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_CORRECTED_IMPLEMENTATION_CONTRACT_AND_SEQUENCE_REVIEW.md",
+                         "sha256":  "9276791003F9A9445D880E5D6A3A7A53B3CBEC970EC04F34221C4D1BC72CF9DC",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_FINAL_DEFECT_OWNERSHIP_AND_BOUNDARY_FREEZE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_FINAL_DEFECT_OWNERSHIP_AND_BOUNDARY_FREEZE.md",
+                         "sha256":  "E006823F08226F4EEF02D97BDCC1553677CB86E8FBC8E4F9982E43E6B37DF933",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS1_FINAL_CERTIFICATION_AND_CLOSURE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS1_FINAL_CERTIFICATION_AND_CLOSURE.md",
+                         "sha256":  "BF2A462A51838BDC68532FED072E10BBBCF4018D092A9E5F5D6A80CFB7638529",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS1_STEP2_IMPLEMENTATION_AND_VERIFICATION.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS1_STEP2_IMPLEMENTATION_AND_VERIFICATION.md",
+                         "sha256":  "40C19F6F2207330A21A92518497CDFA869D74E32561F1AD4663BC1165AD222B1",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_DEPENDENCY_REPAIR_AND_FINAL_LOCK.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS2_DEPENDENCY_REPAIR_AND_FINAL_LOCK.md",
+                         "sha256":  "9E3D1A33C99B8B9DC667E9E0E6405DE4DFD32C41AB6313F09C5CC3F45281A3F4",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_FINAL_CERTIFICATION_AND_CLOSURE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS2_FINAL_CERTIFICATION_AND_CLOSURE.md",
+                         "sha256":  "1FD65D992933B4E4EFE411F1DC92E5795C949B08D5E47225C153920D2680666B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_FINAL_HOSTILE_CERTIFICATION_AND_LOCK.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS2_FINAL_HOSTILE_CERTIFICATION_AND_LOCK.md",
+                         "sha256":  "8C65F6E10122DFC086B9CD0B71D24BAF481FA2FC72D683BA71890595F690F34E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_CANDIDATE_DRIFT_RECONCILIATION_AND_REFREEZE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS3_CANDIDATE_DRIFT_RECONCILIATION_AND_REFREEZE.md",
+                         "sha256":  "DD0A89019D1F097B705F1E29D230AB60B8C19842E263E590B6F2C74474A7F7D6",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_PREIMPLEMENTATION_CHALLENGE_GATE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS3_PREIMPLEMENTATION_CHALLENGE_GATE.md",
+                         "sha256":  "A4DA340E3D532DDB22C43C31710537F1B70D7297FE4E426BADC69636682A7F3B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_SOL_FINAL_CHALLENGE_AND_LOCK_AUTHORIZATION.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS3_SOL_FINAL_CHALLENGE_AND_LOCK_AUTHORIZATION.md",
+                         "sha256":  "D3DA27AEFD6C000340DB5C83C47120CD83F810DE3683903A4EECE17C34667BEB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_STEP2_IMPLEMENTATION_CERTIFICATION_AND_LOCK.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS3_STEP2_IMPLEMENTATION_CERTIFICATION_AND_LOCK.md",
+                         "sha256":  "A4A64C193C7F6CC2DF1664855403569D4F0F00EE7DCDAEF9F9C9B5CC4E7A3DAC",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS4_FINAL_CERTIFICATION_AND_LOCK.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS4_FINAL_CERTIFICATION_AND_LOCK.md",
+                         "sha256":  "18DE10891AF1FBB326D6E0DA4C8BB77F941229ABB45C0C81D427DE93D0BD80E9",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST.md",
+                         "sha256":  "03954F1431D36826DA8EBB7D75E02F8DCC13A308DB836C706F28F0DB9BAF6808",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_C01.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_C01.md",
+                         "sha256":  "DCD19DD180DC31882DB90B313296F5ED7CFBAB8DDF0E9F149A8AD228579EF234",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_D13.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_D13.md",
+                         "sha256":  "2867C94D05CE03F26FAF3933AD84F3946AA6CCC64D147BB6171C83E8144FF172",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_R19.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_R19.md",
+                         "sha256":  "0C0C19658C2671788AC9E97A06C24DF2BC2A2A1891AD9CED60B91313BF7FAECA",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_R19_HARNESS.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_R19_HARNESS.md",
+                         "sha256":  "DD63EC42652D5C06A0425FD0B8BC84BF21C17657A78D7FFD971356304BB5F3AE",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_RESOLUTION04.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_RESOLUTION04.md",
+                         "sha256":  "09EAC893580CEBF606DD64FED4A4A9F07F224C7D34C1D4061C320B4EBE7DAD50",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_STOCKTAKE_FREE.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_EDIT_WHITELIST_ADDENDUM_STOCKTAKE_FREE.md",
+                         "sha256":  "3C32A97FB7E134ADFC937FC85AAD9A8E213E3AB00DA58ECBA261CDC6B50C076C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_PHASE7_PASS5_FINAL21_INDEPENDENT_CERTIFICATION.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_FINAL21_INDEPENDENT_CERTIFICATION.md",
+                         "sha256":  "AFBDBD0BFC09ED995A28F652757BCBF2E425C85DDC4A2DEE9E7E45FBB7C9EEA7",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_FOUND_RECOVERY_BUSINESS_DECISION.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_FOUND_RECOVERY_BUSINESS_DECISION.md",
+                         "sha256":  "F586B42B63369E172A497D89127B0D1B8EBF1F8D908E494C8FC99F38FE03961D",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_01.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_01.md",
+                         "sha256":  "0CEA822BF390A4FDA0FDC3330FB4A9C1FD584A34FFCD51C9405E3E7AAFFB02A9",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_02.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_02.md",
+                         "sha256":  "44DBD76F67EF49A6C7009CB40DDB05B4662F867DDE768D64AD2DCDD9125145D2",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_03.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_03.md",
+                         "sha256":  "0F0F1E2AA57F1803B6CF0B7384B51E599FD4192720A88DBC1E4AA3E0243372A8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_04.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_04.md",
+                         "sha256":  "DAED8968BAAF1CE7884B07EB226ACB2F8B66308862BC4BA0E66BDAAAB35E2D60",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_05.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_GOVERNANCE_RESOLUTION_05.md",
+                         "sha256":  "F15F8DE52FB39F227FCE23EA108BF214C4100E57F9D60BA6B61C4D20F897F6B4",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_IMPLEMENTATION_CHECKPOINT.md",
+                         "newPath":  "docs/governance/phase7/EDGE_RETAILS_PHASE7_PASS5_IMPLEMENTATION_CHECKPOINT.md",
+                         "sha256":  "06AE91F0728C2B5BD54C51E9C00A5E3E6E01F13F9D3893B2AA98DFDFDD4E58C1",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_TRACKING_SYSTEM_FINAL_CERTIFICATION_AND_FREEZE_2026-10-03.md",
+                         "newPath":  "docs/governance/tracking/EDGE_RETAILS_TRACKING_SYSTEM_FINAL_CERTIFICATION_AND_FREEZE_2026-10-03.md",
+                         "sha256":  "BED9276784C2FD86AD429F5F89630004B7E9064B3A7AF9751338E62EEEED3F42",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Master_Remediation_Tracking_Labels_Ledger_2026-10-01.md",
+                         "newPath":  "docs/governance/tracking/Master_Remediation_Tracking_Labels_Ledger_2026-10-01.md",
+                         "sha256":  "DC58A51D38CF1CC43BE0DD3AD2A08F9E174570950B0A549995C13B88DBC08BBD",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_BUSINESS_RECONCILIATION_REPORT.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_BUSINESS_RECONCILIATION_REPORT.md",
+                         "sha256":  "516C1172505237079A1DB4A4E8C0EDD608C155642446784AEC74C316C8EB2A46",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_CONSTRAINT_AND_RELATIONSHIP_MATRIX.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_CONSTRAINT_AND_RELATIONSHIP_MATRIX.md",
+                         "sha256":  "34F288A98B06845B153BF0CD8F669DBC10D1DE8E0F69A34A705535BC83AF6AF6",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_DEEP_FORENSIC_AUDIT.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_DEEP_FORENSIC_AUDIT.md",
+                         "sha256":  "D8105A3681D9801F81089307A5399988CCFEA54C931E2400A0FF0730DF0EBDDF",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_FINDINGS_REGISTER.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_FINDINGS_REGISTER.md",
+                         "sha256":  "19D21E56BD59AB6F1DB2B27CE4DC94B3F19190EDEE63AED8A931CA982F477940",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_INDEX_AND_QUERY_HEALTH_REPORT.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_INDEX_AND_QUERY_HEALTH_REPORT.md",
+                         "sha256":  "E58A14AB6A941CA207DCAE1875CFABE92AAB925CBDCAD0F0010C334E91C240A8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_MIGRATION_FORENSIC_REPORT.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_MIGRATION_FORENSIC_REPORT.md",
+                         "sha256":  "4158AE9B0668A5B2AA6494CA54B62F7056C0803EB4A5BB140025D05BD39FBAB7",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_DATABASE_SCHEMA_INVENTORY.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_DATABASE_SCHEMA_INVENTORY.md",
+                         "sha256":  "608BECD6AEC985E9ABB1B28A225CA8867086E1B581F665B3D3EC2FEA61C75A01",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_CURRENT_BACKEND_DATABASE_READ_ONLY_AUDIT_2026-10-08.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_FRONTEND_CURRENT_BACKEND_DATABASE_READ_ONLY_AUDIT_2026-10-08.md",
+                         "sha256":  "C4929153BB60E7BF97F6CA9EB561834C810A525199F05B2257F4B549580FE25C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_PRODUCTION_DATABASE_LAUNCH_INVESTIGATION_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/database-audits/EDGE_RETAILS_PRODUCTION_DATABASE_LAUNCH_INVESTIGATION_2026-10-06.md",
+                         "sha256":  "5F2CE0BBE7F00C8F9A462A8EC0F59E66737135078BA5C15161CB6CAF0DA84E9F",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_CUSTOMER_KHATA_SUSPENSION_AND_WORKSPACE_CORRECTION_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_CUSTOMER_KHATA_SUSPENSION_AND_WORKSPACE_CORRECTION_2026-10-06.md",
+                         "sha256":  "CDB3F1018857E381FD86D9A3DEBA375B56FA510A4651C7B5233C4E74CAC5B955",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_PASS1_VERIFICATION.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_FRONTEND_PASS1_VERIFICATION.md",
+                         "sha256":  "70BDC7FA4B45562F17B3D4DF7A0C50A06AA3E5216F3C23475BE344A54D969798",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_PASS2_VERIFICATION.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_FRONTEND_PASS2_VERIFICATION.md",
+                         "sha256":  "88F4FE1926BE4E81CB579CF55D81FA7C61EA26683C65DFAA21D60BB3EBD2F3AE",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_PASS3_VERIFICATION.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_FRONTEND_PASS3_VERIFICATION.md",
+                         "sha256":  "3A4B79C4D933ECCEAFF9C947E9D2B7820EA1FC211459374E3EF119FB25E33706",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_FRONTEND_VISUAL_REVIEW_2026-10-05.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_FRONTEND_VISUAL_REVIEW_2026-10-05.md",
+                         "sha256":  "13E563C62072517243C73A810FCDED93FAD547150BFD24F979B51D2B77CD84A6",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_PRODUCTION_LOGO_ALIGNMENT_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_PRODUCTION_LOGO_ALIGNMENT_2026-10-06.md",
+                         "sha256":  "BF9589AB6B6415E8CF43F012B2B2C666CF14943FC499835749AFD81C3C4BA531",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_SUPPLIER_UI_CORRECTION_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_SUPPLIER_UI_CORRECTION_2026-10-06.md",
+                         "sha256":  "8C20EE5FEF5181E9435828F9EB019DE4CD5A1897BDD60A6D89397447C97E2502",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_UI_STROKE_CORRECTIONS_2026-10-05.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_UI_STROKE_CORRECTIONS_2026-10-05.md",
+                         "sha256":  "1E261EB42E7224A6D2361E3770B5BBDBECE01B8D3E91811FAE266A17A0CA0D2C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_UNIVERSAL_SURFACE_TEXT_CORRECTION_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_UNIVERSAL_SURFACE_TEXT_CORRECTION_2026-10-06.md",
+                         "sha256":  "BEB03F3835B20179908D6027452DC27DD7E864C1FB626D6F56AF639A30B69B85",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_USER_REPORTED_UI_DEFECT_PACK_2026-10-05.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/EDGE_RETAILS_USER_REPORTED_UI_DEFECT_PACK_2026-10-05.md",
+                         "sha256":  "D5944FB32D075A8C65D5FB445EBBFF230EF7A2463429E39C5B23B7132B7BD9AE",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Backend_Forensic_Verification_2026-09-22.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Backend_Forensic_Verification_2026-09-22.md",
+                         "sha256":  "F044ECB0F19115187BDC2855E4799CB40A7130BA67168502ACA9BE8BDA538082",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Forensic_UI_UX_Audit_2026-09-24.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Forensic_UI_UX_Audit_2026-09-24.md",
+                         "sha256":  "ADFDD9B13816FC672AA2900FCEB0D023AF19358DDFCCC0FB738720A9D61AD2AA",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Forensic_UI_UX_Remediation_2026-09-25.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Forensic_UI_UX_Remediation_2026-09-25.md",
+                         "sha256":  "C42DE848ABF90F8E745716EEBAF101D85F22987FCF2DCAB72C9C9202FC379ADF",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Pass1_Candidate_Hash_Manifest.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Pass1_Candidate_Hash_Manifest.md",
+                         "sha256":  "E9DB52ACE747A8651D0DEFD3DB99BEE986BE7F58655BDECA975B08DEBB88E76B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Pass2_Candidate_Hash_Manifest.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Pass2_Candidate_Hash_Manifest.md",
+                         "sha256":  "67C8A2165BEF0CA01BCD6E833797C98DB38196F8AAC0D71BBAF7A2687D87F6D8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Frontend_Pass3_Candidate_Hash_Manifest.md",
+                         "newPath":  "docs/historical-audits/frontend-audits/Frontend_Pass3_Candidate_Hash_Manifest.md",
+                         "sha256":  "A895D4051EF43A249802E0A8AB1372B5C2B1D5E7620CA858451EE651FFF3AA7D",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/UI_Defect_Pack_Candidate_Manifest_2026-10-05.json",
+                         "newPath":  "docs/historical-audits/frontend-audits/UI_Defect_Pack_Candidate_Manifest_2026-10-05.json",
+                         "sha256":  "65E78FC29734527FF31DEC6906A82797959351F1C93D5C034E8174FFE05154A4",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_PHASE1_FINANCIAL_IDENTITY_REMEDIATION_REPORT.md",
+                         "newPath":  "docs/historical-audits/phase1/EDGE_RETAILS_PHASE1_FINANCIAL_IDENTITY_REMEDIATION_REPORT.md",
+                         "sha256":  "D8755AD29CF55A14D3102D0EB350B0D3A73C852908E02AFB6C7ED630A0DA7DAB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Controlled_Demo_Business_Pilot_2026-10-01.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Controlled_Demo_Business_Pilot_2026-10-01.md",
+                         "sha256":  "B87387139080F85676C69A190B3886D4F6D92394C8B536257D100C9D6BE9E574",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Controlled_Demo_Business_Pilot_Report_2026-10-01.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Controlled_Demo_Business_Pilot_Report_2026-10-01.md",
+                         "sha256":  "5129E5ABAA18679010802F3D7F7BB76DD04A2B815A4A85C7AD5524A325F8B35F",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Controlled_Demo_Pilot_Backup_Remediation_2026-10-01.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Controlled_Demo_Pilot_Backup_Remediation_2026-10-01.md",
+                         "sha256":  "D7D25A0B6A8C137BAB8BF4B7BFA2C59417CA56262DE12BB49F4A800275ECEEF1",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_AUDIT_FINDINGS_VS_IMPLEMENTATION_ROADMAP_2026-09-25.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/EDGE_RETAILS_AUDIT_FINDINGS_VS_IMPLEMENTATION_ROADMAP_2026-09-25.md",
+                         "sha256":  "A1C550EBE0FD2284FD93F7C42243B872CAB63C0388AA53621F695D86C2273813",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_BACKEND_FORENSIC_AUDIT_2026-09-25.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/EDGE_RETAILS_BACKEND_FORENSIC_AUDIT_2026-09-25.md",
+                         "sha256":  "037402F507E56A753F43D6727999DEF62616482564F6D96D7D47EA779ECC49BA",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_ENTIRE_PROJECT_FORENSIC_AUDIT_2026-09-28.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/EDGE_RETAILS_ENTIRE_PROJECT_FORENSIC_AUDIT_2026-09-28.md",
+                         "sha256":  "E37B5968382BDDC2056B51ABD1283B8F9EA3F14B46929856D08F574E94AD30E3",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_LIVE_ENDPOINT_REGISTER_2026-09-27.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/EDGE_RETAILS_LIVE_ENDPOINT_REGISTER_2026-09-27.md",
+                         "sha256":  "493135DBE88A9CA354A95EDF9DB366C239353AB7CFE9E04F9BE471C21903E04C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/EDGE_RETAILS_PHASE2_3_4_REMEDIATION_REPORT.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/EDGE_RETAILS_PHASE2_3_4_REMEDIATION_REPORT.md",
+                         "sha256":  "88EC652AA815258B827532D5C21444BAA7373CA365D7EDFADEECD267464F5B37",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md",
+                         "sha256":  "8C902418BE18DD87185792F69B7675B5A3032CCE1FA4CAD43F25765D8070F10E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Immutability_Closure_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Immutability_Closure_2026-09-29.md",
+                         "sha256":  "FAA1FDEC16E91BF9A356098F2AEAC24F9039CFFAB7B1B6633273FB3DD0FC2D6C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Inventory_Preservation_Closure_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Inventory_Preservation_Closure_2026-09-29.md",
+                         "sha256":  "88E90E7F48F77705BB0AE799394DD9C88DB45DA0559FACC1F1BA5BA74C16F262",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Inventory_Preservation_Commands_2026-09-29.txt",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Inventory_Preservation_Commands_2026-09-29.txt",
+                         "sha256":  "1640538C9CD876EBF781ACF239BB128AA5BB13D686EA5B51FD5D61CEADF68EFB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Inventory_Preservation_Evidence.ps1",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Inventory_Preservation_Evidence.ps1",
+                         "sha256":  "A66EE9814627CA146FE3102BA09DC83482A24094C6C5B960CFCD481DB2F485FB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Inventory_Preservation_InitialAttempt_2026-09-29.txt",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Inventory_Preservation_InitialAttempt_2026-09-29.txt",
+                         "sha256":  "364988E2F9C3C9963267C7524AB3F3AD81ABDCBFFA4BC518E162BD8477A64BBD",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Inventory_Preservation_Raw_2026-09-29.json",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Inventory_Preservation_Raw_2026-09-29.json",
+                         "sha256":  "DA3AEBF1AB44E21BE14C2379F5D6FCBBA40C2D05B77CD2D339B9A5F613F92FEE",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3A_Production_Database_Certification_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3A_Production_Database_Certification_2026-09-29.md",
+                         "sha256":  "E2B65DBF3C2BAE474DC6FB29598C360A832485BB9FACA79D0592652FCBF595C8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3B_Rotation_Rehearsal_Result.json",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3B_Rotation_Rehearsal_Result.json",
+                         "sha256":  "C1A02126DEAF8515E089CEDFB7D26AD385BAEBE8A9D1399CC233463BA93E40F6",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3B_Runtime_Closure_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3B_Runtime_Closure_2026-09-29.md",
+                         "sha256":  "B1E7B5AE0B91EEC9ACEFCD7F9E3BA3AF2CF22B54FDE77AFE607AC44D9DCDBEAB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3C_Authenticated_Continuation_2026-10-01.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3C_Authenticated_Continuation_2026-10-01.md",
+                         "sha256":  "5F7D908C5598652E83B91D022DABCF53D6B5E138A77237329804B25E6FB268E0",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3C_Installed_Desktop_Smoke_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3C_Installed_Desktop_Smoke_2026-09-29.md",
+                         "sha256":  "CEC530EED4B207C23B62C61DE5BF223A743228CDD9D61933977D9BB987275ED3",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3C_Recovery_Implementation_Ledger_2026-09-30.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3C_Recovery_Implementation_Ledger_2026-09-30.md",
+                         "sha256":  "126FADC3615E12BC46F11D3AFB07F0B2C1C849731B26B9264B38320B08BA7C4E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Backup_Restore_Server_Operations.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Backup_Restore_Server_Operations.md",
+                         "sha256":  "ACD6EB9AFD290358ADD08096E28CCC55FED95302941BD0B005A72B1303224B7F",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Continuation_Takeover_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Continuation_Takeover_2026-09-29.md",
+                         "sha256":  "2308B99111FC26F8EFDECAB2A9F1D258A639983CEB27C690F6DAD640EBAFD93C",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Deployment_Recovery_Ledger_2026-09-28.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Deployment_Recovery_Ledger_2026-09-28.md",
+                         "sha256":  "AB928AB8335C714DD3E32A73FB84AECB962CB6DC0566759923D40D56387D4FB0",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Execution_Ledger_2026-09-28.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Execution_Ledger_2026-09-28.md",
+                         "sha256":  "DBCED60F1EAAA70DD2223B6B6657C0C2A23EC164BD463659227FE1FFBB912694",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Final_Acceptance_Contract_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Final_Acceptance_Contract_2026-09-29.md",
+                         "sha256":  "BF939F0DE0CA376F166D6B34F37014AEA118DB5C882085DBACEA14B62DBA2C3D",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Governance_Approval_Dossier_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Governance_Approval_Dossier_2026-09-29.md",
+                         "sha256":  "4FFD302FF1583C62A500B53EC13D9DC36771DE9206EB79CF2C587B01D5C46A69",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Installed_Login_Latency_Defect_2026-10-02.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Installed_Login_Latency_Defect_2026-10-02.md",
+                         "sha256":  "39BD77645EE9542745EEA44FFEF16434A5541050D19374DEE9C412B3B3F56DAC",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Legacy_Category_Upgrade_Correction_Proposal_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Legacy_Category_Upgrade_Correction_Proposal_2026-09-29.md",
+                         "sha256":  "DE4D0B6CF4BD60335272AD0AC8EA633E44DF30F36A8646511CCECF3503F81C44",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Manual_UI_Test_Matrix.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Manual_UI_Test_Matrix.md",
+                         "sha256":  "8F2958C71C251FE137119E8874457C76E80C56975924DD46D4BBCC2201C06374",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Master_Remediation_Governance_Progress_2026-10-02.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Master_Remediation_Governance_Progress_2026-10-02.md",
+                         "sha256":  "77D7A09062B3E53C94DE853EDF4015B1C935C8DA9E37DD6CCD52EB5676F99F9F",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Production_Readiness_Resume_Checkpoint_2026-09-29.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Production_Readiness_Resume_Checkpoint_2026-09-29.md",
+                         "sha256":  "EAB8263561D4370C792214D7EDCDE680B91C2C66808BEC0D66775C14CCE58318",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase3_Recovery_Governance_Bootstrap.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Phase3_Recovery_Governance_Bootstrap.md",
+                         "sha256":  "E9F677CCCD5A595D1866C8E2E3407E00DA24E04F25311FC9E8ACC98472F13E06",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Sprint5_Master_Implementation_Plan.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Sprint5_Master_Implementation_Plan.md",
+                         "sha256":  "9765F2E9AFEF797A7F3A543D4D066E6042CAE87A39B2DC792991ED6807E0D26E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Sprint9_Master_Implementation_Roadmap.md",
+                         "newPath":  "docs/historical-audits/phase2-3-4/Sprint9_Master_Implementation_Roadmap.md",
+                         "sha256":  "6893E48FBE90EA8D10591AABF7B2A8693F9DAC9E4C820194A11F4CF31F2F9E1F",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "Phase",
+                         "newPath":  "6Edge_Retails_Antigravity_Backend_Implementation_Roadmap.md",
+                         "sha256":  "",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentA_FreshInstall_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentA_FreshInstall_Handoff.md",
+                         "sha256":  "35046E3A558FDC546CAD100CC573E5F605A90405DF4894711C6A7FB5683F2471",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentB_UpgradeMigration_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentB_UpgradeMigration_Handoff.md",
+                         "sha256":  "48511630F306FEA260D8847666CBA1FC1BCFE20F8C650D614ABB3A7315DFD8D2",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentC_InstallerRelease_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentC_InstallerRelease_Handoff.md",
+                         "sha256":  "E09E396E7254619701AF482D322C7461CE6D6B89A962E29C5067599BC368F57B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentD_BackupReconciliation_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentD_BackupReconciliation_Handoff.md",
+                         "sha256":  "00FB35946AF64EB30DD74CAA15A7931B72F71751B5803D15CAD5EF8E2A4D5089",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentE_OperationsMaintenance_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentE_OperationsMaintenance_Handoff.md",
+                         "sha256":  "5EBF3D390F1218006D32A0F66B4EC85E6F38E7D1CD041CD9F9BC989ECA9678E0",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentF_RuntimeRegression_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentF_RuntimeRegression_Handoff.md",
+                         "sha256":  "172BB1CC2D59CB887E4A089944FC7E3658B621A3797A01E4F5CC301DB30285E9",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Agent_Handoffs/AgentG_SecurityForensics_Handoff.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Agent_Handoffs/AgentG_SecurityForensics_Handoff.md",
+                         "sha256":  "9DAB3BDEE08336BDF76D009629AEA5E985F452FCBE078DFD43FF72E0F79E3E51",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Database_Compatibility_Matrix.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Database_Compatibility_Matrix.md",
+                         "sha256":  "27EA2A5A95470D1BBB7378B12F8BE5CA1D3E0250B2B8DE1C50CFDDA55DFE6C4E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Execution_State.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Execution_State.md",
+                         "sha256":  "94DF37464F106C457CDFF150089C448ADD91A3EDDDAAB5C928ABC65056399E1D",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase6_Operations_Package_Index.md",
+                         "newPath":  "docs/historical-audits/phase6/Phase6_Operations_Package_Index.md",
+                         "sha256":  "3C7AAC0F18FA3FD4A5B9342C081638EDDF0A9F6A8167A4ED3E4AE90EE11A5F55",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_AUTOMATIC_TRACKING_SYSTEM_CODE_FORENSIC_AUDIT_2026-10-06.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_AUTOMATIC_TRACKING_SYSTEM_CODE_FORENSIC_AUDIT_2026-10-06.md",
+                         "sha256":  "120ABFB6AA59CE328E6564AA8E64CB580D8542A1AEF7141A1BEC8C9CF1E073CB",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_CATALOG_PURCHASING_GAP_CONFIRMATION_AND_REMEDIATION_PLAN.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_CATALOG_PURCHASING_GAP_CONFIRMATION_AND_REMEDIATION_PLAN.md",
+                         "sha256":  "CE293C51E3E5BB7FD51CCAA4788CE94061A4E9E9E5050954586DB8849037C93B",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_CURRENT_CATALOG_PRODUCT_MODEL_SUPPLIER_WORKFLOW_READONLY.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_CURRENT_CATALOG_PRODUCT_MODEL_SUPPLIER_WORKFLOW_READONLY.md",
+                         "sha256":  "A4FEA5291302A7CAB088BB6119AA6B726247198C110C77C1F258E2D87379CFEA",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS1_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS1_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "sha256":  "0741255BDA45FE939FC9A33AB7B3F85EC714C70C7DAEB5E9F7085FE158B38B04",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS2_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS2_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "sha256":  "FB6B52C945ACE7E6CC7767537DB67AA15D239E25546ECAD1CFCEC6384BDCAEEA",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS3_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS3_STEP1_DEEP_FORENSIC_AUDIT.md",
+                         "sha256":  "A503601E39545C3201ECA84D9F46DE2B5C3DF89D209A58E5FF810DDC569E8CC0",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS4_DEEP_FORENSIC_AUDIT_AND_PASS5_HANDOVER.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS4_DEEP_FORENSIC_AUDIT_AND_PASS5_HANDOVER.md",
+                         "sha256":  "5CD7776B63F0C4A13F37760FEB69184AF389FC83608C4B8DB4D97AB1665391B8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_ARCHITECTURE_CONTRADICTION_REPORT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS5_ARCHITECTURE_CONTRADICTION_REPORT.md",
+                         "sha256":  "26A59E051D3EA88119D2C54401BD708D28D335F945EC034E1BA68E29B065E7B4",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_STEP1_LIVE_DELTA_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS5_STEP1_LIVE_DELTA_AUDIT.md",
+                         "sha256":  "058FB672DE598F8AE92AD38C49237412FA279915E0D72B6EFFEE737239781461",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PASS5_STEP1_RESUMED_LIVE_DELTA_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PASS5_STEP1_RESUMED_LIVE_DELTA_AUDIT.md",
+                         "sha256":  "9277C25C824D7E917BB31C067FF39C236CEA79254DB492B80BE23589E45B42A8",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE7_PRE_IMPLEMENTATION_FORENSIC_AUDIT.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_PHASE7_PRE_IMPLEMENTATION_FORENSIC_AUDIT.md",
+                         "sha256":  "C7278B3F17DB27169002D83A8B0CFEC970AC6CA7C1187F8B828170FC17382865",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_TRACKING_REMEDIATION_CONTINUATION_REPORT_2026-10-03.md",
+                         "newPath":  "docs/historical-audits/phase7/EDGE_RETAILS_TRACKING_REMEDIATION_CONTINUATION_REPORT_2026-10-03.md",
+                         "sha256":  "7E874E4FE8492BBD6686005BCF799D2C106006D85E3AA859271347BB2AED2DBE",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Phase7Pass4_Attributes_Compatibility.md",
+                         "newPath":  "docs/historical-audits/phase7/Phase7Pass4_Attributes_Compatibility.md",
+                         "sha256":  "1DFE54D04E5D0A76CD89824D4A784C19EAFD82599FBEBCA09EDAA6732E881F2E",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "docs/Master_Backup_Key_Lifecycle_Design_2026-10-02.md",
+                         "newPath":  "docs/operations/Master_Backup_Key_Lifecycle_Design_2026-10-02.md",
+                         "sha256":  "A409B7E5A6C486A7DEC4BE09A723F8A6882699380628433A4A2C25EC9E54E6F6",
+                         "status":  "GIT_RENAMED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE11_W0_PREEXECUTION_TASK_REGISTER_2026-10-10.md",
+                         "newPath":  "docs/roadmap/phase11/EDGE_RETAILS_PHASE11_W0_PREEXECUTION_TASK_REGISTER_2026-10-10.md",
+                         "sha256":  "ACFB7428A759AF01153D76879FE3C078DDA9CFACBB0D78507A0806C3A3F8D689",
+                         "status":  "UNTRACKED_RELOCATED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE11_W0_ONE_FINAL_MASTER_REMEDIATION_PROMPT_2026-10-10.md",
+                         "newPath":  "docs/roadmap/phase11/EDGE_RETAILS_PHASE11_W0_ONE_FINAL_MASTER_REMEDIATION_PROMPT_2026-10-10.md",
+                         "sha256":  "4AA70A6268C127BB02C4DFAB5E978FDB06062696411A6ABD6CE6A9D911EC4D39",
+                         "status":  "UNTRACKED_RELOCATED"
+                     },
+                     {
+                         "originalPath":  "EDGE_RETAILS_PHASE11_INTEGRATED_ROADMAP_AND_CATALOG_V3_2026-10-10.zip",
+                         "newPath":  "docs/roadmap/phase11/EDGE_RETAILS_PHASE11_INTEGRATED_ROADMAP_AND_CATALOG_V3_2026-10-10.zip",
+                         "sha256":  "94849324CDF7B40F33ACF30E87D16C96BA28EA339B0C8E7588A254D6698DDD05",
+                         "status":  "UNTRACKED_RELOCATED"
+                     }
+                 ]
+}
