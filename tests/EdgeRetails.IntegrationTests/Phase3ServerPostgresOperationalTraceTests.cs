@@ -36,7 +36,7 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
     [Fact]
     public async Task AuthenticatedServer_PostgresOperationalTrace_CoversReceivingSalesReturnsWarrantyKhataPrintingStocktakeAndBackup()
     {
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
+        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB") ?? Phase2PostgresTestHarness.ResolveConnectionString();
         Assert.False(string.IsNullOrWhiteSpace(connectionString),
             "This operational trace requires EDGE_RETAILS_TEST_DB to point to the disposable PostgreSQL rehearsal database.");
 
@@ -408,7 +408,7 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
     [Fact]
     public async Task Installed5ProductGoldenTrace_FullPhysicalAndFinancialLifecycle_OnRealPostgreSql()
     {
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
+        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB") ?? Phase2PostgresTestHarness.ResolveConnectionString();
         Assert.False(string.IsNullOrWhiteSpace(connectionString),
             "This operational trace requires EDGE_RETAILS_TEST_DB to point to the disposable PostgreSQL rehearsal database.");
 
@@ -961,7 +961,11 @@ public sealed class Phase3ServerPostgresOperationalTraceTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
-            builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
+            builder.UseSetting("EDGE_RETAILS_TEST_DB", connectionString);
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("EDGE_RETAILS_BACKUP_KEY")))
+            {
+                Environment.SetEnvironmentVariable("EDGE_RETAILS_BACKUP_KEY", new string('a', 64));
+            }
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<ISequenceHighWaterService>();

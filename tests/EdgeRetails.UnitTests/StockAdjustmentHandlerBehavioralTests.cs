@@ -1584,6 +1584,13 @@ internal sealed class FakeInventoryRepository : IInventoryRepository
 
     public void AddStockAdjustment(StockAdjustment adjustment) => StockAdjustments.Add(adjustment);
     public void AddStockAdjustmentItem(StockAdjustmentItem item) => StockAdjustmentItems.Add(item);
+
+    public List<PackAllocation> PackAllocations { get; } = [];
+    public void AddPackAllocation(PackAllocation allocation) => PackAllocations.Add(allocation);
+    public Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByMovementAsync(Guid movementId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PackAllocation>>(PackAllocations.Where(a => a.MovementId == movementId).ToList());
+    public Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByUnitAsync(Guid unitId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PackAllocation>>(PackAllocations.Where(a => a.PackUnitId == unitId).ToList());
 }
 
 internal sealed class FakeInventoryCostAllocator : IInventoryCostAllocator

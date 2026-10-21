@@ -24,7 +24,7 @@ public sealed class ThakaProjectsViewModel : ViewModelBase, IDisposable
     private DateOnly? _nextStartedOn;
     private Guid? _nextProjectId;
     private bool _hasMore;
-    private const int ProjectPageSize = 200;
+    private const int ProjectPageSize = 24;
 
     private string _searchText = string.Empty;
     private string _selectedFilter = "All";

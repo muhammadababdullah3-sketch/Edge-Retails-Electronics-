@@ -1,0 +1,171 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-077",
+  "timestamp_utc": "2026-10-19T12:00:00Z",
+  "total_files": 32,
+  "manifest_sha256": "8e08493c71802f48aa5e1d98a4aeaf0c6783943b5c7173ad9ba17a02d9d0bf39",
+  "candidate_source_bundle_sha256": "0238986a8d90873de7523aa4f3e2f3a863ec56880906a8273f0d5bd6e9038997",
+  "candidate_tracked_patch_sha256": "245a4df9e996b9c3739e154dc0aed41d08cfd6a436e8f7118b26b601e82178bf",
+  "candidate_untracked_zip_sha256": "fd6fe3726a0ec8877541c94cb2c0af9215114ef1d663b79c3c6cc3719ee80c7d",
+  "files": [
+    {
+      "path": "AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "sha256": "d12313c7d58e4eb8d053703812c5f741384fad1fcea569e1c518208a5ecb13f9",
+      "size_bytes": 498
+    },
+    {
+      "path": "BASELINE.json",
+      "sha256": "c8680b376d61c46554d4cb81c4418653f62063dd1bae95ec17f788fda04fe25c",
+      "size_bytes": 1770
+    },
+    {
+      "path": "DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "sha256": "8b6725497689c15c75cb73c3fa9ed3c63bf8f5c1bcb5b7da15af189c4e165e00",
+      "size_bytes": 469
+    },
+    {
+      "path": "FINAL_REPORT.md",
+      "sha256": "b04c1d62d24a8649300ecf719234142d79cca992877f1cd8696e21074708452c",
+      "size_bytes": 696
+    },
+    {
+      "path": "PARALLEL_PLAN.json",
+      "sha256": "c8ea7a605be36fa250a7a804b89c3ca670090584b0e465e5d7107b26f2a1e633",
+      "size_bytes": 2927
+    },
+    {
+      "path": "PLAN_VALIDATION.json",
+      "sha256": "62fbd4d3e523aa8007d76f7b3e56fbef9f47a6629348c116e6d1f90fcff63c3c",
+      "size_bytes": 964
+    },
+    {
+      "path": "STAGE1_REPRODUCTION_OF_ROOT_FINDINGS.md",
+      "sha256": "03d68ef74ee270b5998146888215f82bdef490bf2f269ecd85b974fb05e2ca22",
+      "size_bytes": 2940
+    },
+    {
+      "path": "STAGE2_FINITE_ANALOGOUS_FLOW_INVENTORY.md",
+      "sha256": "9098d41e62f45cbbf83b72c54b57ad5322dc41ab451b2f9f34205d18d772e45a",
+      "size_bytes": 5703
+    },
+    {
+      "path": "STAGE3_VALIDATION_OF_HASHES_AND_DISPOSABLE_PG18.md",
+      "sha256": "770f2415f8a28bad9c023c72bcffbc3e7959790d577ed4666e15ac24ed668a9d",
+      "size_bytes": 1635
+    },
+    {
+      "path": "STAGE4_EVIDENCE_CLAIMS_CORRECTION.md",
+      "sha256": "07a883294373d7a4e8d4b011312e8897d41a28b1b1af958d7ecc913817d145f5",
+      "size_bytes": 1338
+    },
+    {
+      "path": "STAGE5_CANONICAL_LF_CROSSWALK.md",
+      "sha256": "c15aeee8397b3a5ab68d9919d24124b7b36267e2cd96e69165b654e94863e190",
+      "size_bytes": 3958
+    },
+    {
+      "path": "STAGE6_NATIVE_WORKER_CAPACITY_AND_PARALLEL_PLAN.md",
+      "sha256": "604530bafc4649f3112d426d64503b11559a9c6716ce86d6cb544f8a002bf57c",
+      "size_bytes": 1136
+    },
+    {
+      "path": "STAGE7_BOUNDED_CORRECTION_BATCH_AND_RAW_EVIDENCE.md",
+      "sha256": "da9b0848c93ff7ce0046ece1780701b7a066e8b96291f8cce98f5947eb574245",
+      "size_bytes": 919
+    },
+    {
+      "path": "STAGE8_DEPOSITION_AND_READBACK.md",
+      "sha256": "79789f0d63b5696d95a0ab2864347b7339b95f30506a041d10abacd156302e81",
+      "size_bytes": 675
+    },
+    {
+      "path": "build.log",
+      "sha256": "fed6f54ad723ec0e75af172a904d476dea47deb8ffb157e1f06fe50bda93f141",
+      "size_bytes": 2021
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.json",
+      "sha256": "8b7c8972f10380c86fad90cae47b30d62a0e746886618d5a5fe77475fbb5a2db",
+      "size_bytes": 2054
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.md",
+      "sha256": "51c53ef0614d30bb8c5ae5bcbc5b15740843528e444363d61e249f05792e79bf",
+      "size_bytes": 2052
+    },
+    {
+      "path": "export/CANDIDATE_FILE_INVENTORY.json",
+      "sha256": "3518fac3f5b99e31854fa07f2f5b5fb40cfd62bbfd361608f879475a4e785541",
+      "size_bytes": 95209
+    },
+    {
+      "path": "export/RECONSTRUCTION_INSTRUCTIONS.md",
+      "sha256": "80af1e99dd2cc53156c14b202854c0ffc0ac9d804b281c7dbe4ed488fd2ee687",
+      "size_bytes": 1315
+    },
+    {
+      "path": "export/Verify-CandidateExport.ps1",
+      "sha256": "91565a150d632f9624233e09d608af6a3d1967148bc91b7c3128f5a1dbe01e18",
+      "size_bytes": 1572
+    },
+    {
+      "path": "export/candidate_source_bundle.zip",
+      "sha256": "0238986a8d90873de7523aa4f3e2f3a863ec56880906a8273f0d5bd6e9038997",
+      "size_bytes": 1486458
+    },
+    {
+      "path": "export/candidate_tracked.patch",
+      "sha256": "245a4df9e996b9c3739e154dc0aed41d08cfd6a436e8f7118b26b601e82178bf",
+      "size_bytes": 1154741
+    },
+    {
+      "path": "export/candidate_untracked.zip",
+      "sha256": "fd6fe3726a0ec8877541c94cb2c0af9215114ef1d663b79c3c6cc3719ee80c7d",
+      "size_bytes": 750312
+    },
+    {
+      "path": "test-results/build.log",
+      "sha256": "fed6f54ad723ec0e75af172a904d476dea47deb8ffb157e1f06fe50bda93f141",
+      "size_bytes": 2021
+    },
+    {
+      "path": "test-results/run044_historical_postgresql_read_contract_tests.trx",
+      "sha256": "1ce7a12161a2dbf5b4b520bd4ae6d6bd413a82ed07bbe964f419aca5bcc868e5",
+      "size_bytes": 10264
+    },
+    {
+      "path": "test-results/run044_historical_thaka_pack_subledger_tests.trx",
+      "sha256": "9a09c553b7a1ed136ee0c9b0f41981e9ba71c22a6abce0e1d7b2179c3618d7c4",
+      "size_bytes": 22352
+    },
+    {
+      "path": "test-results/run077_desktop_performance_safety_tests.trx",
+      "sha256": "ea2ce67641debe71668ddaffe766a11a0ff431cf4502a95344c03b238d93ab63",
+      "size_bytes": 664539
+    },
+    {
+      "path": "test-results/run077_unit_tests.trx",
+      "sha256": "092b1e453b6eddf67ffd065cc1081af7631efe491d90f07b67e39fb43dabe337",
+      "size_bytes": 2035287
+    },
+    {
+      "path": "workers/worker-pos-integrator.md",
+      "sha256": "de50e5a47265e3f8d3bb8d63a0bf06b57e6132e9982f099a368aaf1fbc4987b9",
+      "size_bytes": 1491
+    },
+    {
+      "path": "workers/worker-reviewer.md",
+      "sha256": "2a1032add130dcd335d8bdf937cd8e5e501af9fa2c9e9f1eaa9132de7bdaf5cd",
+      "size_bytes": 1067
+    },
+    {
+      "path": "workers/worker-test-coordinator.md",
+      "sha256": "a8b173bf6a1eecdd5228a9928588ccfe6791f507db6550056b012f2ec1a0bd9e",
+      "size_bytes": 1621
+    },
+    {
+      "path": "MANIFEST.json",
+      "sha256": "8e08493c71802f48aa5e1d98a4aeaf0c6783943b5c7173ad9ba17a02d9d0bf39",
+      "size_bytes": 8489
+    }
+  ]
+}

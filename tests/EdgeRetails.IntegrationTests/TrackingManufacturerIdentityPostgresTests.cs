@@ -346,7 +346,7 @@ public sealed class TrackingManufacturerIdentityPostgresTests
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var arrivals = 0;
         var claimIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")!;
+        var connectionString = Phase2PostgresTestHarness.ResolveConnectionString();
         async Task<bool> InsertAsync(Guid unit, ManufacturerIdentifierType type,
             ManufacturerIdentifierSlot slot, string raw, Guid claimId)
         {

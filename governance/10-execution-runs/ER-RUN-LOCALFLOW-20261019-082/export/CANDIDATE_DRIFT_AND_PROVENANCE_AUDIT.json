@@ -1,0 +1,58 @@
+{
+  "audit_run": "ER-RUN-LOCALFLOW-20261019-082",
+  "baseline_run": "ER-RUN-LOCALFLOW-20261019-081",
+  "historical_run": "ER-RUN-LOCALFLOW-20261019-080",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "total_files": 369,
+  "summary": {
+    "identical": 355,
+    "modified": 8,
+    "new": 6
+  },
+  "intentional_modifications": [
+    {
+      "path": "src/EdgeRetails.Application/Features/Reporting/ReportingQueries.cs",
+      "category": "LF14 Source Fix: ReportingThakaActivityDto Contract Extension",
+      "justification": "Extended ReportingThakaActivityDto with non-breaking optional parameters (ReversalCount, ReversalAmount, NetMaterialValue) to support explicit reversal metrics under Option B."
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs",
+      "category": "LF14 Source Fix: ReportingReadService Aggregation & Ordering",
+      "justification": "Aggregated ThakaMaterialReversals count and amount by ProjectId, preserved reversal-only projects in allProjectIds, calculated net material value, sorted descending by net material value, and subtracted reversal amounts in snapshot thakaTotal."
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoReportingService.cs",
+      "category": "LF14 Source Fix: ReportThakaActivityItem Presentation Layer Properties",
+      "justification": "Added ReversalCount, ReversalAmount, NetMaterialValue, ActivitySummaryDisplay, NetMaterialValueDisplay, and HasReversals to ReportThakaActivityItem for desktop presentation."
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/BackendBusinessOperationsService.cs",
+      "category": "LF14 Source Fix: Local Backend Service DTO Mapping",
+      "justification": "Mapped ReversalCount, ReversalAmount, and NetMaterialValue from ReportingThakaActivityDto to ReportThakaActivityItem."
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteBackendBusinessOperationsService.cs",
+      "category": "LF14 Source Fix: Remote Backend Service DTO Mapping",
+      "justification": "Mapped ReversalCount, ReversalAmount, and NetMaterialValue across remote API boundary to ReportThakaActivityItem."
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/ReportsView.xaml",
+      "category": "LF14 Source Fix: Thaka Activity Card Template Data-Binding",
+      "justification": "Updated card template data-binding to ActivitySummaryDisplay and NetMaterialValueDisplay to clearly render reversal details (e.g., '0 issues \u00b7 1 reversal (-Rs. 5,000.00)')."
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/Phase11Wave3ApiAndDesktopCutoverTests.cs",
+      "category": "LF14 Behavioral Test Oracle: Application Read Service",
+      "justification": "Added LF14_ReportingReadService_ReversalOnlyProject_IncludedWithExplicitReversalBreakdown verifying that reversal-only projects are included in snapshot, explicit metrics are correct, net values are deducted, and descending sort order is preserved."
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase11Wave3DesktopCutoverTests.cs",
+      "category": "LF14 Behavioral Test Oracle: Presentation Formatting & STA Layout",
+      "justification": "Added LF14_ReportThakaActivityItem_PresentationFormatting_RendersSeparateReversalDetails verifying presentation string formatting across mixed, reversal-only, and issue-only projects, with full offscreen WPF STA layout proof."
+    }
+  ],
+  "preserved_components": {
+    "run081_components_preserved_count": 355,
+    "untracked_components_preserved_count": 169
+  }
+}

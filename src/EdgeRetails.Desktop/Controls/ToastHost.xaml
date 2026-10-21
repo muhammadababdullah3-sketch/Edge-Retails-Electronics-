@@ -28,6 +28,26 @@
                         BorderThickness="1"
                         CornerRadius="{StaticResource Radius.Control}"
                         Effect="{StaticResource Shadow.Card}">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="ToastSlide" X="0" />
+                    </Border.RenderTransform>
+                    <Border.Triggers>
+                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="ToastSlide"
+                                                     Storyboard.TargetProperty="X"
+                                                     From="60" To="0" Duration="0:0:0.2">
+                                        <DoubleAnimation.EasingFunction>
+                                            <CubicEase EasingMode="EaseOut" />
+                                        </DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     From="0" To="1" Duration="0:0:0.18" />
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Border.Triggers>
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Background" Value="{DynamicResource Brush.Surface.Raised}" />

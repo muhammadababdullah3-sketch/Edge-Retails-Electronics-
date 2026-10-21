@@ -8,8 +8,8 @@
     </Style>
     <Style TargetType="Border" BasedOn="{StaticResource Surface.Box}" />
 
-    <Style x:Key="Card.Default" TargetType="Border">
-        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Raised}" />
+    <Style x:Key="Card.Base" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Default}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource Radius.Card}" />
@@ -17,13 +17,42 @@
         <Setter Property="SnapsToDevicePixels" Value="True" />
     </Style>
 
-    <Style x:Key="Card.Textured" TargetType="Border" BasedOn="{StaticResource Card.Default}">
+    <!-- 1. Default standard card container (alias of Card.Base) -->
+    <Style x:Key="Card.Default" TargetType="Border" BasedOn="{StaticResource Card.Base}" />
+
+    <!-- 2. CARD.ELEVATED: Raised Analytical & Action Surface -->
+    <Style x:Key="Card.Elevated" TargetType="Border" BasedOn="{StaticResource Card.Base}">
+        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Raised}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Soft}" />
+        <Setter Property="Effect" Value="{StaticResource Shadow.Card}" />
+    </Style>
+
+    <Style x:Key="Card.Raised" TargetType="Border" BasedOn="{StaticResource Card.Elevated}" />
+
+    <!-- 3. CARD.STAT: KPI Card Surface -->
+    <Style x:Key="Card.Stat" TargetType="Border" BasedOn="{StaticResource Card.Base}">
         <Setter Property="Background" Value="{DynamicResource Gradient.Surface.Card}" />
         <Setter Property="Effect" Value="{StaticResource Shadow.Surface}" />
     </Style>
 
-    <Style x:Key="Card.Raised" TargetType="Border" BasedOn="{StaticResource Card.Default}">
-        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Raised}" />
-        <Setter Property="Effect" Value="{StaticResource Shadow.Card}" />
+    <Style x:Key="Card.Textured" TargetType="Border" BasedOn="{StaticResource Card.Stat}" />
+
+    <!-- 4. CARD.INTERACTIVE: Clickable Selection Target -->
+    <Style x:Key="Card.Interactive" TargetType="Border" BasedOn="{StaticResource Card.Base}">
+        <Setter Property="Cursor" Value="Hand" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Hover}" />
+                <Setter Property="Effect" Value="{StaticResource Shadow.Surface}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- 5. CARD.SELECTED: Active Operational Focus -->
+    <Style x:Key="Card.Selected" TargetType="Border" BasedOn="{StaticResource Card.Base}">
+        <Setter Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Selection.Border}" />
+        <Setter Property="BorderThickness" Value="1.5" />
     </Style>
 </ResourceDictionary>

@@ -4,6 +4,7 @@ using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Sales;
 using System.Text.Json;
 
@@ -351,7 +352,10 @@ public sealed record CompletePosDraftCommand(
     decimal InvoiceDiscount,
     SalePaymentMethod PaymentMethod,
     decimal AmountTendered,
-    string? PaymentReference);
+    string? PaymentReference,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    Guid? RegisteredTerminalId = null);
 
 public sealed class CompletePosDraftHandler
 {
@@ -363,6 +367,8 @@ public sealed class CompletePosDraftHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOperationLock _operationLock;
+    private readonly ISalesRepository? _sales;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public CompletePosDraftHandler(
         IPosDraftRepository drafts,
@@ -373,7 +379,8 @@ public sealed class CompletePosDraftHandler
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
         IOperationLock operationLock,
-        ISalesRepository? sales = null)
+        ISalesRepository? sales = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _drafts = drafts;
         _resourceLock = resourceLock;
@@ -383,20 +390,43 @@ public sealed class CompletePosDraftHandler
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _operationLock = operationLock;
+        _sales = sales;
+        _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<CompleteSaleResult>> HandleAsync(
+    public async Task<Result<CompleteSaleResult>> HandleAsync(
         CompletePosDraftCommand command,
         CancellationToken cancellationToken)
     {
         if (command.ClientOperationId == Guid.Empty)
         {
-            return Task.FromResult(Result<CompleteSaleResult>.Failure(
+            return Result<CompleteSaleResult>.Failure(
                 "sales.operation_id_required",
-                "Client operation id is required."));
+                "Client operation id is required.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        // Area 12G / F07 / H01: Check durable outcome first for command.ClientOperationId before mutable state validation
+        var expectedDraftFingerprint = "PosDraft:v1:" + OperationPayloadFingerprint.ComputeSha256(
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                SourceDraftId = (Guid?)command.DraftId,
+                SourceDraftVersion = (long?)command.ExpectedVersion
+            }));
+
+        if (_outcomeLedger is not null)
+        {
+            var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (outcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(outcome, command, expectedDraftFingerprint, cancellationToken);
+                if (evaluated is not null)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
+        return await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.CashierUserId,
@@ -411,6 +441,20 @@ public sealed class CompletePosDraftHandler
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             await _resourceLock.AcquireAsync("pos-draft", command.DraftId, ct);
+
+            if (_outcomeLedger is not null)
+            {
+                var postLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (postLockOutcome is not null)
+                {
+                    var evaluatedPostLock = await EvaluateGuardedOutcomeAsync(postLockOutcome, command, expectedDraftFingerprint, ct);
+                    if (evaluatedPostLock is not null)
+                    {
+                        return evaluatedPostLock.Value;
+                    }
+                }
+            }
+
             var draft = await _drafts.GetForUpdateAsync(command.DraftId, ct);
             if (draft is null)
             {
@@ -419,16 +463,21 @@ public sealed class CompletePosDraftHandler
                     "POS draft was not found.");
             }
 
-            var converted = draft.Status == PosDraftStatus.Converted;
-            if (draft.Status != PosDraftStatus.Open && !converted)
+            if (draft.Status == PosDraftStatus.Converted)
+            {
+                return Result<CompleteSaleResult>.Failure(
+                    "sales.draft_already_converted",
+                    "Converted draft requires its original committed sale outcome; a new operation cannot charge it again.");
+            }
+
+            if (draft.Status != PosDraftStatus.Open)
             {
                 return Result<CompleteSaleResult>.Failure(
                     "sales.draft_not_open",
                     "Only an open draft can be completed.");
             }
 
-            if (command.ExpectedVersion == long.MaxValue ||
-                draft.Version != (converted ? command.ExpectedVersion + 1 : command.ExpectedVersion))
+            if (draft.Version != command.ExpectedVersion)
             {
                 return Result<CompleteSaleResult>.Failure(
                     "sales.draft_stale",
@@ -473,20 +522,18 @@ public sealed class CompletePosDraftHandler
                     command.AmountTendered,
                     command.PaymentReference,
                     null,
-                    lines)
+                    lines,
+                    command.PostingDate,
+                    command.SupervisorApproval,
+                    RegisteredTerminalId: command.RegisteredTerminalId)
                 {
                     SourceDraftId = draft.Id,
                     SourceDraftVersion = command.ExpectedVersion,
-                    SourceDraftReplayOnly = converted
+                    SourceDraftReplayOnly = false
                 },
                 ct);
 
             if (!result.IsSuccess)
-            {
-                return result;
-            }
-
-            if (converted)
             {
                 return result;
             }
@@ -497,5 +544,95 @@ public sealed class CompletePosDraftHandler
             await _unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken);
+    }
+
+    private async Task<Result<CompleteSaleResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        CompletePosDraftCommand command,
+        string expectedDraftFingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "Sale")
+        {
+            return Result<CompleteSaleResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'Sale'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CashierUserId)
+        {
+            return Result<CompleteSaleResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (command.RegisteredTerminalId.HasValue && outcome.TerminalId.HasValue &&
+            outcome.TerminalId.Value != command.RegisteredTerminalId.Value)
+        {
+            return Result<CompleteSaleResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation terminal mismatch.");
+        }
+
+        if (outcome.PayloadFingerprint != expectedDraftFingerprint)
+        {
+            return Result<CompleteSaleResult>.Failure(
+                "idempotency.payload_mismatch",
+                "Operation belongs to another draft completion intent.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            if (_sales is not null)
+            {
+                var sale = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct)
+                    ?? (outcome.EntityId.HasValue ? await _sales.GetSaleForUpdateAsync(outcome.EntityId.Value, ct) : null);
+                if (sale is not null)
+                {
+                    var payment = await _sales.GetSalePaymentAsync(sale.Id, ct);
+                    if (payment is not null && (payment.Method != command.PaymentMethod ||
+                        payment.AmountTendered != Math.Round(command.AmountTendered, 2, MidpointRounding.AwayFromZero) ||
+                        sale.InvoiceDiscount != Math.Round(command.InvoiceDiscount, 2, MidpointRounding.AwayFromZero)))
+                    {
+                        return Result<CompleteSaleResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different sale details.");
+                    }
+
+                    return Result<CompleteSaleResult>.Success(new CompleteSaleResult(
+                        sale.Id,
+                        sale.InvoiceNumber,
+                        sale.GrandTotal,
+                        payment?.ChangeGiven ?? 0m,
+                        WasExisting: true));
+                }
+            }
+
+            if (!string.IsNullOrEmpty(outcome.ResponsePayload))
+            {
+                try
+                {
+                    var cached = System.Text.Json.JsonSerializer.Deserialize<CompleteSaleResult>(outcome.ResponsePayload);
+                    if (cached is not null && cached.SaleId != Guid.Empty && !string.IsNullOrEmpty(cached.InvoiceNumber))
+                    {
+                        return Result<CompleteSaleResult>.Success(cached with { WasExisting = true });
+                    }
+                }
+                catch
+                {
+                    return Result<CompleteSaleResult>.Failure(
+                        "idempotency.outcome_corrupted",
+                        "The operation was recorded as succeeded, but the cached response payload is corrupted.");
+                }
+            }
+        }
+        else if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<CompleteSaleResult>.Failure(
+                outcome.ErrorCode ?? "sales.already_failed",
+                outcome.ErrorMessage ?? "The operation previously failed.");
+        }
+
+        return null;
     }
 }

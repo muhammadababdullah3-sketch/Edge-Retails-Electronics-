@@ -29,18 +29,27 @@ public sealed class FoundInventoryUnitHandler(
     public const string RecoveryReferenceType = "InventoryLossRecoveryGain";
     private const string OperationType = "FoundInventoryUnit";
 
-    public Task<Result<FoundInventoryUnitResult>> HandleAsync(FoundInventoryUnitCommand command, CancellationToken ct)
+    public async Task<Result<FoundInventoryUnitResult>> HandleAsync(FoundInventoryUnitCommand command, CancellationToken ct)
     {
         if (command.ProductId == Guid.Empty || command.InventoryUnitId == Guid.Empty ||
             command.SourceMissingMovementId == Guid.Empty || command.ActorId == Guid.Empty ||
             command.ClientOperationId == Guid.Empty || string.IsNullOrWhiteSpace(command.Reason) ||
             command.Reason.Trim().Length > 500 || !FoundRecoveryAuthority.IsRecoveryBucket(command.TargetCondition))
         {
-            return Task.FromResult(Result<FoundInventoryUnitResult>.Failure("inventory.found_invalid",
-                "Found requires an existing identity, explicit Missing source, eligible condition, actor, operation and reason."));
+            return Result<FoundInventoryUnitResult>.Failure("inventory.found_invalid",
+                "Found requires an existing identity, explicit Missing source, eligible condition, actor, operation and reason.");
         }
         var fingerprint = OperationPayloadFingerprint.ComputeSha256(JsonSerializer.Serialize(command with { Reason = command.Reason.Trim() }));
-        return transactions.ExecuteAsync(async token =>
+
+        var preLockOutcome = await outcomes.GetOutcomeAsync(command.ClientOperationId, ct);
+        if (preLockOutcome is not null)
+        {
+            var preResult = EvaluateOutcomeHeader(preLockOutcome, command, fingerprint);
+            if (preResult.HasValue)
+                return preResult.Value;
+        }
+
+        return await transactions.ExecuteAsync(async token =>
         {
             var allowed = await authorization.AuthorizeAsync(command.ActorId, PermissionKeys.InventoryManage, token);
             if (!allowed.IsSuccess)
@@ -53,10 +62,11 @@ public sealed class FoundInventoryUnitHandler(
                 var prior = await outcomes.GetOutcomeAsync(command.ClientOperationId, token);
                 if (prior is not null)
                 {
-                    if (prior.OperationType != OperationType || prior.ActorId != command.ActorId || prior.PayloadFingerprint != fingerprint)
-                        return Result<FoundInventoryUnitResult>.Failure("idempotency.payload_mismatch", "Found operation has different authority or parameters.");
-                    if (prior.State != OperationOutcomeState.Succeeded || !prior.WasCommitted || prior.EntityId is not Guid foundId)
-                        return Result<FoundInventoryUnitResult>.Failure("inventory.found_replay_requires_review", "Found operation has no proven committed result.");
+                    var postResult = EvaluateOutcomeHeader(prior, command, fingerprint);
+                    if (postResult.HasValue)
+                        return postResult.Value;
+
+                    var foundId = prior.EntityId!.Value;
                     var replayUnit = (await inventory.GetInventoryUnitsForUpdateAsync(command.ProductId, [command.InventoryUnitId], token)).SingleOrDefault();
                     var replaySource = await inventory.GetInventoryMovementEvidenceAsync(command.SourceMissingMovementId, token);
                     var replayFound = await inventory.GetInventoryMovementEvidenceAsync(foundId, token);
@@ -176,6 +186,50 @@ public sealed class FoundInventoryUnitHandler(
                 return Result<FoundInventoryUnitResult>.Failure(ex.Code, ex.Message);
             }
         }, ct);
+    }
+
+    private static Result<FoundInventoryUnitResult>? EvaluateOutcomeHeader(
+        OperationOutcomeRecord prior,
+        FoundInventoryUnitCommand command,
+        string fingerprint)
+    {
+        if (prior.OperationType != OperationType)
+        {
+            return Result<FoundInventoryUnitResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation identity already belongs to another operation type '{prior.OperationType}'.");
+        }
+
+        if (prior.ActorId.HasValue && command.ActorId != Guid.Empty && prior.ActorId.Value != command.ActorId)
+        {
+            return Result<FoundInventoryUnitResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(prior.PayloadFingerprint) &&
+            !string.Equals(prior.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return Result<FoundInventoryUnitResult>.Failure(
+                "idempotency.payload_mismatch",
+                "Found operation has different authority or parameters.");
+        }
+
+        if (prior.State == OperationOutcomeState.Failed)
+        {
+            return Result<FoundInventoryUnitResult>.Failure(
+                prior.ErrorCode ?? "idempotency.outcome_unknown",
+                prior.ErrorMessage ?? "Found operation previously failed.");
+        }
+
+        if (prior.State != OperationOutcomeState.Succeeded || !prior.WasCommitted || prior.EntityId is null)
+        {
+            return Result<FoundInventoryUnitResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Found operation has no proven committed result.");
+        }
+
+        return null;
     }
 }
 

@@ -44,10 +44,10 @@ public sealed class DemoIdentityService : IDemoIdentityService
             new()
             {
                 Id = "owner",
-                DisplayName = "Abdullah",
+                DisplayName = "Store Owner",
                 RoleName = "Owner",
-                Initials = "A",
-                AvatarLetter = "A",
+                Initials = "SO",
+                AvatarLetter = "SO",
                 IsOnline = true,
                 IsPrimary = true
             },
@@ -57,7 +57,7 @@ public sealed class DemoIdentityService : IDemoIdentityService
                 DisplayName = "Ali",
                 RoleName = "Cashier",
                 Initials = "A",
-                AvatarLetter = "L",
+                AvatarLetter = "A",
                 IsOnline = true,
                 IsPrimary = false
             }

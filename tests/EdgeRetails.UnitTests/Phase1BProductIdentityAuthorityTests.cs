@@ -1144,7 +1144,7 @@ public sealed class Phase1BProductIdentityAuthorityTests
         return new CreatePurchaseCommand(
             SupplierId: supplierId,
             SupplierInvoiceNumber: $"INV-{Guid.NewGuid():N}"[..12],
-            PurchaseDate: new DateOnly(2026, 9, 25),
+            PurchaseDate: new DateOnly(2026, 9, 22),
             Note: "Test Purchase",
             OtherCharges: 0m,
             SettlementMode: PurchaseSettlementMode.External,

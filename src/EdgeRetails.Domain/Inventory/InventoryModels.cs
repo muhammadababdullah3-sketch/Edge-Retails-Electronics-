@@ -168,6 +168,13 @@ public sealed class InventoryMovementEffect : Entity
     public decimal QuantityAfter { get; set; }
 }
 
+public enum PackState
+{
+    Sealed = 1,
+    Open = 2,
+    Consumed = 3
+}
+
 public sealed class InventoryUnit : Entity
 {
     public Guid ProductId { get; set; }
@@ -189,6 +196,167 @@ public sealed class InventoryUnit : Entity
     public Guid? SourceStockAdjustmentItemId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public long Version { get; set; }
+
+    public decimal? InitialBaseQuantity { get; set; }
+    public decimal? RemainingBaseQuantity { get; set; }
+    public PackState? PackState { get; set; }
+    public bool IsLooseStock { get; set; }
+
+    public void ValidatePackInvariants()
+    {
+        if (PackState is null)
+        {
+            if (InitialBaseQuantity is not null || RemainingBaseQuantity is not null)
+            {
+                throw new BusinessRuleException(
+                    "inventory.pack_unquantified_partial",
+                    "Non-pack inventory unit cannot have initial or remaining quantities.");
+            }
+            return;
+        }
+
+        if (InitialBaseQuantity is null || RemainingBaseQuantity is null)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_missing_quantity",
+                "Pack inventory unit requires both initial and remaining base quantities.");
+        }
+
+        if (InitialBaseQuantity <= 0)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_initial_quantity_positive",
+                "Pack initial base quantity must be strictly positive.");
+        }
+
+        if (RemainingBaseQuantity < 0)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_remaining_quantity_nonnegative",
+                "Pack remaining base quantity cannot be negative.");
+        }
+
+        if (RemainingBaseQuantity > InitialBaseQuantity)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_overcapacity",
+                "Pack remaining base quantity cannot exceed initial base quantity.");
+        }
+
+        switch (PackState)
+        {
+            case Inventory.PackState.Sealed:
+                if (IsLooseStock)
+                {
+                    throw new BusinessRuleException(
+                        "inventory.sealed_loose_stock_invalid",
+                        "Loose stock cannot be in Sealed state.");
+                }
+                if (RemainingBaseQuantity != InitialBaseQuantity)
+                {
+                    throw new BusinessRuleException(
+                        "inventory.sealed_pack_must_be_full",
+                        "Sealed pack remaining quantity must equal initial quantity.");
+                }
+                break;
+
+            case Inventory.PackState.Open:
+                if (RemainingBaseQuantity <= 0)
+                {
+                    throw new BusinessRuleException(
+                        "inventory.open_pack_must_have_remaining",
+                        "Open pack remaining quantity must be strictly positive.");
+                }
+                if (!IsLooseStock && RemainingBaseQuantity >= InitialBaseQuantity)
+                {
+                    throw new BusinessRuleException(
+                        "inventory.open_factory_pack_must_be_partial",
+                        "Standard factory pack in Open state must have remaining quantity less than initial.");
+                }
+                break;
+
+            case Inventory.PackState.Consumed:
+                if (RemainingBaseQuantity != 0)
+                {
+                    throw new BusinessRuleException(
+                        "inventory.consumed_pack_nonzero_remaining",
+                        "Consumed pack remaining quantity must be exactly zero.");
+                }
+                break;
+
+            default:
+                throw new BusinessRuleException(
+                    "inventory.pack_state_invalid",
+                    "Invalid pack state.");
+        }
+    }
+
+    public void UnsealPack(decimal remainingQuantity)
+    {
+        if (PackState != Inventory.PackState.Sealed)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_not_sealed",
+                $"Cannot unseal pack in state '{PackState}'.");
+        }
+
+        var roundedRemaining = QuantityMath.RoundQuantity(remainingQuantity);
+        if (roundedRemaining <= 0)
+        {
+            PackState = Inventory.PackState.Consumed;
+            RemainingBaseQuantity = 0m;
+        }
+        else
+        {
+            PackState = Inventory.PackState.Open;
+            RemainingBaseQuantity = roundedRemaining;
+        }
+
+        ValidatePackInvariants();
+        Version++;
+    }
+
+    public void ConsumeFromPack(decimal quantityToConsume)
+    {
+        if (PackState is null)
+        {
+            throw new BusinessRuleException(
+                "inventory.unit_not_a_pack",
+                "Unit is not a physical pack.");
+        }
+
+        if (quantityToConsume <= 0)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_consume_quantity_positive",
+                "Quantity to consume must be greater than zero.");
+        }
+
+        var roundedToConsume = QuantityMath.RoundQuantity(quantityToConsume);
+        var currentRemaining = RemainingBaseQuantity ?? 0m;
+
+        if (currentRemaining < roundedToConsume)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_insufficient_remaining",
+                $"Cannot draw {roundedToConsume} from pack with remaining quantity {currentRemaining}.");
+        }
+
+        var newRemaining = QuantityMath.RoundQuantity(currentRemaining - roundedToConsume);
+        RemainingBaseQuantity = newRemaining;
+
+        if (newRemaining == 0m)
+        {
+            PackState = Inventory.PackState.Consumed;
+        }
+        else if (PackState == Inventory.PackState.Sealed)
+        {
+            PackState = Inventory.PackState.Open;
+        }
+
+        ValidatePackInvariants();
+        Version++;
+    }
 
     public void ValidateOriginInvariants()
     {
@@ -247,6 +415,77 @@ public sealed class InventoryUnit : Entity
                 throw new BusinessRuleException(
                     "inventory.origin_type_invalid",
                     "Invalid inventory unit origin type.");
+        }
+    }
+}
+
+public static class PackAllocationOperationTypes
+{
+    public const string Intake = "Intake";
+    public const string Sale = "Sale";
+    public const string ReturnRestock = "ReturnRestock";
+    public const string ScrapRemnant = "ScrapRemnant";
+    public const string ThakaIssue = "ThakaIssue";
+    public const string ThakaReturn = "ThakaReturn";
+    public const string StockAdjustment = "StockAdjustment";
+    public const string StocktakeAdjustment = "StocktakeAdjustment";
+}
+
+public sealed class PackAllocation : Entity
+{
+    public Guid PackUnitId { get; set; }
+    public Guid MovementId { get; set; }
+    public Guid LotId { get; set; }
+    public string OperationType { get; set; } = string.Empty;
+
+    public Guid? SaleItemId { get; set; }
+    public Guid? SaleReturnItemId { get; set; }
+    public Guid? ThakaIssueItemId { get; set; }
+
+    public decimal AllocatedBaseQuantity { get; set; }
+    public decimal UnitCostSnapshot { get; set; }
+    public decimal TotalCostSnapshot { get; set; }
+    public decimal RemainingQuantityAfter { get; set; }
+    public PackState PackStateAfter { get; set; }
+    public Guid ActorId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public void ValidateInvariants()
+    {
+        if (PackUnitId == Guid.Empty)
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_missing_pack_unit", "PackUnitId is required.");
+        }
+        if (MovementId == Guid.Empty)
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_missing_movement", "MovementId is required.");
+        }
+        if (LotId == Guid.Empty)
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_missing_lot", "LotId is required.");
+        }
+        if (string.IsNullOrWhiteSpace(OperationType))
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_missing_operation_type", "OperationType is required.");
+        }
+        if (AllocatedBaseQuantity <= 0)
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_quantity_positive", "AllocatedBaseQuantity must be positive.");
+        }
+        if (RemainingQuantityAfter < 0)
+        {
+            throw new BusinessRuleException("inventory.pack_alloc_remaining_nonnegative", "RemainingQuantityAfter cannot be negative.");
+        }
+
+        int sourceCount = (SaleItemId.HasValue ? 1 : 0) +
+                          (SaleReturnItemId.HasValue ? 1 : 0) +
+                          (ThakaIssueItemId.HasValue ? 1 : 0);
+        if (sourceCount > 1)
+        {
+            throw new BusinessRuleException(
+                "inventory.pack_alloc_multiple_sources",
+                "PackAllocation can reference at most one source item (SaleItem, SaleReturnItem, or ThakaIssueItem).");
         }
     }
 }

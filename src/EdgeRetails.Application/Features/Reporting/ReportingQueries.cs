@@ -21,7 +21,10 @@ public sealed record ReportingExpenseBreakdownDto(
 public sealed record ReportingThakaActivityDto(
     string ProjectName,
     int IssueCount,
-    decimal MaterialValue);
+    decimal MaterialValue,
+    int ReversalCount = 0,
+    decimal ReversalAmount = 0m,
+    decimal NetMaterialValue = 0m);
 
 public sealed record ReportingSnapshotDto(
     ReportingPeriodKind Mode,
@@ -52,6 +55,26 @@ public sealed record ReportingSnapshotDto(
     decimal InventoryLoss = 0m,
     decimal InventoryLossRecoveryGain = 0m,
     decimal WarrantyRecoveryGain = 0m);
+
+public sealed record FinancialValuationLineDto(
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    decimal InStockQuantity,
+    decimal UnitCost,
+    decimal RetailPrice,
+    decimal TotalCost,
+    decimal TotalRetailValue,
+    decimal MarginPercentage);
+
+public sealed record FinancialValuationReportDto(
+    DateTimeOffset GeneratedAtUtc,
+    int TotalProductsCount,
+    int TotalUnitsInStock,
+    decimal TotalRetailValuation,
+    decimal TotalCostValuation,
+    decimal TotalEstimatedMargin,
+    IReadOnlyList<FinancialValuationLineDto> ValuationLines);
 
 public interface IReportingReadService
 {

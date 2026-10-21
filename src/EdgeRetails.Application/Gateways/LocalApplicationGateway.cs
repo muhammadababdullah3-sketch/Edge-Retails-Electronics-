@@ -124,6 +124,11 @@ public sealed class LocalApplicationGateway : IApplicationGateway
             return guard;
         }
 
+        if (command.RegisteredTerminalId is null && _currentTerminalId.HasValue)
+        {
+            command = command with { RegisteredTerminalId = _currentTerminalId };
+        }
+
         var handler = GetService<CompleteSaleHandler>();
         return await handler.HandleAsync(command, cancellationToken);
     }

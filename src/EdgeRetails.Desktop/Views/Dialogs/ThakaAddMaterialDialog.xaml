@@ -13,10 +13,9 @@
                            FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Button HorizontalAlignment="Right"
-                        Content="✕"
                         Command="{Binding CancelCommand}"
                         IsCancel="True"
-                        Style="{StaticResource Button.Text.Neutral}" />
+                        Style="{StaticResource Button.Close}" />
             </Grid>
 
             <TextBlock Margin="0,5,0,16"

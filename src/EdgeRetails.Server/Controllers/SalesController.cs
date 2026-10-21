@@ -327,9 +327,13 @@ public sealed class SalesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var actor = HttpContext.GetActorContext();
-        var sanitized = actor is not null
-            ? command with { CashierUserId = actor.UserId, SessionId = actor.SessionId }
-            : command;
+        var terminal = HttpContext.Items["CurrentTerminal"] as Terminal;
+        var sanitized = command with
+        {
+            CashierUserId = actor?.UserId ?? command.CashierUserId,
+            SessionId = actor?.SessionId ?? command.SessionId,
+            RegisteredTerminalId = terminal?.Id ?? command.RegisteredTerminalId
+        };
         var result = await _completeSaleHandler.HandleAsync(sanitized, cancellationToken);
         return ToActionResult(result);
     }
@@ -340,14 +344,19 @@ public sealed class SalesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var actor = HttpContext.GetActorContext();
-        var sanitized = actor is not null
-            ? command with { CashierUserId = actor.UserId, SessionId = actor.SessionId }
-            : command;
+        var terminal = HttpContext.Items["CurrentTerminal"] as Terminal;
+        var sanitized = command with
+        {
+            CashierUserId = actor?.UserId ?? command.CashierUserId,
+            SessionId = actor?.SessionId ?? command.SessionId,
+            RegisteredTerminalId = terminal?.Id ?? command.RegisteredTerminalId
+        };
         var result = await _completePosDraftHandler.HandleAsync(sanitized, cancellationToken);
         return ToActionResult(result);
     }
 
     [HttpPost("return")]
+    [HttpPost("returns")]
     public async Task<IActionResult> CreateSaleReturn(
         [FromBody] CreateSaleReturnCommand command,
         CancellationToken cancellationToken)

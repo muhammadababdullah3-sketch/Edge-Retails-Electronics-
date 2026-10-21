@@ -25,7 +25,7 @@ public sealed class SalesReturnOperationIdentityTests
             var changedPayloadViewModel = CreateViewModel(
                 transactionService,
                 new FileClientOperationIntentStore(intentPath));
-            changedPayloadViewModel.RefundMethod = "Store Credit";
+            changedPayloadViewModel.RefundMethod = "Bank Refund";
             await changedPayloadViewModel.ProcessReturnAsync();
 
             Assert.True(changedPayloadViewModel.HasValidationMessage);

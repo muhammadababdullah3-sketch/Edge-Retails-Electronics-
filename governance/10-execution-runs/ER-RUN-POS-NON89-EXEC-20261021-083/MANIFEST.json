@@ -1,0 +1,208 @@
+{
+  "run_id": "ER-RUN-POS-NON89-EXEC-20261021-083",
+  "predecessor_run_id": "ER-RUN-LOCALFLOW-20261019-082",
+  "timestamp_utc": "2026-10-21T12:00:00Z",
+  "total_deposited_files": 40,
+  "files": [
+    {
+      "path": "AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "size_bytes": 988,
+      "sha256": "7dd1dc9a72110a9c3818633283328dff82d19c88f5ad9802f91c7f0248924d6a"
+    },
+    {
+      "path": "BASELINE.json",
+      "size_bytes": 2327,
+      "sha256": "f4db354dd60451ec4166fa52da5a751bdf7de28f9cd2ae3f45fba77dcd928b61"
+    },
+    {
+      "path": "build.log",
+      "size_bytes": 2018,
+      "sha256": "5c4e494d376645146ad70aa955b57b973896fda50e09de9090946695a49a6be6"
+    },
+    {
+      "path": "DELIVERY_INDEX.json",
+      "size_bytes": 1186,
+      "sha256": "c1e74b82fc312051a99b1f5b4f5e4fb97a13d4f040e95a3fce49256ce6fb7579"
+    },
+    {
+      "path": "DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "size_bytes": 680,
+      "sha256": "3fa1aa662667e9ae2ef609902a3368106f13ee746a9c5ff98d06dbf360842394"
+    },
+    {
+      "path": "export/CANDIDATE_FILE_INVENTORY.json",
+      "size_bytes": 106915,
+      "sha256": "adf53eaee98b92d8982d034dba445d983d886c5f64bbd8306d725827f6dd9e4f"
+    },
+    {
+      "path": "export/candidate_source_bundle.zip",
+      "size_bytes": 1555023,
+      "sha256": "dc97daad6f0bd65c3c5b81015bbf91144178fa06755a814281f967ad1fc2c4db"
+    },
+    {
+      "path": "export/candidate_tracked.patch",
+      "size_bytes": 1257525,
+      "sha256": "1e51cda648ef53a9a7c22946f4ea29f7ef87dc5cbbdfe7dd54b2570a1acd209c"
+    },
+    {
+      "path": "export/candidate_untracked.zip",
+      "size_bytes": 757673,
+      "sha256": "65d3246d7a576abc8dc721a396afa165428a665d17d3331d63db0fc8600b8ed1"
+    },
+    {
+      "path": "FINAL_REPORT.md",
+      "size_bytes": 2728,
+      "sha256": "45295e6286017be5ee1d756f94ed83307d06ce8babedb3ee7a92768ba2102ff4"
+    },
+    {
+      "path": "PARALLEL_PLAN.json",
+      "size_bytes": 4613,
+      "sha256": "cbed34350bb230b5f17dfcfa6dfb484b8b8a78160fcd004fc4095dd25096841d"
+    },
+    {
+      "path": "PARALLEL_PLAN.PLANNED.json",
+      "size_bytes": 4613,
+      "sha256": "cbed34350bb230b5f17dfcfa6dfb484b8b8a78160fcd004fc4095dd25096841d"
+    },
+    {
+      "path": "PLAN_VALIDATION.json",
+      "size_bytes": 264,
+      "sha256": "30340827575624a87778c2c0ad50ff0b6671997c58cbf6e6dea8fb05c24f0f04"
+    },
+    {
+      "path": "reports/01-PRE_FLIGHT_SAFETY_REPORT.md",
+      "size_bytes": 557,
+      "sha256": "38cd4e6b130f43f69adf67d96ca22d6d42bf2f6566de198e4c050b14eccddf42"
+    },
+    {
+      "path": "reports/02-ARCHITECTURE_AUDIT.md",
+      "size_bytes": 1638,
+      "sha256": "fd6f217ea322be81d20b8f8f8df6d9cd6aa0d1d519289dedd6fc485f759a5711"
+    },
+    {
+      "path": "reports/03-SOURCE_DIFF_INTEGRITY_REPORT.md",
+      "size_bytes": 527,
+      "sha256": "0ff799c11782cb2ec8a0cea6cac3621eb976ce9fe42d0096aa3223780d470a89"
+    },
+    {
+      "path": "reports/04-TEST_EXECUTION_EVIDENCE.md",
+      "size_bytes": 576,
+      "sha256": "1b7607e619c3a02130d3779fb600721dfa546b794391a3de4d3b6821c504a567"
+    },
+    {
+      "path": "reports/05-DATABASE_PROTECTION_AND_CUSTODY_REPORT.md",
+      "size_bytes": 557,
+      "sha256": "38cd4e6b130f43f69adf67d96ca22d6d42bf2f6566de198e4c050b14eccddf42"
+    },
+    {
+      "path": "reports/06-CANONICAL_FINDINGS_LEDGER.md",
+      "size_bytes": 2350,
+      "sha256": "d6ba93f7063392f9aa6deb128a2ee9eeef537e37490e4d0f83b10d696e0777e3"
+    },
+    {
+      "path": "reports/07-PARALLEL_EXECUTION_AUDIT.md",
+      "size_bytes": 518,
+      "sha256": "5f60b43843ad8bd7600b12ca2cdd5687dd718752f749afe62fd5aa190e2fc2e1"
+    },
+    {
+      "path": "reports/08-NON_PHASE89_POS_GOAL_STATUS.md",
+      "size_bytes": 441,
+      "sha256": "9d12b7cbeaf88fddf1c31a518fbcd304741ee1839bd88e6fc5664de3751bdb2d"
+    },
+    {
+      "path": "reports/AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "size_bytes": 988,
+      "sha256": "7dd1dc9a72110a9c3818633283328dff82d19c88f5ad9802f91c7f0248924d6a"
+    },
+    {
+      "path": "reports/DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "size_bytes": 680,
+      "sha256": "3fa1aa662667e9ae2ef609902a3368106f13ee746a9c5ff98d06dbf360842394"
+    },
+    {
+      "path": "reports/FINAL_REPORT.md",
+      "size_bytes": 2728,
+      "sha256": "45295e6286017be5ee1d756f94ed83307d06ce8babedb3ee7a92768ba2102ff4"
+    },
+    {
+      "path": "STAGE1_REPRODUCTION_OF_ROOT_FINDINGS.md",
+      "size_bytes": 1638,
+      "sha256": "fd6f217ea322be81d20b8f8f8df6d9cd6aa0d1d519289dedd6fc485f759a5711"
+    },
+    {
+      "path": "STAGE2_FINITE_ANALOGOUS_FLOW_INVENTORY.md",
+      "size_bytes": 691,
+      "sha256": "5e4753315d3cce2cc615f0d8d12da897d3b2a16702c6ee69c8e1adc046d5e874"
+    },
+    {
+      "path": "STAGE3_VALIDATION_OF_HASHES_AND_DISPOSABLE_PG18.md",
+      "size_bytes": 557,
+      "sha256": "38cd4e6b130f43f69adf67d96ca22d6d42bf2f6566de198e4c050b14eccddf42"
+    },
+    {
+      "path": "STAGE4_EVIDENCE_CLAIMS_CORRECTION.md",
+      "size_bytes": 724,
+      "sha256": "e8c7571f1d0d673c198e275d3d465e9e45ffce6ac9c231bc49771761f6eeba70"
+    },
+    {
+      "path": "STAGE5_CANONICAL_LF_CROSSWALK.md",
+      "size_bytes": 2350,
+      "sha256": "d6ba93f7063392f9aa6deb128a2ee9eeef537e37490e4d0f83b10d696e0777e3"
+    },
+    {
+      "path": "STAGE6_NATIVE_WORKER_CAPACITY_AND_PARALLEL_PLAN.md",
+      "size_bytes": 518,
+      "sha256": "5f60b43843ad8bd7600b12ca2cdd5687dd718752f749afe62fd5aa190e2fc2e1"
+    },
+    {
+      "path": "STAGE7_BOUNDED_CORRECTION_BATCH_AND_RAW_EVIDENCE.md",
+      "size_bytes": 576,
+      "sha256": "1b7607e619c3a02130d3779fb600721dfa546b794391a3de4d3b6821c504a567"
+    },
+    {
+      "path": "STAGE8_DEPOSITION_AND_READBACK.md",
+      "size_bytes": 552,
+      "sha256": "bc32fb6c2e9d5e6fa48035477470d607a746a1e48b9e04228c7ad8f5bfa945e0"
+    },
+    {
+      "path": "test-results/run083_desktop_tests.trx",
+      "size_bytes": 53446,
+      "sha256": "8777d86c2d41ff8c250c02c4e0462426f7d380bd78083c4a6e0b1daa69c18426"
+    },
+    {
+      "path": "test-results/run083_full_desktop_suite.trx",
+      "size_bytes": 678771,
+      "sha256": "d8743296487d8abfe39b1123ecbfe1e1b18abafb1eaf6feae215190518609fed"
+    },
+    {
+      "path": "test-results/run083_full_unit_suite.trx",
+      "size_bytes": 2062839,
+      "sha256": "3badc7e85d7bd3b508664e623e6b3238f86c124cbc800a745d7d0f3817614f39"
+    },
+    {
+      "path": "test-results/run083_unit_tests.trx",
+      "size_bytes": 44013,
+      "sha256": "22c074c38988b5a7adefe495425595adfc00e9e1e5da613becda6e3a109fdd34"
+    },
+    {
+      "path": "Verify-DeliveryReadback.ps1",
+      "size_bytes": 1514,
+      "sha256": "92f6f4493bf0a080f11777d40fc2d3466aaeece41a2f929e4819356b4bd6a8ed"
+    },
+    {
+      "path": "workers/worker-pos-integrator.md",
+      "size_bytes": 2177,
+      "sha256": "6210da9db68436f3d00904090ebfb68ffac34ca5850251b0ae7a6dbd17b9e773"
+    },
+    {
+      "path": "workers/worker-reviewer.md",
+      "size_bytes": 2622,
+      "sha256": "9d6765f59c403ab56ad0f09aac5c3b6410e58c649bc1b096558789eaed427fcd"
+    },
+    {
+      "path": "workers/worker-test-coordinator.md",
+      "size_bytes": 2921,
+      "sha256": "f7eff698d446e3318b3d73d4741866241f1a26b6a35c0da4047a98a3421317d3"
+    }
+  ]
+}

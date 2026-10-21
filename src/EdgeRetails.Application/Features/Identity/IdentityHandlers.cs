@@ -41,6 +41,7 @@ public static class PermissionKeys
     public const string WarrantyShopStockCredit = "warranty.shop_stock.credit";
     public const string ReportsView = "reports.view";
     public const string SettingsManage = "settings.manage";
+    public const string SupervisorPostingOverride = "supervisor.posting_override";
 }
 
 public sealed record LoginAccountDto(

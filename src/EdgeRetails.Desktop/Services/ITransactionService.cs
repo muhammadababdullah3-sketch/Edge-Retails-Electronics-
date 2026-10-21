@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Desktop.Services;
 
@@ -114,6 +115,8 @@ public sealed class RecordSaleRequest
     public decimal Subtotal { get; init; }
     public decimal DiscountAmount { get; init; }
     public IReadOnlyList<SaleTransactionItem>? Items { get; init; }
+    public DateOnly? PostingDate { get; init; }
+    public SupervisorApprovalRequest? SupervisorApproval { get; init; }
 }
 
 public sealed class SaleReturnItemRecord
@@ -122,6 +125,10 @@ public sealed class SaleReturnItemRecord
     public string Sku { get; init; } = string.Empty;
     public decimal Quantity { get; init; }
     public decimal RefundAmount { get; init; }
+    public Guid? ReturnSourceContainerId { get; init; }
+    public string? ConditionInspectionResult { get; init; }
+    public bool IsRestockAsRemnant { get; init; }
+    public IReadOnlyList<Guid> InventoryUnitIds { get; init; } = [];
 }
 
 public sealed class SaleReturnRecord
@@ -145,6 +152,8 @@ public sealed class RecordSaleReturnRequest
     public string Notes { get; init; } = string.Empty;
     public decimal TotalRefundAmount { get; init; }
     public IReadOnlyList<SaleReturnItemRecord> Items { get; init; } = [];
+    public DateOnly? PostingDate { get; init; }
+    public SupervisorApprovalRequest? SupervisorApproval { get; init; }
 }
 
 public interface ITransactionService
@@ -163,6 +172,9 @@ public interface ITransactionService
 
     event EventHandler<SaleTransactionRecord>? TransactionRecorded;
     event EventHandler<SaleReturnRecord>? ReturnRecorded;
+
+    Task<SaleTransactionRecord?> TryRecoverPendingSaleAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<SaleTransactionRecord?>(null);
 
     decimal TodaySales { get; }
     int TodayCount { get; }

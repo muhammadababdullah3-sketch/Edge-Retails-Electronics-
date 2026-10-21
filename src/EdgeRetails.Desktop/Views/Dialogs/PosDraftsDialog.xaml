@@ -10,8 +10,8 @@
                     <TextBlock Text="Resume or cancel authoritative backend drafts." Margin="0,4,0,0" FontSize="12.5"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
-                <Button Content="✕" HorizontalAlignment="Right" Command="{Binding CloseCommand}"
-                        Style="{StaticResource Button.Text.Neutral}"
+                <Button HorizontalAlignment="Right" Command="{Binding CloseCommand}"
+                        Style="{StaticResource Button.Close}"
                         IsCancel="True" />
             </Grid>
             <StackPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">

@@ -6,6 +6,7 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Parties;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Application.Features.Inventory;
 
@@ -37,7 +38,10 @@ public sealed record CreateStockAdjustmentCommand(
     IReadOnlyList<StockAdjustmentItemCommand> Items,
     Guid ActorId,
     Guid CorrelationId,
-    string? Note = null);
+    string? Note = null,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed class CreateStockAdjustmentHandler
 {
@@ -54,6 +58,7 @@ public sealed class CreateStockAdjustmentHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
     private readonly IOperationLock? _operationLock;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public CreateStockAdjustmentHandler(
         ICatalogRepository catalog,
@@ -69,7 +74,8 @@ public sealed class CreateStockAdjustmentHandler
         IUnitOfWork unitOfWork,
         IOperationOutcomeLedger? outcomeLedger = null,
         IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
-        IOperationLock? operationLock = null)
+        IOperationLock? operationLock = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -85,6 +91,7 @@ public sealed class CreateStockAdjustmentHandler
         _outcomeLedger = outcomeLedger;
         _physicalUnits = physicalUnitCreationAuthority;
         _operationLock = operationLock;
+        _postingValidation = postingValidation;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -151,6 +158,16 @@ public sealed class CreateStockAdjustmentHandler
             return Result<Guid>.Failure(ex.Code, ex.Message);
         }
 
+        var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.CorrelationId, cancellationToken);
+        if (preLockOutcome is not null)
+        {
+            var evaluated = EvaluateAdjustmentOutcome(preLockOutcome, command, fingerprint);
+            if (evaluated.HasValue)
+            {
+                return evaluated.Value;
+            }
+        }
+
         var ownsOutcome = false;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
@@ -158,17 +175,11 @@ public sealed class CreateStockAdjustmentHandler
             var outcome = await _outcomeLedger.GetOutcomeAsync(command.CorrelationId, ct);
             if (outcome is not null)
             {
-                if (outcome.OperationType != "StockAdjustment" || outcome.ActorId != command.ActorId ||
-                    outcome.PayloadFingerprint != fingerprint)
+                var evaluated = EvaluateAdjustmentOutcome(outcome, command, fingerprint);
+                if (evaluated.HasValue)
                 {
-                    return Result<Guid>.Failure("idempotency.payload_mismatch", "Operation was submitted with a different adjustment payload or actor.");
+                    return evaluated.Value;
                 }
-                if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted && outcome.EntityId.HasValue)
-                {
-                    return Result<Guid>.Success(outcome.EntityId.Value);
-                }
-                return Result<Guid>.Failure(outcome.ErrorCode ?? "idempotency.outcome_unknown",
-                    outcome.ErrorMessage ?? "Operation outcome requires reconciliation before another adjustment can execute.");
             }
             if (await _inventory.GetMovementByCorrelationIdAsync(command.CorrelationId, ct) is not null)
             {
@@ -732,6 +743,8 @@ public sealed class CreateStockAdjustmentHandler
                             InventoryBucket.WithSupplier => InventoryUnitStatus.WithSupplier,
                             _ => InventoryUnitStatus.Scrapped
                         };
+                        var isContainer = product.TrackingMode == TrackingMode.Container;
+                        var packBaseQuantity = effectiveBaseQuantity / physicalCounts[itemCommand];
                         var creation = await _physicalUnits.CreateAsync(
                             itemCommand.SupplierId!.Value,
                             itemCommand.ProductId,
@@ -739,7 +752,11 @@ public sealed class CreateStockAdjustmentHandler
                                 unit.SerialNumber, unit.Imei1, unit.Imei2,
                                 targetStatus, unitCost * effectiveBaseQuantity / physicalCounts[itemCommand], lotId,
                                 InventoryUnitOriginType.StockAdjustment,
-                                SourceStockAdjustmentItemId: adjustmentItem.Id)).ToArray(),
+                                SourceStockAdjustmentItemId: adjustmentItem.Id,
+                                InitialBaseQuantity: isContainer ? packBaseQuantity : (decimal?)null,
+                                RemainingBaseQuantity: isContainer ? packBaseQuantity : (decimal?)null,
+                                PackState: isContainer ? PackState.Sealed : (PackState?)null,
+                                IsLooseStock: false)).ToArray(),
                             ct);
                         if (!creation.IsSuccess || creation.Value is null)
                         {
@@ -755,6 +772,27 @@ public sealed class CreateStockAdjustmentHandler
                                 FromStatus = null,
                                 ToStatus = targetStatus
                             });
+
+                            if (isContainer)
+                            {
+                                var unitAcqCost = unitCost * effectiveBaseQuantity / physicalCounts[itemCommand];
+                                _inventory.AddPackAllocation(new PackAllocation
+                                {
+                                    Id = Guid.CreateVersion7(),
+                                    PackUnitId = unit.Id,
+                                    MovementId = movement.Id,
+                                    LotId = lotId,
+                                    OperationType = PackAllocationOperationTypes.Intake,
+                                    AllocatedBaseQuantity = packBaseQuantity,
+                                    UnitCostSnapshot = decimal.Round(unitAcqCost / packBaseQuantity, 6, MidpointRounding.AwayFromZero),
+                                    TotalCostSnapshot = unitAcqCost,
+                                    RemainingQuantityAfter = packBaseQuantity,
+                                    PackStateAfter = PackState.Sealed,
+                                    ActorId = command.ActorId,
+                                    OccurredAt = _clock.UtcNow,
+                                    CreatedAt = _clock.UtcNow
+                                });
+                            }
                         }
                     }
                     var beforeQty = balance.Get(itemCommand.TargetBucket);
@@ -831,6 +869,27 @@ public sealed class CreateStockAdjustmentHandler
                     cancellationToken: ct);
             }
 
+            if (_postingValidation is not null)
+            {
+                var postingDate = command.PostingDate ?? _clock.ShopDate;
+                var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                    OperationType: PostingOperationTypes.StockAdjustment,
+                    EntityId: adjustment.Id,
+                    EntityNumber: adjustment.AdjustmentNumber,
+                    ActorId: command.ActorId,
+                    PostingDate: postingDate,
+                    SupplierDocumentDate: null,
+                    SupervisorApproval: command.SupervisorApproval,
+                    CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                if (!postingValidationResult.IsSuccess)
+                {
+                    return Result<Guid>.Failure(
+                        postingValidationResult.Error!.Code,
+                        postingValidationResult.Error.Message);
+                }
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(adjustment.Id);
         }, cancellationToken);
@@ -848,6 +907,50 @@ public sealed class CreateStockAdjustmentHandler
         }
 
         return result;
+    }
+
+    private static Result<Guid>? EvaluateAdjustmentOutcome(
+        OperationOutcomeRecord outcome,
+        CreateStockAdjustmentCommand command,
+        string fingerprint)
+    {
+        if (!string.Equals(outcome.OperationType, "StockAdjustment", StringComparison.Ordinal))
+        {
+            return Result<Guid>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation identity already belongs to another operation type '{outcome.OperationType}'.");
+        }
+
+        if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+        {
+            return Result<Guid>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+            !string.Equals(outcome.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return Result<Guid>.Failure(
+                "idempotency.payload_mismatch",
+                "Operation was submitted with a different adjustment payload.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted && outcome.EntityId.HasValue)
+        {
+            return Result<Guid>.Success(outcome.EntityId.Value);
+        }
+
+        if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<Guid>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Stock adjustment previously failed.");
+        }
+
+        return Result<Guid>.Failure(
+            "idempotency.outcome_unknown",
+            "Operation outcome requires reconciliation before another adjustment can execute.");
     }
 
     private static bool IsPhysical(Product product) =>

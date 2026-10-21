@@ -1,10 +1,13 @@
+using System.Globalization;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Sales;
 
 namespace EdgeRetails.Application.Features.Sales;
@@ -13,7 +16,10 @@ public sealed record SaleReturnLineInput(
     Guid SaleItemId,
     decimal BaseQuantity,
     SaleReturnDisposition Disposition,
-    IReadOnlyList<Guid> InventoryUnitIds);
+    IReadOnlyList<Guid> InventoryUnitIds,
+    Guid? ReturnSourceContainerId = null,
+    string? ConditionInspectionResult = null,
+    bool IsRestockAsRemnant = false);
 
 public sealed record CreateSaleReturnCommand(
     Guid SaleId,
@@ -22,7 +28,10 @@ public sealed record CreateSaleReturnCommand(
     RefundMethod RefundMethod,
     Guid CreatedBy,
     Guid ClientOperationId,
-    IReadOnlyList<SaleReturnLineInput> Lines);
+    IReadOnlyList<SaleReturnLineInput> Lines,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record CreateSaleReturnResult(
     Guid SaleReturnId,
@@ -45,6 +54,9 @@ public sealed class CreateSaleReturnHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IWarrantyRepository? _warranty;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly IReturnExchangeEligibilityAuthority? _eligibility;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public CreateSaleReturnHandler(
         ISalesRepository sales,
@@ -60,7 +72,14 @@ public sealed class CreateSaleReturnHandler
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
         IWarrantyRepository? warranty = null,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        ICatalogRepository? catalog = null,
+        IPhysicalUnitCreationAuthority? physicalUnits = null,
+        IPackSubLedgerAllocationAuthority? packAllocations = null,
+        ITraceabilityRepository? traceability = null,
+        IPartyRepository? parties = null,
+        IReturnExchangeEligibilityAuthority? eligibility = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _sales = sales;
         _inventory = inventory;
@@ -76,9 +95,21 @@ public sealed class CreateSaleReturnHandler
         _unitOfWork = unitOfWork;
         _warranty = warranty;
         _outcomeLedger = outcomeLedger;
+        _postingValidation = postingValidation;
+        _eligibility = eligibility ?? (catalog is not null
+            ? new ReturnExchangeEligibilityAuthority(
+                sales,
+                inventory,
+                catalog,
+                costs,
+                clock,
+                warranty,
+                physicalUnits,
+                packAllocations,
+                traceability,
+                parties)
+            : null);
     }
-
-    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public async Task<Result<CreateSaleReturnResult>> HandleAsync(
         CreateSaleReturnCommand command,
@@ -100,6 +131,27 @@ public sealed class CreateSaleReturnHandler
                 "A sale item may appear only once in a return.");
         }
 
+        if (command.RefundMethod != RefundMethod.Cash && command.RefundMethod != RefundMethod.Bank)
+        {
+            return Result<CreateSaleReturnResult>.Failure(
+                "sales.unsupported_refund_method",
+                "Store credit is not an approved retail return method. Approved retail refund methods are Cash and Bank.");
+        }
+
+        var fingerprint = ComputePayloadFingerprint(command);
+        if (_outcomeLedger is not null)
+        {
+            var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preLockOutcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, fingerprint, cancellationToken);
+                if (evaluated.HasValue)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -114,6 +166,19 @@ public sealed class CreateSaleReturnHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+
+            if (_outcomeLedger is not null)
+            {
+                var postLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (postLockOutcome is not null)
+                {
+                    var evaluated = await EvaluateGuardedOutcomeAsync(postLockOutcome, command, fingerprint, ct);
+                    if (evaluated.HasValue)
+                    {
+                        return evaluated.Value;
+                    }
+                }
+            }
 
             var existing = await _sales.GetReturnByClientOperationIdAsync(
                 command.ClientOperationId,
@@ -135,6 +200,7 @@ public sealed class CreateSaleReturnHandler
                         existing.Id,
                         existing.ReturnNumber,
                         actorId: command.CreatedBy,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
                 }
 
@@ -213,6 +279,72 @@ public sealed class CreateSaleReturnHandler
 
                 foreach (var input in command.Lines.OrderBy(x => x.SaleItemId))
                 {
+                    if (_eligibility is not null)
+                    {
+                        var prepared = await _eligibility.PrepareReturnLineAsync(input, sale.Id, ct);
+                        var prepDestination = SaleMath.ToInventoryBucket(input.Disposition);
+                        var prepMovement = new InventoryMovement
+                        {
+                            ProductId = prepared.Item.ProductId,
+                            MovementType = InventoryMovementType.SaleReturn,
+                            ReferenceType = "SALE_RETURN",
+                            ReferenceId = saleReturn.Id,
+                            UnitCostSnapshot = Cost(prepared.OriginalCostAmount / prepared.BaseQuantity),
+                            RecognizedLossAmount = input.Disposition == SaleReturnDisposition.Scrap
+                                ? Money(prepared.OriginalCostAmount)
+                                : 0m,
+                            ActorId = command.CreatedBy,
+                            OccurredAt = _clock.UtcNow,
+                            CorrelationId = command.ClientOperationId,
+                            Reason = saleReturn.ReasonCode,
+                            Note = saleReturn.ReasonNote
+                        };
+                        _inventory.AddMovement(prepMovement);
+
+                        var prepBefore = prepared.Stock.Get(prepDestination);
+                        prepared.Stock.ApplyDelta(prepDestination, prepared.BaseQuantity);
+                        _inventory.AddMovementEffect(new InventoryMovementEffect
+                        {
+                            MovementId = prepMovement.Id,
+                            StockBucket = prepDestination,
+                            QuantityDelta = prepared.BaseQuantity,
+                            QuantityBefore = prepBefore,
+                            QuantityAfter = prepared.Stock.Get(prepDestination)
+                        });
+
+                        var prepReturnItemId = Guid.NewGuid();
+
+                        await _eligibility.RestoreReturnLineAsync(
+                            prepared,
+                            prepReturnItemId,
+                            prepMovement,
+                            command.CreatedBy,
+                            ct);
+
+                        var prepEnteredQuantity = QuantityMath.RoundQuantity(
+                            prepared.BaseQuantity / prepared.Item.FactorToBaseSnapshot);
+
+                        var prepReturnItem = new SaleReturnItem
+                        {
+                            Id = prepReturnItemId,
+                            SaleReturnId = saleReturn.Id,
+                            SaleItemId = prepared.Item.Id,
+                            ProductId = prepared.Item.ProductId,
+                            EnteredQuantity = prepEnteredQuantity,
+                            ProductUnitId = prepared.Item.ProductUnitId,
+                            FactorToBaseSnapshot = prepared.Item.FactorToBaseSnapshot,
+                            BaseQuantity = prepared.BaseQuantity,
+                            Disposition = input.Disposition,
+                            RefundAmount = prepared.RefundAmount,
+                            OriginalCostAmount = prepared.OriginalCostAmount,
+                            CostReversalAmount = prepared.OriginalCostAmount
+                        };
+                        _sales.AddReturnItem(prepReturnItem);
+
+                        totalRefund += prepared.RefundAmount;
+                        continue;
+                    }
+
                     var item = await _sales.GetSaleItemForUpdateAsync(
                         input.SaleItemId,
                         ct);
@@ -461,7 +593,29 @@ public sealed class CreateSaleReturnHandler
                         saleReturn.Id,
                         saleReturn.ReturnNumber,
                         actorId: command.CreatedBy,
+                        payloadFingerprint: fingerprint,
                         cancellationToken: ct);
+                }
+
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? _clock.ShopDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.SaleReturn,
+                        EntityId: saleReturn.Id,
+                        EntityNumber: saleReturn.ReturnNumber,
+                        ActorId: command.CreatedBy,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: null,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<CreateSaleReturnResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
                 }
 
                 await _unitOfWork.SaveChangesAsync(ct);
@@ -478,7 +632,8 @@ public sealed class CreateSaleReturnHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -486,6 +641,7 @@ public sealed class CreateSaleReturnHandler
                 result.Error?.Code ?? "sales.return_failed",
                 result.Error?.Message ?? "Sale return failed.",
                 actorId: command.CreatedBy,
+                payloadFingerprint: fingerprint,
                 cancellationToken: cancellationToken);
         }
 
@@ -676,5 +832,96 @@ public sealed class CreateSaleReturnHandler
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
+
+    private static string ComputePayloadFingerprint(CreateSaleReturnCommand command)
+    {
+        var projection = new
+        {
+            command.SaleId,
+            ReasonCode = command.ReasonCode.Trim().ToUpperInvariant(),
+            ReasonNote = Normalize(command.ReasonNote),
+            command.RefundMethod,
+            command.CreatedBy,
+            Lines = command.Lines
+                .OrderBy(x => x.SaleItemId)
+                .Select(x => new
+                {
+                    x.SaleItemId,
+                    BaseQuantity = x.BaseQuantity.ToString("G29", CultureInfo.InvariantCulture),
+                    Disposition = x.Disposition.ToString(),
+                    InventoryUnitIds = x.InventoryUnitIds.OrderBy(u => u).ToArray(),
+                    x.ReturnSourceContainerId,
+                    ConditionInspectionResult = Normalize(x.ConditionInspectionResult),
+                    x.IsRestockAsRemnant
+                }).ToArray()
+        };
+
+        return OperationPayloadFingerprint.ComputeVersionedFingerprint(
+            "SaleReturn",
+            projection,
+            OperationPayloadFingerprint.DefaultVersion);
+    }
+
+    private async Task<Result<CreateSaleReturnResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        CreateSaleReturnCommand command,
+        string fingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "SaleReturn")
+        {
+            return Result<CreateSaleReturnResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'SaleReturn'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CreatedBy)
+        {
+            return Result<CreateSaleReturnResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+            !string.Equals(outcome.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return Result<CreateSaleReturnResult>.Failure(
+                "idempotency.payload_mismatch",
+                "Operation was previously submitted with a different payload.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            var existing = await _sales.GetReturnByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existing is not null)
+            {
+                if (existing.SaleId != command.SaleId)
+                {
+                    return Result<CreateSaleReturnResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted for a different sale.");
+                }
+
+                return Result<CreateSaleReturnResult>.Success(new(
+                    existing.Id,
+                    existing.ReturnNumber,
+                    existing.RefundAmount,
+                    WasExisting: true));
+            }
+
+            return Result<CreateSaleReturnResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed sale return outcome has no matching return entity; reconciliation is required.");
+        }
+
+        if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted)
+        {
+            return Result<CreateSaleReturnResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous sale return outcome before another execution.");
+        }
+
+        return null;
+    }
 }
 

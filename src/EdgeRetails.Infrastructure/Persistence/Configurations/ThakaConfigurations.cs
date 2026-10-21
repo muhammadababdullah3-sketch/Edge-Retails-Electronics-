@@ -261,3 +261,29 @@ internal sealed class ThakaPaymentReversalConfiguration
         builder.HasIndex(x => x.PaymentId).IsUnique();
     }
 }
+
+internal sealed class ThakaCreditRefundConfiguration
+    : IEntityTypeConfiguration<ThakaCreditRefund>
+{
+    public void Configure(EntityTypeBuilder<ThakaCreditRefund> builder)
+    {
+        builder.ToTable(
+            "credit_refunds",
+            "thaka",
+            table => table.HasCheckConstraint(
+                "ck_thaka_credit_refund_amount_positive",
+                "amount > 0"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.RefundNumber).HasMaxLength(40).IsRequired();
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
+        builder.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+        builder.HasOne<ThakaProject>()
+            .WithMany()
+            .HasForeignKey(x => x.ProjectId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.RefundNumber).IsUnique();
+        builder.HasIndex(x => x.ClientOperationId).IsUnique();
+        builder.HasIndex(x => new { x.ProjectId, x.RefundedAt });
+    }
+}

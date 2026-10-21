@@ -365,8 +365,19 @@ public sealed class PosCatalogBrowsingPerformanceTests
 
     private sealed class RecordingPosCatalogGateway : IPosCatalogGateway
     {
+        private readonly object _lock = new();
         private readonly List<PosCatalogGatewayItem> _allProducts;
-        public List<(string? search, string? category, string? brand, int pageSize, string? afterName, Guid? afterId)> Calls { get; } = [];
+        private readonly List<(string? search, string? category, string? brand, int pageSize, string? afterName, Guid? afterId)> _calls = [];
+        public IReadOnlyList<(string? search, string? category, string? brand, int pageSize, string? afterName, Guid? afterId)> Calls
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _calls.ToList();
+                }
+            }
+        }
         public int DelayMilliseconds { get; set; }
 
         public RecordingPosCatalogGateway(IEnumerable<PosCatalogGatewayItem>? products = null)
@@ -389,7 +400,10 @@ public sealed class PosCatalogBrowsingPerformanceTests
             Guid? afterId,
             CancellationToken cancellationToken = default)
         {
-            Calls.Add((search, category, brand, pageSize, afterName, afterId));
+            lock (_lock)
+            {
+                _calls.Add((search, category, brand, pageSize, afterName, afterId));
+            }
             if (DelayMilliseconds > 0)
             {
                 await Task.Delay(DelayMilliseconds, cancellationToken);

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
@@ -25,6 +26,8 @@ public sealed class CompleteSaleViewModel : ViewModelBase
     private readonly Guid _clientOperationId;
     private readonly Guid? _draftId;
     private readonly long? _draftVersion;
+    private readonly DateOnly? _postingDate;
+    private readonly SupervisorApprovalRequest? _supervisorApproval;
     private RecordSaleRequest? _submittedRequest;
     private bool _outcomeUncertain;
 
@@ -63,7 +66,9 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         Func<Task<string?>>? preCommitAsyncValidation = null,
         Guid? clientOperationId = null,
         Guid? draftId = null,
-        long? draftVersion = null)
+        long? draftVersion = null,
+        DateOnly? postingDate = null,
+        SupervisorApprovalRequest? supervisorApproval = null)
     {
         _transactionService = transactionService ?? DemoTransactionService.Instance;
         _dialogService = dialogService;
@@ -80,6 +85,8 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         _clientOperationId = clientOperationId ?? Guid.CreateVersion7();
         _draftId = draftId;
         _draftVersion = draftVersion;
+        _postingDate = postingDate;
+        _supervisorApproval = supervisorApproval;
 
         // Initialize commands
         SelectCashCommand = new RelayCommand(() => PaymentMethod = PaymentMethod.Cash);
@@ -344,6 +351,11 @@ public sealed class CompleteSaleViewModel : ViewModelBase
         set => SetProperty(ref _notes, value);
     }
 
+    public DateOnly? PostingDate => _postingDate;
+    public SupervisorApprovalRequest? SupervisorApproval => _supervisorApproval;
+    public string? PostingDateDisplay => _postingDate.HasValue ? $"Posting Date: {_postingDate:yyyy-MM-dd}" : null;
+    public string? SupervisorApprovalDisplay => _supervisorApproval is not null ? $"Authorized: Supervisor {_supervisorApproval.SupervisorId:D}" : null;
+
     public bool CanComplete
     {
         get
@@ -466,7 +478,9 @@ public sealed class CompleteSaleViewModel : ViewModelBase
                 Notes = Notes,
                 Subtotal = _subtotal,
                 DiscountAmount = _discountAmount,
-                Items = _items
+                Items = _items,
+                PostingDate = _postingDate,
+                SupervisorApproval = _supervisorApproval
             };
 
             _submittedRequest = request;
@@ -485,7 +499,16 @@ public sealed class CompleteSaleViewModel : ViewModelBase
             _dialogService?.Close();
             RequestCloseRequested?.Invoke();
         }
-        catch (BackendOperationException ex) when (ex.Code == "sales.outcome_unknown")
+        catch (BackendOperationException ex) when (
+            ex.Code == "sales.outcome_unknown" ||
+            ex.Code.StartsWith("network.", StringComparison.OrdinalIgnoreCase) ||
+            ex.Code.StartsWith("gateway.", StringComparison.OrdinalIgnoreCase) ||
+            ex.Code.StartsWith("transport.", StringComparison.OrdinalIgnoreCase) ||
+            ex.Code.StartsWith("http.5", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(ex.Code, "idempotency.operation_in_flight", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(ex.Code, "idempotency.outcome_unknown", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(ex.Code, "operation.in_flight", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(ex.Code, "operation.unknown", StringComparison.OrdinalIgnoreCase))
         {
             _outcomeUncertain = true;
             OnPropertyChanged(nameof(CompleteActionLabel));

@@ -817,17 +817,32 @@ public sealed class SaveProductAggregateHandler
             return Result<ProductMutationResult>.Failure(auth.Error!.Code, auth.Error.Message);
         }
 
-        return await _transactions.ExecuteAsync(async ct =>
-        {
         if (command.ClientOperationId.HasValue &&
             (command.ClientOperationId == Guid.Empty || _operationLock is null || _outcomeLedger is null))
         {
             return Result<ProductMutationResult>.Failure("operation.ledger_unavailable", "Product save replay protection is unavailable.");
         }
+
         string? payloadFingerprint = null;
-        if (command.ClientOperationId is Guid opId && opId != Guid.Empty)
+        if (command.ClientOperationId is Guid preOpId && preOpId != Guid.Empty && _outcomeLedger is not null)
         {
             payloadFingerprint = ProductAggregatePayloadFingerprint.Compute(command);
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(preOpId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                var replay = EvaluateOutcome(preOutcome, command, payloadFingerprint);
+                if (replay.HasValue)
+                {
+                    return replay.Value;
+                }
+            }
+        }
+
+        return await _transactions.ExecuteAsync(async ct =>
+        {
+        if (command.ClientOperationId is Guid opId && opId != Guid.Empty)
+        {
+            payloadFingerprint ??= ProductAggregatePayloadFingerprint.Compute(command);
 
             if (_operationLock is not null)
             {
@@ -837,22 +852,20 @@ public sealed class SaveProductAggregateHandler
             if (_outcomeLedger is not null)
             {
                 var existingOutcome = await _outcomeLedger.GetOutcomeAsync(opId, ct);
-                if (existingOutcome is not null && existingOutcome.State == OperationOutcomeState.Succeeded)
+                if (existingOutcome is not null)
                 {
-                    if (existingOutcome.OperationType != "Catalog.ProductAggregateSave" ||
-                        existingOutcome.ActorId != command.ActorId ||
-                        !string.Equals(existingOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.OrdinalIgnoreCase))
+                    var replay = EvaluateOutcome(existingOutcome, command, payloadFingerprint);
+                    if (replay.HasValue)
                     {
-                        return Result<ProductMutationResult>.Failure(
-                            "idempotency.payload_mismatch",
-                            "The operation was previously executed with different parameters.");
-                    }
+                        if (replay.Value.IsSuccess && existingOutcome.EntityId.HasValue)
+                        {
+                            var replayedProduct = await _catalog.GetProductAsync(existingOutcome.EntityId.Value, ct);
+                            return Result<ProductMutationResult>.Success(
+                                new ProductMutationResult(existingOutcome.EntityId.Value, replayedProduct?.Version ?? 1L, existingOutcome.DocumentNumber));
+                        }
 
-                    var replayedProduct = existingOutcome.EntityId.HasValue
-                        ? await _catalog.GetProductAsync(existingOutcome.EntityId.Value, ct)
-                        : null;
-                    return Result<ProductMutationResult>.Success(
-                        new ProductMutationResult(existingOutcome.EntityId ?? Guid.Empty, replayedProduct?.Version ?? 1L, existingOutcome.DocumentNumber));
+                        return replay.Value;
+                    }
                 }
             }
         }
@@ -1219,6 +1232,49 @@ public sealed class SaveProductAggregateHandler
 
             return Result<ProductMutationResult>.Success(new ProductMutationResult(product.Id, product.Version, product.Sku));
         }, cancellationToken);
+    }
+
+    private static Result<ProductMutationResult>? EvaluateOutcome(
+        OperationOutcomeRecord outcome,
+        SaveProductAggregateCommand command,
+        string payloadFingerprint)
+    {
+        if (!string.Equals(outcome.OperationType, "Catalog.ProductAggregateSave", StringComparison.Ordinal))
+        {
+            return Result<ProductMutationResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation identity already belongs to another operation type '{outcome.OperationType}'.");
+        }
+
+        if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+        {
+            return Result<ProductMutationResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+            !string.Equals(outcome.PayloadFingerprint, payloadFingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<ProductMutationResult>.Failure(
+                "idempotency.payload_mismatch",
+                "The operation was previously executed with different parameters.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            return Result<ProductMutationResult>.Success(
+                new ProductMutationResult(outcome.EntityId ?? Guid.Empty, 1L, outcome.DocumentNumber));
+        }
+
+        if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<ProductMutationResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "The prior operation attempt failed.");
+        }
+
+        return null;
     }
 }
 

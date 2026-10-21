@@ -21,7 +21,8 @@ public sealed class StockAdjustmentViewModel : ViewModelBase
     private readonly Action _close;
     private readonly IBackendStockAdjustmentService? _backendService;
     private readonly Action? _completed;
-    private readonly Guid _clientOperationId = Guid.CreateVersion7();
+    private readonly IClientOperationIntentStore _operationIntents;
+    private Guid? _clientOperationId;
     private string _quantityText = string.Empty;
     private string _reason = "Physical Count";
     private string _note = string.Empty;
@@ -32,13 +33,15 @@ public sealed class StockAdjustmentViewModel : ViewModelBase
         IToastService toastService,
         Action close,
         IBackendStockAdjustmentService? backendService = null,
-        Action? completed = null)
+        Action? completed = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         Product = product;
         _toastService = toastService;
         _close = close;
         _backendService = backendService;
         _completed = completed;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _service = DemoPurchaseInventoryService.Instance;
         ApplyCommand = new RelayCommand(async () => await ApplyAsync(), () => !IsBusy && !_confirmed);
         CancelCommand = new RelayCommand(close);
@@ -90,27 +93,68 @@ public sealed class StockAdjustmentViewModel : ViewModelBase
                         : Reason.Contains("opening", StringComparison.OrdinalIgnoreCase)
                             ? StockAdjustmentReason.OpeningStock
                             : StockAdjustmentReason.PhysicalCountCorrection;
-                var submitted = _submittedAdjustment ?? new SubmittedAdjustment(
+                var attempt = _submittedAdjustment ?? new SubmittedAdjustment(
                     Product.BackendProductId ?? throw new BackendOperationException("catalog.product_not_attached", "Product is not attached to backend authority."),
                     Product.BackendProductUnitId, qty, IsIncrease, reason, Note);
-                _submittedAdjustment = submitted;
+
+                var operationKey = $"stock-adjustment:{attempt.ProductId:D}";
+                var canonicalPayload = $"{attempt.ProductId:D}|{attempt.ProductUnitId?.ToString("D") ?? ""}|{attempt.Quantity}|{attempt.Increase}|{attempt.Reason}|{attempt.Note.Trim()}";
+
+                Guid opId;
+                try
+                {
+                    opId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+                }
+                catch (InvalidOperationException)
+                {
+                    _toastService.Show(
+                        "An earlier stock adjustment for this product has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                        ToastTone.Warning);
+                    return;
+                }
+
+                _submittedAdjustment = attempt;
                 NotifySubmissionState();
-                await _backendService.CreateDeltaAdjustmentAsync(
-                    submitted.ProductId, submitted.ProductUnitId, submitted.Quantity,
-                    submitted.Increase, submitted.Reason, submitted.Note,
-                    _clientOperationId);
-                _confirmed = true;
-                _submittedAdjustment = null;
-                _toastService.Show("Stock adjustment recorded by inventory authority.", ToastTone.Success);
-                _completed?.Invoke();
+                _clientOperationId = opId;
+
+                try
+                {
+                    await _backendService.CreateDeltaAdjustmentAsync(
+                        attempt.ProductId, attempt.ProductUnitId, attempt.Quantity,
+                        attempt.Increase, attempt.Reason, attempt.Note,
+                        opId);
+                    _operationIntents.Complete(operationKey, opId);
+                    _confirmed = true;
+                    _submittedAdjustment = null;
+                    _toastService.Show("Stock adjustment recorded by inventory authority.", ToastTone.Success);
+                    _completed?.Invoke();
+                    _close();
+                }
+                catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+                {
+                    _operationIntents.Complete(operationKey, opId);
+                    _submittedAdjustment = null;
+                    NotifySubmissionState();
+                    _toastService.Show(
+                        DesktopErrorPresentation.ForException(ex, "Stock adjustment rejected."),
+                        ToastTone.Warning);
+                }
+                catch (Exception ex)
+                {
+                    _toastService.Show(
+                        DesktopErrorPresentation.ForException(
+                            ex,
+                            "Stock adjustment outcome could not be confirmed. Check operation status before retrying; original operation identity is retained."),
+                        ToastTone.Danger);
+                }
             }
             else
             {
                 _service.AdjustStock(Product, IsIncrease ? qty : -qty, Reason, Note);
                 _confirmed = true;
                 _toastService.Show($"Stock adjusted to {Product.Stock:0.##} {Product.Unit}.", ToastTone.Success);
+                _close();
             }
-            _close();
         }
         catch (Exception ex)
         {

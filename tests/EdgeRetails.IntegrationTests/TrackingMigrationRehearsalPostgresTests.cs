@@ -132,8 +132,7 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
                 CreatedAt = DateTimeOffset.UtcNow,
                 Version = 1
             }).ToArray();
-            db.InventoryUnits.AddRange(units);
-            await db.SaveChangesAsync();
+            await InsertHistoricalUnitsAsync(db, units);
             var evidenceBefore = units.Select(x => (x.Id, x.SerialNumber)).ToArray();
             db.ChangeTracker.Clear();
 
@@ -182,7 +181,8 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
             db.StockAdjustmentItems.Add(item);
             await db.SaveChangesAsync();
             var shared = "860123456789012";
-            db.InventoryUnits.AddRange(
+            var collisionUnits = new[]
+            {
                 new InventoryUnit
                 {
                     ProductId = seed.ProductId,
@@ -200,8 +200,9 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
                     Imei1 = "860-123-456-789-012",
                     CreatedAt = DateTimeOffset.UtcNow,
                     Version = 1
-                });
-            await db.SaveChangesAsync();
+                }
+            };
+            await InsertHistoricalUnitsAsync(db, collisionUnits);
             db.ChangeTracker.Clear();
 
             await db.GetService<IMigrator>().MigrateAsync(TrackingMigration);
@@ -263,8 +264,7 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
                 case "imei-cross-slot": Add(null, "86012345678901"); Add(null, null, "860-123-456-789-01"); break;
                 case "imei-same-unit": Add(null, "86012345678901", "860-123-456-789-01"); break;
             }
-            db.InventoryUnits.AddRange(legacy); // Deliberate historical fixtures, before claims exist.
-            await db.SaveChangesAsync();
+            await InsertHistoricalUnitsAsync(db, legacy); // Deliberate historical fixtures, before claims exist.
             db.ChangeTracker.Clear();
             if (scenario == "valid")
             {
@@ -290,17 +290,73 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
                 await using var exists = new NpgsqlCommand("SELECT to_regclass('inventory.unit_identity_claims') IS NULL", (NpgsqlConnection)db.Database.GetDbConnection());
                 Assert.Equal(true, await exists.ExecuteScalarAsync());
             }
-            var retained = await db.InventoryUnits.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
-            Assert.Equal(legacy.OrderBy(x => x.Id).Select(x => (x.Id, x.SerialNumber, x.Imei1, x.Imei2)),
-                retained.Select(x => (x.Id, x.SerialNumber, x.Imei1, x.Imei2)));
+            var retained = new List<(Guid Id, string? SerialNumber, string? Imei1, string? Imei2)>();
+            var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+            {
+                await db.Database.OpenConnectionAsync();
+            }
+            await using (var cmd = new NpgsqlCommand("SELECT id, serial_number, imei1, imei2 FROM inventory.units ORDER BY id", connection))
+            await using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    retained.Add((
+                        reader.GetGuid(0),
+                        reader.IsDBNull(1) ? null : reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.IsDBNull(3) ? null : reader.GetString(3)
+                    ));
+                }
+            }
+            Assert.Equal(legacy.OrderBy(x => x.Id).Select(x => (x.Id, x.SerialNumber, x.Imei1, x.Imei2)), retained);
         });
+    }
+
+    private static async Task InsertHistoricalUnitsAsync(EdgeRetailsDbContext db, IEnumerable<InventoryUnit> units)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await db.Database.OpenConnectionAsync();
+        }
+        foreach (var unit in units)
+        {
+            if (unit.Id == Guid.Empty)
+            {
+                unit.Id = Guid.NewGuid();
+            }
+            await using var cmd = new NpgsqlCommand(
+                """
+                INSERT INTO inventory.units (
+                    id, product_id, origin_type, source_stock_adjustment_item_id,
+                    serial_number, imei1, imei2, status, acquisition_cost, created_at, version
+                ) VALUES (
+                    @id, @productId, @originType, @sourceStockAdjustmentItemId,
+                    @serialNumber, @imei1, @imei2, @status, @acquisitionCost, @createdAt, @version
+                )
+                """, connection);
+            cmd.Parameters.AddWithValue("id", unit.Id);
+            cmd.Parameters.AddWithValue("productId", unit.ProductId);
+            cmd.Parameters.AddWithValue("originType", (int)unit.OriginType);
+            cmd.Parameters.AddWithValue("sourceStockAdjustmentItemId", (object?)unit.SourceStockAdjustmentItemId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("serialNumber", (object?)unit.SerialNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("imei1", (object?)unit.Imei1 ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("imei2", (object?)unit.Imei2 ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("status", (int)unit.Status);
+            cmd.Parameters.AddWithValue("acquisitionCost", unit.AcquisitionCost);
+            cmd.Parameters.AddWithValue("createdAt", unit.CreatedAt);
+            cmd.Parameters.AddWithValue("version", unit.Version);
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     private static async Task WithOwnedDatabaseAsync(Func<EdgeRetailsDbContext, Task> test)
     {
         await using var attested = Phase2PostgresTestHarness.BuildProvider();
         var name = "edge_retails_tracking_rehearsal_" + Guid.NewGuid().ToString("N");
-        var builder = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")) { Database = "postgres" };
+        var baseConn = Phase2PostgresTestHarness.ResolveConnectionString();
+        var builder = new NpgsqlConnectionStringBuilder(baseConn) { Database = "postgres" };
         await using var admin = new NpgsqlConnection(builder.ConnectionString);
         await admin.OpenAsync();
         await using (var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin))

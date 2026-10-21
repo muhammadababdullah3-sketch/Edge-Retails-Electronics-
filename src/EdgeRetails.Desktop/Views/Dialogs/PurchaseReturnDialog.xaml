@@ -34,9 +34,8 @@
                                    FontSize="11.5"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
-                    <Button Content="✕"
-                            Command="{Binding CancelCommand}"
-                            Style="{StaticResource Button.Text.Neutral}"
+                    <Button Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Close}"
                             IsCancel="True"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top" />

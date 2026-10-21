@@ -152,6 +152,22 @@ public sealed class ThakaRepository : IThakaRepository
             x => x.PaymentId == paymentId,
             cancellationToken);
 
+    public Task<ThakaCreditRefund?> GetCreditRefundByOperationIdAsync(
+        Guid clientOperationId,
+        CancellationToken cancellationToken) =>
+        _db.ThakaCreditRefunds.SingleOrDefaultAsync(
+            x => x.ClientOperationId == clientOperationId,
+            cancellationToken);
+
+    public async Task<decimal> GetCreditRefundsTotalAsync(
+        Guid projectId,
+        CancellationToken cancellationToken) =>
+        decimal.Round(
+            await _db.ThakaCreditRefunds
+                .Where(x => x.ProjectId == projectId)
+                .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m,
+            2);
+
     public async Task<IReadOnlyList<ThakaMaterialIssueItem>> GetIssueItemsAsync(
         Guid materialIssueId,
         CancellationToken cancellationToken) =>
@@ -189,7 +205,10 @@ public sealed class ThakaRepository : IThakaRepository
         var reversed = await _db.ThakaPaymentReversals
             .Where(x => x.ProjectId == projectId)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
-        return decimal.Round(paid - reversed, 2);
+        var refunded = await _db.ThakaCreditRefunds
+            .Where(x => x.ProjectId == projectId)
+            .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
+        return decimal.Round(paid - reversed - refunded, 2);
     }
 
     public async Task<decimal> GetSettlementDiscountsAsync(
@@ -217,4 +236,5 @@ public sealed class ThakaRepository : IThakaRepository
     public void AddReopening(ThakaReopening reopening) => _db.ThakaReopenings.Add(reopening);
     public void AddMaterialReversal(ThakaMaterialReversal reversal) => _db.ThakaMaterialReversals.Add(reversal);
     public void AddPaymentReversal(ThakaPaymentReversal reversal) => _db.ThakaPaymentReversals.Add(reversal);
+    public void AddCreditRefund(ThakaCreditRefund refund) => _db.ThakaCreditRefunds.Add(refund);
 }

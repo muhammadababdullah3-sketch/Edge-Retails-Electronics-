@@ -103,7 +103,7 @@
                         CornerRadius="16"
                         Background="Transparent">
                     <Border.Effect>
-                        <DropShadowEffect Color="#635BFF" BlurRadius="32" ShadowDepth="8" Opacity="0.13" Direction="270" />
+                        <DropShadowEffect Color="#4F46E5" BlurRadius="32" ShadowDepth="8" Opacity="0.13" Direction="270" />
                     </Border.Effect>
 
                     <!-- Inner Border: Crisp Surface & Contact Drop Shadow -->
@@ -138,12 +138,26 @@
                                            Margin="0,4,0,0" />
                             </StackPanel>
 
-                            <!-- 2. Account Selector (Width 342px, Gap 7px) -->
-                            <ItemsControl ItemsSource="{Binding Accounts}"
+                            <!-- 2. Account Selector (Width 342px, Gap 7px, Height-Bounded to ensure PIN keypad remains visible) -->
+                            <ScrollViewer MaxHeight="220"
                                           Margin="0,21,0,0"
                                           Width="342"
-                                          Focusable="False">
-                                <ItemsControl.ItemTemplate>
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Focusable="False"
+                                          CanContentScroll="True">
+                                <ItemsControl ItemsSource="{Binding Accounts}"
+                                              Width="342"
+                                              Focusable="False"
+                                              VirtualizingPanel.IsVirtualizing="True"
+                                              VirtualizingPanel.VirtualizationMode="Recycling"
+                                              VirtualizingPanel.ScrollUnit="Pixel">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type viewModels:LoginAccountItemViewModel}">
                                         <Button Command="{Binding DataContext.SelectAccountCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding}"
@@ -222,12 +236,12 @@
                                                     </Border>
 
                                                     <ControlTemplate.Triggers>
-                                                        <!-- Brand avatar for primary account (Abdullah) -->
+                                                        <!-- Brand avatar for primary account -->
                                                         <DataTrigger Binding="{Binding IsPrimary}" Value="True">
                                                             <Setter TargetName="AvatarBorder" Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                             <Setter TargetName="AvatarBorder" Property="Effect">
                                                                 <Setter.Value>
-                                                                    <DropShadowEffect Color="#635BFF" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                    <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                                 </Setter.Value>
                                                             </Setter>
                                                             <Setter TargetName="AvatarText" Property="Foreground" Value="#FFFFFF" />
@@ -241,7 +255,7 @@
                                                             <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
                                                             <Setter TargetName="CardBorder" Property="Effect">
                                                                 <Setter.Value>
-                                                                    <DropShadowEffect Color="#635BFF" BlurRadius="6" ShadowDepth="0" Opacity="0.18" />
+                                                                    <DropShadowEffect Color="#4F46E5" BlurRadius="6" ShadowDepth="0" Opacity="0.18" />
                                                                 </Setter.Value>
                                                             </Setter>
                                                             <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
@@ -256,6 +270,16 @@
                                                             <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource Brush.Surface.Subtle}" />
                                                             <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Border.Soft}" />
                                                         </MultiDataTrigger>
+
+                                                        <!-- Keyboard focus when unselected -->
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsKeyboardFocused}" Value="True" />
+                                                                <Condition Binding="{Binding IsSelected}" Value="False" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource Brush.Surface.Subtle}" />
+                                                            <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+                                                        </MultiDataTrigger>
                                                     </ControlTemplate.Triggers>
                                                 </ControlTemplate>
                                             </Button.Template>
@@ -263,6 +287,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            </ScrollViewer>
 
                             <!-- 3. PIN Entry Section -->
                             <StackPanel Margin="0,21,0,0" HorizontalAlignment="Center">
@@ -311,7 +336,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#635BFF" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -373,7 +398,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#635BFF" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -435,7 +460,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#635BFF" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -497,7 +522,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#635BFF" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -639,7 +664,7 @@
                                                 Background="{StaticResource Gradient.Brand.Primary}"
                                                 SnapsToDevicePixels="True">
                                             <Border.Effect>
-                                                <DropShadowEffect Color="#635BFF" BlurRadius="12" ShadowDepth="3" Opacity="0.35" Direction="270" />
+                                                <DropShadowEffect Color="#4F46E5" BlurRadius="12" ShadowDepth="3" Opacity="0.35" Direction="270" />
                                             </Border.Effect>
                                             <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <!-- Default Button Label -->

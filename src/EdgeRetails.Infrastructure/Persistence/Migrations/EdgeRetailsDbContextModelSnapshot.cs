@@ -20,6 +20,7 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "inventory", "pack_state", new[] { "Sealed", "Open", "Consumed" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("EdgeRetails.Domain.Audit.BusinessAuditEvent", b =>
@@ -1739,9 +1740,20 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("imei2");
 
+                    b.Property<decimal?>("InitialBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("initial_base_quantity");
+
                     b.Property<Guid?>("InventoryLotId")
                         .HasColumnType("uuid")
                         .HasColumnName("inventory_lot_id");
+
+                    b.Property<bool>("IsLooseStock")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_loose_stock");
 
                     b.Property<long?>("ItemSequence")
                         .HasColumnType("bigint")
@@ -1751,6 +1763,10 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("origin_type");
 
+                    b.Property<int?>("PackState")
+                        .HasColumnType("inventory.pack_state")
+                        .HasColumnName("pack_state");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
@@ -1759,6 +1775,11 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("product_sku_snapshot");
+
+                    b.Property<decimal?>("RemainingBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("remaining_base_quantity");
 
                     b.Property<string>("SerialNumber")
                         .HasMaxLength(160)
@@ -1852,6 +1873,8 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
 
                     b.ToTable("units", "inventory", t =>
                         {
+                            t.HasCheckConstraint("chk_units_pack_quantity_bounds", "(pack_state IS NULL AND remaining_base_quantity IS NULL AND initial_base_quantity IS NULL) OR (pack_state IS NOT NULL AND initial_base_quantity IS NOT NULL AND remaining_base_quantity IS NOT NULL AND initial_base_quantity > 0 AND remaining_base_quantity >= 0 AND remaining_base_quantity <= initial_base_quantity AND ((pack_state = 'Sealed'::inventory.pack_state AND is_loose_stock IS FALSE AND remaining_base_quantity = initial_base_quantity) OR (pack_state = 'Open'::inventory.pack_state AND remaining_base_quantity > 0 AND ((is_loose_stock IS FALSE AND remaining_base_quantity < initial_base_quantity) OR (is_loose_stock IS TRUE AND remaining_base_quantity <= initial_base_quantity))) OR (pack_state = 'Consumed'::inventory.pack_state AND remaining_base_quantity = 0)))");
+
                             t.HasCheckConstraint("ck_inventory_unit_cost_nonnegative", "acquisition_cost >= 0");
 
                             t.HasCheckConstraint("ck_inventory_unit_sequence_positive", "item_sequence IS NULL OR item_sequence >= 1");
@@ -1946,6 +1969,121 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_unit_identity_ownership_inventory_unit_identity_claim_id_no~");
 
                     b.ToTable("unit_identity_ownership", "inventory");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Inventory.PackAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<decimal>("AllocatedBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("allocated_base_quantity");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<Guid>("LotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lot_id");
+
+                    b.Property<Guid>("MovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("movement_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("operation_type");
+
+                    b.Property<int>("PackStateAfter")
+                        .HasColumnType("inventory.pack_state")
+                        .HasColumnName("pack_state_after");
+
+                    b.Property<Guid>("PackUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pack_unit_id");
+
+                    b.Property<decimal>("RemainingQuantityAfter")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("remaining_quantity_after");
+
+                    b.Property<Guid?>("SaleItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sale_item_id");
+
+                    b.Property<Guid?>("SaleReturnItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sale_return_item_id");
+
+                    b.Property<Guid?>("ThakaIssueItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("thaka_issue_item_id");
+
+                    b.Property<decimal>("TotalCostSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("total_cost_snapshot");
+
+                    b.Property<decimal>("UnitCostSnapshot")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("unit_cost_snapshot");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pack_allocations");
+
+                    b.HasIndex("LotId")
+                        .HasDatabaseName("ix_pack_allocations_lot_id");
+
+                    b.HasIndex("MovementId")
+                        .HasDatabaseName("ix_pack_allocations_movement_id");
+
+                    b.HasIndex("SaleItemId")
+                        .HasDatabaseName("ix_pack_allocations_sale_item_id");
+
+                    b.HasIndex("SaleReturnItemId")
+                        .HasDatabaseName("ix_pack_allocations_sale_return_item_id");
+
+                    b.HasIndex("ThakaIssueItemId")
+                        .HasDatabaseName("ix_pack_allocations_thaka_issue_item_id");
+
+                    b.HasIndex("PackUnitId", "OccurredAt")
+                        .HasDatabaseName("ix_pack_allocations_pack_unit_id_occurred_at");
+
+                    b.HasIndex("PackUnitId", "SaleItemId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_pack_alloc_sale_idempotency")
+                        .HasFilter("sale_item_id IS NOT NULL");
+
+                    b.HasIndex("PackUnitId", "SaleReturnItemId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_pack_alloc_return_idempotency")
+                        .HasFilter("sale_return_item_id IS NOT NULL");
+
+                    b.ToTable("pack_allocations", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("chk_pack_alloc_positive_qty", "allocated_base_quantity > 0");
+
+                            t.HasCheckConstraint("chk_pack_alloc_remaining_bounds", "remaining_quantity_after >= 0");
+
+                            t.HasCheckConstraint("chk_pack_alloc_single_source", "(CASE WHEN sale_item_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN sale_return_item_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN thaka_issue_item_id IS NOT NULL THEN 1 ELSE 0 END) <= 1");
+                        });
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Inventory.ProductCostState", b =>
@@ -2408,6 +2546,19 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("payload_fingerprint");
 
+                    b.Property<string>("ResponseContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("response_content_type");
+
+                    b.Property<string>("ResponsePayload")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_payload");
+
+                    b.Property<int?>("ResponseStatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("response_status_code");
+
                     b.Property<Guid?>("ResultEntityId")
                         .HasColumnType("uuid")
                         .HasColumnName("result_entity_id");
@@ -2581,6 +2732,135 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_suppliers_is_active_name");
 
                     b.ToTable("suppliers", "parties");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Posting.PeriodLock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("IsLocked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_locked");
+
+                    b.Property<string>("LockReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("lock_reason");
+
+                    b.Property<DateTimeOffset>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<Guid>("LockedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("locked_by");
+
+                    b.Property<DateOnly>("PeriodEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("period_end_date");
+
+                    b.Property<string>("PeriodName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("period_name");
+
+                    b.Property<DateOnly>("PeriodStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_period_locks");
+
+                    b.HasIndex("IsLocked", "PeriodStartDate", "PeriodEndDate")
+                        .HasDatabaseName("ix_period_locks_is_locked_period_start_date_period_end_date");
+
+                    b.ToTable("period_locks", "posting", t =>
+                        {
+                            t.HasCheckConstraint("chk_period_lock_dates", "period_end_date >= period_start_date");
+                        });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Posting.PostingAuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityNumber")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("entity_number");
+
+                    b.Property<DateTimeOffset>("EventTimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_timestamp_utc");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_type");
+
+                    b.Property<DateOnly>("PostingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("posting_date");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateOnly>("ShopDate")
+                        .HasColumnType("date")
+                        .HasColumnName("shop_date");
+
+                    b.Property<Guid?>("SupervisorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supervisor_id");
+
+                    b.Property<DateOnly?>("SupplierDocumentDate")
+                        .HasColumnType("date")
+                        .HasColumnName("supplier_document_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_posting_audit_entries");
+
+                    b.HasIndex("EntityId")
+                        .HasDatabaseName("ix_posting_audit_entries_entity_id");
+
+                    b.HasIndex("OperationType")
+                        .HasDatabaseName("ix_posting_audit_entries_operation_type");
+
+                    b.HasIndex("PostingDate")
+                        .HasDatabaseName("ix_posting_audit_entries_posting_date");
+
+                    b.HasIndex("ShopDate")
+                        .HasDatabaseName("ix_posting_audit_entries_shop_date");
+
+                    b.ToTable("posting_audit_entries", "posting", t =>
+                        {
+                            t.HasCheckConstraint("chk_posting_audit_dates", "posting_date <= shop_date");
+                        });
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Purchasing.Purchase", b =>
@@ -5867,6 +6147,48 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_unit_identity_ownership_unit_identity_claims_inventory_unit~");
 
                     b.Navigation("IdentityClaim");
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Inventory.PackAllocation", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryLot", null)
+                        .WithMany()
+                        .HasForeignKey("LotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pack_allocations_lots_lot_id");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("MovementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pack_allocations_movements_movement_id");
+
+                    b.HasOne("EdgeRetails.Domain.Inventory.InventoryUnit", null)
+                        .WithMany()
+                        .HasForeignKey("PackUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pack_allocations_units_pack_unit_id");
+
+                    b.HasOne("EdgeRetails.Domain.Sales.SaleItem", null)
+                        .WithMany()
+                        .HasForeignKey("SaleItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_pack_allocations_sale_items_sale_item_id");
+
+                    b.HasOne("EdgeRetails.Domain.Sales.SaleReturnItem", null)
+                        .WithMany()
+                        .HasForeignKey("SaleReturnItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_pack_allocations_return_items_sale_return_item_id");
+
+                    b.HasOne("EdgeRetails.Domain.Thaka.ThakaMaterialIssueItem", null)
+                        .WithMany()
+                        .HasForeignKey("ThakaIssueItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_pack_allocations_material_issue_items_thaka_issue_item_id");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Inventory.ProductCostState", b =>

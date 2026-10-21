@@ -1,0 +1,303 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-082",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-001 / OWNER-UPDATE-20261019-007",
+  "timestamp_utc": "2026-10-19T16:00:00Z",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "total_deposited_files": 46,
+  "candidate_archives": {
+    "candidate_tracked_patch": {
+      "file": "candidate_tracked.patch",
+      "bytes": 1255913,
+      "sha256": "de74fadde4164cba95e804ecfc53e0534bd3e3916b755e01dd612e94dc5aefdb"
+    },
+    "candidate_untracked_zip": {
+      "file": "candidate_untracked.zip",
+      "bytes": 756732,
+      "sha256": "74d6119320995d66248e3fe35e0a5567bbbc23bd866f58a5bc2d7fc1bd2df6a2"
+    },
+    "candidate_source_bundle": {
+      "file": "candidate_source_bundle.zip",
+      "bytes": 1554010,
+      "sha256": "eb9f12e05b9d0920dd27829d0a91fc914296e6f7ee6d159efde6161c1054faf5"
+    }
+  },
+  "evidence_files": {
+    "run082_desktop_performance_safety_tests.trx": {
+      "sha256": "7b0ca97ae7fedcb80d4497b6425a2632b8e0eacf9fa23fba4b79ee23f79f1ee4",
+      "size_bytes": 678771,
+      "classification": "CONTEMPORANEOUS_RUN082_EVIDENCE",
+      "tests_passed": 418,
+      "tests_total": 418,
+      "duration": "27 s",
+      "note": "Complete Desktop cutover and safety test suite passing with 0 failures, 0 skipped, including dedicated LF14 presentation and STA WPF rendering proof."
+    },
+    "run082_unit_tests.trx": {
+      "sha256": "a82f7e1c9b2a36b3dc3bd886c2079b02fd69d0696e0cb7fda2e681c19bc510f4",
+      "size_bytes": 2061271,
+      "classification": "CONTEMPORANEOUS_RUN082_EVIDENCE",
+      "tests_passed": 1395,
+      "tests_total": 1395,
+      "duration": "16 s",
+      "note": "Includes dedicated named LF14 test proving reversal-only projects included with explicit breakdown, net material deduction, and descending net value sort order."
+    },
+    "build.log": {
+      "sha256": "052122cf5a365cc04d57e89416c074cc37e4fe9faf046a4d619a0fa05641ae2d",
+      "size_bytes": 1939,
+      "classification": "CONTEMPORANEOUS_RUN082_EVIDENCE",
+      "command": "dotnet build",
+      "warnings": 0,
+      "errors": 0,
+      "projects_built": 12
+    },
+    "run044_historical_thaka_pack_subledger_tests.trx": {
+      "sha256": "9a09c553b7a1ed136ee0c9b0f41981e9ba71c22a6abce0e1d7b2179c3618d7c4",
+      "size_bytes": 22352,
+      "classification": "HISTORICAL_PRIOR_EVIDENCE_RECONCILED",
+      "origin_date": "2026-10-18T21:50:00 local",
+      "tests_passed": 14,
+      "tests_total": 14,
+      "note": "Reconciled as historical prior evidence; no disposable PG18 execution claimed in Run 082."
+    },
+    "run044_historical_postgresql_read_contract_tests.trx": {
+      "sha256": "1ce7a12161a2dbf5b4b520bd4ae6d6bd413a82ed07bbe964f419aca5bcc868e5",
+      "size_bytes": 10264,
+      "classification": "HISTORICAL_PRIOR_EVIDENCE_RECONCILED",
+      "origin_date": "2026-10-18T06:24:00 local",
+      "tests_passed": 5,
+      "tests_total": 5,
+      "note": "Reconciled as historical prior evidence; no disposable PG18 execution claimed in Run 082."
+    }
+  },
+  "files": [
+    {
+      "path": "AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "sha256": "fc6a9f83f1a154385787055320d61eb8d359f4836af77f1d41fe38c4d229f278",
+      "size_bytes": 563
+    },
+    {
+      "path": "BASELINE.json",
+      "sha256": "67d4928325709ed454f39a958ffc23de9da67a29d99055cf8b20ea35e0b2549e",
+      "size_bytes": 2187
+    },
+    {
+      "path": "build.log",
+      "sha256": "052122cf5a365cc04d57e89416c074cc37e4fe9faf046a4d619a0fa05641ae2d",
+      "size_bytes": 1939
+    },
+    {
+      "path": "DELIVERY_INDEX.json",
+      "sha256": "2d08ced30e5da3620fc627b3c8fc56099fee147b5c679cac814d47a1799f46f9",
+      "size_bytes": 965
+    },
+    {
+      "path": "DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "sha256": "b974434ec286f6b46109004a2ea5daee2c8dcb3d19552e219507300d3c6b4238",
+      "size_bytes": 474
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.json",
+      "sha256": "fee0ffff5e60a46100e8ffd530cc4d386c271f6b4ce4201e5940d46eedf1c8a8",
+      "size_bytes": 3631
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.md",
+      "sha256": "fdf0ec449d4e8c7c884544b9d5521358366898accfc149d9113e0e6a0883d3bd",
+      "size_bytes": 2631
+    },
+    {
+      "path": "export/CANDIDATE_FILE_INVENTORY.json",
+      "sha256": "27a1993bfabb71101bf91bb03546fc7bb86dad39a53dca6ff43165455dd1efb0",
+      "size_bytes": 108724
+    },
+    {
+      "path": "export/candidate_source_bundle.zip",
+      "sha256": "eb9f12e05b9d0920dd27829d0a91fc914296e6f7ee6d159efde6161c1054faf5",
+      "size_bytes": 1554010
+    },
+    {
+      "path": "export/candidate_tracked.patch",
+      "sha256": "de74fadde4164cba95e804ecfc53e0534bd3e3916b755e01dd612e94dc5aefdb",
+      "size_bytes": 1255913
+    },
+    {
+      "path": "export/candidate_untracked.zip",
+      "sha256": "74d6119320995d66248e3fe35e0a5567bbbc23bd866f58a5bc2d7fc1bd2df6a2",
+      "size_bytes": 756732
+    },
+    {
+      "path": "export/RECONSTRUCTION_INSTRUCTIONS.md",
+      "sha256": "53cbe36c0facbf8e0b648fe8db734a3ba56896285651968bc0921102677bef7b",
+      "size_bytes": 1315
+    },
+    {
+      "path": "export/Verify-CandidateExport.ps1",
+      "sha256": "b84ddfeb48bd41adcdb1036c6f36ee4e953ca6e11bf2d17268481ffb2b8c28de",
+      "size_bytes": 1572
+    },
+    {
+      "path": "FINAL_REPORT.md",
+      "sha256": "5edb4808dacb6d9c33f08843a2309b19a0108159f119682be1afd10899f12f69",
+      "size_bytes": 1740
+    },
+    {
+      "path": "PARALLEL_PLAN.json",
+      "sha256": "ed02916e40dd51660d670e2106c53677fcc50a9f200f2d11d25290fa15242a57",
+      "size_bytes": 3554
+    },
+    {
+      "path": "PARALLEL_PLAN.PLANNED.json",
+      "sha256": "258114d5c9b97964db7db0544a8218a30cb0b139cd9f8d871b2040fee78a496c",
+      "size_bytes": 3547
+    },
+    {
+      "path": "PLAN_VALIDATION.json",
+      "sha256": "30340827575624a87778c2c0ad50ff0b6671997c58cbf6e6dea8fb05c24f0f04",
+      "size_bytes": 264
+    },
+    {
+      "path": "reports/01-PRE_FLIGHT_SAFETY_REPORT.md",
+      "sha256": "b65ab45616f01ce182071fc0b23ad5c48431a822189357cca54d7e2a92fea225",
+      "size_bytes": 878
+    },
+    {
+      "path": "reports/02-ARCHITECTURE_AUDIT.md",
+      "sha256": "a0381700675ce1f669d9edfc0a0d3bc72767c235782e5914fbf96c083bbb4c13",
+      "size_bytes": 646
+    },
+    {
+      "path": "reports/03-SOURCE_DIFF_INTEGRITY_REPORT.md",
+      "sha256": "a28a7c62fd7e730ef0475518a08a69cd087edffb0b2dd7aeb81349ac4e5bcc01",
+      "size_bytes": 806
+    },
+    {
+      "path": "reports/04-TEST_EXECUTION_EVIDENCE.md",
+      "sha256": "d384c51e01c18f6acf113c9342dfaddbffff13942eb83bba9b1ef31ef65a20b8",
+      "size_bytes": 614
+    },
+    {
+      "path": "reports/05-DATABASE_PROTECTION_AND_CUSTODY_REPORT.md",
+      "sha256": "a0e4ba0d91e1839d9925f3e73500c745d1e19f694c40b9271afdebca8298dcf8",
+      "size_bytes": 308
+    },
+    {
+      "path": "reports/06-CANONICAL_FINDINGS_LEDGER.md",
+      "sha256": "82c6744909f4d0a1afdd0ed865ef5c92d776308bd44af5ccf4fed9260462a2a6",
+      "size_bytes": 2041
+    },
+    {
+      "path": "reports/07-PARALLEL_EXECUTION_AUDIT.md",
+      "sha256": "d4e774ed2c71c831798f69bae6ee4731b8ab71e6eeff324885fafbd5a9ce84b1",
+      "size_bytes": 334
+    },
+    {
+      "path": "reports/08-NON_PHASE89_POS_GOAL_STATUS.md",
+      "sha256": "2e9dcdbf61e85f07d520c197f361409c47ed62bc32f1046f1b1d14672371c7d0",
+      "size_bytes": 451
+    },
+    {
+      "path": "reports/AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "sha256": "fc6a9f83f1a154385787055320d61eb8d359f4836af77f1d41fe38c4d229f278",
+      "size_bytes": 563
+    },
+    {
+      "path": "reports/DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "sha256": "b974434ec286f6b46109004a2ea5daee2c8dcb3d19552e219507300d3c6b4238",
+      "size_bytes": 474
+    },
+    {
+      "path": "reports/FINAL_REPORT.md",
+      "sha256": "5edb4808dacb6d9c33f08843a2309b19a0108159f119682be1afd10899f12f69",
+      "size_bytes": 1740
+    },
+    {
+      "path": "STAGE1_REPRODUCTION_OF_ROOT_FINDINGS.md",
+      "sha256": "35786b08733311c47bcd5302e4fc0f4876db86069bf554c13848a31fdc4ed544",
+      "size_bytes": 2498
+    },
+    {
+      "path": "STAGE2_FINITE_ANALOGOUS_FLOW_INVENTORY.md",
+      "sha256": "f5dc3258341bace081def03abaf2b30cce98f2770677747a1e14319241736a93",
+      "size_bytes": 726
+    },
+    {
+      "path": "STAGE3_VALIDATION_OF_HASHES_AND_DISPOSABLE_PG18.md",
+      "sha256": "bf79009e55600d476b68b7145269034564d73b1edbe73a4c4721ea03646065e4",
+      "size_bytes": 643
+    },
+    {
+      "path": "STAGE4_EVIDENCE_CLAIMS_CORRECTION.md",
+      "sha256": "2a11b275ac6cce061b9d781b1e737c2f76a6c64455c5ae864e1353ec95795fe3",
+      "size_bytes": 604
+    },
+    {
+      "path": "STAGE5_CANONICAL_LF_CROSSWALK.md",
+      "sha256": "04a7822d52c0c19613a402ef35d8893e70ad8feac5918c9d67244ec80af99d09",
+      "size_bytes": 2304
+    },
+    {
+      "path": "STAGE6_NATIVE_WORKER_CAPACITY_AND_PARALLEL_PLAN.md",
+      "sha256": "e55b503c749b8ff797d8350b9bdee769f7c54e69e4085685aeedadcb6b505f53",
+      "size_bytes": 466
+    },
+    {
+      "path": "STAGE7_BOUNDED_CORRECTION_BATCH_AND_RAW_EVIDENCE.md",
+      "sha256": "331c4db41d3dd02012ad0b642f9b0e1f31f259d6aed1c3f2b17b1f9d0d9cebf5",
+      "size_bytes": 891
+    },
+    {
+      "path": "STAGE8_DEPOSITION_AND_READBACK.md",
+      "sha256": "4664df437c7b225a850a661896984ad97cfcc7ce77aae9747b4fab74d5c24056",
+      "size_bytes": 600
+    },
+    {
+      "path": "test-results/build.log",
+      "sha256": "052122cf5a365cc04d57e89416c074cc37e4fe9faf046a4d619a0fa05641ae2d",
+      "size_bytes": 1939
+    },
+    {
+      "path": "test-results/run044_historical_postgresql_read_contract_tests.trx",
+      "sha256": "1ce7a12161a2dbf5b4b520bd4ae6d6bd413a82ed07bbe964f419aca5bcc868e5",
+      "size_bytes": 10264
+    },
+    {
+      "path": "test-results/run044_historical_thaka_pack_subledger_tests.trx",
+      "sha256": "9a09c553b7a1ed136ee0c9b0f41981e9ba71c22a6abce0e1d7b2179c3618d7c4",
+      "size_bytes": 22352
+    },
+    {
+      "path": "test-results/run082_build.log",
+      "sha256": "052122cf5a365cc04d57e89416c074cc37e4fe9faf046a4d619a0fa05641ae2d",
+      "size_bytes": 1939
+    },
+    {
+      "path": "test-results/run082_desktop_performance_safety_tests.trx",
+      "sha256": "7b0ca97ae7fedcb80d4497b6425a2632b8e0eacf9fa23fba4b79ee23f79f1ee4",
+      "size_bytes": 678771
+    },
+    {
+      "path": "test-results/run082_unit_tests.trx",
+      "sha256": "a82f7e1c9b2a36b3dc3bd886c2079b02fd69d0696e0cb7fda2e681c19bc510f4",
+      "size_bytes": 2061271
+    },
+    {
+      "path": "Verify-DeliveryReadback.ps1",
+      "sha256": "ab24c4b64a6d9afcbe28280e80bfcb2d2fe444294982ecba960a9870b4274a29",
+      "size_bytes": 1504
+    },
+    {
+      "path": "workers/worker-pos-integrator.md",
+      "sha256": "5ebfffeaba89ad394e964c3186540a33c263e0d40a434c4e3c378a579458d4de",
+      "size_bytes": 2937
+    },
+    {
+      "path": "workers/worker-reviewer.md",
+      "sha256": "817513563335861eb008522e4449fcc1d2ac5747dadb27438d23f9649ce335a8",
+      "size_bytes": 1502
+    },
+    {
+      "path": "workers/worker-test-coordinator.md",
+      "sha256": "f0a68b5f42d1b0056c012bbfcb1708f788dcaba00cc7e7d84c241e448e57d6a4",
+      "size_bytes": 1766
+    }
+  ]
+}

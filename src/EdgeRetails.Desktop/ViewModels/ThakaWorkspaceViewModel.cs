@@ -47,12 +47,19 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     private readonly IToastService? _toastService;
     private string _selectedTab = "Materials";
     private MaterialLedgerEntry? _selectedMaterial;
+    private PaymentLedgerEntry? _selectedPayment;
     private Guid? _pendingMaterialReversalIssueId;
     private Guid? _pendingMaterialReversalOperationId;
+    private readonly IClientOperationIntentStore _operationIntents;
     private bool _isLoading;
     private bool _hasSnapshot;
     private bool _changingSuspension;
     private string _loadError = string.Empty;
+    private bool _isRefundPanelVisible;
+    private decimal _refundAmountInput;
+    private string _refundReasonInput = string.Empty;
+    private bool _isRefundingCredit;
+    private string? _refundErrorMessage;
 
     public ThakaWorkspaceViewModel()
         : this(
@@ -68,11 +75,13 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         IDialogService? dialogService = null,
         IToastService? toastService = null,
         IBackendThakaService? backendService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _backendService = backendService;
         _workflowService = workflowService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _previewRetailState = ResolvePreviewRetailState(backendService);
         _dialogService = dialogService;
         _toastService = toastService;
@@ -87,13 +96,23 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
 
         AddMaterialCommand = new RelayCommand(OpenAddMaterial, () => CanMutate && IsActive && _project.CustomerIsActive);
         RecordPaymentCommand = new RelayCommand(OpenRecordPayment, () => CanMutate && (IsActive || IsSuspended) && Balance > 0m);
-        FinalSettlementCommand = new RelayCommand(OpenFinalSettlement, () => CanMutate && (IsActive || IsSuspended) && Balance > 0m);
+        FinalSettlementCommand = new RelayCommand(OpenFinalSettlement, () => CanMutate && (IsActive || IsSuspended) && Balance >= 0m);
+        OpenRefundCreditCommand = new RelayCommand(OpenRefundPanel, () => CanMutate && (IsActive || IsSuspended) && HasCustomerCredit);
+        CloseRefundCreditCommand = new RelayCommand(CloseRefundPanel);
+        RetainCreditCommand = new RelayCommand(RetainCreditInProject, () => CanMutate && HasCustomerCredit);
+        ConfirmRefundCreditCommand = new RelayCommand(async () => await ConfirmRefundCreditAsync(), () => CanConfirmRefund);
+        RefundCreditCommand = new RelayCommand(OpenRefundPanel, () => CanMutate && (IsActive || IsSuspended) && HasCustomerCredit);
         RefreshCommand = new RelayCommand(async () => await RefreshBackendAsync(), () => !_isLoading && !_changingSuspension);
         ToggleSuspensionCommand = new RelayCommand(async () => await ToggleSuspensionAsync(),
             () => CanMutate && _backendService is not null && (IsActive || IsSuspended));
+        ReopenProjectCommand = new RelayCommand(async () => await ReopenProjectAsync(),
+            () => CanMutate && _backendService is not null && IsSettled);
         ReverseMaterialCommand = new RelayCommand(
             async () => await ReverseSelectedMaterialAsync(),
             () => CanReverseSelectedMaterial);
+        ReversePaymentCommand = new RelayCommand(
+            async () => await ReverseSelectedPaymentAsync(),
+            () => CanReverseSelectedPayment);
         GoBackCommand = new RelayCommand(() => BackRequested?.Invoke(this, EventArgs.Empty));
         SwitchTabCommand = new RelayCommand<string>(tab =>
         {
@@ -135,6 +154,9 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     public string TotalPaidFormatted => _hasSnapshot ? _project.PaidFormatted : _isLoading ? "Loading…" : "Unavailable";
     public decimal Balance => _project.Balance;
     public string BalanceFormatted => _hasSnapshot ? _project.BalanceFormatted : _isLoading ? "Loading…" : "Unavailable";
+    public bool HasCustomerCredit => Balance < 0m;
+    public decimal CustomerCreditAmount => HasCustomerCredit ? -Balance : 0m;
+    public string CustomerCreditFormatted => $"Rs. {CustomerCreditAmount:N0}";
 
     public ObservableCollection<MaterialLedgerEntry> MaterialLedger { get; }
     public ObservableCollection<PaymentLedgerEntry> PaymentLedger { get; }
@@ -146,12 +168,6 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedMaterial, value))
             {
-                if (_pendingMaterialReversalIssueId != value?.BackendMaterialIssueId)
-                {
-                    _pendingMaterialReversalIssueId = value?.BackendMaterialIssueId;
-                    _pendingMaterialReversalOperationId = null;
-                }
-
                 OnPropertyChanged(nameof(CanReverseSelectedMaterial));
                 ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
             }
@@ -162,6 +178,24 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         CanMutate && (IsActive || IsSuspended) &&
         _backendService is not null &&
         SelectedMaterial?.BackendMaterialIssueId is Guid;
+
+    public PaymentLedgerEntry? SelectedPayment
+    {
+        get => _selectedPayment;
+        set
+        {
+            if (SetProperty(ref _selectedPayment, value))
+            {
+                OnPropertyChanged(nameof(CanReverseSelectedPayment));
+                ((RelayCommand)ReversePaymentCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanReverseSelectedPayment =>
+        CanMutate && (IsActive || IsSuspended) &&
+        _backendService is not null &&
+        SelectedPayment?.BackendPaymentId is Guid;
 
     public string SelectedTab
     {
@@ -181,10 +215,88 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
 
     public bool IsPaymentsTabSelected =>
         string.Equals(SelectedTab, "Payments", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsRefundPanelVisible
+    {
+        get => _isRefundPanelVisible;
+        set
+        {
+            if (SetProperty(ref _isRefundPanelVisible, value))
+            {
+                OnPropertyChanged(nameof(CanConfirmRefund));
+            }
+        }
+    }
+
+    public decimal RefundAmountInput
+    {
+        get => _refundAmountInput;
+        set
+        {
+            if (SetProperty(ref _refundAmountInput, value))
+            {
+                OnPropertyChanged(nameof(CanConfirmRefund));
+                ((RelayCommand)ConfirmRefundCreditCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string RefundReasonInput
+    {
+        get => _refundReasonInput;
+        set
+        {
+            if (SetProperty(ref _refundReasonInput, value))
+            {
+                OnPropertyChanged(nameof(CanConfirmRefund));
+                ((RelayCommand)ConfirmRefundCreditCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool IsRefundingCredit
+    {
+        get => _isRefundingCredit;
+        set
+        {
+            if (SetProperty(ref _isRefundingCredit, value))
+            {
+                OnPropertyChanged(nameof(CanConfirmRefund));
+                ((RelayCommand)ConfirmRefundCreditCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string? RefundErrorMessage
+    {
+        get => _refundErrorMessage;
+        set
+        {
+            if (SetProperty(ref _refundErrorMessage, value))
+            {
+                OnPropertyChanged(nameof(HasRefundErrorMessage));
+            }
+        }
+    }
+
+    public bool HasRefundErrorMessage => !string.IsNullOrWhiteSpace(RefundErrorMessage);
+
+    public bool CanConfirmRefund =>
+        CanMutate && (IsActive || IsSuspended) && !_isRefundingCredit && HasCustomerCredit &&
+        _refundAmountInput > 0m && _refundAmountInput <= CustomerCreditAmount &&
+        !string.IsNullOrWhiteSpace(_refundReasonInput);
+
     public ICommand AddMaterialCommand { get; }
     public ICommand RecordPaymentCommand { get; }
     public ICommand FinalSettlementCommand { get; }
+    public ICommand OpenRefundCreditCommand { get; }
+    public ICommand CloseRefundCreditCommand { get; }
+    public ICommand RetainCreditCommand { get; }
+    public ICommand ConfirmRefundCreditCommand { get; }
+    public ICommand RefundCreditCommand { get; }
     public ICommand ReverseMaterialCommand { get; }
+    public ICommand ReversePaymentCommand { get; }
+    public ICommand ReopenProjectCommand { get; }
     public ICommand GoBackCommand { get; }
     public ICommand SwitchTabCommand { get; }
     public ICommand RefreshCommand { get; }
@@ -233,7 +345,8 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             toastService: _toastService,
             backendService: _backendService,
             workflowService: _workflowService,
-            dialogService: _dialogService);
+            dialogService: _dialogService,
+            operationIntents: _operationIntents);
 
         _dialogService.Show(vm);
     }
@@ -289,21 +402,44 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         _pendingMaterialReversalIssueId = issueId;
         _pendingMaterialReversalOperationId ??= Guid.CreateVersion7();
 
+        var reason = $"Operator reversal of {SelectedMaterial.ChallanNumber}";
+        var operationKey = $"thaka:material-reversal:{issueId:D}";
+        var canonicalPayload = $"{issueId:D}|{reason}";
+        Guid clientOperationId;
+        try
+        {
+            clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            _toastService?.Show(
+                "A previous material reversal for this issue has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                ToastTone.Warning);
+            return;
+        }
+
         try
         {
             await _backendService.ReverseMaterialAsync(
                 _project,
                 issueId,
-                $"Operator reversal of {SelectedMaterial.ChallanNumber}",
-                _pendingMaterialReversalOperationId.Value);
+                reason,
+                clientOperationId);
+
+            _operationIntents.Complete(operationKey, clientOperationId);
 
             _toastService?.Show(
                 $"{SelectedMaterial.ChallanNumber} reversed and exact stock provenance restored.",
                 ToastTone.Success);
-            _pendingMaterialReversalIssueId = null;
-            _pendingMaterialReversalOperationId = null;
             SelectedMaterial = null;
             await RefreshBackendAsync();
+        }
+        catch (DesktopApiException ex) when (IsAuthoritativeDeterministicRejection(ex))
+        {
+            _operationIntents.Complete(operationKey, clientOperationId);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka material reversal was rejected."),
+                ToastTone.Danger);
         }
         catch (BackendOperationException ex)
         {
@@ -318,6 +454,203 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
                 ToastTone.Danger);
         }
     }
+
+    private async Task ReopenProjectAsync()
+    {
+        if (!CanMutate || _backendService is null || !IsSettled)
+        {
+            return;
+        }
+
+        try
+        {
+            var reason = "Operator reopened project from workspace";
+            await _backendService.ReopenProjectAsync(_project, reason);
+            _toastService?.Show($"{ProjectName} reopened successfully.", ToastTone.Success);
+            await RefreshBackendAsync();
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Project could not be reopened."),
+                ToastTone.Danger);
+        }
+    }
+
+    private async Task ReverseSelectedPaymentAsync()
+    {
+        if (!CanReverseSelectedPayment ||
+            _backendService is null ||
+            SelectedPayment?.BackendPaymentId is not Guid paymentId)
+        {
+            return;
+        }
+
+        var reason = $"Operator reversal of payment {SelectedPayment.ReceiptNumber}";
+        var operationKey = $"thaka:payment-reversal:{paymentId:D}";
+        var canonicalPayload = $"{paymentId:D}|{reason}";
+        Guid clientOperationId;
+        try
+        {
+            clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            _toastService?.Show(
+                "A previous payment reversal for this receipt has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                ToastTone.Warning);
+            return;
+        }
+
+        try
+        {
+            await _backendService.ReversePaymentAsync(
+                _project,
+                paymentId,
+                reason,
+                clientOperationId);
+
+            _operationIntents.Complete(operationKey, clientOperationId);
+
+            _toastService?.Show(
+                $"{SelectedPayment.ReceiptNumber} reversed successfully.",
+                ToastTone.Success);
+            SelectedPayment = null;
+            await RefreshBackendAsync();
+        }
+        catch (DesktopApiException ex) when (IsAuthoritativeDeterministicRejection(ex))
+        {
+            _operationIntents.Complete(operationKey, clientOperationId);
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka payment reversal was rejected."),
+                ToastTone.Danger);
+        }
+        catch (BackendOperationException ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka payment reversal was rejected."),
+                ToastTone.Danger);
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Thaka payment reversal failed."),
+                ToastTone.Danger);
+        }
+    }
+
+    public void OpenRefundPanel()
+    {
+        RefundAmountInput = CustomerCreditAmount;
+        RefundReasonInput = $"Authorized customer credit refund for {ProjectName}";
+        RefundErrorMessage = null;
+        IsRefundPanelVisible = true;
+    }
+
+    public void CloseRefundPanel()
+    {
+        IsRefundPanelVisible = false;
+        RefundErrorMessage = null;
+    }
+
+    public void RetainCreditInProject()
+    {
+        IsRefundPanelVisible = false;
+        RefundErrorMessage = null;
+        _toastService?.Show(
+            $"Customer credit of Rs. {CustomerCreditAmount:N0} retained in project. Subsequent material charges will automatically consume this credit.",
+            ToastTone.Info);
+    }
+
+    public async Task ConfirmRefundCreditAsync()
+    {
+        if (!CanConfirmRefund)
+        {
+            return;
+        }
+
+        await RefundCreditAsync(RefundAmountInput, RefundReasonInput);
+    }
+
+    public async Task RefundCreditAsync(decimal? refundAmount = null, string? refundReason = null)
+    {
+        if (!CanMutate || _backendService is null || !HasCustomerCredit)
+        {
+            return;
+        }
+
+        var amountToRefund = refundAmount ?? CustomerCreditAmount;
+        if (amountToRefund <= 0m || amountToRefund > CustomerCreditAmount)
+        {
+            RefundErrorMessage = "Refund amount must be positive and cannot exceed available credit.";
+            _toastService?.Show("Invalid refund amount.", ToastTone.Warning);
+            return;
+        }
+
+        var reason = string.IsNullOrWhiteSpace(refundReason)
+            ? $"Authorized customer credit refund for {ProjectName}"
+            : refundReason.Trim();
+
+        var operationKey = $"thaka:credit-refund:{_project.BackendProjectId:D}";
+        var canonicalPayload = $"{_project.BackendProjectId:D}|{amountToRefund:G29}|{reason}";
+        Guid clientOperationId;
+        try
+        {
+            clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            var msg = "A previous credit refund for this project has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.";
+            RefundErrorMessage = msg;
+            _toastService?.Show(msg, ToastTone.Warning);
+            return;
+        }
+
+        IsRefundingCredit = true;
+        RefundErrorMessage = null;
+        try
+        {
+            await _backendService.RefundCreditAsync(
+                _project,
+                amountToRefund,
+                reason,
+                clientOperationId);
+
+            _operationIntents.Complete(operationKey, clientOperationId);
+
+            _toastService?.Show(
+                $"Authorized refund of Rs. {amountToRefund:N0} processed from cash drawer.",
+                ToastTone.Success);
+            IsRefundPanelVisible = false;
+            await RefreshBackendAsync();
+        }
+        catch (DesktopApiException ex) when (IsAuthoritativeDeterministicRejection(ex))
+        {
+            _operationIntents.Complete(operationKey, clientOperationId);
+            var err = DesktopErrorPresentation.ForException(ex, "Credit refund was rejected.");
+            RefundErrorMessage = err;
+            _toastService?.Show(err, ToastTone.Danger);
+        }
+        catch (BackendOperationException ex)
+        {
+            var err = DesktopErrorPresentation.ForException(ex, "Credit refund was rejected.");
+            RefundErrorMessage = err;
+            _toastService?.Show(err, ToastTone.Danger);
+        }
+        catch (Exception ex)
+        {
+            var err = DesktopErrorPresentation.ForException(ex, "Credit refund failed.");
+            RefundErrorMessage = err;
+            _toastService?.Show(err, ToastTone.Danger);
+        }
+        finally
+        {
+            IsRefundingCredit = false;
+        }
+    }
+
+    private static bool IsAuthoritativeDeterministicRejection(DesktopApiException ex) =>
+        DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex);
 
     private void RefreshFinancialState()
     {
@@ -425,6 +758,9 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         OnPropertyChanged(nameof(TotalPaidFormatted));
         OnPropertyChanged(nameof(Balance));
         OnPropertyChanged(nameof(BalanceFormatted));
+        OnPropertyChanged(nameof(HasCustomerCredit));
+        OnPropertyChanged(nameof(CustomerCreditAmount));
+        OnPropertyChanged(nameof(CustomerCreditFormatted));
         OnPropertyChanged(nameof(IsActive));
         OnPropertyChanged(nameof(IsSettled));
         OnPropertyChanged(nameof(IsSettledBannerVisible));
@@ -432,10 +768,24 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         OnPropertyChanged(nameof(StatusTone));
 
         OnPropertyChanged(nameof(CanReverseSelectedMaterial));
+        OnPropertyChanged(nameof(CanReverseSelectedPayment));
+        OnPropertyChanged(nameof(IsRefundPanelVisible));
+        OnPropertyChanged(nameof(RefundAmountInput));
+        OnPropertyChanged(nameof(RefundReasonInput));
+        OnPropertyChanged(nameof(IsRefundingCredit));
+        OnPropertyChanged(nameof(RefundErrorMessage));
+        OnPropertyChanged(nameof(HasRefundErrorMessage));
+        OnPropertyChanged(nameof(CanConfirmRefund));
         ((RelayCommand)AddMaterialCommand).NotifyCanExecuteChanged();
         ((RelayCommand)RecordPaymentCommand).NotifyCanExecuteChanged();
         ((RelayCommand)FinalSettlementCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)OpenRefundCreditCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)RetainCreditCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ConfirmRefundCreditCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)RefundCreditCommand).NotifyCanExecuteChanged();
         ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ReversePaymentCommand).NotifyCanExecuteChanged();
+        ((RelayCommand)ReopenProjectCommand).NotifyCanExecuteChanged();
         ((RelayCommand)RefreshCommand).NotifyCanExecuteChanged();
         ((RelayCommand)ToggleSuspensionCommand).NotifyCanExecuteChanged();
     }

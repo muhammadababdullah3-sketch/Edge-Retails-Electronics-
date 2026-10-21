@@ -116,7 +116,10 @@ public sealed class OperationStatusQueryHandler
                         WasCommitted: true,
                         PayloadFingerprint: canonicalOutcome.PayloadFingerprint,
                         Timestamp: canonicalOutcome.CompletedAt ?? canonicalOutcome.CreatedAt,
-                        Status: "Succeeded")),
+                        Status: "Succeeded",
+                        ResponsePayload: canonicalOutcome.ResponsePayload,
+                        ResponseStatusCode: canonicalOutcome.ResponseStatusCode,
+                        ResponseContentType: canonicalOutcome.ResponseContentType)),
 
                     OperationOutcomeState.Pending => Result<OperationStatusResult>.Success(new OperationStatusResult(
                         ClientOperationId: canonicalOutcome.ClientOperationId,
@@ -140,7 +143,10 @@ public sealed class OperationStatusQueryHandler
                         Timestamp: canonicalOutcome.CompletedAt ?? canonicalOutcome.CreatedAt,
                         Status: "Failed",
                         ErrorCode: canonicalOutcome.ErrorCode,
-                        ErrorMessage: canonicalOutcome.ErrorMessage)),
+                        ErrorMessage: canonicalOutcome.ErrorMessage,
+                        ResponsePayload: canonicalOutcome.ResponsePayload,
+                        ResponseStatusCode: canonicalOutcome.ResponseStatusCode,
+                        ResponseContentType: canonicalOutcome.ResponseContentType)),
 
                     OperationOutcomeState.OutcomeUnknown => Result<OperationStatusResult>.Success(new OperationStatusResult(
                         ClientOperationId: canonicalOutcome.ClientOperationId,

@@ -8,6 +8,15 @@ public interface IClock
     DateOnly ShopDate { get; }
 }
 
+public interface IShopClock : IClock
+{
+    DateTimeOffset ShopNow { get; }
+    TimeZoneInfo ShopTimeZone { get; }
+    DateOnly ToShopDate(DateTimeOffset utcTimestamp);
+    DateTimeOffset ToUtc(DateOnly shopDate, TimeOnly time);
+    (DateTimeOffset StartUtc, DateTimeOffset EndUtc) GetShopDayUtcRange(DateOnly shopDate);
+}
+
 public interface IIdGenerator
 {
     Guid NewId();

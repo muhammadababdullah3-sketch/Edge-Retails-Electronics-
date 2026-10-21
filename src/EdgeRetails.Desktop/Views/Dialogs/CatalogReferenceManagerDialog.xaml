@@ -14,9 +14,8 @@
                            FontSize="20"
                            FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
-                <Button Content="✕"
-                        Command="{Binding CloseCommand}"
-                        Style="{StaticResource Button.Text.Neutral}"
+                <Button Command="{Binding CloseCommand}"
+                        Style="{StaticResource Button.Close}"
                         IsCancel="True"
                         HorizontalAlignment="Right" />
             </Grid>

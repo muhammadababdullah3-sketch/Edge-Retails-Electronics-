@@ -1,0 +1,70 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-074",
+  "lanes": [
+    {
+      "lane": "A",
+      "worker": "worker-lf-074-a",
+      "domain": "Thaka",
+      "mandates": [
+        "OWNER019-C1",
+        "OWNER019-C2",
+        "THAKA-AUD-01..17"
+      ]
+    },
+    {
+      "lane": "B",
+      "worker": "worker-lf-074-b",
+      "domain": "Catalog & Inventory",
+      "mandates": [
+        "LF08",
+        "LF09",
+        "LF10",
+        "J3",
+        "J5"
+      ]
+    },
+    {
+      "lane": "C",
+      "worker": "worker-lf-074-c",
+      "domain": "Sales & Commercial Exchange",
+      "mandates": [
+        "LF01",
+        "LF02",
+        "LF11",
+        "J4"
+      ]
+    },
+    {
+      "lane": "D",
+      "worker": "worker-lf-074-d",
+      "domain": "Finance & Cash Session",
+      "mandates": [
+        "LF04",
+        "LF07",
+        "J1"
+      ]
+    },
+    {
+      "lane": "E",
+      "worker": "worker-lf-074-e",
+      "domain": "Purchasing & Khata",
+      "mandates": [
+        "LF05",
+        "LF06",
+        "J2"
+      ]
+    },
+    {
+      "lane": "F",
+      "worker": "worker-lf-074-f",
+      "domain": "Desktop Presentation & Intent",
+      "mandates": [
+        "LF12",
+        "LF13",
+        "LF14",
+        "LF15",
+        "J6"
+      ]
+    }
+  ]
+}

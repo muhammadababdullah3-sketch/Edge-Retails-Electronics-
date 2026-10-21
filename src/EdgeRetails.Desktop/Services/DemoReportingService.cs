@@ -31,8 +31,22 @@ public sealed class ReportThakaActivityItem
     public required string ProjectName { get; init; }
     public int IssueCount { get; init; }
     public decimal MaterialValue { get; init; }
+    public int ReversalCount { get; init; }
+    public decimal ReversalAmount { get; init; }
+    public decimal NetMaterialValue { get; init; }
+
     public string IssueCountDisplay => $"{IssueCount} {(IssueCount == 1 ? "issue" : "issues")}";
     public string MaterialValueDisplay => $"Rs. {MaterialValue:N2}";
+    public string ReversalCountDisplay => $"{ReversalCount} {(ReversalCount == 1 ? "reversal" : "reversals")}";
+    public string ReversalAmountDisplay => $"Rs. {ReversalAmount:N2}";
+    public string NetMaterialValueDisplay => NetMaterialValue < 0m
+        ? $"-Rs. {Math.Abs(NetMaterialValue):N2}"
+        : $"Rs. {NetMaterialValue:N2}";
+    public bool HasReversals => ReversalCount > 0;
+
+    public string ActivitySummaryDisplay => ReversalCount > 0
+        ? $"{IssueCountDisplay}, {MaterialValueDisplay} issued · {ReversalCountDisplay}, {ReversalAmountDisplay} returned"
+        : $"{IssueCountDisplay}, {MaterialValueDisplay} issued";
 }
 
 public sealed class ReportSnapshot
@@ -398,13 +412,20 @@ public sealed class DemoReportingService
         IReadOnlyCollection<(string ProjectName, MaterialLedgerEntry Entry)> entries) =>
         [.. entries
             .GroupBy(item => item.ProjectName)
-            .Select(group => new ReportThakaActivityItem
+            .Select(group =>
             {
-                ProjectName = group.Key,
-                IssueCount = group.Count(),
-                MaterialValue = Math.Round(group.Sum(item => item.Entry.TotalValue), 2)
+                var val = Math.Round(group.Sum(item => item.Entry.TotalValue), 2);
+                return new ReportThakaActivityItem
+                {
+                    ProjectName = group.Key,
+                    IssueCount = group.Count(),
+                    MaterialValue = val,
+                    ReversalCount = 0,
+                    ReversalAmount = 0m,
+                    NetMaterialValue = val
+                };
             })
-            .OrderByDescending(item => item.MaterialValue)];
+            .OrderByDescending(item => item.NetMaterialValue)];
 
     private static (DateTime Start, DateTime End, string Label) ResolvePeriod(
         ReportPeriodMode mode,

@@ -1,0 +1,35 @@
+{
+  "audit_run": "ER-RUN-LOCALFLOW-20261019-075",
+  "baseline_run": "ER-RUN-LOCALFLOW-20261019-074",
+  "historical_run": "ER-RUN-LOCALFLOW-20261019-073",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "total_files": 329,
+  "summary": {
+    "identical": 327,
+    "modified": 2,
+    "new": 0
+  },
+  "intentional_modifications": [
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SuppliersViewModel.cs",
+      "category": "LF03 / J2 Causal Repair",
+      "justification": "Eliminate unhandled exceptions escaping async void RelayCommand UI boundary by replacing throw with return on deterministic rejections, and match exact action tokens for payment:Settlement, payment:Advance, refund, and payment/refund reversals to clear HasUnresolvedFinancialOperation on business rejection."
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase12Wave3DurableClientOwnershipTests.cs",
+      "category": "LF03 / J2 and J1-J5 Targeted Test Oracles",
+      "justification": "Update reflection test to assert handled clean return without rethrowing, and add 5 targeted test oracles (Targeted_J1..Targeted_J5) verifying real adapter pre-POST vs committed readback retry single-cash effect, UI command entry & action token cleanup, stock adjustment mismatch recovery, warranty unit sorting permutation stability & partial claim lifecycle, and exact units cursor pagination 201 units, cap exceeded, and cursor cycle."
+    }
+  ],
+  "untracked_components_preserved": {
+    "count": 169,
+    "categories": [
+      "Shop Posting Infrastructure & Domain Models",
+      "Canonical Payload Serializers & Outbox Handlers",
+      "Desktop WPF Dialogs (CableCut, PackPicker, SupervisorApproval)",
+      "Thaka Credit Refund Handlers & Domain Mappings",
+      "PostgreSQL Migrations (Posting Periods, Pack Sub-Ledger, OperationOutcome Response)",
+      "Wave 1-3 & Phase 11 Test Suites"
+    ]
+  }
+}

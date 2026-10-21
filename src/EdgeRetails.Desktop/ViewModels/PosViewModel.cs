@@ -1,10 +1,15 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Desktop.Controls;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Application.Features.Catalog;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Production.Printing;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
@@ -57,9 +62,11 @@ public sealed class PosViewModel : ViewModelBase
     private int _scanInFlight;
     private int _checkoutInFlight;
     private int _draftSaveInFlight;
-    private int _pendingSaleIntentReadInFlight;
-    private int _pendingSaleIntentReadRequested;
+    private readonly object _pendingSaleIntentLock = new();
+    private Task? _inFlightRefreshTask;
     private bool _draftSaveOutcomeUncertain;
+    private long _lastKeystrokeTicks;
+    private string _selectedPackagingFacet = "All";
 
     public event EventHandler? FocusSearchRequested;
 
@@ -137,6 +144,43 @@ public sealed class PosViewModel : ViewModelBase
         RecentDraftsCommand = new RelayCommand(OpenRecentDrafts);
         LoadMoreCatalogCommand = new RelayCommand(async () => await LoadMoreCatalogAsync(),
             () => HasMoreCatalogProducts && _isLoadingMoreCatalog == 0);
+        OpenPackPickerCommand = new RelayCommand<PosProductItemViewModel>(p =>
+        {
+            if (p is not null)
+            {
+                OpenPackPicker(p);
+            }
+        });
+        OpenCableCutCommand = new RelayCommand<PosProductItemViewModel>(p =>
+        {
+            if (p is not null)
+            {
+                OpenCableCutDialog(p);
+            }
+        });
+        OpenSupervisorApprovalCommand = new RelayCommand<object?>(param =>
+        {
+            DateOnly date;
+            if (param is DateOnly d)
+            {
+                date = d;
+            }
+            else if (param is string s && DateOnly.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                date = parsed;
+            }
+            else
+            {
+                date = ActivePostingDate ?? DateOnly.FromDateTime(DateTime.Now).AddDays(-1);
+            }
+            OpenSupervisorApproval(date);
+        });
+        ClearSupervisorApprovalCommand = new RelayCommand(() =>
+        {
+            ActivePostingDate = null;
+            ActiveSupervisorApproval = null;
+            ActiveSupervisorName = null;
+        });
 
         // Sales terminal starts with a clean, empty cart ready for new transactions
         CartItems.Clear();
@@ -167,17 +211,42 @@ public sealed class PosViewModel : ViewModelBase
 
     public ObservableCollection<string> Brands { get; }
 
+    public ObservableCollection<string> PackagingFacets { get; } = new(new[] { "All", "PACK", "COIL", "BOX", "REEL" });
+
     public List<PosProductItemViewModel> AllProducts { get; }
 
     public ObservableCollection<PosProductItemViewModel> FilteredProducts { get; }
 
     public ObservableCollection<PosCartItemViewModel> CartItems { get; }
 
+    public string SelectedPackagingFacet
+    {
+        get => _selectedPackagingFacet;
+        set
+        {
+            if (SetProperty(ref _selectedPackagingFacet, value))
+            {
+                ApplyFilters();
+                if (_posCatalogGateway is not null)
+                {
+                    _ = ScheduleCatalogSearchAsync(SearchText, immediate: true);
+                }
+            }
+        }
+    }
+
     public string SearchText
     {
         get => _searchText;
         set
         {
+            var nowTicks = Stopwatch.GetTimestamp();
+            var elapsedMs = _lastKeystrokeTicks > 0
+                ? (nowTicks - _lastKeystrokeTicks) * 1000.0 / Stopwatch.Frequency
+                : double.MaxValue;
+            _lastKeystrokeTicks = nowTicks;
+            var isScannerKeystroke = elapsedMs < 20.0;
+
             if (SetProperty(ref _searchText, value))
             {
                 if (_posCatalogGateway is null)
@@ -186,9 +255,19 @@ public sealed class PosViewModel : ViewModelBase
                 }
                 else
                 {
-                    _ = ScheduleCatalogSearchAsync(value);
+                    _ = ScheduleCatalogSearchAsync(value, immediate: isScannerKeystroke);
                 }
             }
+        }
+    }
+
+    public void ProcessScannerInput(string barcode)
+    {
+        _lastKeystrokeTicks = Stopwatch.GetTimestamp();
+        SearchText = barcode;
+        if (_posCatalogGateway is not null)
+        {
+            _ = ScheduleCatalogSearchAsync(barcode, immediate: true);
         }
     }
 
@@ -375,6 +454,56 @@ public sealed class PosViewModel : ViewModelBase
     public ICommand SaveDraftCommand { get; }
     public ICommand HoldDraftCommand { get; }
     public ICommand RecentDraftsCommand { get; }
+    public ICommand OpenPackPickerCommand { get; }
+    public ICommand OpenCableCutCommand { get; }
+    public ICommand OpenSupervisorApprovalCommand { get; }
+    public ICommand ClearSupervisorApprovalCommand { get; }
+
+    private DateOnly? _activePostingDate;
+    private SupervisorApprovalRequest? _activeSupervisorApproval;
+    private string? _activeSupervisorName;
+
+    public DateOnly? ActivePostingDate
+    {
+        get => _activePostingDate;
+        set
+        {
+            if (SetProperty(ref _activePostingDate, value))
+            {
+                OnPropertyChanged(nameof(HasActiveSupervisorApproval));
+                OnPropertyChanged(nameof(ActivePostingDateDisplay));
+            }
+        }
+    }
+
+    public SupervisorApprovalRequest? ActiveSupervisorApproval
+    {
+        get => _activeSupervisorApproval;
+        set
+        {
+            if (SetProperty(ref _activeSupervisorApproval, value))
+            {
+                OnPropertyChanged(nameof(HasActiveSupervisorApproval));
+                OnPropertyChanged(nameof(ActiveSupervisorSummary));
+            }
+        }
+    }
+
+    public string? ActiveSupervisorName
+    {
+        get => _activeSupervisorName;
+        set
+        {
+            if (SetProperty(ref _activeSupervisorName, value))
+            {
+                OnPropertyChanged(nameof(ActiveSupervisorSummary));
+            }
+        }
+    }
+
+    public bool HasActiveSupervisorApproval => ActiveSupervisorApproval is not null || ActivePostingDate.HasValue;
+    public string ActivePostingDateDisplay => ActivePostingDate.HasValue ? $"Posting Date: {ActivePostingDate.Value:yyyy-MM-dd}" : "Posting Date: Today";
+    public string ActiveSupervisorSummary => !string.IsNullOrWhiteSpace(ActiveSupervisorName) ? $"Authorized by: {ActiveSupervisorName}" : "Supervisor Authorized";
 
     public string? ScannerStatusMessage
     {
@@ -417,6 +546,19 @@ public sealed class PosViewModel : ViewModelBase
         if (_isBackendCatalog && product.IsSerialized)
         {
             OpenExactUnitPicker(product);
+            return;
+        }
+
+        if (_isBackendCatalog && (product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container ||
+                                 product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Pack))
+        {
+            OpenPackPicker(product);
+            return;
+        }
+
+        if (_isBackendCatalog && product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Length)
+        {
+            OpenCableCutDialog(product);
             return;
         }
 
@@ -640,7 +782,9 @@ public sealed class PosViewModel : ViewModelBase
             preCommitAsyncValidation: RevalidateCartAsync,
             clientOperationId: _pendingSaleOperationId,
             draftId: _currentDraftId,
-            draftVersion: _currentDraftVersion)
+            draftVersion: _currentDraftVersion,
+            postingDate: ActivePostingDate,
+            supervisorApproval: ActiveSupervisorApproval)
         {
             OnCheckoutCancelled = attempted =>
             {
@@ -852,6 +996,164 @@ public sealed class PosViewModel : ViewModelBase
         RecalculateTotals();
     }
 
+    public void OpenPackPicker(PosProductItemViewModel product, decimal requestedQuantity = 1m)
+    {
+        if (_dialogService is null || product.BackendProductId is not Guid productId)
+        {
+            _toastService?.Show("Pack container backend authority is unavailable.", ToastTone.Warning);
+            return;
+        }
+
+        var remoteWorkflow = _workflowService as RemotePosWorkflowService;
+        if (remoteWorkflow is null)
+        {
+            _toastService?.Show("Pack container workflow service is unavailable.", ToastTone.Warning);
+            return;
+        }
+
+        var picker = new PackPickerViewModel(
+            remoteWorkflow,
+            productId,
+            product.Name,
+            requestedQuantity,
+            product.Unit,
+            _dialogService,
+            container =>
+            {
+                AddPackContainerToCart(product, container, requestedQuantity);
+            });
+
+        _dialogService.Show(picker);
+        _ = picker.LoadContainersAsync();
+    }
+
+    public void AddPackContainerToCart(
+        PosProductItemViewModel product,
+        PackContainerDto container,
+        decimal quantity = 1m)
+    {
+        if (CartItems.Any(x => x.InventoryUnitId == container.ContainerId))
+        {
+            ScannerStatusMessage = $"Container {container.TrackingCode} is already in the cart.";
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+            return;
+        }
+
+        var item = new PosCartItemViewModel(
+            product,
+            quantity: quantity,
+            exactUnit: null,
+            onChanged: _ => RecalculateTotals(),
+            onRemove: RemoveCartItem,
+            canOverridePrice: _canOverridePrice,
+            packContainer: container,
+            allowSplitCuts: false);
+
+        CartItems.Add(item);
+        ScannerStatusMessage = $"Added container {container.TrackingCode} ({quantity} {container.UnitOfMeasure}).";
+        RecalculateTotals();
+    }
+
+    public void OpenCableCutDialog(PosProductItemViewModel product, decimal requestedCutLength = 1m)
+    {
+        if (_dialogService is null || product.BackendProductId is not Guid productId)
+        {
+            _toastService?.Show("Cable cutting backend authority is unavailable.", ToastTone.Warning);
+            return;
+        }
+
+        var remoteWorkflow = _workflowService as RemotePosWorkflowService;
+        if (remoteWorkflow is null)
+        {
+            _toastService?.Show("Cable cutting workflow service is unavailable.", ToastTone.Warning);
+            return;
+        }
+
+        var cableCut = new CableCutViewModel(
+            remoteWorkflow,
+            productId,
+            product.Name,
+            requestedCutLength,
+            product.Unit,
+            _dialogService,
+            (coil, cutLength, allowSplitCuts) =>
+            {
+                AddCableCutToCart(product, coil, cutLength, allowSplitCuts);
+            });
+
+        _dialogService.Show(cableCut);
+        _ = cableCut.LoadCoilsAsync();
+    }
+
+    public void AddCableCutToCart(
+        PosProductItemViewModel product,
+        PackContainerDto coil,
+        decimal cutLength,
+        bool allowSplitCuts)
+    {
+        if (CartItems.Any(x => x.InventoryUnitId == coil.ContainerId))
+        {
+            ScannerStatusMessage = $"Container {coil.TrackingCode} is already in the cart.";
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+            return;
+        }
+
+        var item = new PosCartItemViewModel(
+            product,
+            quantity: cutLength,
+            exactUnit: null,
+            onChanged: _ => RecalculateTotals(),
+            onRemove: RemoveCartItem,
+            canOverridePrice: _canOverridePrice,
+            packContainer: coil,
+            allowSplitCuts: allowSplitCuts);
+
+        CartItems.Add(item);
+        ScannerStatusMessage = $"Added cable cut {cutLength} {coil.UnitOfMeasure} from coil {coil.TrackingCode}.";
+        RecalculateTotals();
+    }
+
+    public void OpenSupervisorApproval(
+        DateOnly postingDate,
+        string operationType = "Sale",
+        Action<SupervisorApprovalResult>? onAuthorized = null)
+    {
+        if (_dialogService is null)
+        {
+            _toastService?.Show("Dialog service is unavailable.", ToastTone.Warning);
+            return;
+        }
+
+        var remoteWorkflow = _workflowService as RemotePosWorkflowService;
+        if (remoteWorkflow is null)
+        {
+            _toastService?.Show("API service is unavailable for supervisor authorization.", ToastTone.Warning);
+            return;
+        }
+
+        var shopDate = DateOnly.FromDateTime(DateTime.Now);
+        var supervisorModal = new SupervisorApprovalModalViewModel(
+            remoteWorkflow.ApiClient,
+            postingDate: postingDate,
+            shopDate: shopDate,
+            operationType: operationType,
+            dialogService: _dialogService,
+            onAuthorized: res =>
+            {
+                if (res.IsAuthorized)
+                {
+                    ActivePostingDate = postingDate;
+                    ActiveSupervisorApproval = res.Request;
+                    ActiveSupervisorName = res.SupervisorName;
+                }
+                onAuthorized?.Invoke(res);
+            });
+
+        _dialogService.Show(supervisorModal);
+        _ = supervisorModal.LoadSupervisorsAsync();
+        _ = supervisorModal.EvaluatePeriodLockAsync();
+    }
+
     private async Task ScanAsync()
     {
         if (_workflowService is null)
@@ -895,7 +1197,62 @@ public sealed class PosViewModel : ViewModelBase
 
             var match = matches[0];
             var product = FindOrCreateProduct(match);
-            if (match.InventoryUnitId is Guid exactId)
+
+            if (product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Container ||
+                product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Pack)
+            {
+                var trackingCode = !string.IsNullOrWhiteSpace(match.TrackingCode)
+                    ? match.TrackingCode
+                    : (match.InventoryUnitId is not null ? input : null);
+
+                if (!string.IsNullOrWhiteSpace(trackingCode))
+                {
+                    if (match.UnitStatus.HasValue && match.UnitStatus.Value != EdgeRetails.Domain.Inventory.InventoryUnitStatus.InStock)
+                    {
+                        ScannerStatusMessage =
+                            $"Physical unit is unavailable ({match.UnitStatus.Value}).";
+                        _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+                        return;
+                    }
+
+                    if (CartItems.Any(x => (match.InventoryUnitId.HasValue && x.InventoryUnitId == match.InventoryUnitId.Value) ||
+                                           (x.PackContainer != null && string.Equals(x.PackContainer.TrackingCode, trackingCode, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        ScannerStatusMessage = $"Container {trackingCode} is already in the cart.";
+                        _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+                        return;
+                    }
+
+                    var packContainer = await _workflowService.GetPackByTrackingCodeAsync(trackingCode);
+                    if (packContainer is null)
+                    {
+                        ScannerStatusMessage =
+                            "Container resolved but authoritative detail is no longer available.";
+                        _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+                        return;
+                    }
+
+                    if (packContainer.RemainingQuantity <= 0m)
+                    {
+                        ScannerStatusMessage =
+                            $"Container {packContainer.TrackingCode} has no remaining capacity ({packContainer.RemainingQuantity} {packContainer.UnitOfMeasure}).";
+                        _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+                        OpenPackPicker(product);
+                        return;
+                    }
+
+                    AddPackContainerToCart(product, packContainer, 1m);
+                }
+                else
+                {
+                    OpenPackPicker(product);
+                }
+            }
+            else if (product.TrackingMode == EdgeRetails.Domain.Catalog.TrackingMode.Length)
+            {
+                OpenCableCutDialog(product);
+            }
+            else if (match.InventoryUnitId is Guid exactId)
             {
                 if (match.UnitStatus != EdgeRetails.Domain.Inventory.InventoryUnitStatus.InStock)
                 {
@@ -1256,7 +1613,8 @@ public sealed class PosViewModel : ViewModelBase
             unit: match.UnitSymbol,
             backendProductId: match.ProductId,
             backendProductUnitId: match.ProductUnitId,
-            isSerialized: match.IsSerialized);
+            isSerialized: match.IsSerialized,
+            trackingMode: match.TrackingMode);
         AllProducts.Add(product);
         ApplyFilters();
         return product;
@@ -1339,38 +1697,84 @@ public sealed class PosViewModel : ViewModelBase
         }
     }
 
-    private async Task RefreshPendingSaleOperationIdAsync()
+    internal Task RefreshPendingSaleOperationIdAsync()
     {
         if (_operationIntents is null)
         {
             _pendingSaleOperationId = null;
             _saleOperationIntentReady = true;
             ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+            return Task.CompletedTask;
+        }
+
+        lock (_pendingSaleIntentLock)
+        {
+            if (_inFlightRefreshTask is not null && !_inFlightRefreshTask.IsCompleted)
+            {
+                return _inFlightRefreshTask;
+            }
+
+            _inFlightRefreshTask = RefreshPendingSaleOperationIdCoreAsync();
+            return _inFlightRefreshTask;
+        }
+    }
+
+    private async Task RefreshPendingSaleOperationIdCoreAsync()
+    {
+        if (_operationIntents is null)
+        {
             return;
         }
 
-        if (Interlocked.Exchange(ref _pendingSaleIntentReadInFlight, 1) != 0)
+        try
         {
-            Volatile.Write(ref _pendingSaleIntentReadRequested, 1);
             _saleOperationIntentReady = false;
             ScannerStatusMessage = PendingSaleIntentCheckStatus;
             ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
-            return;
-        }
 
-        _saleOperationIntentReady = false;
-        ScannerStatusMessage = PendingSaleIntentCheckStatus;
-        ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
-        try
-        {
-            do
+            var pending = await _operationIntents.FindPendingByPrefixAsync(
+                BackendTransactionService.SaleCheckoutIntentKey);
+            var pendingEntry = pending.SingleOrDefault();
+            if (pendingEntry is not null)
             {
-                Volatile.Write(ref _pendingSaleIntentReadRequested, 0);
-                var pending = await _operationIntents.FindPendingByPrefixAsync(
-                    BackendTransactionService.SaleCheckoutIntentKey);
-                _pendingSaleOperationId = pending.SingleOrDefault()?.OperationId;
+                try
+                {
+                    var recovered = await _transactionService.TryRecoverPendingSaleAsync();
+                    if (recovered is not null)
+                    {
+                        _pendingSaleOperationId = null;
+                        _toastService?.Show(
+                            $"Recovered committed sale {recovered.InvoiceNumber} from previous session.",
+                            ToastTone.Success);
+                    }
+                    else
+                    {
+                        // Check if intent was resolved by recovery or is still pending
+                        var refreshedPending = await _operationIntents.FindPendingByPrefixAsync(
+                            BackendTransactionService.SaleCheckoutIntentKey);
+                        var activeEntry = refreshedPending.SingleOrDefault();
+                        _pendingSaleOperationId = activeEntry?.OperationId;
+
+                        // If intent is still pending and cart is empty, restore cart from SafeReplayEnvelope
+                        if (activeEntry is not null && !string.IsNullOrWhiteSpace(activeEntry.SafeReplayEnvelope) && CartItems.Count == 0)
+                        {
+                            RestoreCartFromReplayEnvelope(activeEntry.SafeReplayEnvelope);
+                        }
+                    }
+                }
+                catch (BackendOperationException boEx)
+                {
+                    // Server rejected the sale with a final rejection: present canonical error code and message
+                    _pendingSaleOperationId = null;
+                    _saleOperationIntentReady = true;
+                    ScannerStatusMessage = $"Previous sale was rejected by backend: [{boEx.Code}] {boEx.Message}";
+                    _toastService?.Show(ScannerStatusMessage, ToastTone.Warning);
+                }
             }
-            while (Interlocked.Exchange(ref _pendingSaleIntentReadRequested, 0) != 0);
+            else
+            {
+                _pendingSaleOperationId = null;
+            }
 
             _saleOperationIntentReady = true;
             if (string.Equals(ScannerStatusMessage, PendingSaleIntentCheckStatus, StringComparison.Ordinal))
@@ -1386,12 +1790,83 @@ public sealed class PosViewModel : ViewModelBase
         }
         finally
         {
-            Interlocked.Exchange(ref _pendingSaleIntentReadInFlight, 0);
-            ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
-            if (Interlocked.Exchange(ref _pendingSaleIntentReadRequested, 0) != 0)
+            lock (_pendingSaleIntentLock)
             {
-                _ = RefreshPendingSaleOperationIdAsync();
+                _inFlightRefreshTask = null;
             }
+            ((RelayCommand)CompleteSaleCommand).NotifyCanExecuteChanged();
+        }
+    }
+
+    private void RestoreCartFromReplayEnvelope(string safeReplayEnvelopeJson)
+    {
+        try
+        {
+            var envelope = JsonSerializer.Deserialize<SafeSaleReplayEnvelope>(safeReplayEnvelopeJson);
+            if (envelope is null || envelope.Lines.Count == 0)
+            {
+                return;
+            }
+
+            CartItems.Clear();
+            foreach (var line in envelope.Lines)
+            {
+                var product = AllProducts.FirstOrDefault(p =>
+                    p.BackendProductId == line.ProductId &&
+                    (p.BackendProductUnitId is null || p.BackendProductUnitId == line.ProductUnitId))
+                    ?? AllProducts.FirstOrDefault(p =>
+                        string.Equals(p.Sku, line.SkuOrCode, StringComparison.OrdinalIgnoreCase))
+                    ?? new PosProductItemViewModel(
+                        id: line.ProductId.ToString("D"),
+                        name: string.IsNullOrWhiteSpace(line.ProductName) ? "Restored Item" : line.ProductName,
+                        sku: line.SkuOrCode,
+                        brand: "—",
+                        category: "General",
+                        stock: Math.Max(line.Quantity, 999m),
+                        price: line.ListUnitPrice > 0m ? line.ListUnitPrice : line.UnitPrice,
+                        backendProductId: line.ProductId,
+                        backendProductUnitId: line.ProductUnitId);
+
+                var cartItem = new PosCartItemViewModel(
+                    product,
+                    quantity: line.Quantity,
+                    onChanged: _ => RecalculateTotals(),
+                    onRemove: RemoveCartItem,
+                    canOverridePrice: _canOverridePrice);
+
+                if (line.PriceOverrideUnitPrice is decimal overridePrice)
+                {
+                    cartItem.ApplyPriceOverride(overridePrice, line.PriceOverrideReason ?? "Restored override");
+                }
+
+                CartItems.Add(cartItem);
+            }
+
+            var customer = envelope.CustomerId is Guid customerId
+                ? _customers.FirstOrDefault(x => x.BackendId == customerId)
+                : null;
+            if (customer is not null)
+            {
+                ApplyCustomerSelection(customer);
+            }
+            else if (!string.IsNullOrWhiteSpace(envelope.CustomerName))
+            {
+                CustomerName = envelope.CustomerName;
+                CustomerPhone = envelope.CustomerPhone ?? string.Empty;
+            }
+
+            if (envelope.DiscountAmount > 0m)
+            {
+                DiscountAmount = envelope.DiscountAmount;
+            }
+
+            RecalculateTotals();
+            ScannerStatusMessage = "Restored pending uncommitted sale from previous session. Review and complete checkout.";
+            _toastService?.Show(ScannerStatusMessage, ToastTone.Info);
+        }
+        catch
+        {
+            // Fail safe without interrupting startup
         }
     }
 
@@ -1576,7 +2051,12 @@ public sealed class PosViewModel : ViewModelBase
             var distinctBrands = rows.Select(row => row.Brand).Where(b => !string.IsNullOrWhiteSpace(b)).Select(b => b!).Distinct().ToArray();
             MergeFilterValues(Categories, rows.Select(row => row.Category));
             MergeFilterValues(Brands, distinctBrands);
-            _hasAuthoritativeCatalogFilters = true;
+
+            var method = _posCatalogGateway.GetType().GetMethod(nameof(IPosCatalogGateway.LoadAsync),
+                new[] { typeof(string), typeof(string), typeof(string), typeof(int), typeof(string), typeof(Guid?), typeof(CancellationToken) });
+            var gatewaySupportsFiltering = method != null && method.DeclaringType != typeof(IPosCatalogGateway);
+
+            _hasAuthoritativeCatalogFilters = gatewaySupportsFiltering || distinctBrands.Length > 0;
             OnPropertyChanged(nameof(SupportsCatalogFilters));
             OnPropertyChanged(nameof(CatalogReadLimitNotice));
             OnPropertyChanged(nameof(FilteredProductCountText));
@@ -1677,9 +2157,26 @@ public sealed class PosViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
             var term = SearchText.Trim();
-            query = query.Where(p =>
-                p.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                p.Sku.Contains(term, StringComparison.OrdinalIgnoreCase));
+            var matchedAlias = TaxonomyV3Store.SearchAliases.FirstOrDefault(a =>
+                string.Equals(a.Keyword, term, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedAlias != null)
+            {
+                query = query.Where(p =>
+                    p.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Sku.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Category.Contains(matchedAlias.Keyword, StringComparison.OrdinalIgnoreCase) ||
+                    (matchedAlias.TargetRef == "A01" && (p.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase))) ||
+                    (matchedAlias.TargetRef == "A03" && (p.Name.Contains("Breaker", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("MCB", StringComparison.OrdinalIgnoreCase))) ||
+                    (matchedAlias.TargetRef == "B01" && p.Name.Contains("Fan", StringComparison.OrdinalIgnoreCase)) ||
+                    (matchedAlias.TargetRef == "B04" && p.Name.Contains("Iron", StringComparison.OrdinalIgnoreCase)));
+            }
+            else
+            {
+                query = query.Where(p =>
+                    p.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Sku.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         if (SupportsCatalogFilters && !string.Equals(SelectedCategory, "All", StringComparison.OrdinalIgnoreCase))
@@ -1692,6 +2189,15 @@ public sealed class PosViewModel : ViewModelBase
         {
             query = query.Where(p =>
                 string.Equals(p.Brand, SelectedBrand, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.Equals(SelectedPackagingFacet, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(p =>
+                (SelectedPackagingFacet == "PACK" && (p.Unit.Contains("Pack", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Pack", StringComparison.OrdinalIgnoreCase))) ||
+                (SelectedPackagingFacet == "COIL" && (p.Unit.Contains("Coil", StringComparison.OrdinalIgnoreCase) || p.Unit == "m" || p.Name.Contains("Coil", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase))) ||
+                (SelectedPackagingFacet == "BOX" && (p.Unit.Contains("Box", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Box", StringComparison.OrdinalIgnoreCase))) ||
+                (SelectedPackagingFacet == "REEL" && (p.Unit.Contains("Reel", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Reel", StringComparison.OrdinalIgnoreCase))));
         }
 
         FilteredProducts.Clear();

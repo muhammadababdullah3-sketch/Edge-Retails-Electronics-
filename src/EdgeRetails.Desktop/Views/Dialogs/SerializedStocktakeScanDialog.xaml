@@ -10,16 +10,22 @@
                     <TextBlock Text="{Binding ExpectedDisplay}" Margin="0,4,0,0"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
-                <Button Content="✕" HorizontalAlignment="Right" Command="{Binding CancelCommand}"
-                        Style="{StaticResource Button.Text.Neutral}"
+                <Button HorizontalAlignment="Right" Command="{Binding CancelCommand}"
+                        Style="{StaticResource Button.Close}"
                         IsCancel="True" />
             </Grid>
             <TextBlock Margin="0,16,0,6"
                        Text="Scan/paste one TrackingCode, Serial or IMEI per line."
                        Foreground="{DynamicResource Brush.Text.Secondary}" />
             <TextBox Text="{Binding ScannedIdentities, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" MinHeight="260" VerticalScrollBarVisibility="Auto"
+                     AcceptsReturn="True" MinHeight="220" VerticalScrollBarVisibility="Auto"
                      Style="{StaticResource Input.TextBox}" />
+            <TextBlock Margin="0,10,0,4"
+                       Text="Separate loose / piece count (optional):"
+                       Foreground="{DynamicResource Brush.Text.Secondary}" />
+            <TextBox Text="{Binding SeparateLooseCountText, UpdateSourceTrigger=PropertyChanged}"
+                     Style="{StaticResource Input.TextBox}"
+                     Height="32" />
             <TextBlock Text="{Binding Message}" Margin="0,10,0,0"
                        Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">

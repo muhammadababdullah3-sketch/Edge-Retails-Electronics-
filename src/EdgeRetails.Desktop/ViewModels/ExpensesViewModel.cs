@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
 
@@ -7,6 +8,7 @@ namespace EdgeRetails.Desktop.ViewModels;
 
 public sealed class ExpenseEditViewModel : ViewModelBase
 {
+    private readonly IClientOperationIntentStore _operationIntents;
     private int _submissionGate;
     private bool _confirmed;
     private SubmittedExpense? _submittedExpense;
@@ -36,9 +38,9 @@ public sealed class ExpenseEditViewModel : ViewModelBase
     public string SubmissionStatus => IsReadOnly
         ? (_isVoided ? "Expense has been voided." : _voidClientOperationId is not null
             ? "Void outcome unconfirmed. Retry preserves the original void operation identity."
-            : "Posted expense — read only. Enter void reason and click Void Expense to reverse this transaction.")
+            : "Posted expense — read only for financial audit integrity. Enter void reason and click Void Expense to reverse this transaction.")
         : IsBusy ? "Submitting expense…" : _submittedExpense is not null
-        ? "Outcome unresolved. Retry preserves the original expense; restart recovery is not yet supported." : string.Empty;
+        ? "Outcome unresolved. Retry preserves the original expense; durable intent is stored for restart recovery." : string.Empty;
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
     private readonly IBackendBusinessOperationsService? _backendService;
     private readonly IReadOnlyList<string> _categories;
@@ -61,7 +63,8 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         ExpenseRecord? existing = null,
         Action? saved = null,
         IBackendBusinessOperationsService? backendService = null,
-        IReadOnlyList<string>? categories = null)
+        IReadOnlyList<string>? categories = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _close = close;
@@ -69,6 +72,7 @@ public sealed class ExpenseEditViewModel : ViewModelBase
         _saved = saved;
         _backendService = backendService;
         _categories = categories ?? _service.ExpenseCategories;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         _selectedCategory = existing?.Category ?? _categories.FirstOrDefault() ?? string.Empty;
         _subcategory = existing?.Subcategory ?? string.Empty;
@@ -183,11 +187,50 @@ public sealed class ExpenseEditViewModel : ViewModelBase
                         "Posted expenses are immutable. Use a void/correction flow instead of editing in place.");
                 }
 
+                var operationKey = "expense:create";
+                var canonicalPayload = JsonSerializer.Serialize(new
+                {
+                    Category = submitted.Category,
+                    Subcategory = submitted.Subcategory,
+                    Amount = submitted.Amount,
+                    Date = DateOnly.FromDateTime(submitted.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    PaymentMethod = submitted.PaymentMethod,
+                    StaffMember = submitted.StaffMember,
+                    Note = string.IsNullOrWhiteSpace(submitted.Note) ? null : submitted.Note.Trim()
+                });
+
+                Guid operationId;
+                try
+                {
+                    operationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+                }
+                catch (InvalidOperationException)
+                {
+                    _toastService.Show(
+                        "An earlier expense has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                        ToastTone.Warning);
+                    return;
+                }
+
                 _submittedExpense = submitted;
                 NotifySubmissionState();
-                await _backendService.PostExpenseAsync(submitted.Category, submitted.Subcategory,
-                    submitted.Amount, submitted.Date, submitted.PaymentMethod, submitted.Note);
-                _submittedExpense = null;
+                try
+                {
+                    await _backendService.PostExpenseAsync(submitted.Category, submitted.Subcategory,
+                        submitted.Amount, submitted.Date, submitted.PaymentMethod, submitted.Note, operationId);
+                    _operationIntents.Complete(operationKey, operationId);
+                    _submittedExpense = null;
+                }
+                catch (Exception ex) when (ex is ExpensePrePostValidationException || DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+                {
+                    _operationIntents.Complete(operationKey, operationId);
+                    _submittedExpense = null;
+                    NotifySubmissionState();
+                    _toastService.Show(
+                        DesktopErrorPresentation.ForException(ex, "Expense could not be saved."),
+                        ToastTone.Warning);
+                    return;
+                }
             }
 
             _confirmed = true;
@@ -226,12 +269,35 @@ public sealed class ExpenseEditViewModel : ViewModelBase
 
         try
         {
-            _voidClientOperationId ??= Guid.NewGuid();
-            if (_backendService is not null && _existing?.BackendId is Guid expenseId)
+            if (_existing?.BackendId is not Guid expenseId)
             {
-                await _backendService.VoidExpenseAsync(expenseId, _voidReason, _voidClientOperationId.Value);
+                return;
             }
 
+            var operationKey = $"expense:void:{expenseId:D}";
+            var canonicalPayload = $"{expenseId:D}|{_voidReason.Trim()}";
+            Guid operationId;
+            try
+            {
+                operationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+            }
+            catch (InvalidOperationException)
+            {
+                _toastService.Show(
+                    "A previous void for this expense has an unresolved outcome and a different reason.",
+                    ToastTone.Warning);
+                return;
+            }
+
+            _voidClientOperationId = operationId;
+            NotifySubmissionState();
+
+            if (_backendService is not null)
+            {
+                await _backendService.VoidExpenseAsync(expenseId, _voidReason, operationId);
+            }
+
+            _operationIntents.Complete(operationKey, operationId);
             _isVoided = true;
             _toastService.Show("Expense voided successfully.", ToastTone.Success);
             _close();
@@ -265,6 +331,7 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
 {
     private readonly DemoBusinessDirectoryService _service = DemoBusinessDirectoryService.Instance;
     private readonly IBackendBusinessOperationsService? _backendService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private readonly List<ExpenseRecord> _backendExpenses = [];
     private bool _backendLoaded;
     private bool _backendLoading;
@@ -292,11 +359,13 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
     public ExpensesViewModel(
         IToastService toastService,
         IDialogService dialogService,
-        IBackendBusinessOperationsService? backendService = null)
+        IBackendBusinessOperationsService? backendService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _backendService = backendService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         FilteredExpenses = [];
         Categories = backendService is null
@@ -380,7 +449,8 @@ public sealed class ExpensesViewModel : ViewModelBase, IDisposable
             expense,
             RefreshAfterMutation,
             _backendService,
-            Categories.Where(x => !string.Equals(x, "All", StringComparison.OrdinalIgnoreCase)).ToArray()));
+            Categories.Where(x => !string.Equals(x, "All", StringComparison.OrdinalIgnoreCase)).ToArray(),
+            _operationIntents));
     }
 
     private void SelectPeriod(string period)

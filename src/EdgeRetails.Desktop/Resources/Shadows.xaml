@@ -9,15 +9,15 @@
     <DropShadowEffect x:Key="Shadow.Card" BlurRadius="10" Direction="270" ShadowDepth="2" Opacity="0.10" Color="#050A15" />
 
     <!-- Semantic action elevation. -->
-    <DropShadowEffect x:Key="Shadow.Button.Primary" BlurRadius="9" Direction="270" ShadowDepth="3" Opacity="0.24" Color="#5142DE" />
+    <DropShadowEffect x:Key="Shadow.Button.Primary" BlurRadius="9" Direction="270" ShadowDepth="3" Opacity="0.24" Color="#4338CA" />
     <DropShadowEffect x:Key="Shadow.Button.Neutral" BlurRadius="4" Direction="270" ShadowDepth="1" Opacity="0.07" Color="#050A15" />
-    <DropShadowEffect x:Key="Shadow.Button.Info" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#2563EB" />
-    <DropShadowEffect x:Key="Shadow.Button.Payment" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#0F9F8F" />
-    <DropShadowEffect x:Key="Shadow.Button.Warning" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.22" Color="#D97706" />
-    <DropShadowEffect x:Key="Shadow.Button.Expense" BlurRadius="9" Direction="270" ShadowDepth="3" Opacity="0.22" Color="#EA580C" />
-    <DropShadowEffect x:Key="Shadow.Button.SuccessStrong" BlurRadius="11" Direction="270" ShadowDepth="2" Opacity="0.28" Color="#0F9F76" />
-    <DropShadowEffect x:Key="Shadow.Button.InfoStrong" BlurRadius="11" Direction="270" ShadowDepth="3" Opacity="0.26" Color="#2563EB" />
+    <DropShadowEffect x:Key="Shadow.Button.Info" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#1E40AF" />
+    <DropShadowEffect x:Key="Shadow.Button.Payment" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#155E75" />
+    <DropShadowEffect x:Key="Shadow.Button.Warning" BlurRadius="8" Direction="270" ShadowDepth="2" Opacity="0.22" Color="#B45309" />
+    <DropShadowEffect x:Key="Shadow.Button.Expense" BlurRadius="9" Direction="270" ShadowDepth="3" Opacity="0.22" Color="#7C2D12" />
+    <DropShadowEffect x:Key="Shadow.Button.SuccessStrong" BlurRadius="11" Direction="270" ShadowDepth="2" Opacity="0.28" Color="#065F46" />
+    <DropShadowEffect x:Key="Shadow.Button.InfoStrong" BlurRadius="11" Direction="270" ShadowDepth="3" Opacity="0.26" Color="#1E40AF" />
 
-    <DropShadowEffect x:Key="Shadow.BrandIcon" BlurRadius="5" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#5142DE" />
+    <DropShadowEffect x:Key="Shadow.BrandIcon" BlurRadius="5" Direction="270" ShadowDepth="2" Opacity="0.24" Color="#4338CA" />
     <DropShadowEffect x:Key="Shadow.Modal" BlurRadius="50" Direction="270" ShadowDepth="24" Opacity="0.30" Color="#000000" />
 </ResourceDictionary>

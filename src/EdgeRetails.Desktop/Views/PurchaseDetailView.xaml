@@ -21,8 +21,8 @@
                     <TextBlock Text="{Binding Supplier}" Margin="0,2,0,0"
                                FontSize="12" Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
-                <Button Content="✕" Command="{Binding CloseCommand}"
-                        Style="{StaticResource Button.Text.Neutral}"
+                <Button Command="{Binding CloseCommand}"
+                        Style="{StaticResource Button.Close}"
                         HorizontalAlignment="Right" VerticalAlignment="Top" />
             </Grid>
         </Border>

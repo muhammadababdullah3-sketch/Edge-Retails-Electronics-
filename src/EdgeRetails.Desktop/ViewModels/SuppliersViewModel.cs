@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Desktop.Services;
@@ -197,8 +198,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
     private readonly IBackendBusinessOperationsService? _backendService;
     private readonly IBackendOperationsService? _operationsService;
     private readonly Action? _updated;
-    private readonly Dictionary<Guid, Guid> _pendingPaymentReversals = [];
-    private readonly Dictionary<Guid, Guid> _pendingRefundReversals = [];
+    private readonly IClientOperationIntentStore _operationIntents;
 
     private SupplierAccountWorkspaceDto? _workspace;
     private bool _isLoading;
@@ -230,7 +230,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
     public bool CanEditFinancialFields => !IsSubmitting;
     public bool HasUnresolvedFinancialOperation => _unresolvedFinancialAction is not null;
     public string FinancialOperationStatus => IsSubmitting ? "Submitting original supplier operation..."
-        : HasUnresolvedFinancialOperation ? "Unresolved supplier operation retained. Retry the same action to submit its original values. Do not close this workspace; restart recovery is unavailable." : string.Empty;
+        : HasUnresolvedFinancialOperation ? "Unresolved supplier operation retained. Retry the same action to submit its original values. Durable intent is stored for restart recovery." : string.Empty;
 
     private bool BeginFinancialSubmission(string action)
     {
@@ -266,9 +266,6 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         OnPropertyChanged(nameof(FinancialOperationStatus));
     }
 
-    private Guid? _pendingSettlementOperationId;
-    private Guid? _pendingAdvanceOperationId;
-    private Guid? _pendingRefundOperationId;
     private const int MaxRetainedStatementEntries = 300;
     private int _isLoadingStatement;
     private long _loadVersion;
@@ -281,7 +278,8 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         IToastService toastService,
         Action? updated = null,
         IBackendBusinessOperationsService? backendService = null,
-        IBackendOperationsService? operationsService = null)
+        IBackendOperationsService? operationsService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         Supplier = supplier;
         _drawerService = drawerService;
@@ -290,6 +288,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
         _updated = updated;
         _backendService = backendService;
         _operationsService = operationsService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         CloseCommand = new RelayCommand(() =>
         {
@@ -648,16 +647,44 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             return;
         }
 
-        if (!BeginFinancialSubmission("payment:" + purpose))
+        var actionToken = "payment:" + purpose;
+        if (!BeginFinancialSubmission(actionToken))
         {
             return;
         }
         try
         {
-            var operationId = purpose == SupplierPaymentPurpose.Advance
-                ? (_pendingAdvanceOperationId ??= Guid.CreateVersion7())
-                : (_pendingSettlementOperationId ??= Guid.CreateVersion7());
-            var submitted = _pendingSubmission ??= new(operationId, TransactionAmount, SelectedMethod, ExternalReference, TransactionNote);
+            var operationKey = $"supplier-payment:{supplierId:D}:{purpose}";
+            var submitted = _pendingSubmission;
+            var amount = submitted?.Amount ?? TransactionAmount;
+            var method = submitted?.Method ?? SelectedMethod;
+            var reference = submitted?.ExternalReference ?? ExternalReference;
+            var note = submitted?.Note ?? TransactionNote;
+
+            var canonicalPayload = JsonSerializer.Serialize(new
+            {
+                SupplierId = supplierId,
+                Amount = amount,
+                Purpose = purpose.ToString(),
+                Method = method.ToString(),
+                ExternalReference = string.IsNullOrWhiteSpace(reference) ? string.Empty : reference.Trim(),
+                Note = string.IsNullOrWhiteSpace(note) ? string.Empty : note.Trim()
+            });
+
+            Guid operationId;
+            try
+            {
+                operationId = submitted?.OperationId ?? _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+            }
+            catch (InvalidOperationException)
+            {
+                _toastService.Show(
+                    "A previous payment for this supplier has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                    ToastTone.Warning);
+                return;
+            }
+
+            submitted ??= _pendingSubmission = new(operationId, amount, method, reference, note);
 
             try
             {
@@ -670,14 +697,7 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                     submitted.ExternalReference,
                     submitted.Note);
 
-                if (purpose == SupplierPaymentPurpose.Advance)
-                {
-                    _pendingAdvanceOperationId = null;
-                }
-                else
-                {
-                    _pendingSettlementOperationId = null;
-                }
+                _operationIntents.Complete(operationKey, submitted.OperationId);
 
                 _toastService.Show(
                     purpose == SupplierPaymentPurpose.Advance
@@ -687,6 +707,21 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                 ConfirmFinancialSubmission();
                 ClearTransactionEditor();
                 await LoadAccountAsync();
+            }
+            catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+            {
+                _operationIntents.Complete(operationKey, submitted.OperationId);
+                _pendingSubmission = null;
+                if (_unresolvedFinancialAction == actionToken)
+                {
+                    _unresolvedFinancialAction = null;
+                }
+                OnPropertyChanged(nameof(HasUnresolvedFinancialOperation));
+                OnPropertyChanged(nameof(FinancialOperationStatus));
+                _toastService.Show(
+                    $"Supplier operation rejected: {DesktopErrorPresentation.ForException(ex, "The operation was rejected by business rules.")}",
+                    ToastTone.Warning);
+                return;
             }
             catch (OperationException ex)
             {
@@ -720,14 +755,43 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             return;
         }
 
-        if (!BeginFinancialSubmission("refund"))
+        var actionToken = "refund";
+        if (!BeginFinancialSubmission(actionToken))
         {
             return;
         }
         try
         {
-            _pendingRefundOperationId ??= Guid.CreateVersion7();
-            var submitted = _pendingSubmission ??= new(_pendingRefundOperationId.Value, TransactionAmount, SelectedMethod, ExternalReference, TransactionNote);
+            var operationKey = $"supplier-refund:{supplierId:D}";
+            var submitted = _pendingSubmission;
+            var amount = submitted?.Amount ?? TransactionAmount;
+            var method = submitted?.Method ?? SelectedMethod;
+            var reference = submitted?.ExternalReference ?? ExternalReference;
+            var note = submitted?.Note ?? TransactionNote;
+
+            var canonicalPayload = JsonSerializer.Serialize(new
+            {
+                SupplierId = supplierId,
+                Amount = amount,
+                Method = method.ToString(),
+                ExternalReference = string.IsNullOrWhiteSpace(reference) ? string.Empty : reference.Trim(),
+                Note = string.IsNullOrWhiteSpace(note) ? string.Empty : note.Trim()
+            });
+
+            Guid operationId;
+            try
+            {
+                operationId = submitted?.OperationId ?? _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+            }
+            catch (InvalidOperationException)
+            {
+                _toastService.Show(
+                    "A previous refund for this supplier has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                    ToastTone.Warning);
+                return;
+            }
+
+            submitted ??= _pendingSubmission = new(operationId, amount, method, reference, note);
             try
             {
                 await _operationsService.CreateSupplierRefundAsync(
@@ -737,11 +801,28 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                     submitted.OperationId,
                     submitted.ExternalReference,
                     submitted.Note);
-                _pendingRefundOperationId = null;
+
+                _operationIntents.Complete(operationKey, submitted.OperationId);
+
                 _toastService.Show("Supplier refund received.", ToastTone.Success);
                 ConfirmFinancialSubmission();
                 ClearTransactionEditor();
                 await LoadAccountAsync();
+            }
+            catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+            {
+                _operationIntents.Complete(operationKey, submitted.OperationId);
+                _pendingSubmission = null;
+                if (_unresolvedFinancialAction == actionToken)
+                {
+                    _unresolvedFinancialAction = null;
+                }
+                OnPropertyChanged(nameof(HasUnresolvedFinancialOperation));
+                OnPropertyChanged(nameof(FinancialOperationStatus));
+                _toastService.Show(
+                    $"Supplier operation rejected: {DesktopErrorPresentation.ForException(ex, "The operation was rejected by business rules.")}",
+                    ToastTone.Warning);
+                return;
             }
             catch (OperationException ex)
             {
@@ -775,16 +856,28 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             return;
         }
 
-        if (!BeginFinancialSubmission("payment-reversal:" + payment.PaymentId))
+        var actionToken = "payment-reversal:" + payment.PaymentId;
+        if (!BeginFinancialSubmission(actionToken))
         {
             return;
         }
         try
         {
-            if (!_pendingPaymentReversals.TryGetValue(payment.PaymentId, out var operationId))
+            var reason = string.IsNullOrWhiteSpace(ReversalReason) ? string.Empty : ReversalReason.Trim();
+            var operationKey = $"supplier-payment-reversal:{payment.PaymentId:D}";
+            var canonicalPayload = $"{payment.PaymentId:D}|{reason}";
+
+            Guid operationId;
+            try
             {
-                operationId = Guid.CreateVersion7();
-                _pendingPaymentReversals[payment.PaymentId] = operationId;
+                operationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+            }
+            catch (InvalidOperationException)
+            {
+                _toastService.Show(
+                    "A previous reversal for this payment has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                    ToastTone.Warning);
+                return;
             }
 
             if (!_paymentReversalReasons.ContainsKey(payment.PaymentId))
@@ -799,13 +892,30 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                     payment.PaymentId,
                     submittedReason,
                     operationId);
-                _pendingPaymentReversals.Remove(payment.PaymentId);
+
+                _operationIntents.Complete(operationKey, operationId);
+
                 _paymentReversalReasons.Remove(payment.PaymentId);
                 ConfirmFinancialSubmission();
                 _reversalReason = string.Empty;
                 OnPropertyChanged(nameof(ReversalReason));
                 _toastService.Show("Supplier payment reversed through append-only correction.", ToastTone.Success);
                 await LoadAccountAsync();
+            }
+            catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+            {
+                _operationIntents.Complete(operationKey, operationId);
+                _paymentReversalReasons.Remove(payment.PaymentId);
+                if (_unresolvedFinancialAction == actionToken)
+                {
+                    _unresolvedFinancialAction = null;
+                }
+                OnPropertyChanged(nameof(HasUnresolvedFinancialOperation));
+                OnPropertyChanged(nameof(FinancialOperationStatus));
+                _toastService.Show(
+                    $"Supplier operation rejected: {DesktopErrorPresentation.ForException(ex, "The operation was rejected by business rules.")}",
+                    ToastTone.Warning);
+                return;
             }
             catch (OperationException ex)
             {
@@ -839,16 +949,28 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             return;
         }
 
-        if (!BeginFinancialSubmission("refund-reversal:" + refund.RefundId))
+        var actionToken = "refund-reversal:" + refund.RefundId;
+        if (!BeginFinancialSubmission(actionToken))
         {
             return;
         }
         try
         {
-            if (!_pendingRefundReversals.TryGetValue(refund.RefundId, out var operationId))
+            var reason = string.IsNullOrWhiteSpace(ReversalReason) ? string.Empty : ReversalReason.Trim();
+            var operationKey = $"supplier-refund-reversal:{refund.RefundId:D}";
+            var canonicalPayload = $"{refund.RefundId:D}|{reason}";
+
+            Guid operationId;
+            try
             {
-                operationId = Guid.CreateVersion7();
-                _pendingRefundReversals[refund.RefundId] = operationId;
+                operationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+            }
+            catch (InvalidOperationException)
+            {
+                _toastService.Show(
+                    "A previous reversal for this refund has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                    ToastTone.Warning);
+                return;
             }
 
             if (!_refundReversalReasons.ContainsKey(refund.RefundId))
@@ -863,13 +985,30 @@ public sealed class SupplierDetailViewModel : ViewModelBase
                     refund.RefundId,
                     submittedReason,
                     operationId);
-                _pendingRefundReversals.Remove(refund.RefundId);
+
+                _operationIntents.Complete(operationKey, operationId);
+
                 _refundReversalReasons.Remove(refund.RefundId);
                 ConfirmFinancialSubmission();
                 _reversalReason = string.Empty;
                 OnPropertyChanged(nameof(ReversalReason));
                 _toastService.Show("Supplier refund reversed through append-only correction.", ToastTone.Success);
                 await LoadAccountAsync();
+            }
+            catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+            {
+                _operationIntents.Complete(operationKey, operationId);
+                _refundReversalReasons.Remove(refund.RefundId);
+                if (_unresolvedFinancialAction == actionToken)
+                {
+                    _unresolvedFinancialAction = null;
+                }
+                OnPropertyChanged(nameof(HasUnresolvedFinancialOperation));
+                OnPropertyChanged(nameof(FinancialOperationStatus));
+                _toastService.Show(
+                    $"Supplier operation rejected: {DesktopErrorPresentation.ForException(ex, "The operation was rejected by business rules.")}",
+                    ToastTone.Warning);
+                return;
             }
             catch (OperationException ex)
             {
@@ -892,9 +1031,9 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private bool CanCloseFinancialWorkspace()
     {
-        if (IsSubmitting || HasUnresolvedFinancialOperation)
+        if (IsSubmitting)
         {
-            _toastService.Show("Keep this workspace open until the supplier operation is resolved. Durable restart recovery is not available.", ToastTone.Warning);
+            _toastService.Show("Keep this workspace open while the supplier operation is submitting.", ToastTone.Warning);
             return false;
         }
         return true;
@@ -928,9 +1067,6 @@ public sealed class SupplierDetailViewModel : ViewModelBase
 
     private void ResetPendingEntryOperations()
     {
-        _pendingSettlementOperationId = null;
-        _pendingAdvanceOperationId = null;
-        _pendingRefundOperationId = null;
     }
 }
 
@@ -948,6 +1084,7 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
     private readonly IToastService _toastService;
     private readonly IDialogService _dialogService;
     private readonly IDrawerService _drawerService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private string _searchText = string.Empty;
 
     private const int PageSize = 100;
@@ -971,13 +1108,15 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
         IDialogService dialogService,
         IDrawerService drawerService,
         IBackendBusinessOperationsService? backendService = null,
-        IBackendOperationsService? operationsService = null)
+        IBackendOperationsService? operationsService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _drawerService = drawerService;
         _backendService = backendService;
         _operationsService = operationsService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         FilteredSuppliers = [];
         AddSupplierCommand = new RelayCommand(OpenAddSupplier);
@@ -1044,7 +1183,8 @@ public sealed class SuppliersViewModel : ViewModelBase, IDisposable
             _toastService,
             RefreshAfterMutation,
             _backendService,
-            _operationsService));
+            _operationsService,
+            _operationIntents));
     }
 
     private void OnStateChanged(object? sender, EventArgs e) => Refresh();

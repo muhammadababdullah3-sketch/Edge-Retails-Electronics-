@@ -50,7 +50,8 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             _fakes.Transactions,
             _fakes.Authorization,
             _fakes.UnitOfWork,
-            _fakes.Warranty);
+            _fakes.Warranty,
+            eligibility: _fakes.Eligibility);
 
     private CreatePurchaseHandler CreatePurchaseHandler() =>
         new(
@@ -169,8 +170,8 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             OpenedBy = cashierId,
             OpeningCash = openingCash,
             Status = CashSessionStatus.Open,
-            OpenedAt = DateTimeOffset.UtcNow,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            OpenedAt = _fakes.Clock.UtcNow,
+            BusinessDate = _fakes.Clock.ShopDate
         };
         _fakes.Cash.AddSession(session);
         return session;
@@ -192,7 +193,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 $"INV-{Guid.NewGuid():N}"[..10],
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Initial inventory intake",
                 0m,
                 PurchaseSettlementMode.External,
@@ -805,7 +806,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             fakesA.Inventory.AddInventoryUnit(invUnit);
 
             var cashier = Guid.CreateVersion7();
-            var session = new CashSession { Id = Guid.CreateVersion7(), OpenedBy = cashier, Status = CashSessionStatus.Open, BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow) };
+            var session = new CashSession { Id = Guid.CreateVersion7(), OpenedBy = cashier, Status = CashSessionStatus.Open, BusinessDate = fakesA.Clock.ShopDate };
             fakesA.Cash.AddSession(session);
 
             var saleHandler = new CompleteSaleHandler(fakesA.Sales, fakesA.Quotations, fakesA.Parties, fakesA.Catalog, fakesA.Inventory, fakesA.CostAllocator, fakesA.Cash, fakesA.OperationLock, fakesA.ResourceLock, fakesA.Audit, fakesA.ReceiptSnapshots, fakesA.Numbers, fakesA.Clock, fakesA.Transactions, fakesA.Authorization, fakesA.UnitOfWork);
@@ -861,7 +862,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             fakesB.Inventory.AddInventoryUnit(invUnit);
 
             var cashier = Guid.CreateVersion7();
-            var session = new CashSession { Id = Guid.CreateVersion7(), OpenedBy = cashier, Status = CashSessionStatus.Open, BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow) };
+            var session = new CashSession { Id = Guid.CreateVersion7(), OpenedBy = cashier, Status = CashSessionStatus.Open, BusinessDate = fakesB.Clock.ShopDate };
             fakesB.Cash.AddSession(session);
 
             var saleHandler = new CompleteSaleHandler(fakesB.Sales, fakesB.Quotations, fakesB.Parties, fakesB.Catalog, fakesB.Inventory, fakesB.CostAllocator, fakesB.Cash, fakesB.OperationLock, fakesB.ResourceLock, fakesB.Audit, fakesB.ReceiptSnapshots, fakesB.Numbers, fakesB.Clock, fakesB.Transactions, fakesB.Authorization, fakesB.UnitOfWork);

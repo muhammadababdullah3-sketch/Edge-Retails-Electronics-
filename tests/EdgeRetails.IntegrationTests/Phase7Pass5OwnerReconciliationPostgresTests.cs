@@ -71,11 +71,13 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
         await using var cashSession = await EnsureSingleOpenCashSessionAsync(db, serializedSeed.ActorId, openingCash: 10000m);
 
         // 1. Purchase Serialized: 2 units @3000m
+        var reconSn1 = "RECON-SN-1-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var reconSn2 = "RECON-SN-2-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
         var purchaseSerialized = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
             serializedSeed.SupplierId, "RECON-P-SER-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
             PurchaseSettlementMode.External, serializedSeed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(serializedSeed.ProductId, serializedSeed.ProductUnitId, 2m, 3000m, 6000m,
-                [new SerializedIdentityInput("RECON-SN-1"), new SerializedIdentityInput("RECON-SN-2")])],
+                [new SerializedIdentityInput(reconSn1), new SerializedIdentityInput(reconSn2)])],
             InitialPaymentAmount: 0m), default);
         Assert.True(purchaseSerialized.IsSuccess, purchaseSerialized.Error?.Message);
 
@@ -88,7 +90,7 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
         Assert.True(purchaseBulk.IsSuccess, purchaseBulk.Error?.Message);
         db.ChangeTracker.Clear();
 
-        var unit1 = await db.InventoryUnits.SingleAsync(x => x.ProductId == serializedSeed.ProductId && x.SerialNumber == "RECON-SN-1");
+        var unit1 = await db.InventoryUnits.SingleAsync(x => x.ProductId == serializedSeed.ProductId && x.SerialNumber == reconSn1);
 
         // 3. Sale 1 Serialized unit & 10 Bulk units
         var sale = await services.GetRequiredService<CompleteSaleHandler>().HandleAsync(new CompleteSaleCommand(
@@ -185,12 +187,12 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
 
         // 3. Manual Cash In +500m
         var manualIn = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.In, 500m, fixture.ActorId, "Till float top up", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.In, 500m, fixture.ActorId, "Till float top up", null, Guid.NewGuid()), default);
         Assert.True(manualIn.IsSuccess, manualIn.Error?.Message);
 
         // 4. Manual Cash Out -200m
         var manualOut = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, fixture.ActorId, "Office cleaning supplies", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, fixture.ActorId, "Office cleaning supplies", null, Guid.NewGuid()), default);
         Assert.True(manualOut.IsSuccess, manualOut.Error?.Message);
 
         // 5. Supplier Payment from Cash Drawer: 2,500m
@@ -318,12 +320,14 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
     [InlineData(ReportingPeriodKind.Yearly)]
     public async Task OwnerReconciliation_AllPrimitiveLinesWithNonzeroRecoveriesAndThaka(ReportingPeriodKind period)
     {
-        await using var provider = Phase2PostgresTestHarness.BuildProvider();
+        var testDate = new DateTimeOffset(2035, 1, 15, 10, 0, 0, TimeSpan.Zero);
+        var clock = new Phase2PostgresTestHarness.ScenarioClock(testDate);
+        await using var provider = Phase2PostgresTestHarness.BuildProvider(clock);
         await using var scope = provider.CreateAsyncScope();
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<EdgeRetailsDbContext>();
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = clock.ShopDate;
         var reports = services.GetRequiredService<IReportingReadService>();
         var baseline = await reports.GetSnapshotAsync(period, today, today.Month, today.Year, default);
         var bulk = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db, defaultSalePrice: 200m);
@@ -420,10 +424,10 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
             Guid.NewGuid(), project.Value, 50m, 200m, ThakaPaymentMethod.Cash, "H04 final receipt", bulk.ActorId), default);
         Assert.True(settlement.IsSuccess, settlement.Error?.Message);
         var manualIn = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(new(
-            CashMovementDirection.In, 100m, bulk.ActorId, "H04 owned drawer float", null), default);
+            CashMovementDirection.In, 100m, bulk.ActorId, "H04 owned drawer float", null, Guid.NewGuid()), default);
         Assert.True(manualIn.IsSuccess, manualIn.Error?.Message);
         var manualOut = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(new(
-            CashMovementDirection.Out, 50m, bulk.ActorId, "H04 owned drawer correction", null), default);
+            CashMovementDirection.Out, 50m, bulk.ActorId, "H04 owned drawer correction", null, Guid.NewGuid()), default);
         Assert.True(manualOut.IsSuccess, manualOut.Error?.Message);
 
         db.ChangeTracker.Clear();

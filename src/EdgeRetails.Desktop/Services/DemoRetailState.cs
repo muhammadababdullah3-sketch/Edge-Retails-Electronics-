@@ -336,21 +336,51 @@ public sealed class DemoRetailState
 
         var expected = Math.Round(project.Balance, 2);
         var roundedAmount = Math.Round(amount, 2);
-        if (expected <= 0m || roundedAmount != expected)
+        if (expected < 0m || roundedAmount != expected)
         {
             throw new InvalidOperationException($"Final settlement must equal the exact remaining balance of Rs. {expected:N0}.");
         }
 
-        var entry = RecordPayment(
-            project,
-            roundedAmount,
-            "Final Settlement",
-            "Final account settlement",
-            recordedBy);
+        PaymentLedgerEntry entry;
+        if (roundedAmount > 0m)
+        {
+            entry = RecordPayment(
+                project,
+                roundedAmount,
+                "Final Settlement",
+                "Final account settlement",
+                recordedBy);
+        }
+        else
+        {
+            entry = new PaymentLedgerEntry
+            {
+                ReceiptNumber = "SETTLE-ZERO",
+                Date = DateTime.Now,
+                PaymentMethod = "Settlement",
+                Amount = 0m,
+                RecordedBy = string.IsNullOrWhiteSpace(recordedBy) ? "Abdullah" : recordedBy.Trim(),
+                Reference = "Zero-balance final settlement"
+            };
+        }
 
         project.Status = "SETTLED";
         RaiseStateChanged();
         return entry;
+    }
+
+    public void ReopenProject(
+        ThakaProjectListItemViewModel project,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        if (!project.IsSettled)
+        {
+            throw new InvalidOperationException("Only a settled Thaka project can be reopened.");
+        }
+
+        project.Status = "ACTIVE";
+        RaiseStateChanged();
     }
     private static void ValidateMaterialIssue(
         ThakaProjectListItemViewModel project,

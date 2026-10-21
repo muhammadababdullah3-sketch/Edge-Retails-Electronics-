@@ -1,0 +1,32 @@
+{
+  "run_id": "ER-RUN-POS-NON89-EXEC-20261021-083",
+  "predecessor_run_id": "ER-RUN-LOCALFLOW-20261019-082",
+  "status": "DELIVERED",
+  "delivery_timestamp_utc": "2026-10-21T12:00:00Z",
+  "canonical_findings": {
+    "LF14": "CLOSED_AND_VERIFIED",
+    "LF15": "CLOSED_AND_VERIFIED",
+    "LF09": "CLOSED_AND_VERIFIED",
+    "LF07": "CLOSED_AND_VERIFIED",
+    "LF01": "BLOCKED_PENDING_DISPOSABLE_DB",
+    "LF13": "BLOCKED_PENDING_DISPOSABLE_DB"
+  },
+  "test_evidence": {
+    "unit_tests_targeted": "test-results/run083_unit_tests.trx",
+    "desktop_tests_targeted": "test-results/run083_desktop_tests.trx",
+    "full_unit_suite": "test-results/run083_full_unit_suite.trx",
+    "full_desktop_suite": "test-results/run083_full_desktop_suite.trx",
+    "build_log": "build.log"
+  },
+  "parallel_plan": {
+    "plan": "PARALLEL_PLAN.json",
+    "validation": "PLAN_VALIDATION.json",
+    "status": "PASSED_ZERO_ERRORS"
+  },
+  "export_bundle": {
+    "inventory": "export/CANDIDATE_FILE_INVENTORY.json",
+    "patch": "export/candidate_tracked.patch",
+    "untracked_zip": "export/candidate_untracked.zip",
+    "source_bundle": "export/candidate_source_bundle.zip"
+  }
+}

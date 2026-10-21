@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
@@ -357,6 +358,39 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
             items);
     }
 
+    public async Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(trackingCode))
+        {
+            return null;
+        }
+
+        var unit = await _db.InventoryUnits.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.TrackingCode == trackingCode.Trim(), cancellationToken);
+
+        if (unit is null || unit.PackState is null)
+        {
+            return null;
+        }
+
+        var isRemnant = unit.IsLooseStock || (unit.RemainingBaseQuantity != null && unit.RemainingBaseQuantity < 5m);
+        var condition = isRemnant ? "Remnant" : (unit.PackState == PackState.Open ? "Open" : "Sealed");
+
+        return new PackContainerDto(
+            unit.Id,
+            unit.TrackingCode ?? string.Empty,
+            unit.PackState.ToString() ?? "Unknown",
+            unit.InitialBaseQuantity ?? 0m,
+            unit.RemainingBaseQuantity ?? 0m,
+            unit.RemainingBaseQuantity ?? 0m,
+            "pcs",
+            condition,
+            unit.Version,
+            null);
+    }
+
     private async Task<IReadOnlyList<ScannerProductMatchDto>> BuildInventoryUnitMatchesAsync(
         IReadOnlyCollection<Guid> inventoryUnitIds,
         ScannerResolutionNamespace resolutionNamespace,
@@ -459,7 +493,8 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                 SupplierName: prov.Item2,
                 PurchaseNumber: prov.Item1,
                 SourcePurchaseItemId: u.SourcePurchaseItemId,
-                SupplierId: prov.Item3);
+                SupplierId: prov.Item3,
+                TrackingMode: x.Product.TrackingMode);
         }).ToArray();
     }
 
@@ -500,7 +535,13 @@ public sealed class Phase4WorkflowReadService : IPhase4WorkflowReadService
                     2,
                     MidpointRounding.AwayFromZero),
                 (product.TrackingMode == TrackingMode.Serialized || product.TrackingMode == TrackingMode.IndividualPiece || product.TrackingMode == TrackingMode.Container),
-                null, null, null, null, null, null))
+                null, null, null, null, null, null,
+                true,
+                null,
+                null,
+                null,
+                null,
+                product.TrackingMode))
             .Take(20)
             .ToArrayAsync(cancellationToken);
     }

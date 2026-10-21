@@ -141,7 +141,7 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
 
     public bool CanConfirmSettlement =>
         !IsProcessing &&
-        RemainingBalance > 0m &&
+        RemainingBalance >= 0m &&
         SettlementAmount == RemainingBalance &&
         IsConfirmed;
 
@@ -150,9 +150,9 @@ public sealed class ThakaFinalSettlementViewModel : ViewModelBase
 
     private void Validate()
     {
-        if (RemainingBalance <= 0m)
+        if (RemainingBalance < 0m)
         {
-            ValidationMessage = "There is no balance left to settle.";
+            ValidationMessage = "Project has a customer credit balance; settle or refund credit before closing.";
         }
         else if (SettlementAmount != RemainingBalance)
         {

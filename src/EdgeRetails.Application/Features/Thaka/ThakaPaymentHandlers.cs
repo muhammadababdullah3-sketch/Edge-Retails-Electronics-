@@ -74,15 +74,76 @@ public sealed class RecordThakaPaymentHandler
                 "Payment requires operation id and positive amount.");
         }
 
+        var domainProjection = new
+        {
+            command.ProjectId,
+            Amount = Money(command.Amount),
+            PaymentMethod = command.PaymentMethod.ToString(),
+            Reference = Normalize(command.Reference),
+            Note = Normalize(command.Note),
+            command.ActorId
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ThakaPayment", domainProjection);
+        var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "ThakaPayment",
+            command.ProjectId.ToString("D"),
+            Money(command.Amount).ToString("0.00", CultureInfo.InvariantCulture),
+            command.PaymentMethod.ToString(),
+            Normalize(command.Reference),
+            Normalize(command.Note));
+
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, payloadFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        if (_outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!string.Equals(preOutcome.OperationType, "ThakaPayment", StringComparison.Ordinal))
+                {
+                    return Result<RecordThakaPaymentResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity was already used for '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<RecordThakaPaymentResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                    !FingerprintMatches(preOutcome.PayloadFingerprint))
+                {
+                    return Result<RecordThakaPaymentResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "This operation id is already associated with another or unresolved payment.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                {
+                    var existingBalance = await GetBalanceAsync(command.ProjectId, cancellationToken);
+                    return Result<RecordThakaPaymentResult>.Success(new(
+                        preOutcome.EntityId.Value,
+                        preOutcome.DocumentNumber ?? string.Empty,
+                        existingBalance,
+                        true));
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result<RecordThakaPaymentResult>.Failure(
+                        preOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        preOutcome.ErrorMessage ?? "Payment operation previously failed.");
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
-            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
-                "ThakaPayment",
-                command.ProjectId.ToString("D"),
-                Money(command.Amount).ToString("0.00", CultureInfo.InvariantCulture),
-                command.PaymentMethod.ToString(),
-                Normalize(command.Reference),
-                Normalize(command.Note));
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
                 PermissionKeys.ThakaManage,
@@ -103,13 +164,29 @@ public sealed class RecordThakaPaymentHandler
                 var savedOutcome = _outcomeLedger is null
                     ? null
                     : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                if (_outcomeLedger is not null &&
-                    (savedOutcome is not { State: OperationOutcomeState.Succeeded, OperationType: "ThakaPayment" } ||
-                     !string.Equals(savedOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal)))
+                if (_outcomeLedger is not null && savedOutcome is not null)
                 {
-                    return Result<RecordThakaPaymentResult>.Failure(
-                        "thaka.operation_id_conflict",
-                        "This operation id is already associated with another or unresolved payment.");
+                    if (!string.Equals(savedOutcome.OperationType, "ThakaPayment", StringComparison.Ordinal))
+                    {
+                        return Result<RecordThakaPaymentResult>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity was already used for '{savedOutcome.OperationType}'.");
+                    }
+
+                    if (savedOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && savedOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<RecordThakaPaymentResult>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(savedOutcome.PayloadFingerprint) &&
+                        !FingerprintMatches(savedOutcome.PayloadFingerprint))
+                    {
+                        return Result<RecordThakaPaymentResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "This operation id is already associated with another or unresolved payment.");
+                    }
                 }
 
                 var existingBalance = await GetBalanceAsync(existing.ProjectId, ct);
@@ -121,7 +198,7 @@ public sealed class RecordThakaPaymentHandler
                         existing.Id,
                         existing.ReceiptNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: payloadFingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -199,7 +276,7 @@ public sealed class RecordThakaPaymentHandler
                     payment.Id,
                     payment.ReceiptNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: payloadFingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -211,7 +288,9 @@ public sealed class RecordThakaPaymentHandler
                 false));
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null)
+        if (!result.IsSuccess && _outcomeLedger is not null &&
+            result.Error?.Code != "thaka.operation_id_conflict" &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -219,9 +298,7 @@ public sealed class RecordThakaPaymentHandler
                 result.Error!.Code,
                 result.Error.Message,
                 actorId: command.ActorId,
-                payloadFingerprint: OperationPayloadFingerprint.ComputeSha256(
-                    "ThakaPayment", command.ProjectId.ToString("D"), Money(command.Amount).ToString("0.00", CultureInfo.InvariantCulture),
-                    command.PaymentMethod.ToString(), Normalize(command.Reference), Normalize(command.Note)),
+                payloadFingerprint: versionedFingerprint,
                 cancellationToken: cancellationToken);
         }
 
@@ -241,7 +318,7 @@ public sealed class RecordThakaPaymentHandler
             projectId,
             cancellationToken);
 
-        return Money(Math.Max(0m, charges - discounts - payments));
+        return Money(charges - discounts - payments);
     }
 
     private static string? Normalize(string? value)

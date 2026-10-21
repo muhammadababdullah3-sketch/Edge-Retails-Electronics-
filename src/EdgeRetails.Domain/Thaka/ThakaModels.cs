@@ -128,3 +128,15 @@ public sealed class ThakaPaymentReversal : Entity
     public Guid ReversedBy { get; set; }
     public DateTimeOffset ReversedAt { get; set; }
 }
+
+public sealed class ThakaCreditRefund : Entity
+{
+    public Guid ProjectId { get; set; }
+    public string RefundNumber { get; set; } = string.Empty;
+    public Guid ClientOperationId { get; set; }
+    public decimal Amount { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public Guid RefundedBy { get; set; }
+    public DateTimeOffset RefundedAt { get; set; }
+}
+

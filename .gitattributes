@@ -13,3 +13,6 @@
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Evidence manifests require exact raw bytes; source files retain existing text normalization.
+/governance/** -text

@@ -45,10 +45,9 @@
                                    Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
-                    <Button Content="✕"
-                            Grid.Column="1"
+                    <Button Grid.Column="1"
                             Command="{Binding CloseCommand}"
-                            Style="{StaticResource Button.Text.Neutral}"
+                            Style="{StaticResource Button.Close}"
                             IsCancel="True"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top" />

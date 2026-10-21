@@ -362,19 +362,27 @@
                                                        FontSize="13"
                                                        FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                                            <TextBlock Text="{Binding IssueCountDisplay}"
+                                            <TextBlock Text="{Binding ActivitySummaryDisplay}"
                                                        Margin="0,2,0,0"
                                                        FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                                         </StackPanel>
 
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding MaterialValueDisplay}"
-                                                   FontFamily="{StaticResource Font.Numeric}"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{StaticResource Brush.Thaka}" />
+                                        <StackPanel Grid.Column="1"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="Net"
+                                                       FontSize="10"
+                                                       FontWeight="Medium"
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource Brush.Text.Muted}" />
+                                            <TextBlock Text="{Binding NetMaterialValueDisplay}"
+                                                       FontFamily="{StaticResource Font.Numeric}"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource Brush.Thaka}" />
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Desktop.Services;
@@ -149,7 +150,8 @@ public sealed class NewPurchaseViewModel : ViewModelBase, IDisposable
     private string _supplierSearchText = string.Empty;
     private bool _applyingLookup;
     public Guid? SelectedSupplierId { get; private set; }
-    private readonly Guid _clientOperationId = Guid.CreateVersion7();
+    private readonly IClientOperationIntentStore _operationIntents;
+    private Guid _clientOperationId;
     private int _submissionGate;
     private bool _isPurchaseCommitted;
     private string _commitStatusMessage = string.Empty;
@@ -166,7 +168,8 @@ public sealed class NewPurchaseViewModel : ViewModelBase, IDisposable
         Action? cancel = null,
         Action<PurchaseRecord>? saved = null,
         IBackendPurchasingInventoryService? backendService = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _backendService = backendService;
         _lookup = backendService as IBackendPurchaseLookupService;
@@ -175,6 +178,7 @@ public sealed class NewPurchaseViewModel : ViewModelBase, IDisposable
         _dialogService = dialogService;
         _cancel = cancel;
         _saved = saved;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         Suppliers = backendService is null && _previewService is not null
             ? new ObservableCollection<string>(_previewService.Suppliers)
@@ -476,14 +480,66 @@ public sealed class NewPurchaseViewModel : ViewModelBase, IDisposable
                         "Selected supplier is not attached uniquely to the backend.");
                 }
 
-                record = await _backendService.CreatePurchaseAsync(
-                    supplierId,
-                    InvoiceNumber,
-                    PurchaseDate,
-                    Note,
+                var operationKey = "purchase:create";
+                var canonicalPayload = JsonSerializer.Serialize(new
+                {
+                    SupplierId = supplierId,
+                    InvoiceNumber = InvoiceNumber.Trim(),
+                    PurchaseDate = PurchaseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    Note = string.IsNullOrWhiteSpace(Note) ? string.Empty : Note.Trim(),
                     OtherCharges,
-                    lines,
-                    _clientOperationId);
+                    Lines = lines.Select(l => new
+                    {
+                        ProductId = l.Product.BackendProductId,
+                        ProductUnitId = l.Product.BackendProductUnitId,
+                        l.Quantity,
+                        l.Cost,
+                        l.SalePrice,
+                        Serialized = l.SerializedIdentities.Select(s => new { s.SerialNumber, s.Imei1, s.Imei2 }).ToArray()
+                    }).ToArray()
+                });
+
+                try
+                {
+                    _clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+                }
+                catch (InvalidOperationException)
+                {
+                    _toastService?.Show(
+                        "A previous purchase order has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                        ToastTone.Warning);
+                    return;
+                }
+
+                try
+                {
+                    record = await _backendService.CreatePurchaseAsync(
+                        supplierId,
+                        InvoiceNumber,
+                        PurchaseDate,
+                        Note,
+                        OtherCharges,
+                        lines,
+                        _clientOperationId);
+
+                    _operationIntents.Complete(operationKey, _clientOperationId);
+                }
+                catch (PurchaseCommittedReadbackException ex)
+                {
+                    _operationIntents.Complete(operationKey, _clientOperationId);
+                    SetConfirmedPurchase(ex.Result.PurchaseId, ex.Result.PurchaseNumber);
+                    _toastService?.Show(CommitStatusMessage, ToastTone.Warning);
+                    return;
+                }
+                catch (DesktopApiException ex) when (ex.StatusCode is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError
+                    and not System.Net.HttpStatusCode.Unauthorized
+                    and not System.Net.HttpStatusCode.Forbidden
+                    and not System.Net.HttpStatusCode.RequestTimeout
+                    and not (System.Net.HttpStatusCode)429)
+                {
+                    _operationIntents.Complete(operationKey, _clientOperationId);
+                    throw;
+                }
             }
 
             SetConfirmedPurchase(record.BackendPurchaseId, record.PurchaseNumber);

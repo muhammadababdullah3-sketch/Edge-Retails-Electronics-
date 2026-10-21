@@ -1,0 +1,303 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-081",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-001 / OWNER-UPDATE-20261019-007",
+  "timestamp_utc": "2026-10-19T14:00:00Z",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "total_deposited_files": 46,
+  "candidate_archives": {
+    "candidate_tracked_patch": {
+      "file": "candidate_tracked.patch",
+      "bytes": 1235855,
+      "sha256": "4551d1ba3db06bd77d4ff8e9d86762f60f72decd5aa086a312c8878a34e412cb"
+    },
+    "candidate_untracked_zip": {
+      "file": "candidate_untracked.zip",
+      "bytes": 754997,
+      "sha256": "c99cb97d0d106d07c45d2f458119e76b3e3fa0bf72c5d36b0ca8d8adb584f688"
+    },
+    "candidate_source_bundle": {
+      "file": "candidate_source_bundle.zip",
+      "bytes": 1538837,
+      "sha256": "8e03832459a86fdeea780d34047c5835a41b54bf0eef55fa1387b0624a671c71"
+    }
+  },
+  "evidence_files": {
+    "run081_desktop_performance_safety_tests.trx": {
+      "sha256": "1d6c2ae362cb19769568ad9867531507a3d5fbbdf5c9759f9ded95251d49a031",
+      "size_bytes": 672507,
+      "classification": "CONTEMPORANEOUS_RUN081_EVIDENCE",
+      "tests_passed": 414,
+      "tests_total": 414,
+      "duration": "26 s",
+      "note": "Complete Desktop cutover and safety test suite passing with 0 failures, 0 skipped, preserving all 5 LF09 tests and performance benchmarks."
+    },
+    "run081_unit_tests.trx": {
+      "sha256": "b7e5de290c86f45f1a7ca72f540a6b9c2bec50fbed7d2c4d8a01d38fb95975b7",
+      "size_bytes": 2059724,
+      "classification": "CONTEMPORANEOUS_RUN081_EVIDENCE",
+      "tests_passed": 1394,
+      "tests_total": 1394,
+      "duration": "15 s",
+      "note": "Includes dedicated named LF15 preflight parity tests proving canonical domain error codes, anti-spoofing rejection, unprivileged supervisor rejection, and authorized supervisor cryptographic token generation, plus T11b and all preserved LF07/LF09 tests."
+    },
+    "build.log": {
+      "sha256": "5fd2e2b05dd06f54e3526f80b942967c702a08a58b66c7417d2cf78d83cf67d5",
+      "size_bytes": 2021,
+      "classification": "CONTEMPORANEOUS_RUN081_EVIDENCE",
+      "command": "dotnet build",
+      "warnings": 0,
+      "errors": 0,
+      "projects_built": 12
+    },
+    "run044_historical_thaka_pack_subledger_tests.trx": {
+      "sha256": "9a09c553b7a1ed136ee0c9b0f41981e9ba71c22a6abce0e1d7b2179c3618d7c4",
+      "size_bytes": 22352,
+      "classification": "HISTORICAL_PRIOR_EVIDENCE_RECONCILED",
+      "origin_date": "2026-10-18T21:50:00 local",
+      "tests_passed": 14,
+      "tests_total": 14,
+      "note": "Reconciled as historical prior evidence; no disposable PG18 execution claimed in Run 081."
+    },
+    "run044_historical_postgresql_read_contract_tests.trx": {
+      "sha256": "1ce7a12161a2dbf5b4b520bd4ae6d6bd413a82ed07bbe964f419aca5bcc868e5",
+      "size_bytes": 10264,
+      "classification": "HISTORICAL_PRIOR_EVIDENCE_RECONCILED",
+      "origin_date": "2026-10-18T06:24:00 local",
+      "tests_passed": 5,
+      "tests_total": 5,
+      "note": "Reconciled as historical prior evidence; no disposable PG18 execution claimed in Run 081."
+    }
+  },
+  "files": [
+    {
+      "path": "AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "sha256": "54b80d986eba56ad23b6edc0e8fc9a79808d4c3d4d343269eb6c7bdb37649ded",
+      "size_bytes": 724
+    },
+    {
+      "path": "BASELINE.json",
+      "sha256": "0171d9aa8274041f6a06d078f31aa4e75a98dde87d211f45da771c035f3932a5",
+      "size_bytes": 2195
+    },
+    {
+      "path": "build.log",
+      "sha256": "5fd2e2b05dd06f54e3526f80b942967c702a08a58b66c7417d2cf78d83cf67d5",
+      "size_bytes": 2021
+    },
+    {
+      "path": "DELIVERY_INDEX.json",
+      "sha256": "960ed50b39d53b31d68296310d738aaa4a5ddc1aeaa655da97de4b5d9afde8e9",
+      "size_bytes": 958
+    },
+    {
+      "path": "DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "sha256": "02d7e4d8e6ac7338d60bb1cbf4cb3bc5862ca46a286bf3233f9f0be25cbfea86",
+      "size_bytes": 474
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.json",
+      "sha256": "5a69ae811a52349ebe10938cf67f1677fb5d257ea030315270600ee8d45be46c",
+      "size_bytes": 2587
+    },
+    {
+      "path": "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.md",
+      "sha256": "e9de535ddb13b63c329b703af9bf94e4983862856be10d0e5eddc66d8d9f420c",
+      "size_bytes": 2357
+    },
+    {
+      "path": "export/CANDIDATE_FILE_INVENTORY.json",
+      "sha256": "8e766028b10ba5e568ae3cd48294ef481e877604283cb69cb42c2972ac9bfe31",
+      "size_bytes": 109767
+    },
+    {
+      "path": "export/candidate_source_bundle.zip",
+      "sha256": "8e03832459a86fdeea780d34047c5835a41b54bf0eef55fa1387b0624a671c71",
+      "size_bytes": 1538837
+    },
+    {
+      "path": "export/candidate_tracked.patch",
+      "sha256": "4551d1ba3db06bd77d4ff8e9d86762f60f72decd5aa086a312c8878a34e412cb",
+      "size_bytes": 1235855
+    },
+    {
+      "path": "export/candidate_untracked.zip",
+      "sha256": "c99cb97d0d106d07c45d2f458119e76b3e3fa0bf72c5d36b0ca8d8adb584f688",
+      "size_bytes": 754997
+    },
+    {
+      "path": "export/RECONSTRUCTION_INSTRUCTIONS.md",
+      "sha256": "8368109e3e826813fdbe0686810e09efa9052c15add9acfacb450ae66c418b4e",
+      "size_bytes": 1315
+    },
+    {
+      "path": "export/Verify-CandidateExport.ps1",
+      "sha256": "7893648dd3e74aa25b68c17ed6f0a5173cc09f46177a308799731a7e0088caed",
+      "size_bytes": 1572
+    },
+    {
+      "path": "FINAL_REPORT.md",
+      "sha256": "c22698a078aa2f79e74ddefb6833a4385215a74e29a5b006a7afa7460ff7c6fc",
+      "size_bytes": 1574
+    },
+    {
+      "path": "PARALLEL_PLAN.json",
+      "sha256": "461c9d97a425acdd992c3b1a99432eff419a40e6c11c32f7ec4480f941890d72",
+      "size_bytes": 3077
+    },
+    {
+      "path": "PARALLEL_PLAN.PLANNED.json",
+      "sha256": "971a06ef3fe0e31cd1071ee795a9b4cf47321b1f8e242307857ab1d5323416b7",
+      "size_bytes": 3070
+    },
+    {
+      "path": "PLAN_VALIDATION.json",
+      "sha256": "30340827575624a87778c2c0ad50ff0b6671997c58cbf6e6dea8fb05c24f0f04",
+      "size_bytes": 264
+    },
+    {
+      "path": "reports/01-PRE_FLIGHT_SAFETY_REPORT.md",
+      "sha256": "953f3744c88df05f626ae5e8f03b8ef8af7730038e0f1bb9e867a9bd05f1aab3",
+      "size_bytes": 912
+    },
+    {
+      "path": "reports/02-ARCHITECTURE_AUDIT.md",
+      "sha256": "1c6de92e6dd05377698f440be03cc844f877f1b2cc295e79593b5b6407cd31a3",
+      "size_bytes": 582
+    },
+    {
+      "path": "reports/03-SOURCE_DIFF_INTEGRITY_REPORT.md",
+      "sha256": "f1833e71c67d1d0f89e6484ddc074cf21fe78e92a5ad363a51ee47cda3182f54",
+      "size_bytes": 510
+    },
+    {
+      "path": "reports/04-TEST_EXECUTION_EVIDENCE.md",
+      "sha256": "969192825e24c85bc2f72f9cfbece11f079b93d8d473b007edd82d4dc91d3608",
+      "size_bytes": 552
+    },
+    {
+      "path": "reports/05-DATABASE_PROTECTION_AND_CUSTODY_REPORT.md",
+      "sha256": "b1dab94cfe81da911de07584be4683c22b0d83482c7f29fde75a39c61c4fd2eb",
+      "size_bytes": 308
+    },
+    {
+      "path": "reports/06-CANONICAL_FINDINGS_LEDGER.md",
+      "sha256": "d869ffcef283a41dc87ae9c61d71d00ff5bca8fe5d6794b1dfcf60aa8084ee15",
+      "size_bytes": 2089
+    },
+    {
+      "path": "reports/07-PARALLEL_EXECUTION_AUDIT.md",
+      "sha256": "ad9743e4937c19d08bad983da0e350a3e535f5f404cc8352a509deceb803d0cd",
+      "size_bytes": 334
+    },
+    {
+      "path": "reports/08-NON_PHASE89_POS_GOAL_STATUS.md",
+      "sha256": "9b8748ccf030e2fc0352230f338e42d97e549aa29399b90ef80a81a5f53b2ce9",
+      "size_bytes": 426
+    },
+    {
+      "path": "reports/AUTHOR_REVIEW_SUPPORT_STATEMENT.md",
+      "sha256": "54b80d986eba56ad23b6edc0e8fc9a79808d4c3d4d343269eb6c7bdb37649ded",
+      "size_bytes": 724
+    },
+    {
+      "path": "reports/DISTINCT_ROOT_REVIEW_HANDOFF.md",
+      "sha256": "02d7e4d8e6ac7338d60bb1cbf4cb3bc5862ca46a286bf3233f9f0be25cbfea86",
+      "size_bytes": 474
+    },
+    {
+      "path": "reports/FINAL_REPORT.md",
+      "sha256": "c22698a078aa2f79e74ddefb6833a4385215a74e29a5b006a7afa7460ff7c6fc",
+      "size_bytes": 1574
+    },
+    {
+      "path": "STAGE1_REPRODUCTION_OF_ROOT_FINDINGS.md",
+      "sha256": "34bff21c9e1620c1b8232f26d86ce16969abd69fb2615c0526a92357deb6944b",
+      "size_bytes": 3132
+    },
+    {
+      "path": "STAGE2_FINITE_ANALOGOUS_FLOW_INVENTORY.md",
+      "sha256": "f76e3d8b847e26f7f72211f3a0ab16cdf3280bb48b4e6fd337d4be3ffe37251a",
+      "size_bytes": 824
+    },
+    {
+      "path": "STAGE3_VALIDATION_OF_HASHES_AND_DISPOSABLE_PG18.md",
+      "sha256": "efc2e22f901adc4494a4132e3f36911a0577c55065bc9bce595a8e10b77770a5",
+      "size_bytes": 661
+    },
+    {
+      "path": "STAGE4_EVIDENCE_CLAIMS_CORRECTION.md",
+      "sha256": "d26210640049eda0eb4fc691aa24a1c2b4086965faa22e183ed5c552c3ef8010",
+      "size_bytes": 590
+    },
+    {
+      "path": "STAGE5_CANONICAL_LF_CROSSWALK.md",
+      "sha256": "bdeb92821e4b17696b83257cfa3bbb72365d7c8e394596da31b27bd68de256c7",
+      "size_bytes": 2191
+    },
+    {
+      "path": "STAGE6_NATIVE_WORKER_CAPACITY_AND_PARALLEL_PLAN.md",
+      "sha256": "81cace626087f60c945d537c47894948f9a4faaa53fd28c418e769578e9ce85a",
+      "size_bytes": 697
+    },
+    {
+      "path": "STAGE7_BOUNDED_CORRECTION_BATCH_AND_RAW_EVIDENCE.md",
+      "sha256": "d7fd2ba148ad0c79a203b6dcb626662e89ca9407909eb17ea7ad51a8d1639fd8",
+      "size_bytes": 738
+    },
+    {
+      "path": "STAGE8_DEPOSITION_AND_READBACK.md",
+      "sha256": "187e84739838101f14e9ed9ac5f312c78df7208d5e562696e64aca033842f8c0",
+      "size_bytes": 600
+    },
+    {
+      "path": "test-results/build.log",
+      "sha256": "5fd2e2b05dd06f54e3526f80b942967c702a08a58b66c7417d2cf78d83cf67d5",
+      "size_bytes": 2021
+    },
+    {
+      "path": "test-results/run044_historical_postgresql_read_contract_tests.trx",
+      "sha256": "1ce7a12161a2dbf5b4b520bd4ae6d6bd413a82ed07bbe964f419aca5bcc868e5",
+      "size_bytes": 10264
+    },
+    {
+      "path": "test-results/run044_historical_thaka_pack_subledger_tests.trx",
+      "sha256": "9a09c553b7a1ed136ee0c9b0f41981e9ba71c22a6abce0e1d7b2179c3618d7c4",
+      "size_bytes": 22352
+    },
+    {
+      "path": "test-results/run081_build.log",
+      "sha256": "5fd2e2b05dd06f54e3526f80b942967c702a08a58b66c7417d2cf78d83cf67d5",
+      "size_bytes": 2021
+    },
+    {
+      "path": "test-results/run081_desktop_performance_safety_tests.trx",
+      "sha256": "1d6c2ae362cb19769568ad9867531507a3d5fbbdf5c9759f9ded95251d49a031",
+      "size_bytes": 672507
+    },
+    {
+      "path": "test-results/run081_unit_tests.trx",
+      "sha256": "b7e5de290c86f45f1a7ca72f540a6b9c2bec50fbed7d2c4d8a01d38fb95975b7",
+      "size_bytes": 2059724
+    },
+    {
+      "path": "Verify-DeliveryReadback.ps1",
+      "sha256": "352317fd34c270cabdcbfa433d57e4da80a3947a745e9539a2f882e211e5658d",
+      "size_bytes": 1504
+    },
+    {
+      "path": "workers/worker-pos-integrator.md",
+      "sha256": "2c0ed0b96447a1c9ee3b1c4cb56c919435fe165a877ead0974450d31c8073cce",
+      "size_bytes": 1808
+    },
+    {
+      "path": "workers/worker-reviewer.md",
+      "sha256": "542c1d500e3f6e5c590d1bfbae9e1d2e9af81773989cf11a795d5420d31490b2",
+      "size_bytes": 1272
+    },
+    {
+      "path": "workers/worker-test-coordinator.md",
+      "sha256": "a4c6a20b152ad833d470935d620f4bc6e5004a405c8487ceba5a01d621dcd40d",
+      "size_bytes": 1609
+    }
+  ]
+}

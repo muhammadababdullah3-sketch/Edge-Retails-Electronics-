@@ -101,5 +101,7 @@ public sealed class Phase234KhataWorkspaceReadTests
             decimal amount, string paymentMethod, string? reference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SettleAsync(ThakaProjectListItemViewModel project, decimal amount,
             string paymentMethod, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ReopenProjectAsync(ThakaProjectListItemViewModel project, string reason, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ReversePaymentAsync(ThakaProjectListItemViewModel project, Guid paymentId, string reason, Guid clientOperationId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

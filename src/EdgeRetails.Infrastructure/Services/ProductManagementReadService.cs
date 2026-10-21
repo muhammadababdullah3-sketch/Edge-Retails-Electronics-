@@ -341,4 +341,153 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                 product.ModelCode);
         }).ToArray();
     }
+
+    public async Task<CatalogSearchResponseDto> SearchCatalogAsync(
+        string? query,
+        string? packagingFacet,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        pageNumber = Math.Max(1, pageNumber);
+        var take = Math.Clamp(pageSize <= 0 ? 50 : pageSize, 1, 100);
+        var skip = (pageNumber - 1) * take;
+
+        string? resolvedAlias = null;
+        string? aliasDepartment = null;
+
+        var term = query?.Trim();
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            var matched = TaxonomyV3Store.SearchAliases.FirstOrDefault(a =>
+                string.Equals(a.Keyword, term, StringComparison.OrdinalIgnoreCase));
+            if (matched is not null)
+            {
+                resolvedAlias = matched.Keyword;
+                aliasDepartment = matched.TargetRef;
+            }
+        }
+
+        var baseQuery = (
+            from product in _db.Products.AsNoTracking()
+            join unit in _db.Units.AsNoTracking() on product.BaseUnitId equals unit.Id into unitGroup
+            from u in unitGroup.DefaultIfEmpty()
+            join category in _db.Categories.AsNoTracking() on product.CategoryId equals category.Id into catGroup
+            from c in catGroup.DefaultIfEmpty()
+            where product.IsActive
+            select new
+            {
+                product,
+                UnitSymbol = u == null ? "Pcs" : u.Symbol,
+                CategoryName = c == null ? "Uncategorized" : c.Name
+            });
+
+        if (!string.IsNullOrWhiteSpace(term))
+        {
+            if (resolvedAlias != null)
+            {
+                baseQuery = baseQuery.Where(x =>
+                    x.product.Name.Contains(term) ||
+                    (x.product.Sku != null && x.product.Sku.Contains(term)) ||
+                    (x.product.Brand != null && x.product.Brand.Contains(term)) ||
+                    (x.CategoryName != null && x.CategoryName.Contains(resolvedAlias)) ||
+                    (aliasDepartment != null && x.product.AttributesJson != null && x.product.AttributesJson.Contains(aliasDepartment)) ||
+                    (aliasDepartment != null && x.product.Name.Contains(resolvedAlias)) ||
+                    (aliasDepartment == "A01" && (x.product.Name.Contains("Wire") || x.product.Name.Contains("Cable") || (x.CategoryName != null && (x.CategoryName.Contains("Wire") || x.CategoryName.Contains("Cable"))))) ||
+                    (aliasDepartment == "A03" && (x.product.Name.Contains("Breaker") || x.product.Name.Contains("MCB") || (x.CategoryName != null && x.CategoryName.Contains("Breaker")))) ||
+                    (aliasDepartment == "B01" && (x.product.Name.Contains("Fan") || (x.CategoryName != null && x.CategoryName.Contains("Fan")))) ||
+                    (aliasDepartment == "B04" && (x.product.Name.Contains("Iron") || (x.CategoryName != null && x.CategoryName.Contains("Iron")))));
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(x =>
+                    x.product.Name.Contains(term) ||
+                    (x.product.Sku != null && x.product.Sku.Contains(term)) ||
+                    (x.product.Brand != null && x.product.Brand.Contains(term)) ||
+                    (x.CategoryName != null && x.CategoryName.Contains(term)));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(packagingFacet) && !string.Equals(packagingFacet, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            var facet = packagingFacet.Trim().ToUpperInvariant();
+            switch (facet)
+            {
+                case "PACK":
+                    baseQuery = baseQuery.Where(x =>
+                        x.UnitSymbol.Contains("Pack") || x.UnitSymbol == "PK" ||
+                        x.product.Name.Contains("Pack") ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains("PACK")));
+                    break;
+                case "COIL":
+                    baseQuery = baseQuery.Where(x =>
+                        x.UnitSymbol.Contains("Coil") || x.UnitSymbol == "CL" || x.UnitSymbol == "m" ||
+                        x.product.Name.Contains("Coil") || x.product.Name.Contains("Cable") ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains("COIL")));
+                    break;
+                case "BOX":
+                    baseQuery = baseQuery.Where(x =>
+                        x.UnitSymbol.Contains("Box") || x.UnitSymbol == "BX" ||
+                        x.product.Name.Contains("Box") ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains("BOX")));
+                    break;
+                case "REEL":
+                    baseQuery = baseQuery.Where(x =>
+                        x.UnitSymbol.Contains("Reel") || x.UnitSymbol == "RL" ||
+                        x.product.Name.Contains("Reel") ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains("REEL")));
+                    break;
+            }
+        }
+
+        var totalCount = await baseQuery.CountAsync(cancellationToken);
+
+        var pagedRows = await baseQuery
+            .OrderBy(x => x.product.Name)
+            .ThenBy(x => x.product.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+        var items = pagedRows.Select(r => new CatalogSearchItemDto(
+            ProductId: r.product.Id,
+            Sku: r.product.Sku ?? string.Empty,
+            Name: r.product.Name,
+            Brand: r.product.Brand,
+            Category: r.CategoryName,
+            BaseUnit: r.UnitSymbol,
+            UnitPrice: r.product.DefaultSalePrice,
+            ReferencePurchaseCost: r.product.ReferencePurchaseCost,
+            PackagingFacet: DeterminePackagingFacet(r.UnitSymbol, r.product.Name, r.product.AttributesJson),
+            IsActive: r.product.IsActive)).ToList();
+
+        return new CatalogSearchResponseDto(
+            TotalCount: totalCount,
+            PageNumber: pageNumber,
+            PageSize: take,
+            Items: items,
+            ResolvedAlias: resolvedAlias,
+            PackagingFacet: packagingFacet);
+    }
+
+    private static string? DeterminePackagingFacet(string unitSymbol, string productName, string? attributesJson)
+    {
+        if (unitSymbol.Contains("Pack", StringComparison.OrdinalIgnoreCase) || unitSymbol.Equals("PK", StringComparison.OrdinalIgnoreCase) || productName.Contains("Pack", StringComparison.OrdinalIgnoreCase))
+        {
+            return "PACK";
+        }
+        if (unitSymbol.Contains("Coil", StringComparison.OrdinalIgnoreCase) || unitSymbol.Equals("CL", StringComparison.OrdinalIgnoreCase) || unitSymbol.Equals("m", StringComparison.OrdinalIgnoreCase) || productName.Contains("Coil", StringComparison.OrdinalIgnoreCase))
+        {
+            return "COIL";
+        }
+        if (unitSymbol.Contains("Box", StringComparison.OrdinalIgnoreCase) || unitSymbol.Equals("BX", StringComparison.OrdinalIgnoreCase) || productName.Contains("Box", StringComparison.OrdinalIgnoreCase))
+        {
+            return "BOX";
+        }
+        if (unitSymbol.Contains("Reel", StringComparison.OrdinalIgnoreCase) || unitSymbol.Equals("RL", StringComparison.OrdinalIgnoreCase) || productName.Contains("Reel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "REEL";
+        }
+        return null;
+    }
 }

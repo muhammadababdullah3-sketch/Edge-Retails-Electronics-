@@ -103,7 +103,10 @@ public sealed record OperationStatusResult(
     DateTimeOffset? Timestamp = null,
     string? Status = null,
     string? ErrorCode = null,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    string? ResponsePayload = null,
+    int? ResponseStatusCode = null,
+    string? ResponseContentType = null)
 {
     public string EffectiveStatus => Status ?? (WasCommitted ? "Succeeded" : (Found ? "Pending" : "NotFound"));
 }

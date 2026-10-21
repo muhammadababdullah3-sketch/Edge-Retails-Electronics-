@@ -212,7 +212,7 @@ public sealed class Phase7Pass2ThakaReadContractPostgresTests(ITestOutputHelper 
         Assert.False(row.IsReversed);
         Assert.Equal(1234.56m, detail.Project.Paid);
         Assert.Equal(0m, detail.Project.MaterialValue);
-        Assert.Equal(0m, detail.Project.Balance);
+        Assert.Equal(-1234.56m, detail.Project.Balance);
         Assert.Equal(FixedUtc, JsonSerializer.Deserialize<ThakaPaymentLedgerRowDto>(JsonSerializer.Serialize(row))!.RecordedAt);
         Assert.Equal(before, await PersistedStateAsync(db, fixture));
     }

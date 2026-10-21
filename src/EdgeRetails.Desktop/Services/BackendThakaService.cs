@@ -89,6 +89,25 @@ public interface IBackendThakaService
         decimal amount,
         string paymentMethod,
         CancellationToken cancellationToken = default);
+
+    Task ReopenProjectAsync(
+        ThakaProjectListItemViewModel project,
+        string reason,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("Reopen project authority is not attached.");
+
+    Task ReversePaymentAsync(
+        ThakaProjectListItemViewModel project,
+        Guid paymentId,
+        string reason,
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("Payment reversal authority is not attached.");
+
+    Task RefundCreditAsync(
+        ThakaProjectListItemViewModel project,
+        decimal amount,
+        string reason,
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("Credit refund authority is not attached.");
 }
 
 public sealed class BackendThakaService : IBackendThakaService
@@ -507,6 +526,96 @@ public sealed class BackendThakaService : IBackendThakaService
         {
             throw new InvalidOperationException(
                 result.Error?.Message ?? "Thaka settlement failed.");
+        }
+    }
+
+    public async Task ReopenProjectAsync(
+        ThakaProjectListItemViewModel project,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        var projectId = RequireProject(project);
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ReopenThakaHandler>();
+        var result = await handler.HandleAsync(
+            new ReopenThakaCommand(projectId, Required(reason, "Reopen reason"), actor, Guid.CreateVersion7()),
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(
+                result.Error?.Code ?? "thaka.reopen_failed",
+                result.Error?.Message ?? "Thaka project reopen failed.");
+        }
+    }
+
+    public async Task ReversePaymentAsync(
+        ThakaProjectListItemViewModel project,
+        Guid paymentId,
+        string reason,
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        var projectId = RequireProject(project);
+        if (paymentId == Guid.Empty || clientOperationId == Guid.Empty)
+        {
+            throw new BackendOperationException(
+                "thaka.payment_reversal_invalid",
+                "Payment and operation identity are required.");
+        }
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ReverseThakaPaymentHandler>();
+        var result = await handler.HandleAsync(
+            new ReverseThakaPaymentCommand(
+                clientOperationId,
+                projectId,
+                paymentId,
+                string.IsNullOrWhiteSpace(reason) ? "Operator payment reversal" : reason.Trim(),
+                actor),
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(
+                result.Error?.Code ?? "thaka.payment_reversal_failed",
+                result.Error?.Message ?? "Payment reversal failed.");
+        }
+    }
+
+    public async Task RefundCreditAsync(
+        ThakaProjectListItemViewModel project,
+        decimal amount,
+        string reason,
+        Guid clientOperationId,
+        CancellationToken cancellationToken = default)
+    {
+        var actor = RequireActor();
+        var projectId = RequireProject(project);
+        if (amount <= 0m || clientOperationId == Guid.Empty || string.IsNullOrWhiteSpace(reason))
+        {
+            throw new BackendOperationException(
+                "thaka.refund_invalid",
+                "Refund amount, reason, and operation identity are required.");
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<RefundThakaCreditHandler>();
+        var result = await handler.HandleAsync(
+            new RefundThakaCreditCommand(
+                clientOperationId,
+                projectId,
+                amount,
+                reason.Trim(),
+                actor),
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(
+                result.Error?.Code ?? "thaka.refund_failed",
+                result.Error?.Message ?? "Credit refund failed.");
         }
     }
 

@@ -58,6 +58,14 @@ internal sealed class OperationOutcomeConfiguration : IEntityTypeConfiguration<O
         builder.Property(x => x.ErrorMessage)
             .HasMaxLength(4000);
 
+        builder.Property(x => x.ResponsePayload)
+            .HasColumnType("jsonb");
+
+        builder.Property(x => x.ResponseStatusCode);
+
+        builder.Property(x => x.ResponseContentType)
+            .HasMaxLength(100);
+
         builder.HasIndex(x => x.ClientOperationId)
             .IsUnique()
             .HasDatabaseName("ix_operation_outcomes_client_operation_id");

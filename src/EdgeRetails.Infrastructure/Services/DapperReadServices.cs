@@ -193,12 +193,20 @@ public sealed class SalesReadService : ISalesReadService
                     transaction,
                     cancellationToken: cancellationToken))).ToArray();
 
-            var returns = (await connection.QueryAsync<SaleReturnSummaryDto>(
+            var returns = (await connection.QueryAsync<SaleReturnSummaryDbRow>(
                 new CommandDefinition(
                     returnsSql,
                     new { query.SaleId },
                     transaction,
-                    cancellationToken: cancellationToken))).ToArray();
+                    cancellationToken: cancellationToken)))
+                .Select(row => new SaleReturnSummaryDto(
+                    row.SaleReturnId,
+                    row.ReturnNumber,
+                    ToUtcOffset(row.CreatedAt),
+                    row.ReasonCode,
+                    (RefundMethod)row.RefundMethod,
+                    row.RefundAmount))
+                .ToArray();
 
             var returnItems = (await connection.QueryAsync<SaleReturnItemDetailDto>(
                 new CommandDefinition(
@@ -265,7 +273,7 @@ public sealed class SalesReadService : ISalesReadService
 
         return await WithConnectionAsync(async (connection, transaction) =>
         {
-            var rows = await connection.QueryAsync<QuotationListRowDto>(
+            var rows = await connection.QueryAsync<QuotationListDbRow>(
                 new CommandDefinition(
                     sql,
                     new
@@ -279,7 +287,15 @@ public sealed class SalesReadService : ISalesReadService
                     },
                     transaction,
                     cancellationToken: cancellationToken));
-            return rows.ToArray();
+            return rows.Select(r => new QuotationListRowDto(
+                r.QuotationId,
+                r.QuotationNumber,
+                r.QuotationDate,
+                r.ValidUntil,
+                (QuotationStatus)r.Status,
+                r.CustomerName,
+                r.GrandTotal,
+                r.ConvertedSaleId)).ToArray();
         }, cancellationToken);
     }
 
@@ -394,7 +410,7 @@ public sealed class SalesReadService : ISalesReadService
 
         return await WithConnectionAsync(async (connection, transaction) =>
         {
-            var rows = await connection.QueryAsync<SaleReturnHistoryRowDto>(
+            var rows = await connection.QueryAsync<SaleReturnHistoryDbRow>(
                 new CommandDefinition(
                     sql,
                     new
@@ -408,44 +424,89 @@ public sealed class SalesReadService : ISalesReadService
                     },
                     transaction,
                     cancellationToken: cancellationToken));
-            return rows.ToArray();
+            return rows.Select(row => new SaleReturnHistoryRowDto(
+                row.SaleReturnId,
+                row.ReturnNumber,
+                row.SaleId,
+                row.InvoiceNumber,
+                ToUtcOffset(row.CreatedAt),
+                row.ReasonCode,
+                row.ReasonNote,
+                (RefundMethod)row.RefundMethod,
+                row.RefundAmount)).ToArray();
         }, cancellationToken);
     }
+
+    private static DateTimeOffset ToUtcOffset(DateTime value) =>
+        new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    private sealed record SaleReturnSummaryDbRow(
+        Guid SaleReturnId,
+        string ReturnNumber,
+        DateTime CreatedAt,
+        string ReasonCode,
+        int RefundMethod,
+        decimal RefundAmount);
+
+    private sealed record SaleReturnHistoryDbRow(
+        Guid SaleReturnId,
+        string ReturnNumber,
+        Guid SaleId,
+        string InvoiceNumber,
+        DateTime CreatedAt,
+        string ReasonCode,
+        string? ReasonNote,
+        int RefundMethod,
+        decimal RefundAmount);
+
+    private sealed record QuotationListDbRow(
+        Guid QuotationId,
+        string QuotationNumber,
+        DateOnly QuotationDate,
+        DateOnly? ValidUntil,
+        int Status,
+        string CustomerName,
+        decimal GrandTotal,
+        Guid? ConvertedSaleId);
 
     private Task<T> WithConnectionAsync<T>(
         Func<DbConnection, IDbTransaction?, Task<T>> operation,
         CancellationToken cancellationToken) =>
         DbReadConnection.WithAsync(_db, operation, cancellationToken);
 
-    private sealed record SaleHeaderRow(
-        Guid SaleId,
-        string InvoiceNumber,
-        DateTimeOffset CompletedAt,
-        Guid? CustomerId,
-        string CustomerName,
-        decimal Subtotal,
-        decimal InvoiceDiscount,
-        decimal GrandTotal,
-        SalePaymentMethod PaymentMethod,
-        decimal AmountTendered,
-        decimal AppliedAmount,
-        decimal ChangeGiven,
-        string? PaymentReference,
-        string? ReceiptTemplateSnapshot);
+    private sealed class SaleHeaderRow
+    {
+        public Guid SaleId { get; set; }
+        public string InvoiceNumber { get; set; } = string.Empty;
+        public DateTimeOffset CompletedAt { get; set; }
+        public Guid? CustomerId { get; set; }
+        public string CustomerName { get; set; } = string.Empty;
+        public decimal Subtotal { get; set; }
+        public decimal InvoiceDiscount { get; set; }
+        public decimal GrandTotal { get; set; }
+        public SalePaymentMethod PaymentMethod { get; set; }
+        public decimal AmountTendered { get; set; }
+        public decimal AppliedAmount { get; set; }
+        public decimal ChangeGiven { get; set; }
+        public string? PaymentReference { get; set; }
+        public string? ReceiptTemplateSnapshot { get; set; }
+    }
 
-    private sealed record QuotationHeaderRow(
-        Guid QuotationId,
-        string QuotationNumber,
-        Guid? CustomerId,
-        string? CustomerName,
-        DateOnly QuotationDate,
-        DateOnly? ValidUntil,
-        QuotationStatus Status,
-        decimal Subtotal,
-        decimal Discount,
-        decimal GrandTotal,
-        string? Notes,
-        Guid? ConvertedSaleId);
+    private sealed class QuotationHeaderRow
+    {
+        public Guid QuotationId { get; set; }
+        public string QuotationNumber { get; set; } = string.Empty;
+        public Guid? CustomerId { get; set; }
+        public string? CustomerName { get; set; }
+        public DateOnly QuotationDate { get; set; }
+        public DateOnly? ValidUntil { get; set; }
+        public QuotationStatus Status { get; set; }
+        public decimal Subtotal { get; set; }
+        public decimal Discount { get; set; }
+        public decimal GrandTotal { get; set; }
+        public string? Notes { get; set; }
+        public Guid? ConvertedSaleId { get; set; }
+    }
 }
 
 public sealed class PurchasingReadService : IPurchasingReadService

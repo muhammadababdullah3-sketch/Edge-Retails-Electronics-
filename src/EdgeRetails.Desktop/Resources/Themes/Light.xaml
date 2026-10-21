@@ -8,7 +8,7 @@
     <SolidColorBrush x:Key="Brush.Surface.Sunken" Color="#F1F5F9" />
     <SolidColorBrush x:Key="Brush.Surface.Raised" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Border.Default" Color="{StaticResource Color.Light.Border}" />
-    <SolidColorBrush x:Key="Brush.Border.Hover" Color="#9A90B2" />
+    <SolidColorBrush x:Key="Brush.Border.Hover" Color="#94A3B8" />
     <SolidColorBrush x:Key="Brush.Border.Soft" Color="{StaticResource Color.Light.BorderSoft}" />
     <SolidColorBrush x:Key="Brush.Text.Primary" Color="{StaticResource Color.Light.TextPrimary}" />
     <SolidColorBrush x:Key="Brush.Text.Secondary" Color="{StaticResource Color.Light.TextSecondary}" />
@@ -17,35 +17,35 @@
     <SolidColorBrush x:Key="Brush.Text.Divider" Color="#CAD3E0" />
     <SolidColorBrush x:Key="Brush.Input.Background" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Table.Header" Color="#F4F7FB" />
-    <SolidColorBrush x:Key="Brush.Selection.Subtle" Color="#ECEAFF" />
-    <SolidColorBrush x:Key="Brush.Selection.Border" Color="#B9B2FF" />
+    <SolidColorBrush x:Key="Brush.Selection.Subtle" Color="#EEF2FF" />
+    <SolidColorBrush x:Key="Brush.Selection.Border" Color="#A5B4FC" />
     <SolidColorBrush x:Key="Brush.Focus.Ring" Color="{StaticResource Color.Brand.Primary}" />
-    <SolidColorBrush x:Key="Brush.Hover.Subtle" Color="#F4F7FB" />
+    <SolidColorBrush x:Key="Brush.Hover.Subtle" Color="#F8FAFD" />
     <SolidColorBrush x:Key="Brush.Disabled.Background" Color="#EEF2F7" />
-    <SolidColorBrush x:Key="Brush.Disabled.Text" Color="#94A3B8" />
+    <SolidColorBrush x:Key="Brush.Disabled.Text" Color="#8A94A6" />
     <SolidColorBrush x:Key="Brush.Overlay.Scrim" Color="#660A2540" />
     <SolidColorBrush x:Key="Brush.ScrollBar.Thumb" Color="#CBD5E1" />
     <SolidColorBrush x:Key="Brush.ScrollBar.ThumbHover" Color="#94A3B8" />
     <SolidColorBrush x:Key="Brush.ScrollBar.ThumbDragging" Color="#64748B" />
 
-    <SolidColorBrush x:Key="Brush.Badge.Brand.Background" Color="#F0EDFF" />
-    <SolidColorBrush x:Key="Brush.Badge.Brand.Border" Color="#CEC8FF" />
-    <SolidColorBrush x:Key="Brush.Badge.Brand.Text" Color="#5546E8" />
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Background" Color="#EEF2FF" />
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Border" Color="#C7D2FE" />
+    <SolidColorBrush x:Key="Brush.Badge.Brand.Text" Color="#4338CA" />
     <SolidColorBrush x:Key="Brush.Badge.Success.Background" Color="#E7FBF5" />
     <SolidColorBrush x:Key="Brush.Badge.Success.Border" Color="#99E7D3" />
-    <SolidColorBrush x:Key="Brush.Badge.Success.Text" Color="#0F8F70" />
+    <SolidColorBrush x:Key="Brush.Badge.Success.Text" Color="#065F46" />
     <SolidColorBrush x:Key="Brush.Badge.Warning.Background" Color="#FFF5DB" />
     <SolidColorBrush x:Key="Brush.Badge.Warning.Border" Color="#F8D46A" />
-    <SolidColorBrush x:Key="Brush.Badge.Warning.Text" Color="#B96805" />
+    <SolidColorBrush x:Key="Brush.Badge.Warning.Text" Color="#946200" />
     <SolidColorBrush x:Key="Brush.Badge.Info.Background" Color="#EAF3FF" />
     <SolidColorBrush x:Key="Brush.Badge.Info.Border" Color="#A9CCFF" />
-    <SolidColorBrush x:Key="Brush.Badge.Info.Text" Color="#1D5FD3" />
+    <SolidColorBrush x:Key="Brush.Badge.Info.Text" Color="#1E40AF" />
     <SolidColorBrush x:Key="Brush.Badge.Danger.Background" Color="#FFF0F3" />
     <SolidColorBrush x:Key="Brush.Badge.Danger.Border" Color="#F8B7C5" />
-    <SolidColorBrush x:Key="Brush.Badge.Danger.Text" Color="#C91D45" />
+    <SolidColorBrush x:Key="Brush.Badge.Danger.Text" Color="#B42338" />
     <SolidColorBrush x:Key="Brush.Badge.Neutral.Background" Color="#F5F7FA" />
     <SolidColorBrush x:Key="Brush.Badge.Neutral.Border" Color="#DDE4EE" />
-    <SolidColorBrush x:Key="Brush.Badge.Neutral.Text" Color="#40536A" />
+    <SolidColorBrush x:Key="Brush.Badge.Neutral.Text" Color="#526079" />
 
     <SolidColorBrush x:Key="Brush.Kpi.BrandIcon" Color="#DDD9FF" />
     <SolidColorBrush x:Key="Brush.Kpi.SuccessIcon" Color="#C9F5E9" />

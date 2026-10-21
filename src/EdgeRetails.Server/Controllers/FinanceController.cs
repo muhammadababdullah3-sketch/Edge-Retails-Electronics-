@@ -16,6 +16,7 @@ public sealed class FinanceController : ControllerBase
     private readonly ReverseSupplierPaymentHandler _reversePaymentHandler;
     private readonly ReverseSupplierRefundHandler _reverseRefundHandler;
     private readonly OpenCashSessionHandler _openCashSessionHandler;
+    private readonly CloseCashSessionHandler _closeCashSessionHandler;
     private readonly RecordManualCashMovementHandler _manualCashMovementHandler;
     private readonly ISupplierAccountReadService _supplierAccountReads;
     private readonly SupplierOpeningBalanceHandler _openingBalanceHandler;
@@ -26,6 +27,7 @@ public sealed class FinanceController : ControllerBase
         ReverseSupplierPaymentHandler reversePaymentHandler,
         ReverseSupplierRefundHandler reverseRefundHandler,
         OpenCashSessionHandler openCashSessionHandler,
+        CloseCashSessionHandler closeCashSessionHandler,
         RecordManualCashMovementHandler manualCashMovementHandler,
         ISupplierAccountReadService supplierAccountReads,
         SupplierOpeningBalanceHandler openingBalanceHandler)
@@ -35,6 +37,7 @@ public sealed class FinanceController : ControllerBase
         _reversePaymentHandler = reversePaymentHandler;
         _reverseRefundHandler = reverseRefundHandler;
         _openCashSessionHandler = openCashSessionHandler;
+        _closeCashSessionHandler = closeCashSessionHandler;
         _manualCashMovementHandler = manualCashMovementHandler;
         _supplierAccountReads = supplierAccountReads;
         _openingBalanceHandler = openingBalanceHandler;
@@ -151,9 +154,32 @@ public sealed class FinanceController : ControllerBase
         [FromBody] OpenCashSessionCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.SalesPosUse);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _openCashSessionHandler.HandleAsync(sanitized, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("cash-session/close")]
+    public async Task<IActionResult> CloseCashSession(
+        [FromBody] CloseCashSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        var denied = this.RequirePermission(PermissionKeys.SalesPosUse);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        var actor = HttpContext.GetActorContext();
+        var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
+        var result = await _closeCashSessionHandler.HandleAsync(sanitized, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -169,8 +195,12 @@ public sealed class FinanceController : ControllerBase
         {
             return BadRequest(new { code = "cash.manual_type_required", message = "This endpoint accepts only manual cash in or out." });
         }
+        if (!sanitized.ClientOperationId.HasValue || sanitized.ClientOperationId.Value == Guid.Empty)
+        {
+            return BadRequest(new { code = "cash.client_operation_id_required", message = "Manual cash movement requires a valid immutable client operation id." });
+        }
         var result = await _manualCashMovementHandler.HandleAsync(new RecordManualCashMovementCommand(
-            sanitized.Direction, sanitized.Amount, sanitized.ActorId, sanitized.Reason ?? string.Empty, sanitized.Note), cancellationToken);
+            sanitized.Direction, sanitized.Amount, sanitized.ActorId, sanitized.Reason ?? string.Empty, sanitized.Note, sanitized.ClientOperationId), cancellationToken);
         return ToActionResult(result);
     }
 

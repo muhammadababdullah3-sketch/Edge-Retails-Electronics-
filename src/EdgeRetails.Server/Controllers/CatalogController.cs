@@ -60,6 +60,38 @@ public sealed class CatalogController : ControllerBase
         _saveProductAggregateHandler = saveProductAggregateHandler;
     }
 
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchCatalog(
+        [FromQuery] string? query,
+        [FromQuery] string? packagingFacet,
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            var posDenied = this.RequirePermission(PermissionKeys.SalesPosUse);
+            if (posDenied is not null)
+            {
+                var viewDenied = this.RequirePermission(PermissionKeys.SalesView);
+                if (viewDenied is not null)
+                {
+                    return denied;
+                }
+            }
+        }
+
+        var result = await _productReads.SearchCatalogAsync(
+            query,
+            packagingFacet,
+            pageNumber,
+            pageSize,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
     [HttpGet("products")]
     public async Task<IActionResult> GetProducts(
         [FromQuery] string? search,
@@ -102,7 +134,15 @@ public sealed class CatalogController : ControllerBase
         var denied = this.RequirePermission(PermissionKeys.InventoryManage);
         if (denied is not null)
         {
-            return denied;
+            var posDenied = this.RequirePermission(PermissionKeys.SalesPosUse);
+            if (posDenied is not null)
+            {
+                var viewDenied = this.RequirePermission(PermissionKeys.SalesView);
+                if (viewDenied is not null)
+                {
+                    return denied;
+                }
+            }
         }
 
         var product = await _productReads.GetProductAsync(id, cancellationToken);
@@ -110,6 +150,13 @@ public sealed class CatalogController : ControllerBase
         {
             return NotFound(new { code = "catalog.product_not_found", message = $"Product '{id}' was not found." });
         }
+
+        var actor = HttpContext.GetActorContext();
+        if (actor is not null && string.Equals(actor.RoleName, "Cashier", StringComparison.OrdinalIgnoreCase))
+        {
+            product = product with { ReferencePurchaseCost = null };
+        }
+
         return Ok(product);
     }
 

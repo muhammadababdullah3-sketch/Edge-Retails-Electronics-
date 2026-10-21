@@ -1,0 +1,38 @@
+{
+  "audit_run": "ER-RUN-LOCALFLOW-20261019-081",
+  "baseline_run": "ER-RUN-LOCALFLOW-20261019-080",
+  "historical_run": "ER-RUN-LOCALFLOW-20261019-079",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "total_files": 363,
+  "summary": {
+    "identical": 327,
+    "modified": 12,
+    "new": 24
+  },
+  "intentional_modifications": [
+    {
+      "path": "src/EdgeRetails.Application/Features/Posting/ShopPostingValidationService.cs",
+      "category": "LF15 Causal Source Fix: Anti-Spoofing Precedence in Domain Authorization",
+      "justification": "Reordered cashier anti-spoofing evaluation before generic supervisor permission checks, preventing unreachable dead code and returning canonical 'authorization.spoofed_supervisor_rejected' whenever a cashier self-authorizes without supervisor role."
+    },
+    {
+      "path": "src/EdgeRetails.Server/Controllers/PostingController.cs",
+      "category": "LF15 Causal Source Fix: Preflight Authorization Parity with Application Layer",
+      "justification": "Aligned HTTP controller preflight validation error codes ('authorization.supervisor_id_required', 'authorization.invalid_supervisor_pin', 'authorization.reason_required', 'authorization.supervisor_permission_denied') and added caller anti-spoofing check via HttpContext.GetActorContext() returning 'authorization.spoofed_supervisor_rejected'."
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/Phase11ShopTimeAndPostingTests.cs",
+      "category": "LF15 Dedicated Named Behavioral Proof Tests (Application Service)",
+      "justification": "Updated T11_SupervisorAuth_SpoofedActor_Rejected to assert canonical 'authorization.spoofed_supervisor_rejected', and added T11b_SupervisorAuth_UnprivilegedSupervisor_PermissionDenied asserting 'authorization.supervisor_permission_denied'."
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/Phase11Wave3ApiAndDesktopCutoverTests.cs",
+      "category": "LF15 Dedicated Named Behavioral Proof Tests (Server Controller)",
+      "justification": "Enhanced FakeIdentityReadRepository with per-user permission overrides and added 5 dedicated named tests proving preflight parity: (1) input validation error codes, (2) lifecycle preflight parity with application authorization, (3) caller anti-spoofing rejection with 403, (4) unprivileged supervisor rejection with 403, and (5) authorized supervisor 200 OK with cryptographic SHA-256 token."
+    }
+  ],
+  "preserved_components": {
+    "run080_components_preserved_count": 327,
+    "untracked_components_preserved_count": 169
+  }
+}

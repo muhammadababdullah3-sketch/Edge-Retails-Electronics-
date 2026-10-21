@@ -17,8 +17,8 @@
 
         <!-- Stepper Button Style -->
         <Style x:Key="Pos.StepperButton" TargetType="Button">
-            <Setter Property="Width" Value="28" />
-            <Setter Property="Height" Value="28" />
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
             <Setter Property="Background" Value="{DynamicResource Brush.Surface.Default}" />
             <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -56,10 +56,10 @@
             </Setter>
         </Style>
 
-        <!-- Remove Button Style -->
+        <!-- Remove Button Style: expanded hit target with compact 22x22 visual glyph -->
         <Style x:Key="Pos.RemoveButton" TargetType="Button">
-            <Setter Property="Width" Value="22" />
-            <Setter Property="Height" Value="22" />
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
@@ -67,17 +67,19 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4">
-                            <Path Data="M 1 1 L 9 9 M 9 1 L 1 9"
-                                  Stroke="{DynamicResource Brush.Text.Muted}"
-                                  StrokeThickness="1.5"
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
-                                  Width="10"
-                                  Height="10"
-                                  Stretch="Uniform"
-                                  HorizontalAlignment="Center"
-                                  VerticalAlignment="Center" />
+                        <Border Background="Transparent">
+                            <Border x:Name="Bd" Width="22" Height="22" Background="{TemplateBinding Background}" CornerRadius="4">
+                                <Path Data="M 1 1 L 9 9 M 9 1 L 1 9"
+                                      Stroke="{DynamicResource Brush.Text.Muted}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Width="10"
+                                      Height="10"
+                                      Stretch="Uniform"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Border>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -215,17 +217,9 @@
 
                             <!-- F2 Shortcut Tag -->
                             <Border Grid.Column="5"
-                                    BorderBrush="{DynamicResource Brush.Border.Default}"
-                                    BorderThickness="1"
-                                    CornerRadius="3.5"
-                                    Padding="5,1.5"
-                                    Background="{DynamicResource Brush.Surface.Subtle}"
-                                    VerticalAlignment="Center">
+                                    Style="{StaticResource Badge.Keycap}">
                                 <TextBlock Text="F2"
-                                           FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="10"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource Brush.Text.Muted}" />
+                                           Style="{StaticResource Badge.Keycap.Text}" />
                             </Border>
                         </Grid>
                     </Border>
@@ -288,6 +282,8 @@
                             <Button Content="Hold" Command="{Binding HoldDraftCommand}"
                                     Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,6,2" />
                             <Button Content="Drafts" Command="{Binding RecentDraftsCommand}"
+                                    Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,6,2" />
+                            <Button Content="Posting / Supervisor" Command="{Binding OpenSupervisorApprovalCommand}"
                                     Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,0,2" />
                         </WrapPanel>
                     </Grid>
@@ -643,6 +639,34 @@
                         <StackPanel>
                             <!-- NORMAL SALE SUMMARY -->
                             <StackPanel>
+                                <!-- Supervisor Authorization / Posting Date Banner -->
+                                <Border Margin="0,0,0,8"
+                                        Padding="10,6"
+                                        Background="{DynamicResource Brush.Surface.Subtle}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Visibility="{Binding HasActiveSupervisorApproval, Converter={StaticResource BoolToVis}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ActivePostingDateDisplay}"
+                                                       FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
+                                            <TextBlock Text="{Binding ActiveSupervisorSummary}"
+                                                       FontSize="10.5" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,1,0,0" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Content="Clear"
+                                                Command="{Binding ClearSupervisorApprovalCommand}"
+                                                Style="{StaticResource Button.Text.Borderless}"
+                                                FontSize="11"
+                                                VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
                                 <!-- Customer Row: Walk-in Customer + Change F4 -->
                                 <Border MinHeight="42"
                                         Background="{DynamicResource Brush.Surface.Default}"
@@ -808,9 +832,9 @@
                                                Foreground="{DynamicResource Brush.Text.Primary}" />
                                 </Grid>
 
-                                <!-- COMPLETE SALE CTA BUTTON (46px, radius 9, success gradient, shadow, F10) -->
+                                <!-- COMPLETE SALE CTA BUTTON (52px, radius 9, success gradient, shadow, F10) -->
                                 <Button Command="{Binding CompleteSaleCommand}"
-                                        Height="46"
+                                        Height="52"
                                         Cursor="Hand"
                                         FocusVisualStyle="{StaticResource FocusVisual.Button.PrimaryAction}">
                                     <Button.Style>
@@ -852,17 +876,9 @@
                                                                 </StackPanel>
 
                                                                 <Border Grid.Column="1"
-                                                                        BorderBrush="#4DFFFFFF"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="3.5"
-                                                                        Padding="6,2"
-                                                                        VerticalAlignment="Center"
-                                                                        Opacity="0.85">
+                                                                        Style="{StaticResource Badge.Keycap.Dark}">
                                                                     <TextBlock Text="F10"
-                                                                               FontFamily="{StaticResource Font.Mono}"
-                                                                               FontSize="11"
-                                                                               FontWeight="SemiBold"
-                                                                               Foreground="{StaticResource Brush.White}" />
+                                                                               Style="{StaticResource Badge.Keycap.Dark.Text}" />
                                                                 </Border>
                                                             </Grid>
                                                         </Border>

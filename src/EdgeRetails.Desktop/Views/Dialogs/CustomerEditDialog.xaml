@@ -3,7 +3,7 @@
  <Border Width="500" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid><TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/>
-    <Button Content="✕" Command="{Binding CancelCommand}" Style="{StaticResource Button.Text.Neutral}" IsCancel="True" HorizontalAlignment="Right"/></Grid>
+    <Button Command="{Binding CancelCommand}" Style="{StaticResource Button.Close}" IsCancel="True" HorizontalAlignment="Right"/></Grid>
    <StackPanel Margin="0,16,0,0"><TextBlock Text="Name *" Margin="0,0,0,5" FontSize="12"/><TextBox IsEnabled="{Binding CanEdit}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Phone *" Margin="0,0,0,5" FontSize="12"/><TextBox IsEnabled="{Binding CanEdit}" Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>
    <StackPanel Margin="0,14,0,0"><TextBlock Text="Address" Margin="0,0,0,5" FontSize="12"/><TextBox IsEnabled="{Binding CanEdit}" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/></StackPanel>

@@ -116,6 +116,9 @@ public sealed class SaleLineItemViewModel : ViewModelBase
     public string EligibleReturnQuantityDisplay => EligibleReturnQuantity.ToString("0.##", CultureInfo.InvariantCulture);
     public bool IsFullyReturned => EligibleReturnQuantity <= 0m;
 
+    public Guid? SourceContainerId { get; set; }
+    public IReadOnlyList<Guid> InventoryUnitIds { get; set; } = Array.Empty<Guid>();
+
     private void NotifyFinancialsChanged()
     {
         OnPropertyChanged(nameof(UnitPriceDisplay));

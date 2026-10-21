@@ -157,6 +157,7 @@ public sealed class DesktopApiClient : IDisposable
 
         var request = new HttpRequestMessage(method, path);
         request.Headers.Add("X-Protocol-Version", TerminalProtocol.CurrentProtocolVersion);
+        request.Headers.Add("X-Client-Version", "1.0.0");
         lock (_contextGate)
         {
             if (_terminalId is Guid terminalId)
@@ -195,12 +196,24 @@ public sealed class DesktopApiClient : IDisposable
                     // A proxy/server failure may have no canonical JSON body.
                 }
 
-                throw new DesktopApiException(
-                    error?.Code ?? (response.StatusCode == HttpStatusCode.ServiceUnavailable
+                var code = error?.Code;
+                if (string.IsNullOrWhiteSpace(code) && (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity))
+                {
+                    code = "validation.invalid_request";
+                }
+                else if (string.IsNullOrWhiteSpace(code))
+                {
+                    code = response.StatusCode == HttpStatusCode.ServiceUnavailable
                         ? "system.not_ready"
-                        : $"http.{(int)response.StatusCode}"),
-                    error?.Message ?? error?.FailureReason ??
-                    $"Server request failed with HTTP {(int)response.StatusCode}.",
+                        : $"http.{(int)response.StatusCode}";
+                }
+
+                var message = error?.Message ?? error?.FailureReason ?? error?.Error ??
+                    $"Server request failed with HTTP {(int)response.StatusCode}.";
+
+                throw new DesktopApiException(
+                    code,
+                    message,
                     response.StatusCode);
             }
 
@@ -228,7 +241,7 @@ public sealed class DesktopApiClient : IDisposable
         }
     }
 
-    private sealed record ErrorBody(string? Code, string? Message, string? FailureReason);
+    private sealed record ErrorBody(string? Code, string? Message, string? FailureReason, string? Error);
 }
 
 internal sealed class DesktopSessionForwardingHandler(

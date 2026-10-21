@@ -20,6 +20,7 @@ public sealed class ThakaController : ControllerBase
     private readonly ReopenThakaHandler _reopenHandler;
     private readonly ReverseThakaMaterialHandler _reverseMaterialHandler;
     private readonly ReverseThakaPaymentHandler _reversePaymentHandler;
+    private readonly RefundThakaCreditHandler _refundCreditHandler;
 
     public ThakaController(
         IThakaReadService thakaReads,
@@ -30,7 +31,8 @@ public sealed class ThakaController : ControllerBase
         ReopenThakaHandler reopenHandler,
         ReverseThakaMaterialHandler reverseMaterialHandler,
         ReverseThakaPaymentHandler reversePaymentHandler,
-        SetThakaSuspensionHandler suspensionHandler)
+        SetThakaSuspensionHandler suspensionHandler,
+        RefundThakaCreditHandler refundCreditHandler)
     {
         _thakaReads = thakaReads;
         _createProjectHandler = createProjectHandler;
@@ -41,6 +43,7 @@ public sealed class ThakaController : ControllerBase
         _reverseMaterialHandler = reverseMaterialHandler;
         _reversePaymentHandler = reversePaymentHandler;
         _suspensionHandler = suspensionHandler;
+        _refundCreditHandler = refundCreditHandler;
     }
 
     [HttpPost("projects/{id:guid}/suspension")]
@@ -257,6 +260,25 @@ public sealed class ThakaController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPost("credit-refund")]
+    public async Task<IActionResult> RefundCredit(
+        [FromBody] RefundThakaCreditRequest request,
+        CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        var actorId = actor?.UserId ?? request.ActorId ?? Guid.Empty;
+
+        var command = new RefundThakaCreditCommand(
+            ClientOperationId: request.ClientOperationId,
+            ProjectId: request.ProjectId,
+            Amount: request.Amount,
+            Reason: request.Reason,
+            ActorId: actorId);
+
+        var result = await _refundCreditHandler.HandleAsync(command, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private IActionResult ToActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
@@ -332,5 +354,12 @@ public sealed record ReverseThakaPaymentRequest(
     Guid ClientOperationId,
     Guid ProjectId,
     Guid PaymentId,
+    string Reason,
+    Guid? ActorId = null);
+
+public sealed record RefundThakaCreditRequest(
+    Guid ClientOperationId,
+    Guid ProjectId,
+    decimal Amount,
     string Reason,
     Guid? ActorId = null);

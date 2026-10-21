@@ -1,0 +1,12 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-075",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "predecessor_runs": [
+    "ER-RUN-LOCALFLOW-20261019-073",
+    "ER-RUN-LOCALFLOW-20261019-074"
+  ],
+  "modified_files_vs_run074": [
+    "src/EdgeRetails.Desktop/ViewModels/SuppliersViewModel.cs",
+    "tests/EdgeRetails.Desktop.PerformanceTests/Phase12Wave3DurableClientOwnershipTests.cs"
+  ]
+}

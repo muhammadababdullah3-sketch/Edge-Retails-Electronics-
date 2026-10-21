@@ -9,11 +9,11 @@ public sealed class DesignPreviewSessionContext : ISessionContext
 
     public Guid? SessionId => null;
 
-    public string DisplayName => "Abdullah";
+    public string DisplayName => "Store Owner";
 
     public string RoleName => "Owner";
 
-    public string Initials => "A";
+    public string Initials => "SO";
 
     public bool IsOnline => true;
 

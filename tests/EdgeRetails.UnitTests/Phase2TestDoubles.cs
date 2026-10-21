@@ -13,7 +13,9 @@ using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Purchasing;
+using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Application.Features.Terminals;
 
 namespace EdgeRetails.UnitTests;
@@ -47,6 +49,8 @@ internal sealed class Phase2TestDoubles
     public FakePurchasingReadService PurchasingReads { get; }
     public FakePhysicalUnitCreationAuthority PhysicalUnits { get; }
     public CashMovementService CashMovements { get; }
+    public IPackSubLedgerAllocationAuthority PackAllocations { get; } = new PackSubLedgerAllocationAuthority();
+    public ReturnExchangeEligibilityAuthority Eligibility { get; }
 
     public Phase2TestDoubles()
     {
@@ -55,6 +59,17 @@ internal sealed class Phase2TestDoubles
         PurchasingReads = new FakePurchasingReadService(Purchasing, Inventory);
         PhysicalUnits = new FakePhysicalUnitCreationAuthority(Catalog, Parties, Traceability, Inventory, Clock);
         CashMovements = new CashMovementService(Cash, Clock);
+        Eligibility = new ReturnExchangeEligibilityAuthority(
+            Sales,
+            Inventory,
+            Catalog,
+            CostAllocator,
+            Clock,
+            Warranty,
+            PhysicalUnits,
+            PackAllocations,
+            Traceability,
+            Parties);
     }
 }
 
@@ -486,6 +501,7 @@ internal sealed class FakeThakaRepository : IThakaRepository
     public List<ThakaReopening> Reopenings { get; } = new();
     public List<ThakaMaterialReversal> MaterialReversals { get; } = new();
     public List<ThakaPaymentReversal> PaymentReversals { get; } = new();
+    public List<ThakaCreditRefund> CreditRefunds { get; } = new();
 
     public Task<ThakaProject?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken) =>
         Task.FromResult(Projects.TryGetValue(projectId, out var p) ? p : null);
@@ -520,6 +536,12 @@ internal sealed class FakeThakaRepository : IThakaRepository
     public Task<ThakaPaymentReversal?> GetPaymentReversalByPaymentAsync(Guid paymentId, CancellationToken cancellationToken) =>
         Task.FromResult(PaymentReversals.FirstOrDefault(r => r.PaymentId == paymentId));
 
+    public Task<ThakaCreditRefund?> GetCreditRefundByOperationIdAsync(Guid clientOperationId, CancellationToken cancellationToken) =>
+        Task.FromResult(CreditRefunds.FirstOrDefault(r => r.ClientOperationId == clientOperationId));
+
+    public Task<decimal> GetCreditRefundsTotalAsync(Guid projectId, CancellationToken cancellationToken) =>
+        Task.FromResult(CreditRefunds.Where(r => r.ProjectId == projectId).Sum(r => r.Amount));
+
     public Task<IReadOnlyList<ThakaMaterialIssueItem>> GetIssueItemsAsync(Guid materialIssueId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<ThakaMaterialIssueItem>>(MaterialIssueItems.Where(i => i.MaterialIssueId == materialIssueId).ToList());
 
@@ -536,7 +558,9 @@ internal sealed class FakeThakaRepository : IThakaRepository
     public Task<decimal> GetPaymentsCollectedAsync(Guid projectId, CancellationToken cancellationToken)
     {
         var reversedPaymentIds = PaymentReversals.Where(r => r.ProjectId == projectId).Select(r => r.PaymentId).ToHashSet();
-        return Task.FromResult(Payments.Where(p => p.ProjectId == projectId && !reversedPaymentIds.Contains(p.Id)).Sum(p => p.Amount));
+        var paid = Payments.Where(p => p.ProjectId == projectId && !reversedPaymentIds.Contains(p.Id)).Sum(p => p.Amount);
+        var refunded = CreditRefunds.Where(r => r.ProjectId == projectId).Sum(r => r.Amount);
+        return Task.FromResult(paid - refunded);
     }
 
     public Task<decimal> GetSettlementDiscountsAsync(Guid projectId, CancellationToken cancellationToken) =>
@@ -554,6 +578,7 @@ internal sealed class FakeThakaRepository : IThakaRepository
     public void AddReopening(ThakaReopening reopening) => Reopenings.Add(reopening);
     public void AddMaterialReversal(ThakaMaterialReversal reversal) => MaterialReversals.Add(reversal);
     public void AddPaymentReversal(ThakaPaymentReversal reversal) => PaymentReversals.Add(reversal);
+    public void AddCreditRefund(ThakaCreditRefund refund) => CreditRefunds.Add(refund);
 }
 
 internal sealed class FakeExpenseRepository : IExpenseRepository
@@ -789,9 +814,17 @@ internal sealed class FakePhysicalUnitCreationAuthority : IPhysicalUnitCreationA
                 SourceWarrantyCaseId = entry.SourceWarrantyCaseId,
                 SourceStockAdjustmentItemId = entry.SourceStockAdjustmentItemId,
                 CreatedAt = _clock.UtcNow,
-                Version = 1
+                Version = 1,
+                InitialBaseQuantity = entry.InitialBaseQuantity,
+                RemainingBaseQuantity = entry.RemainingBaseQuantity,
+                PackState = entry.PackState,
+                IsLooseStock = entry.IsLooseStock
             };
             unit.ValidateOriginInvariants();
+            if (unit.PackState is not null)
+            {
+                unit.ValidatePackInvariants();
+            }
             _inventory.AddInventoryUnit(unit);
             if (serial is not null)
             {

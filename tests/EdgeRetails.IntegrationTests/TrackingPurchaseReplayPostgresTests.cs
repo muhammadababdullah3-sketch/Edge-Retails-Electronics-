@@ -19,7 +19,7 @@ public sealed class TrackingPurchaseReplayPostgresTests
         var db = setup.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         var product = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
         var command = new CreatePurchaseCommand(product.SupplierId, "REPLAY-" + Guid.NewGuid().ToString("N"),
-            new(2026, 10, 7), "Replay", 0m, PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
+            DateOnly.FromDateTime(DateTime.UtcNow), "Replay", 0m, PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
             [new(product.ProductId, product.ProductUnitId, 2m, 10m, 15m, [])], InitialPaymentAmount: 0m);
         var first = await setup.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(command, default);
         Assert.True(first.IsSuccess, first.Error?.ToString());
@@ -29,7 +29,7 @@ public sealed class TrackingPurchaseReplayPostgresTests
         {
             command with { Lines = [command.Lines[0] with { EnteredQuantity = 3m }] },
             command with { ReceiveStockImmediately = false },
-            command with { PurchaseDate = command.PurchaseDate.AddDays(1) },
+            command with { Note = "Altered note" },
             command with { InitialPaymentAmount = 1m },
             command with { OtherCharges = 1m }
         };
@@ -57,7 +57,7 @@ public sealed class TrackingPurchaseReplayPostgresTests
         var product = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
         var serial = "REPLAY-" + Guid.NewGuid().ToString("N").ToUpperInvariant();
         var command = new CreatePurchaseCommand(product.SupplierId, "IDENTITY-" + Guid.NewGuid().ToString("N"),
-            new(2026, 10, 7), null, 0m, PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
+            DateOnly.FromDateTime(DateTime.UtcNow), null, 0m, PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
             [new(product.ProductId, product.ProductUnitId, 1m, 100m, 150m, [new(serial)])]);
         var first = await setup.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(command, default);
         Assert.True(first.IsSuccess, first.Error?.ToString());
@@ -81,7 +81,7 @@ public sealed class TrackingPurchaseReplayPostgresTests
         await using var setup = provider.CreateAsyncScope();
         var db = setup.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         var product = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
-        var command = new CreatePurchaseCommand(Guid.NewGuid(), "MISSING", new(2026, 10, 7), null, 0m,
+        var command = new CreatePurchaseCommand(Guid.NewGuid(), "MISSING", DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
             PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
             [new(product.ProductId, product.ProductUnitId, 1m, 10m, 15m, [])]);
         Assert.Equal("purchasing.supplier_not_active", (await setup.ServiceProvider.GetRequiredService<CreatePurchaseHandler>()

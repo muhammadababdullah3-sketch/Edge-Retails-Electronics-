@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "run_id": "ER-RUN-LOCALFLOW-20261019-079",
+  "predecessor_run_id": "ER-RUN-LOCALFLOW-20261019-078",
+  "authority": [
+    "OWNER-UPDATE-20261018-019 (Phase 11 LOCAL-FLOW Master Addendum)",
+    "OWNER-UPDATE-20261019-001 (Operator Choice: Same-Project Credit or Authorized Refund)",
+    "OWNER-UPDATE-20261019-007 (Local POS Remaining-Module Master Remediation)"
+  ],
+  "timestamp_utc": "2026-10-19T12:00:00Z",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "candidate_source_bundle_sha256": "6e667cb70e644db3a50202808799b95db3d4d71f7f3188023fbcd2d37babb251",
+  "candidate_tracked_patch_sha256": "6ceae4ab34c7e3d62ed141bceb7d6db4007f32c19e7d3cf1eb8586d643cd00a4",
+  "candidate_untracked_zip_sha256": "fd6fe3726a0ec8877541c94cb2c0af9215114ef1d663b79c3c6cc3719ee80c7d",
+  "total_candidate_files": 338,
+  "tracked_files_count": 169,
+  "untracked_files_count": 169,
+  "drift_vs_run078": {
+    "identical_count": 326,
+    "modified_count": 4,
+    "new_count": 8,
+    "modified_files": [
+      {
+        "path": "src/EdgeRetails.Application/Features/Finance/CashSessionHandlers.cs",
+        "old_sha256": "11c673801361ed1198228b3c9f3096fc084ce8162f1f1a4261efe8dda5552386",
+        "new_sha256": "789f1904736a8d9c9ea08b4ea803ecb109566025b0fb872cf8f6331002be179b",
+        "old_size": 19107,
+        "new_size": 19827,
+        "is_tracked": true
+      },
+      {
+        "path": "src/EdgeRetails.Desktop/Views/LoginView.xaml",
+        "old_sha256": "7871ae79706f42468e699edd1484ba3fa84fb4a95f4295d7be8fa804f1fcce1f",
+        "new_sha256": "49c958d7990f4a39fc65ff0f98466cfb5565e65517358936548c75e8a8fadd5f",
+        "old_size": 60820,
+        "new_size": 60809,
+        "is_tracked": true
+      },
+      {
+        "path": "src/EdgeRetails.Server/Controllers/FinanceController.cs",
+        "old_sha256": "f5a90d1fece18a6cf8b0667e326f74714b1fd5bfe559f6f9f22354a0b54f4a29",
+        "new_sha256": "a0d2a3796f3ced9c69a3fcea85e9d5e495d852df83a8313a54ae6002060a4576",
+        "old_size": 10982,
+        "new_size": 11135,
+        "is_tracked": true
+      },
+      {
+        "path": "tests/EdgeRetails.UnitTests/Phase2StocktakeThakaCashSessionBehavioralTests.cs",
+        "old_sha256": "878277840ea15d954d3e2751ad1c80a77d8f9ed5b57606b7c9b69ed71a1493e2",
+        "new_sha256": "2e939301c31890aa8b743abfd60381c973751b5a516c91b290816820022e3373",
+        "old_size": 13807,
+        "new_size": 17450,
+        "is_tracked": true
+      }
+    ],
+    "new_files": [
+      "src/EdgeRetails.Desktop/Resources/Buttons.xaml",
+      "src/EdgeRetails.Desktop/Resources/Cards.xaml",
+      "src/EdgeRetails.Desktop/Resources/Colors.xaml",
+      "src/EdgeRetails.Desktop/Resources/Gradients.xaml",
+      "src/EdgeRetails.Desktop/Resources/Themes/Dark.xaml",
+      "src/EdgeRetails.Desktop/Resources/Themes/Light.xaml",
+      "src/EdgeRetails.Desktop/Services/DemoIdentityService.cs",
+      "src/EdgeRetails.Desktop/Services/DesignPreviewSessionContext.cs"
+    ]
+  },
+  "runtime_environment": {
+    "host": "Windows 11 Pro 10.0.26100",
+    "dotnet_sdk": "10.0.100",
+    "native_session_id": "e143b7ec-1d5c-4ad8-ad06-4bbe1dd20736",
+    "disposable_pg18_status": "INACTIVE_PORT_55437",
+    "operational_pg_status": "PORT_5432_ACTIVE_PID_5564_ISOLATED_UNTOUCHED",
+    "operational_server_status": "PORT_7150_ACTIVE_PID_3432_ISOLATED_UNTOUCHED",
+    "server_side_ledger_status": "UNPROVEN_OPEN_DUE_TO_FAILCLOSED_POLICY"
+  }
+}

@@ -19,6 +19,13 @@ public sealed class BackendTransactionService : ITransactionService
     public const string SaleCheckoutIntentKey = "sale:checkout";
 
     public BackendTransactionService(
+        DesktopApiClient apiClient,
+        IClientOperationIntentStore? operationIntents = null)
+        : this(null!, () => null, apiClient, operationIntents)
+    {
+    }
+
+    public BackendTransactionService(
         IServiceScopeFactory scopeFactory,
         Func<Guid?> actorUserId,
         DesktopApiClient apiClient,
@@ -29,6 +36,8 @@ public sealed class BackendTransactionService : ITransactionService
         _apiClient = apiClient;
         _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
     }
+
+    public DesktopApiClient? ApiClient => _apiClient;
 
     public event EventHandler<SaleTransactionRecord>? TransactionRecorded;
     public event EventHandler<SaleReturnRecord>? ReturnRecorded;
@@ -88,24 +97,52 @@ public sealed class BackendTransactionService : ITransactionService
             throw new InvalidOperationException(
                 "Backend sale requires at least one authoritative cart line.");
         }
-        var lines = items.Select(item =>
+        var allPhysicalUnitIds = items.SelectMany(x => x.InventoryUnitIds).ToList();
+        if (allPhysicalUnitIds.Count != allPhysicalUnitIds.Distinct().Count())
         {
-            if (item.BackendProductId is null ||
-                item.BackendProductUnitId is null)
-            {
-                throw new InvalidOperationException(
-                    $"Product '{item.ProductName}' is still using demo identifiers.");
-            }
+            throw new BackendOperationException(
+                "sales.duplicate_physical_unit",
+                "The same physical unit appears more than once in the sale lines.");
+        }
 
-            return new CompleteSaleLineInput(
-                item.BackendProductId.Value,
-                item.BackendProductUnitId.Value,
-                item.Quantity,
-                item.PriceOverrideUnitPrice is null ? item.UnitPrice : item.ListUnitPrice,
-                item.InventoryUnitIds,
-                item.PriceOverrideUnitPrice,
-                item.PriceOverrideReason);
-        }).ToArray();
+        var lines = items
+            .GroupBy(item =>
+            {
+                if (item.BackendProductId is null ||
+                    item.BackendProductUnitId is null)
+                {
+                    throw new InvalidOperationException(
+                        $"Product '{item.ProductName}' is still using demo identifiers.");
+                }
+
+                var price = item.PriceOverrideUnitPrice ?? (item.ListUnitPrice > 0m ? item.ListUnitPrice : item.UnitPrice);
+                var overrideReason = item.PriceOverrideReason?.Trim() ?? string.Empty;
+
+                return (
+                    ProductId: item.BackendProductId.Value,
+                    ProductUnitId: item.BackendProductUnitId.Value,
+                    UnitPrice: price,
+                    OverridePrice: item.PriceOverrideUnitPrice,
+                    OverrideReason: overrideReason);
+            })
+            .Select(group =>
+            {
+                var groupItems = group.ToList();
+                var first = groupItems[0];
+                var baseUnitPrice = first.PriceOverrideUnitPrice is null ? first.UnitPrice : first.ListUnitPrice;
+                var totalQuantity = groupItems.Sum(x => x.Quantity);
+                var combinedUnits = groupItems.SelectMany(x => x.InventoryUnitIds).Distinct().ToArray();
+
+                return new CompleteSaleLineInput(
+                    group.Key.ProductId,
+                    group.Key.ProductUnitId,
+                    totalQuantity,
+                    baseUnitPrice,
+                    combinedUnits,
+                    first.PriceOverrideUnitPrice,
+                    first.PriceOverrideReason);
+            })
+            .ToArray();
 
         if (request.ClientOperationId == Guid.Empty)
         {
@@ -120,11 +157,48 @@ public sealed class BackendTransactionService : ITransactionService
                 "Draft version is required when completing a resumed draft.");
         }
 
+        var replayEnvelopeObj = new SafeSaleReplayEnvelope
+        {
+            ClientOperationId = request.ClientOperationId,
+            DraftId = request.DraftId,
+            DraftVersion = request.DraftVersion,
+            CustomerId = request.CustomerId,
+            CustomerName = request.CustomerName,
+            CustomerPhone = request.CustomerPhone,
+            CashierName = request.CashierName,
+            TotalAmount = request.TotalAmount,
+            Subtotal = request.Subtotal,
+            DiscountAmount = request.DiscountAmount,
+            PaymentMethod = request.PaymentMethod.ToString(),
+            AmountReceived = request.AmountReceived,
+            ChangeReturned = request.ChangeReturned,
+            PaymentReference = request.PaymentReference,
+            Notes = request.Notes,
+            PostingDate = request.PostingDate,
+            Lines = items.Select(item => new SafeSaleReplayLine
+            {
+                ProductId = item.BackendProductId!.Value,
+                ProductUnitId = item.BackendProductUnitId!.Value,
+                SkuOrCode = item.Sku,
+                ProductName = item.ProductName,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice,
+                ListUnitPrice = item.ListUnitPrice > 0m ? item.ListUnitPrice : item.UnitPrice,
+                PriceOverrideUnitPrice = item.PriceOverrideUnitPrice,
+                PriceOverrideReason = item.PriceOverrideReason,
+                InventoryUnitIds = item.InventoryUnitIds.ToList()
+            }).ToList()
+        };
+        var safeReplayEnvelope = JsonSerializer.Serialize(replayEnvelopeObj);
+
         var operationId = await _operationIntents.GetOrCreateAsync(
             SaleCheckoutIntentKey,
             SerializeSaleIntentPayload(request),
             request.ClientOperationId,
-            cancellationToken);
+            operationType: "Sale",
+            safeDisplayContext: $"Sale for customer {request.CustomerName ?? "Walk-in"}",
+            safeReplayEnvelope: safeReplayEnvelope,
+            cancellationToken: cancellationToken);
         if (operationId != request.ClientOperationId)
         {
             throw new InvalidOperationException(
@@ -138,9 +212,20 @@ public sealed class BackendTransactionService : ITransactionService
         Guid committedSaleId;
         if (IsUncertainSale(request.ClientOperationId))
         {
-            committedSaleId = await RecoverSaleOutcomeAsync(
+            var recovery = await RecoverSaleOutcomeAsync(
                 gateway, request.ClientOperationId, cancellationToken);
-            goto ReadCommittedSale;
+            if (recovery.WasCommitted && recovery.CommittedSaleId is Guid recoveredSaleId)
+            {
+                committedSaleId = recoveredSaleId;
+                goto ReadCommittedSale;
+            }
+
+            if (recovery.IsNotFoundConfirmed)
+            {
+                // Bounded recheck confirmed NOT_FOUND on the server.
+                // Clear uncertain state and safely proceed to send with the SAME ClientOperationId.
+                ClearSaleUncertain(request.ClientOperationId);
+            }
         }
 
         if (request.DraftId is Guid draftId)
@@ -162,21 +247,25 @@ public sealed class BackendTransactionService : ITransactionService
                     request.DiscountAmount,
                     MapPaymentMethod(request.PaymentMethod),
                     request.AmountReceived,
-                    request.PaymentReference),
+                    request.PaymentReference,
+                    request.PostingDate,
+                    request.SupervisorApproval),
                 cancellationToken);
 
             if (!draftResult.IsSuccess || draftResult.Value is null)
             {
-                if (IsTransportFailure(draftResult.Error?.Code))
+                var errorCode = draftResult.Error?.Code;
+                if (IsNonFinalOrRetryableFailure(errorCode))
                 {
-                    committedSaleId = await RecoverSaleOutcomeAsync(
-                        gateway, request.ClientOperationId, cancellationToken);
-                    goto ReadCommittedSale;
+                    MarkSaleUncertain(request.ClientOperationId);
+                    throw new BackendOperationException(
+                        errorCode ?? "sales.outcome_unknown",
+                        draftResult.Error?.Message ?? "Backend draft completion outcome is in-flight or uncertain. Retry using the same operation id.");
                 }
 
                 await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, request.ClientOperationId);
                 throw new BackendOperationException(
-                    draftResult.Error?.Code ?? "sales.draft_complete_failed",
+                    errorCode ?? "sales.draft_complete_failed",
                     draftResult.Error?.Message ?? "Backend draft completion failed.");
             }
 
@@ -195,21 +284,25 @@ public sealed class BackendTransactionService : ITransactionService
                     request.AmountReceived,
                     request.PaymentReference,
                     null,
-                    lines),
+                    lines,
+                    request.PostingDate,
+                    request.SupervisorApproval),
                 cancellationToken);
 
             if (!result.IsSuccess || result.Value is null)
             {
-                if (IsTransportFailure(result.Error?.Code))
+                var errorCode = result.Error?.Code;
+                if (IsNonFinalOrRetryableFailure(errorCode))
                 {
-                    committedSaleId = await RecoverSaleOutcomeAsync(
-                        gateway, request.ClientOperationId, cancellationToken);
-                    goto ReadCommittedSale;
+                    MarkSaleUncertain(request.ClientOperationId);
+                    throw new BackendOperationException(
+                        errorCode ?? "sales.outcome_unknown",
+                        result.Error?.Message ?? "Backend sale outcome is in-flight or uncertain. Retry using the same operation id.");
                 }
 
                 await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, request.ClientOperationId);
                 throw new BackendOperationException(
-                    result.Error?.Code ?? "sales.complete_failed",
+                    errorCode ?? "sales.complete_failed",
                     result.Error?.Message ?? "Backend sale failed.");
             }
 
@@ -289,13 +382,29 @@ public sealed class BackendTransactionService : ITransactionService
         }
     }
 
-    private static bool IsTransportFailure(string? code) =>
+    private void ClearSaleUncertain(Guid clientOperationId)
+    {
+        lock (_syncRoot)
+        {
+            _uncertainSaleOperations.Remove(clientOperationId);
+        }
+    }
+
+    private static bool IsNonFinalOrRetryableFailure(string? code) =>
         code is not null &&
         (code.StartsWith("network.", StringComparison.OrdinalIgnoreCase) ||
          code.StartsWith("gateway.", StringComparison.OrdinalIgnoreCase) ||
-         code.StartsWith("http.5", StringComparison.OrdinalIgnoreCase));
+         code.StartsWith("http.5", StringComparison.OrdinalIgnoreCase) ||
+         code.StartsWith("transport.", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(code, "idempotency.operation_in_flight", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(code, "idempotency.outcome_unknown", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(code, "operation.in_flight", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(code, "operation.unknown", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(code, "sales.outcome_unknown", StringComparison.OrdinalIgnoreCase));
 
-    private async Task<Guid> RecoverSaleOutcomeAsync(
+    private sealed record SaleRecoveryOutcome(bool WasCommitted, Guid? CommittedSaleId, bool IsNotFoundConfirmed);
+
+    private async Task<SaleRecoveryOutcome> RecoverSaleOutcomeAsync(
         IApplicationGateway gateway,
         Guid clientOperationId,
         CancellationToken cancellationToken)
@@ -314,7 +423,7 @@ public sealed class BackendTransactionService : ITransactionService
             string.Equals(status.OperationType, "Sale", StringComparison.OrdinalIgnoreCase) &&
             status.EntityId is Guid saleId)
         {
-            return saleId;
+            return new SaleRecoveryOutcome(true, saleId, false);
         }
 
         if (string.Equals(status.EffectiveStatus, "Failed", StringComparison.OrdinalIgnoreCase))
@@ -325,10 +434,163 @@ public sealed class BackendTransactionService : ITransactionService
                 status.ErrorMessage ?? "Backend rejected the sale.");
         }
 
+        if (string.Equals(status.EffectiveStatus, "NotFound", StringComparison.OrdinalIgnoreCase))
+        {
+            // Bounded recheck to confirm absence on the server before permitting same-ID resend
+            var isStillNotFound = true;
+            for (int i = 0; i < 2; i++)
+            {
+                await Task.Delay(50, cancellationToken);
+                var recheck = await gateway.QueryOperationStatusAsync(clientOperationId, cancellationToken);
+                if (recheck.IsSuccess && recheck.Value is not null)
+                {
+                    if (recheck.Value.WasCommitted && recheck.Value.EntityId is Guid recheckedSaleId)
+                    {
+                        return new SaleRecoveryOutcome(true, recheckedSaleId, false);
+                    }
+                    if (string.Equals(recheck.Value.EffectiveStatus, "Failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, clientOperationId);
+                        throw new BackendOperationException(
+                            recheck.Value.ErrorCode ?? "sales.failed",
+                            recheck.Value.ErrorMessage ?? "Backend rejected the sale.");
+                    }
+                    if (!string.Equals(recheck.Value.EffectiveStatus, "NotFound", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isStillNotFound = false;
+                        break;
+                    }
+                }
+                else
+                {
+                    isStillNotFound = false;
+                    break;
+                }
+            }
+
+            if (isStillNotFound)
+            {
+                return new SaleRecoveryOutcome(false, null, true);
+            }
+        }
+
         MarkSaleUncertain(clientOperationId);
         throw new BackendOperationException(
             "sales.outcome_unknown",
-            "Sale status is not confirmed. Recheck using the same operation id before starting another sale.");
+            "Sale status is in-flight or not confirmed. Recheck using the same operation id before starting another sale.");
+    }
+
+    public async Task<SaleTransactionRecord?> TryRecoverPendingSaleAsync(CancellationToken cancellationToken = default)
+    {
+        var pending = await _operationIntents.FindPendingByPrefixAsync(SaleCheckoutIntentKey, cancellationToken);
+        var entry = pending.SingleOrDefault();
+        if (entry is null)
+        {
+            return null;
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+
+        var outcome = await gateway.QueryOperationStatusAsync(entry.OperationId, cancellationToken);
+        if (!outcome.IsSuccess || outcome.Value is null)
+        {
+            return null;
+        }
+
+        var status = outcome.Value;
+        if (status.WasCommitted &&
+            string.Equals(status.OperationType, "Sale", StringComparison.OrdinalIgnoreCase) &&
+            status.EntityId is Guid saleId)
+        {
+            SaleTransactionRecord record;
+            try
+            {
+                var detail = await _apiClient.GetAsync<SaleDetailDto>(
+                    $"/api/sales/{saleId:D}", cancellationToken);
+                record = CacheDetail(detail);
+            }
+            catch
+            {
+                return null;
+            }
+
+            await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, entry.OperationId, cancellationToken);
+            TransactionRecorded?.Invoke(this, record);
+            return record;
+        }
+
+        if (string.Equals(status.EffectiveStatus, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, entry.OperationId, cancellationToken);
+            throw new BackendOperationException(
+                status.ErrorCode ?? "sales.failed",
+                status.ErrorMessage ?? "Backend rejected the sale.");
+        }
+
+        if (string.Equals(status.EffectiveStatus, "NotFound", StringComparison.OrdinalIgnoreCase))
+        {
+            // Bounded recheck to confirm Point-in-time absence on the server before resending
+            var isStillNotFound = true;
+            for (int i = 0; i < 2; i++)
+            {
+                await Task.Delay(50, cancellationToken);
+                var recheck = await gateway.QueryOperationStatusAsync(entry.OperationId, cancellationToken);
+                if (recheck.IsSuccess && recheck.Value is not null)
+                {
+                    if (recheck.Value.WasCommitted && recheck.Value.EntityId is Guid recheckedSaleId)
+                    {
+                        var detail = await _apiClient.GetAsync<SaleDetailDto>(
+                            $"/api/sales/{recheckedSaleId:D}", cancellationToken);
+                        var record = CacheDetail(detail);
+                        await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, entry.OperationId, cancellationToken);
+                        TransactionRecorded?.Invoke(this, record);
+                        return record;
+                    }
+
+                    if (string.Equals(recheck.Value.EffectiveStatus, "Failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _operationIntents.CompleteAsync(SaleCheckoutIntentKey, entry.OperationId, cancellationToken);
+                        throw new BackendOperationException(
+                            recheck.Value.ErrorCode ?? "sales.failed",
+                            recheck.Value.ErrorMessage ?? "Backend rejected the sale.");
+                    }
+
+                    if (!string.Equals(recheck.Value.EffectiveStatus, "NotFound", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isStillNotFound = false;
+                        break;
+                    }
+                }
+                else
+                {
+                    isStillNotFound = false;
+                    break;
+                }
+            }
+
+            if (isStillNotFound && !string.IsNullOrWhiteSpace(entry.SafeReplayEnvelope))
+            {
+                SafeSaleReplayEnvelope? envelope = null;
+                try
+                {
+                    envelope = JsonSerializer.Deserialize<SafeSaleReplayEnvelope>(entry.SafeReplayEnvelope);
+                }
+                catch
+                {
+                    // Invalid envelope format, retain pending intent
+                }
+
+                if (envelope is not null && envelope.Lines.Count > 0)
+                {
+                    var restoredRequest = ReconstituteSaleRequest(envelope, entry.OperationId);
+                    ClearSaleUncertain(entry.OperationId);
+                    return await RecordTransactionAsync(restoredRequest, cancellationToken);
+                }
+            }
+        }
+
+        return null;
     }
     public IReadOnlyList<SaleTransactionRecord> GetAllTransactions()
     {
@@ -460,7 +722,10 @@ public sealed class BackendTransactionService : ITransactionService
                 original.SaleItemId,
                 baseQuantity,
                 disposition,
-                Array.Empty<Guid>());
+                item.InventoryUnitIds ?? Array.Empty<Guid>(),
+                item.ReturnSourceContainerId,
+                item.ConditionInspectionResult,
+                item.IsRestockAsRemnant);
         }).ToArray();
 
         var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
@@ -472,12 +737,14 @@ public sealed class BackendTransactionService : ITransactionService
                 MapRefundMethod(request.RefundMethod),
                 actorId,
                 request.ClientOperationId,
-                lines),
+                lines,
+                request.PostingDate,
+                request.SupervisorApproval),
             cancellationToken);
         string returnNumber;
         if (!result.IsSuccess || result.Value is null)
         {
-            if (!IsTransportFailure(result.Error?.Code))
+            if (!IsNonFinalOrRetryableFailure(result.Error?.Code))
             {
                 throw new BackendOperationException(
                     result.Error?.Code ?? "sales.return_failed",
@@ -745,9 +1012,107 @@ public sealed class BackendTransactionService : ITransactionService
             return EdgeRetails.Domain.Sales.RefundMethod.Bank;
         }
 
-        return EdgeRetails.Domain.Sales.RefundMethod.Other;
+        if (refundMethod.Contains("Store Credit", StringComparison.OrdinalIgnoreCase) ||
+            refundMethod.Contains("Other", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DesktopApiException(
+                "sales.unsupported_refund_method",
+                "Store credit is not a supported refund method in sales returns; use cash or bank refund.");
+        }
+
+        throw new DesktopApiException(
+            "sales.unsupported_refund_method",
+            $"Refund method '{refundMethod}' is not supported.");
     }
 
     private static string NormalizeInvoice(string value) =>
         value.Trim().TrimStart('#');
+
+    public static RecordSaleRequest ReconstituteSaleRequest(SafeSaleReplayEnvelope envelope, Guid operationId)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        var paymentMethod = Enum.TryParse<PaymentMethod>(envelope.PaymentMethod, true, out var pm)
+            ? pm
+            : PaymentMethod.Cash;
+
+        var items = envelope.Lines.Select(line =>
+        {
+            var listPrice = line.ListUnitPrice > 0m ? line.ListUnitPrice : line.UnitPrice;
+            var lineTotal = Math.Round(line.UnitPrice * line.Quantity, 2);
+            return new SaleTransactionItem
+            {
+                ProductId = line.ProductId.ToString("D"),
+                BackendProductId = line.ProductId,
+                BackendProductUnitId = line.ProductUnitId,
+                ProductName = string.IsNullOrWhiteSpace(line.ProductName) ? "Item" : line.ProductName,
+                Sku = line.SkuOrCode,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                ListUnitPrice = listPrice,
+                PriceOverrideUnitPrice = line.PriceOverrideUnitPrice,
+                PriceOverrideReason = line.PriceOverrideReason,
+                InventoryUnitIds = line.InventoryUnitIds ?? [],
+                LineTotal = lineTotal
+            };
+        }).ToList();
+
+        var subtotal = envelope.Subtotal > 0m ? envelope.Subtotal : items.Sum(i => i.LineTotal);
+        var totalAmount = envelope.TotalAmount > 0m ? envelope.TotalAmount : Math.Max(0m, subtotal - envelope.DiscountAmount);
+
+        return new RecordSaleRequest
+        {
+            ClientOperationId = operationId,
+            DraftId = envelope.DraftId,
+            DraftVersion = envelope.DraftVersion,
+            CustomerId = envelope.CustomerId,
+            CustomerName = envelope.CustomerName,
+            CustomerPhone = envelope.CustomerPhone,
+            CashierName = envelope.CashierName,
+            PaymentMethod = paymentMethod,
+            AmountReceived = envelope.AmountReceived,
+            ChangeReturned = envelope.ChangeReturned,
+            PaymentReference = envelope.PaymentReference,
+            Notes = envelope.Notes,
+            PostingDate = envelope.PostingDate,
+            Subtotal = subtotal,
+            DiscountAmount = envelope.DiscountAmount,
+            TotalAmount = totalAmount,
+            Items = items
+        };
+    }
+}
+
+public sealed class SafeSaleReplayEnvelope
+{
+    public Guid ClientOperationId { get; set; }
+    public Guid? DraftId { get; set; }
+    public long? DraftVersion { get; set; }
+    public Guid? CustomerId { get; set; }
+    public string CustomerName { get; set; } = "Walk-in Customer";
+    public string CustomerPhone { get; set; } = string.Empty;
+    public string CashierName { get; set; } = "Abdullah, Owner";
+    public decimal TotalAmount { get; set; }
+    public decimal Subtotal { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public string PaymentMethod { get; set; } = "Cash";
+    public decimal AmountReceived { get; set; }
+    public decimal ChangeReturned { get; set; }
+    public string PaymentReference { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public DateOnly? PostingDate { get; set; }
+    public List<SafeSaleReplayLine> Lines { get; set; } = [];
+}
+
+public sealed class SafeSaleReplayLine
+{
+    public Guid ProductId { get; set; }
+    public Guid ProductUnitId { get; set; }
+    public string SkuOrCode { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal ListUnitPrice { get; set; }
+    public decimal? PriceOverrideUnitPrice { get; set; }
+    public string? PriceOverrideReason { get; set; }
+    public List<Guid> InventoryUnitIds { get; set; } = [];
 }

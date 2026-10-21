@@ -14,7 +14,11 @@ public sealed record PhysicalUnitCreationEntry(
     Guid? SourcePurchaseItemId = null,
     Guid? SourceWarrantyClaimItemId = null,
     Guid? SourceWarrantyCaseId = null,
-    Guid? SourceStockAdjustmentItemId = null);
+    Guid? SourceStockAdjustmentItemId = null,
+    decimal? InitialBaseQuantity = null,
+    decimal? RemainingBaseQuantity = null,
+    PackState? PackState = null,
+    bool IsLooseStock = false);
 
 public interface IPhysicalUnitCreationAuthority
 {

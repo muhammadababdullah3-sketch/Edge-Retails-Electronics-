@@ -34,7 +34,7 @@ public sealed class TrackingPosDraftReplayPostgresTests
             command with { ClientOperationId = otherOperation }, cancellation.Token);
         try
         {
-            await using var observer = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            await using var observer = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
             await observer.OpenAsync(cancellation.Token);
             using var observeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             while (true)
@@ -180,7 +180,7 @@ public sealed class TrackingPosDraftReplayPostgresTests
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
         var product = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
         var purchase = await scope.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(
-            new(product.SupplierId, "DRAFT-STOCK-" + Guid.NewGuid().ToString("N"), new(2026, 10, 7), null, 0m,
+            new(product.SupplierId, "DRAFT-STOCK-" + Guid.NewGuid().ToString("N"), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
                 PurchaseSettlementMode.External, product.ActorId, Guid.NewGuid(),
                 [new(product.ProductId, product.ProductUnitId, 10m, 100m, 150m, [])]), default);
         Assert.True(purchase.IsSuccess, purchase.Error?.ToString());

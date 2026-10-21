@@ -41,6 +41,11 @@ public sealed class ThakaReadService : IThakaReadService
                     FROM thaka.payment_reversals
                     GROUP BY project_id
                 ),
+                credit_refunded AS (
+                    SELECT project_id, sum(amount) AS amount
+                    FROM thaka.credit_refunds
+                    GROUP BY project_id
+                ),
                 discounts AS (
                     SELECT project_id, sum(settlement_discount) AS amount
                     FROM thaka.settlements
@@ -57,14 +62,11 @@ public sealed class ThakaReadService : IThakaReadService
                     p.started_on AS StartedOn,
                     p.status AS Status,
                     COALESCE(i.amount, 0) - COALESCE(mr.amount, 0) AS MaterialValue,
-                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) AS Paid,
+                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0) AS Paid,
                     COALESCE(d.amount, 0) AS SettlementDiscount,
-                    GREATEST(
-                        0,
-                        COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
+                    COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
                         - COALESCE(d.amount, 0)
-                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
-                    ) AS Balance,
+                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0)) AS Balance,
                     p.note AS Note, c.is_active AS CustomerIsActive
                 FROM thaka.projects p
                 INNER JOIN parties.customers c ON c.id = p.customer_id
@@ -72,6 +74,7 @@ public sealed class ThakaReadService : IThakaReadService
                 LEFT JOIN material_reversed mr ON mr.project_id = p.id
                 LEFT JOIN paid pd ON pd.project_id = p.id
                 LEFT JOIN payment_reversed pr ON pr.project_id = p.id
+                LEFT JOIN credit_refunded cr ON cr.project_id = p.id
                 LEFT JOIN discounts d ON d.project_id = p.id
                 ORDER BY p.started_on DESC, p.id DESC
                 LIMIT 500;
@@ -146,6 +149,12 @@ public sealed class ThakaReadService : IThakaReadService
                     WHERE project_id IN (SELECT project_id FROM paged_projects)
                     GROUP BY project_id
                 ),
+                credit_refunded AS (
+                    SELECT project_id, sum(amount) AS amount
+                    FROM thaka.credit_refunds
+                    WHERE project_id IN (SELECT project_id FROM paged_projects)
+                    GROUP BY project_id
+                ),
                 discounts AS (
                     SELECT project_id, sum(settlement_discount) AS amount
                     FROM thaka.settlements
@@ -172,6 +181,11 @@ public sealed class ThakaReadService : IThakaReadService
                     FROM thaka.payment_reversals
                     GROUP BY project_id
                 ),
+                all_credit_refunded AS (
+                    SELECT project_id, sum(amount) AS amount
+                    FROM thaka.credit_refunds
+                    GROUP BY project_id
+                ),
                 all_discounts AS (
                     SELECT project_id, sum(settlement_discount) AS amount
                     FROM thaka.settlements
@@ -181,17 +195,17 @@ public sealed class ThakaReadService : IThakaReadService
                     SELECT
                         count(*)::int AS total_active_count,
                         COALESCE(sum(COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)), 0) AS total_active_material,
-                        COALESCE(sum(GREATEST(
-                            0,
+                        COALESCE(sum(
                             COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
                             - COALESCE(d.amount, 0)
-                            - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
-                        )), 0) AS total_active_balance
+                            - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0))
+                        ), 0) AS total_active_balance
                     FROM thaka.projects p
                     LEFT JOIN all_issued i ON i.project_id = p.id
                     LEFT JOIN all_material_reversed mr ON mr.project_id = p.id
                     LEFT JOIN all_paid pd ON pd.project_id = p.id
                     LEFT JOIN all_payment_reversed pr ON pr.project_id = p.id
+                    LEFT JOIN all_credit_refunded cr ON cr.project_id = p.id
                     LEFT JOIN all_discounts d ON d.project_id = p.id
                     WHERE p.status = 1
                 )
@@ -206,14 +220,11 @@ public sealed class ThakaReadService : IThakaReadService
                     p.started_on AS StartedOn,
                     p.status AS Status,
                     COALESCE(i.amount, 0) - COALESCE(mr.amount, 0) AS MaterialValue,
-                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) AS Paid,
+                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0) AS Paid,
                     COALESCE(d.amount, 0) AS SettlementDiscount,
-                    GREATEST(
-                        0,
-                        COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
+                    COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
                         - COALESCE(d.amount, 0)
-                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
-                    ) AS Balance,
+                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0)) AS Balance,
                     p.note AS Note, p.customer_is_active AS CustomerIsActive,
                     a.total_active_count AS TotalActiveCount,
                     a.total_active_material AS TotalActiveMaterialValue,
@@ -223,6 +234,7 @@ public sealed class ThakaReadService : IThakaReadService
                 LEFT JOIN material_reversed mr ON mr.project_id = p.project_id
                 LEFT JOIN paid pd ON pd.project_id = p.project_id
                 LEFT JOIN payment_reversed pr ON pr.project_id = p.project_id
+                LEFT JOIN credit_refunded cr ON cr.project_id = p.project_id
                 LEFT JOIN discounts d ON d.project_id = p.project_id
                 CROSS JOIN active_totals a
                 ORDER BY p.started_on DESC, p.project_id DESC;
@@ -302,6 +314,12 @@ public sealed class ThakaReadService : IThakaReadService
                     WHERE project_id = @ProjectId
                     GROUP BY project_id
                 ),
+                credit_refunded AS (
+                    SELECT project_id, sum(amount) AS amount
+                    FROM thaka.credit_refunds
+                    WHERE project_id = @ProjectId
+                    GROUP BY project_id
+                ),
                 discounts AS (
                     SELECT project_id, sum(settlement_discount) AS amount
                     FROM thaka.settlements
@@ -319,14 +337,11 @@ public sealed class ThakaReadService : IThakaReadService
                     p.started_on AS StartedOn,
                     p.status AS Status,
                     COALESCE(i.amount, 0) - COALESCE(mr.amount, 0) AS MaterialValue,
-                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) AS Paid,
+                    COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0) AS Paid,
                     COALESCE(d.amount, 0) AS SettlementDiscount,
-                    GREATEST(
-                        0,
-                        COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
+                    COALESCE(i.amount, 0) - COALESCE(mr.amount, 0)
                         - COALESCE(d.amount, 0)
-                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0))
-                    ) AS Balance,
+                        - (COALESCE(pd.amount, 0) - COALESCE(pr.amount, 0) - COALESCE(cr.amount, 0)) AS Balance,
                     p.note AS Note, c.is_active AS CustomerIsActive
                 FROM thaka.projects p
                 INNER JOIN parties.customers c ON c.id = p.customer_id
@@ -334,6 +349,7 @@ public sealed class ThakaReadService : IThakaReadService
                 LEFT JOIN material_reversed mr ON mr.project_id = p.id
                 LEFT JOIN paid pd ON pd.project_id = p.id
                 LEFT JOIN payment_reversed pr ON pr.project_id = p.id
+                LEFT JOIN credit_refunded cr ON cr.project_id = p.id
                 LEFT JOIN discounts d ON d.project_id = p.id
                 WHERE p.id = @ProjectId
                 LIMIT 1;

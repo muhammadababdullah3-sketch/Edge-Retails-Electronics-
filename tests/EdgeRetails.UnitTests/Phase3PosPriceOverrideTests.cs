@@ -144,6 +144,112 @@ public sealed class Phase3PosPriceOverrideTests
         Assert.Equal(cashierId, ReadGuid(saleItem, "PriceOverrideBy"));
     }
 
+    [Fact]
+    public async Task Below_cost_price_override_without_below_cost_permission_is_denied()
+    {
+        var fakes = new Phase2TestDoubles();
+        var authorizer = new RecordingAuthorizer(
+            PermissionKeys.SalesCreate,
+            PermissionKeys.SalesPriceOverride);
+        var product = SeedQuantityProduct(fakes, listPrice: 300m, cost: 200m, stock: 4m);
+        var cashierId = Guid.CreateVersion7();
+        var input = new CompleteSaleLineInput(
+            product.Product.Id,
+            product.ProductUnit.Id,
+            EnteredQuantity: 1m,
+            ExpectedUnitPrice: 300m,
+            InventoryUnitIds: [],
+            PriceOverrideUnitPrice: 150m,
+            PriceOverrideReason: "Below cost promotional discount");
+
+        var cashSession = new CashSession
+        {
+            Id = Guid.CreateVersion7(),
+            OpenedBy = cashierId,
+            OpeningCash = 1000m,
+            Status = CashSessionStatus.Open,
+            OpenedAt = DateTimeOffset.UtcNow,
+            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        fakes.Cash.AddSession(cashSession);
+
+        var handler = CreateHandler(fakes, authorizer);
+
+        var result = await handler.HandleAsync(
+            new CompleteSaleCommand(
+                Guid.CreateVersion7(),
+                CustomerId: null,
+                CashierUserId: cashierId,
+                SessionId: cashSession.Id,
+                InvoiceDiscount: 0m,
+                PaymentMethod: SalePaymentMethod.Cash,
+                AmountTendered: 150m,
+                PaymentReference: null,
+                QuotationId: null,
+                Lines: [input]),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("authorization.denied", result.Error?.Code);
+        Assert.Contains(PermissionKeys.SalesPriceOverrideBelowCost, result.Error?.Message);
+        Assert.Contains(PermissionKeys.SalesPriceOverrideBelowCost, authorizer.RequestedPermissions);
+    }
+
+    [Fact]
+    public async Task Below_cost_price_override_with_below_cost_permission_is_allowed()
+    {
+        var fakes = new Phase2TestDoubles();
+        var authorizer = new RecordingAuthorizer(
+            PermissionKeys.SalesCreate,
+            PermissionKeys.SalesPriceOverride,
+            PermissionKeys.SalesPriceOverrideBelowCost);
+        var product = SeedQuantityProduct(fakes, listPrice: 300m, cost: 200m, stock: 4m);
+        var cashierId = Guid.CreateVersion7();
+        var input = new CompleteSaleLineInput(
+            product.Product.Id,
+            product.ProductUnit.Id,
+            EnteredQuantity: 1m,
+            ExpectedUnitPrice: 300m,
+            InventoryUnitIds: [],
+            PriceOverrideUnitPrice: 150m,
+            PriceOverrideReason: "Authorized below cost manager clearance");
+
+        var cashSession = new CashSession
+        {
+            Id = Guid.CreateVersion7(),
+            OpenedBy = cashierId,
+            OpeningCash = 1000m,
+            Status = CashSessionStatus.Open,
+            OpenedAt = DateTimeOffset.UtcNow,
+            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        fakes.Cash.AddSession(cashSession);
+
+        var handler = CreateHandler(fakes, authorizer);
+
+        var result = await handler.HandleAsync(
+            new CompleteSaleCommand(
+                Guid.CreateVersion7(),
+                CustomerId: null,
+                CashierUserId: cashierId,
+                SessionId: cashSession.Id,
+                InvoiceDiscount: 0m,
+                PaymentMethod: SalePaymentMethod.Cash,
+                AmountTendered: 150m,
+                PaymentReference: null,
+                QuotationId: null,
+                Lines: [input]),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Contains(PermissionKeys.SalesPriceOverrideBelowCost, authorizer.RequestedPermissions);
+        var saleItem = Assert.Single(fakes.Sales.SaleItems);
+        Assert.Equal(150m, saleItem.UnitPrice);
+        Assert.Equal(150m, saleItem.NetLineTotal);
+        Assert.Equal(300m, ReadDecimal(saleItem, "ListUnitPriceSnapshot"));
+        Assert.Equal("Authorized below cost manager clearance", ReadString(saleItem, "PriceOverrideReason"));
+    }
+
     private static CompleteSaleHandler CreateHandler(Phase2TestDoubles fakes, IApplicationPermissionAuthorizer authorizer) =>
         new(
             fakes.Sales,

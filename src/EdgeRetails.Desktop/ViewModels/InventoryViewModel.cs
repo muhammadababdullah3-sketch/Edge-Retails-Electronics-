@@ -294,7 +294,8 @@ public sealed class InventoryViewModel : ViewModelBase, IDisposable
             _toastService,
             _dialogService.Close,
             _stockAdjustmentService,
-            () => _ = RefreshBackendAsync()));
+            () => _ = RefreshBackendAsync(),
+            _operationIntents));
     }
 
     private void OnStateChanged(object? sender, EventArgs e) => Refresh();

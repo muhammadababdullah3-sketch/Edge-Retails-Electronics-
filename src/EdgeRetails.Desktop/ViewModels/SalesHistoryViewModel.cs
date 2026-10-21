@@ -517,7 +517,7 @@ public sealed class SalesHistoryViewModel : ViewModelBase
             .Select((item, index) =>
             {
                 returnedByItem.TryGetValue((item.ProductId, item.Sku), out var returnedQuantity);
-                return new SaleLineItemViewModel(
+                var lineVm = new SaleLineItemViewModel(
                     index + 1,
                     item.ProductId,
                     item.ProductName,
@@ -527,6 +527,8 @@ public sealed class SalesHistoryViewModel : ViewModelBase
                     item.Quantity,
                     item.Discount,
                     returnedQuantity);
+                lineVm.InventoryUnitIds = item.InventoryUnitIds;
+                return lineVm;
             })
             .ToArray();
 

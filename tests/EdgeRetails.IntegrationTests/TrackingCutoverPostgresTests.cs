@@ -66,7 +66,7 @@ public sealed class TrackingCutoverPostgresTests
 
     private static async Task<NpgsqlConnection> OpenTemporaryCutoverAsync()
     {
-        var connection = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        var connection = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await connection.OpenAsync();
         await using var setup = new NpgsqlCommand("""
             CREATE TEMP TABLE tracking_legacy_units (id uuid PRIMARY KEY, serial_number text,

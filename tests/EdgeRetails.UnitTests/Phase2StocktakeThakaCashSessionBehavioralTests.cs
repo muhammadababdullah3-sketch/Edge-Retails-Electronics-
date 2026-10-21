@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Features.Finance;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Thaka;
 using EdgeRetails.Domain.Catalog;
@@ -21,14 +22,14 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
         _cashMovementService = new CashMovementService(_fakes.Cash, _fakes.Clock);
     }
 
-    private OpenCashSessionHandler CreateOpenCashSessionHandler() =>
-        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork);
+    private OpenCashSessionHandler CreateOpenCashSessionHandler(IApplicationPermissionAuthorizer? authorizer = null) =>
+        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, authorizer);
 
     private RecordManualCashMovementHandler CreateRecordManualCashMovementHandler() =>
         new(_cashMovementService, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Audit);
 
-    private CloseCashSessionHandler CreateCloseCashSessionHandler() =>
-        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork);
+    private CloseCashSessionHandler CreateCloseCashSessionHandler(IApplicationPermissionAuthorizer? authorizer = null) =>
+        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, authorizer);
 
     private CreateStocktakeHandler CreateCreateStocktakeHandler() =>
         new(_fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
@@ -114,7 +115,8 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
                 500m,
                 actorId,
                 "Office tea & snacks",
-                null),
+                null,
+                Guid.NewGuid()),
             CancellationToken.None);
 
         Assert.True(outResult.IsSuccess, outResult.Error?.Message);
@@ -126,7 +128,8 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
                 1000m,
                 actorId,
                 "Petty cash top-up",
-                null),
+                null,
+                Guid.NewGuid()),
             CancellationToken.None);
 
         Assert.True(inResult.IsSuccess, inResult.Error?.Message);
@@ -359,4 +362,91 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
         Assert.False(result.IsSuccess);
         Assert.Equal("inventory.stocktake_category_required", result.Error?.Code);
     }
+
+    #region Canonical LF07 Behavioral Tests (Cash Session Permission Authority)
+
+    [Fact]
+    public async Task LF07_OpenCashSession_WithoutPosPermission_RejectedWithUnauthorized()
+    {
+        _fakes.Authorization.IsAuthorized = false;
+        var openHandler = CreateOpenCashSessionHandler(_fakes.Authorization);
+        var actorId = Guid.CreateVersion7();
+
+        var result = await openHandler.HandleAsync(
+            new OpenCashSessionCommand(5000m, actorId, "Opening without permission"),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("auth.forbidden", result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task LF07_OpenCashSession_WithEmptyActor_WhenAuthorizerConfigured_RejectedWithActorRequired()
+    {
+        _fakes.Authorization.IsAuthorized = true;
+        var openHandler = CreateOpenCashSessionHandler(_fakes.Authorization);
+
+        var result = await openHandler.HandleAsync(
+            new OpenCashSessionCommand(5000m, Guid.Empty, "Opening with empty actor"),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("auth.actor_required", result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task LF07_CloseCashSession_WithoutPosPermission_RejectedWithUnauthorized()
+    {
+        _fakes.Authorization.IsAuthorized = true;
+        var openHandler = CreateOpenCashSessionHandler(_fakes.Authorization);
+        var actorId = Guid.CreateVersion7();
+
+        var openResult = await openHandler.HandleAsync(
+            new OpenCashSessionCommand(5000m, actorId, "Opening float"),
+            CancellationToken.None);
+        Assert.True(openResult.IsSuccess, openResult.Error?.Message);
+        var sessionId = openResult.Value;
+
+        // Disallow permission on close
+        _fakes.Authorization.IsAuthorized = false;
+        var closeHandler = CreateCloseCashSessionHandler(_fakes.Authorization);
+
+        var closeResult = await closeHandler.HandleAsync(
+            new CloseCashSessionCommand(sessionId, 5000m, actorId, "Close attempt unauthorized"),
+            CancellationToken.None);
+
+        Assert.False(closeResult.IsSuccess);
+        Assert.Equal("auth.forbidden", closeResult.Error?.Code);
+    }
+
+    [Fact]
+    public async Task LF07_CloseCashSession_WithEmptyActor_WhenAuthorizerConfigured_RejectedWithActorRequired()
+    {
+        _fakes.Authorization.IsAuthorized = true;
+        var closeHandler = CreateCloseCashSessionHandler(_fakes.Authorization);
+
+        var closeResult = await closeHandler.HandleAsync(
+            new CloseCashSessionCommand(Guid.CreateVersion7(), 5000m, Guid.Empty, "Close attempt with empty actor"),
+            CancellationToken.None);
+
+        Assert.False(closeResult.IsSuccess);
+        Assert.Equal("auth.actor_required", closeResult.Error?.Code);
+    }
+
+    [Fact]
+    public async Task LF07_CloseCashSession_WithEmptySessionId_RejectedWithSessionIdRequired()
+    {
+        _fakes.Authorization.IsAuthorized = true;
+        var closeHandler = CreateCloseCashSessionHandler(_fakes.Authorization);
+        var actorId = Guid.CreateVersion7();
+
+        var closeResult = await closeHandler.HandleAsync(
+            new CloseCashSessionCommand(Guid.Empty, 5000m, actorId, "Close attempt with empty session id"),
+            CancellationToken.None);
+
+        Assert.False(closeResult.IsSuccess);
+        Assert.Equal("cash.session_id_required", closeResult.Error?.Code);
+    }
+
+    #endregion
 }

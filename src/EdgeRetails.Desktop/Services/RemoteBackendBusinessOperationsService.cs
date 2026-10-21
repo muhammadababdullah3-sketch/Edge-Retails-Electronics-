@@ -1,18 +1,25 @@
+using System.Globalization;
 using System.Net;
+using System.Text.Json;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Parties;
 using EdgeRetails.Application.Features.Reporting;
+using EdgeRetails.Application.Gateways;
 using EdgeRetails.Desktop.ViewModels;
 using EdgeRetails.Domain.Finance;
 
 namespace EdgeRetails.Desktop.Services;
 
+/// <summary>
+/// Authoritative pre-POST validation rejection for an expense intent.
+/// Proves that no network mutation or database commit occurred.
+/// </summary>
+public sealed class ExpensePrePostValidationException(string message) : InvalidOperationException(message);
+
 /// <summary>Supplier/customer directories, expenses, and reports over the local Server API.</summary>
 public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiClient, IClientOperationIntentStore? operationIntents = null) : IBackendBusinessOperationsService
 {
     private readonly IClientOperationIntentStore _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
-    private Guid? _pendingExpenseOperationId;
-    private string? _pendingExpensePayload;
     private Guid? _pendingCustomerOperationId;
     private string? _pendingCustomerPayload;
     private Guid? _pendingSupplierOperationId;
@@ -47,24 +54,40 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
         Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
-        var opId = clientOperationId ?? Guid.NewGuid();
+        var normalizedReason = reason?.Trim() ?? string.Empty;
+        var operationKey = $"expense:void:{expenseId:D}";
+        var canonicalPayload = $"{expenseId:D}|{normalizedReason}";
+        var opId = clientOperationId ?? _operationIntents.GetOrCreate(operationKey, canonicalPayload);
         var request = new
         {
             ClientOperationId = opId,
-            Reason = reason?.Trim() ?? string.Empty
+            Reason = normalizedReason
         };
 
-        await apiClient.PostAsync<object, object>($"/api/expenses/{expenseId:D}/void", request, cancellationToken);
+        try
+        {
+            await apiClient.PostAsync<object, object>($"/api/expenses/{expenseId:D}/void", request, cancellationToken);
+            _operationIntents.Complete(operationKey, opId);
+        }
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+        {
+            _operationIntents.Complete(operationKey, opId);
+            throw;
+        }
     }
 
+    public Task<ExpenseRecord> PostExpenseAsync(string category, string subcategory, decimal amount,
+        DateTime date, string paymentMethod, string note, CancellationToken cancellationToken = default) =>
+        PostExpenseAsync(category, subcategory, amount, date, paymentMethod, note, null, cancellationToken);
+
     public async Task<ExpenseRecord> PostExpenseAsync(string category, string subcategory, decimal amount,
-        DateTime date, string paymentMethod, string note, CancellationToken cancellationToken = default)
+        DateTime date, string paymentMethod, string note, Guid? clientOperationId, CancellationToken cancellationToken = default)
     {
         var categories = await apiClient.GetAsync<IReadOnlyList<ExpenseCategoryDto>>("/api/expenses/categories", cancellationToken);
         var categoryMatches = categories.Where(x => string.Equals(x.Name, category?.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
         if (categoryMatches.Length != 1)
         {
-            throw new InvalidOperationException("Selected expense category is not available uniquely in the backend.");
+            throw new ExpensePrePostValidationException("Selected expense category is not available uniquely in the backend.");
         }
 
         var subcategories = await apiClient.GetAsync<IReadOnlyList<ExpenseSubcategoryDto>>("/api/expenses/subcategories", cancellationToken);
@@ -75,41 +98,83 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
             "CASH" => ExpensePaymentMethod.Cash,
             "BANK" => ExpensePaymentMethod.Bank,
             "OTHER" => ExpensePaymentMethod.Other,
-            _ => throw new InvalidOperationException("Unsupported expense payment method.")
+            _ => throw new ExpensePrePostValidationException("Unsupported expense payment method.")
         };
-        var payloadKey = string.Join("|", categoryMatches[0].Id, subcategoryMatches.SingleOrDefault()?.Id,
-            DateOnly.FromDateTime(date), amount, method, subcategory.Trim(), note?.Trim());
-        if (!string.Equals(payloadKey, _pendingExpensePayload, StringComparison.Ordinal) || _pendingExpenseOperationId is null)
+
+        var categoryId = categoryMatches[0].Id;
+        var subcategoryId = subcategoryMatches.SingleOrDefault()?.Id;
+        var normalizedDate = DateOnly.FromDateTime(date);
+        var normalizedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        var normalizedSubcategory = subcategory.Trim();
+
+        var operationKey = "expense:create";
+        var canonicalPayload = JsonSerializer.Serialize(new
         {
-            _pendingExpensePayload = payloadKey;
-            _pendingExpenseOperationId = Guid.CreateVersion7();
-        }
+            CategoryId = categoryId,
+            SubcategoryId = subcategoryId,
+            ExpenseDate = normalizedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            Amount = amount,
+            PaymentMethod = method.ToString(),
+            Subcategory = normalizedSubcategory,
+            Note = normalizedNote
+        });
+
+        var opId = clientOperationId ?? _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        var postRequest = new PostExpenseRequest(
+            opId,
+            categoryId,
+            subcategoryId,
+            normalizedDate,
+            amount,
+            method,
+            normalizedSubcategory,
+            normalizedNote);
+
         PostExpenseResult result;
         try
         {
-            result = await apiClient.PostAsync<PostExpenseRequest, PostExpenseResult>("/api/expenses",
-                new(_pendingExpenseOperationId.Value, categoryMatches[0].Id, subcategoryMatches.SingleOrDefault()?.Id,
-                DateOnly.FromDateTime(date), amount, method, subcategory.Trim(), string.IsNullOrWhiteSpace(note) ? null : note.Trim()),
+            result = await apiClient.PostAsync<PostExpenseRequest, PostExpenseResult>(
+                "/api/expenses",
+                postRequest,
                 cancellationToken);
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
         {
-            _pendingExpenseOperationId = null;
-            _pendingExpensePayload = null;
+            _operationIntents.Complete(operationKey, opId);
             throw;
         }
+        catch (DesktopApiException ex) when (IsTransportFailure(ex.Code) || ex.StatusCode >= HttpStatusCode.InternalServerError)
+        {
+            var status = await apiClient.GetAsync<OperationStatusResult?>($"/api/system/operations/{opId:D}", cancellationToken);
+            if (status is { WasCommitted: true, EntityId: Guid committedId } && committedId != Guid.Empty)
+            {
+                result = new PostExpenseResult(committedId, status.DocumentNumber ?? string.Empty, true);
+            }
+            else if (status is { EffectiveStatus: "NotFound" })
+            {
+                result = await apiClient.PostAsync<PostExpenseRequest, PostExpenseResult>(
+                    "/api/expenses",
+                    postRequest,
+                    cancellationToken);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Expense submission outcome is not confirmed (Status={status?.EffectiveStatus ?? "Unknown"}). Retry using the same operation identity.");
+            }
+        }
+
         var rows = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>("/api/expenses?pageSize=50", cancellationToken);
         var committed = rows.SingleOrDefault(x => x.ExpenseId == result.ExpenseId);
         if (committed is null)
         {
-            var dateOnly = DateOnly.FromDateTime(date);
             var targeted = await apiClient.GetAsync<IReadOnlyList<ExpenseRowDto>>(
-                $"/api/expenses?pageSize=50&fromDate={dateOnly:yyyy-MM-dd}&toDate={dateOnly:yyyy-MM-dd}", cancellationToken);
+                $"/api/expenses?pageSize=50&fromDate={normalizedDate:yyyy-MM-dd}&toDate={normalizedDate:yyyy-MM-dd}", cancellationToken);
             committed = targeted.SingleOrDefault(x => x.ExpenseId == result.ExpenseId)
                 ?? throw new InvalidOperationException("Expense was posted but could not be read back from backend authority; retry with the same operation intent.");
         }
-        _pendingExpenseOperationId = null;
-        _pendingExpensePayload = null;
+
+        _operationIntents.Complete(operationKey, opId);
         return MapExpense(committed);
     }
 
@@ -153,7 +218,7 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
                 new(operationId, suspended), cancellationToken);
             _operationIntents.Complete(key, operationId);
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
         {
             _operationIntents.Complete(key, operationId);
             throw;
@@ -181,7 +246,7 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
             _pendingCustomerOperationId = null;
             _pendingCustomerPayload = null;
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
         {
             _pendingCustomerOperationId = null;
             _pendingCustomerPayload = null;
@@ -237,7 +302,7 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
             _pendingSupplierOperationId = null;
             _pendingSupplierPayload = null;
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
         {
             _pendingSupplierOperationId = null;
             _pendingSupplierPayload = null;
@@ -265,7 +330,15 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
             ShowExpenseSeries = dto.ShowExpenseSeries,
             Trend = [.. dto.Trend.Select(x => new ReportTrendPoint { Label = x.Label, Sales = x.Sales, Profit = x.Profit, Expenses = x.Expenses })],
             ExpenseBreakdown = [.. dto.ExpenseBreakdown.Select(x => new ReportExpenseBreakdownItem { Category = x.Category, Amount = x.Amount, Share = x.Share })],
-            ThakaActivity = [.. dto.ThakaActivity.Select(x => new ReportThakaActivityItem { ProjectName = x.ProjectName, IssueCount = x.IssueCount, MaterialValue = x.MaterialValue })]
+            ThakaActivity = [.. dto.ThakaActivity.Select(x => new ReportThakaActivityItem
+            {
+                ProjectName = x.ProjectName,
+                IssueCount = x.IssueCount,
+                MaterialValue = x.MaterialValue,
+                ReversalCount = x.ReversalCount,
+                ReversalAmount = x.ReversalAmount,
+                NetMaterialValue = x.NetMaterialValue
+            })]
         };
     }
 
@@ -284,7 +357,10 @@ public sealed class RemoteBackendBusinessOperationsService(DesktopApiClient apiC
         return id.Value;
     }
 
-    private static bool IsDefinitiveRejection(HttpStatusCode? status) => status is >= HttpStatusCode.BadRequest and < HttpStatusCode.InternalServerError;
+    private static bool IsTransportFailure(string? code) =>
+        !string.IsNullOrEmpty(code) && (
+            code.StartsWith("network.", StringComparison.OrdinalIgnoreCase) ||
+            code.StartsWith("gateway.communication", StringComparison.OrdinalIgnoreCase));
 
     private static ExpenseRecord MapExpense(ExpenseRowDto row) => new()
     {

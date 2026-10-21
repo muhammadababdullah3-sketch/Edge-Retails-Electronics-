@@ -851,6 +851,289 @@ public sealed class Phase1DPosResolutionAndExactUnitSaleTests
         return (product, pu);
     }
 
+    [Fact]
+    public async Task LF02_DistinctSerializedUnits_SameSku_MultipleLines_Succeeds()
+    {
+        var fakes = new Phase2TestDoubles();
+        var handler = CreateSaleHandler(fakes);
+
+        var (product, productUnit, unit1, unit2) = SeedSerializedProductWithTwoUnits(fakes);
+
+        var command = new CompleteSaleCommand(
+            ClientOperationId: Guid.CreateVersion7(),
+            CustomerId: null,
+            CashierUserId: Guid.CreateVersion7(),
+            SessionId: null,
+            InvoiceDiscount: 0m,
+            PaymentMethod: SalePaymentMethod.Cash,
+            AmountTendered: 25000m,
+            PaymentReference: null,
+            QuotationId: null,
+            Lines: new[]
+            {
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit1.Id }),
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit2.Id })
+            });
+
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(25000m, result.Value!.GrandTotal);
+
+        Assert.Equal(InventoryUnitStatus.Sold, unit1.Status);
+        Assert.Equal(InventoryUnitStatus.Sold, unit2.Status);
+
+        var balance = await fakes.Inventory.GetStockBalanceForUpdateAsync(product.Id, CancellationToken.None);
+        Assert.NotNull(balance);
+        Assert.Equal(0m, balance!.SellableQty);
+    }
+
+    [Fact]
+    public async Task LF02_DistinctSerializedUnits_SameSku_WithDifferentPriceOverrides_Succeeds()
+    {
+        var fakes = new Phase2TestDoubles();
+        var cashierId = Guid.CreateVersion7();
+        var handler = CreateSaleHandler(fakes);
+
+        var (product, productUnit, unit1, unit2) = SeedSerializedProductWithTwoUnits(fakes);
+
+        var command = new CompleteSaleCommand(
+            ClientOperationId: Guid.CreateVersion7(),
+            CustomerId: null,
+            CashierUserId: cashierId,
+            SessionId: null,
+            InvoiceDiscount: 0m,
+            PaymentMethod: SalePaymentMethod.Cash,
+            AmountTendered: 23500m,
+            PaymentReference: null,
+            QuotationId: null,
+            Lines: new[]
+            {
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit1.Id }),
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit2.Id },
+                    PriceOverrideUnitPrice: 11000m,
+                    PriceOverrideReason: "Display scratch discount")
+            });
+
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(23500m, result.Value!.GrandTotal);
+
+        Assert.Equal(InventoryUnitStatus.Sold, unit1.Status);
+        Assert.Equal(InventoryUnitStatus.Sold, unit2.Status);
+    }
+
+    [Fact]
+    public async Task LF02_SameSerializedUnit_RepeatedAcrossLines_RejectedWithSerialSelectedTwice()
+    {
+        var fakes = new Phase2TestDoubles();
+        var handler = CreateSaleHandler(fakes);
+
+        var (product, productUnit, unit1, _) = SeedSerializedProductWithTwoUnits(fakes);
+
+        var command = new CompleteSaleCommand(
+            ClientOperationId: Guid.CreateVersion7(),
+            CustomerId: null,
+            CashierUserId: Guid.CreateVersion7(),
+            SessionId: null,
+            InvoiceDiscount: 0m,
+            PaymentMethod: SalePaymentMethod.Cash,
+            AmountTendered: 25000m,
+            PaymentReference: null,
+            QuotationId: null,
+            Lines: new[]
+            {
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit1.Id }),
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 1m,
+                    ExpectedUnitPrice: 12500m,
+                    InventoryUnitIds: new[] { unit1.Id })
+            });
+
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("sales.serial_selected_twice", result.Error?.Code);
+        Assert.Equal(InventoryUnitStatus.InStock, unit1.Status);
+    }
+
+    [Fact]
+    public async Task LF02_CommodityProduct_DuplicateLines_RejectedWithDuplicateLine()
+    {
+        var fakes = new Phase2TestDoubles();
+        var handler = CreateSaleHandler(fakes);
+
+        var (product, productUnit) = SeedNonSerializedProduct(
+            fakes,
+            trackingMode: TrackingMode.Quantity,
+            stock: 25m,
+            price: 500m);
+
+        var command = new CompleteSaleCommand(
+            ClientOperationId: Guid.CreateVersion7(),
+            CustomerId: null,
+            CashierUserId: Guid.CreateVersion7(),
+            SessionId: null,
+            InvoiceDiscount: 0m,
+            PaymentMethod: SalePaymentMethod.Cash,
+            AmountTendered: 2000m,
+            PaymentReference: null,
+            QuotationId: null,
+            Lines: new[]
+            {
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 2m,
+                    ExpectedUnitPrice: 500m,
+                    InventoryUnitIds: Array.Empty<Guid>()),
+                new CompleteSaleLineInput(
+                    product.Id,
+                    productUnit.Id,
+                    EnteredQuantity: 2m,
+                    ExpectedUnitPrice: 500m,
+                    InventoryUnitIds: Array.Empty<Guid>())
+            });
+
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("sales.duplicate_line", result.Error?.Code);
+
+        var balance = await fakes.Inventory.GetStockBalanceForUpdateAsync(product.Id, CancellationToken.None);
+        Assert.NotNull(balance);
+        Assert.Equal(25m, balance!.SellableQty);
+    }
+
+    private static (Product Product, ProductUnit Unit, InventoryUnit Unit1, InventoryUnit Unit2) SeedSerializedProductWithTwoUnits(
+        Phase2TestDoubles fakes,
+        string sku = "PKF-DLX56")
+    {
+        var unit = new Unit { Id = Guid.CreateVersion7(), Name = "Piece", Symbol = "pc" };
+        var product = new Product
+        {
+            Id = Guid.CreateVersion7(),
+            Name = "Pak Fan Deluxe 56",
+            Sku = sku,
+            BaseUnitId = unit.Id,
+            TrackingMode = TrackingMode.Serialized,
+            SerialTrackingEnabled = true,
+            ImeiTrackingEnabled = true,
+            DefaultSalePrice = 12500m,
+            ReferencePurchaseCost = 9500m,
+            IsActive = true
+        };
+        fakes.Catalog.Products[product.Id] = product;
+
+        var pu = new ProductUnit
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            UnitId = unit.Id,
+            FactorToBaseUnit = 1m,
+            IsDefaultPurchaseUnit = true,
+            IsDefaultSaleUnit = true,
+            CanPurchase = true,
+            CanSell = true
+        };
+        fakes.Catalog.AddProductUnit(pu);
+
+        var lot = new InventoryLot
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            ReceivedQuantity = 2m,
+            OriginalUnitCost = 9500m,
+            EffectiveUnitCost = 9500m,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        fakes.Inventory.AddLot(lot);
+
+        fakes.Inventory.AddLotBucketBalance(new InventoryLotBucketBalance
+        {
+            LotId = lot.Id,
+            StockBucket = InventoryBucket.Sellable,
+            Quantity = 2m
+        });
+
+        fakes.Inventory.AddStockBalance(new StockBalance
+        {
+            ProductId = product.Id,
+            SellableQty = 2m
+        });
+
+        var exactUnit1 = new InventoryUnit
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            InventoryLotId = lot.Id,
+            TrackingCode = "AB1-PKF-DLX56-000001",
+            SerialNumber = "SN-DLX56-001",
+            Imei1 = "356938035643801",
+            Status = InventoryUnitStatus.InStock,
+            AcquisitionCost = 9500m,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Version = 1
+        };
+        fakes.Inventory.AddInventoryUnit(exactUnit1);
+
+        var exactUnit2 = new InventoryUnit
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            InventoryLotId = lot.Id,
+            TrackingCode = "AB1-PKF-DLX56-000002",
+            SerialNumber = "SN-DLX56-002",
+            Imei1 = "356938035643802",
+            Status = InventoryUnitStatus.InStock,
+            AcquisitionCost = 9500m,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Version = 1
+        };
+        fakes.Inventory.AddInventoryUnit(exactUnit2);
+
+        var session = new CashSession
+        {
+            Id = Guid.CreateVersion7(),
+            OpenedBy = Guid.CreateVersion7(),
+            OpenedAt = DateTimeOffset.UtcNow,
+            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            Status = CashSessionStatus.Open,
+            OpeningCash = 1000m
+        };
+        fakes.Cash.AddSession(session);
+
+        return (product, pu, exactUnit1, exactUnit2);
+    }
+
     private static CompleteSaleHandler CreateSaleHandler(Phase2TestDoubles fakes) =>
         new(
             fakes.Sales,

@@ -59,7 +59,11 @@ public sealed record ProductManagementRowDto(
     Guid? CompanyId = null,
     string? Company = null,
     string? CompanyCode = null,
-    string? ModelCode = null);
+    string? ModelCode = null)
+{
+    public decimal? CostPrice => ReferencePurchaseCost;
+    public decimal UnitPrice => DefaultSalePrice;
+}
 
 public sealed record ProductManagementPageQuery(
     bool IncludeInactive = false,
@@ -70,6 +74,26 @@ public sealed record ProductManagementPageQuery(
     Guid? CategoryId = null,
     bool? IsActive = null);
 
+public sealed record CatalogSearchItemDto(
+    Guid ProductId,
+    string Sku,
+    string Name,
+    string? Brand,
+    string Category,
+    string BaseUnit,
+    decimal UnitPrice,
+    decimal? ReferencePurchaseCost,
+    string? PackagingFacet,
+    bool IsActive);
+
+public sealed record CatalogSearchResponseDto(
+    int TotalCount,
+    int PageNumber,
+    int PageSize,
+    IReadOnlyList<CatalogSearchItemDto> Items,
+    string? ResolvedAlias = null,
+    string? PackagingFacet = null);
+
 public interface IProductManagementReadService
 {
     Task<IReadOnlyList<ProductManagementRowDto>> GetProductsAsync(
@@ -79,6 +103,14 @@ public interface IProductManagementReadService
     Task<IReadOnlyList<ProductManagementRowDto>> GetProductsPageAsync(
         ProductManagementPageQuery query,
         CancellationToken cancellationToken);
+
+    Task<CatalogSearchResponseDto> SearchCatalogAsync(
+        string? query,
+        string? packagingFacet,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new CatalogSearchResponseDto(0, pageNumber, pageSize, Array.Empty<CatalogSearchItemDto>()));
 
     Task<ProductManagementRowDto?> GetProductAsync(
         Guid productId,

@@ -282,7 +282,8 @@ public sealed class Phase2ReconciliationPostgresTests
                     1000m,
                     fixture.ActorId,
                     "Cash replenishment",
-                    null),
+                    null,
+                    Guid.NewGuid()),
                 CancellationToken.None);
 
             db.ChangeTracker.Clear();

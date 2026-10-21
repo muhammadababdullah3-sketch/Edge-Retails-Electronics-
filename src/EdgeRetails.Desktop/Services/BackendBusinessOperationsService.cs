@@ -33,6 +33,17 @@ public interface IBackendBusinessOperationsService
         string note,
         CancellationToken cancellationToken = default);
 
+    Task<ExpenseRecord> PostExpenseAsync(
+        string category,
+        string subcategory,
+        decimal amount,
+        DateTime date,
+        string paymentMethod,
+        string note,
+        Guid? clientOperationId,
+        CancellationToken cancellationToken = default) =>
+        PostExpenseAsync(category, subcategory, amount, date, paymentMethod, note, cancellationToken);
+
     Task VoidExpenseAsync(
         Guid expenseId,
         string reason,
@@ -158,6 +169,16 @@ public sealed class BackendBusinessOperationsService
         }).ToArray();
     }
 
+    public Task<ExpenseRecord> PostExpenseAsync(
+        string category,
+        string subcategory,
+        decimal amount,
+        DateTime date,
+        string paymentMethod,
+        string note,
+        CancellationToken cancellationToken = default) =>
+        PostExpenseAsync(category, subcategory, amount, date, paymentMethod, note, null, cancellationToken);
+
     public async Task<ExpenseRecord> PostExpenseAsync(
         string category,
         string subcategory,
@@ -165,6 +186,7 @@ public sealed class BackendBusinessOperationsService
         DateTime date,
         string paymentMethod,
         string note,
+        Guid? clientOperationId,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -187,7 +209,7 @@ public sealed class BackendBusinessOperationsService
         var handler = scope.ServiceProvider.GetRequiredService<PostExpenseHandler>();
         var result = await handler.HandleAsync(
             new PostExpenseCommand(
-                Guid.CreateVersion7(),
+                clientOperationId ?? Guid.CreateVersion7(),
                 matches[0].Id,
                 null,
                 DateOnly.FromDateTime(date),
@@ -466,7 +488,10 @@ public sealed class BackendBusinessOperationsService
                 {
                     ProjectName = x.ProjectName,
                     IssueCount = x.IssueCount,
-                    MaterialValue = x.MaterialValue
+                    MaterialValue = x.MaterialValue,
+                    ReversalCount = x.ReversalCount,
+                    ReversalAmount = x.ReversalAmount,
+                    NetMaterialValue = x.NetMaterialValue
                 }).ToArray()
         };
     }

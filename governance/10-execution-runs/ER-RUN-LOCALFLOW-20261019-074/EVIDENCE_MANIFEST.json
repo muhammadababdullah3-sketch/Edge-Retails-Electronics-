@@ -1,0 +1,46 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-074",
+  "authority": "OWNER-UPDATE-20261018-019",
+  "created_at_utc": "2026-10-19T12:31:41.590273+00:00",
+  "items": [
+    {
+      "path": "export/candidate_source_bundle.zip",
+      "sha256": "51baba8db3ef51de88054f74742dc73b844618aa63bf7b9994a4a89851320a67",
+      "category": "candidate_bundle"
+    },
+    {
+      "path": "export/candidate_tracked.patch",
+      "sha256": "7cba3f161f846f20c0373cbc1984d1b3a53859d658027a5431640bfa5e3201fe",
+      "category": "candidate_patch"
+    },
+    {
+      "path": "export/candidate_untracked.zip",
+      "sha256": "0ff48ece50c814733df035665ef0d51477271e76e54789e88cb06669ee100caa",
+      "category": "candidate_untracked"
+    },
+    {
+      "path": "export/CANDIDATE_FILE_INVENTORY.json",
+      "category": "inventory"
+    },
+    {
+      "path": "test-results/run074_thaka_aud_unit_tests.trx",
+      "category": "test_evidence"
+    },
+    {
+      "path": "test-results/run074_desktop_performance_safety_tests.trx",
+      "category": "test_evidence"
+    },
+    {
+      "path": "test-results/run074_postgres_read_contract_tests.trx",
+      "category": "test_evidence"
+    },
+    {
+      "path": "test-results/run074_pack_concurrency_14cases.trx",
+      "category": "test_evidence"
+    },
+    {
+      "path": "pg-custody/CUSTODY_PROOF.txt",
+      "category": "pg_custody"
+    }
+  ]
+}

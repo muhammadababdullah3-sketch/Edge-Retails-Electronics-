@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Domain.Inventory;
@@ -10,6 +11,8 @@ namespace EdgeRetails.Desktop.Services;
 /// </summary>
 public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBackendWorkflowReadService
 {
+    public DesktopApiClient ApiClient => apiClient;
+
     public async Task<IReadOnlyList<BackendScannerMatch>> ResolveScannerAsync(
         string input, CancellationToken cancellationToken = default)
     {
@@ -160,7 +163,11 @@ public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBack
         Guid stocktakeId, Guid productId,
         IReadOnlyCollection<Guid> foundInventoryUnitIds,
         IReadOnlyCollection<string> unexpectedIdentitySnapshots,
-        string? reviewNote, CancellationToken cancellationToken = default) =>
+        string? reviewNote,
+        IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
+        decimal minimumSellableIncrement = 1m,
+        decimal separateLooseQuantity = 0m,
+        CancellationToken cancellationToken = default) =>
         UnsupportedStocktake();
 
     public Task ReviewStocktakeAsync(
@@ -238,7 +245,8 @@ public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBack
             x.SerialNumber ?? string.Empty,
             x.Imei1 ?? string.Empty,
             x.Imei2 ?? string.Empty,
-            x.UnitStatus);
+            x.UnitStatus,
+            x.TrackingMode);
 
     private static BackendPosDraftSummary MapDraftSummary(PosDraftSummaryDto x) =>
         new(
@@ -250,6 +258,57 @@ public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBack
             x.UpdatedAt,
             x.Version,
             x.ItemCount);
+
+    public async Task<PackContainerQueryResponse> GetPackContainersAsync(
+        Guid? productId = null,
+        string? conditionFilter = null,
+        decimal? minContinuousLength = null,
+        int pageNumber = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var query = $"/api/inventory/packs?pageNumber={pageNumber}&pageSize={pageSize}";
+        if (productId.HasValue && productId.Value != Guid.Empty)
+        {
+            query += $"&productId={productId.Value:D}";
+        }
+        if (!string.IsNullOrWhiteSpace(conditionFilter))
+        {
+            query += $"&conditionFilter={Uri.EscapeDataString(conditionFilter)}";
+        }
+        if (minContinuousLength.HasValue)
+        {
+            query += $"&minContinuousLength={minContinuousLength.Value}";
+        }
+
+        return await apiClient.GetAsync<PackContainerQueryResponse>(query, cancellationToken);
+    }
+
+    public async Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await apiClient.GetAsync<PackContainerDto>(
+                $"/api/inventory/packs/{Uri.EscapeDataString(trackingCode.Trim())}",
+                cancellationToken);
+        }
+        catch (DesktopApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<PackAllocationResponse> AllocatePackAsync(
+        EdgeRetails.Application.Contracts.Packs.PackAllocationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await apiClient.PostAsync<EdgeRetails.Application.Contracts.Packs.PackAllocationRequest, PackAllocationResponse>(
+            "/api/inventory/packs/allocate",
+            request,
+            cancellationToken);
+    }
 
     private sealed record CancelDraftResponse(bool Success);
 }

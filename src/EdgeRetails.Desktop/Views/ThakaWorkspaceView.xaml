@@ -52,7 +52,7 @@
                         <TextBlock Text="Customer suspended: new material/credit is blocked; payment recovery remains available." TextWrapping="Wrap" Margin="0,6,0,0" Foreground="{DynamicResource Brush.Badge.Warning.Text}" Visibility="{Binding IsCustomerSuspended, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <WrapPanel Grid.Column="2" MaxWidth="450" HorizontalAlignment="Right">
+                    <WrapPanel Grid.Column="2" MaxWidth="500" HorizontalAlignment="Right">
                         <Button Content="Refresh" Command="{Binding RefreshCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
                         <Button Content="{Binding SuspensionAction}" Command="{Binding ToggleSuspensionCommand}" Style="{StaticResource Button.Neutral}" Margin="0,0,8,0"/>
                         <Button Content="+ Add Material"
@@ -63,26 +63,165 @@
                                 Command="{Binding RecordPaymentCommand}"
                                 Style="{StaticResource Button.Payment.Compact}"
                                 Margin="0,0,8,0" />
+                        <Button Content="Refund Credit"
+                                Command="{Binding OpenRefundCreditCommand}"
+                                Style="{StaticResource Button.Warning.Compact}"
+                                Margin="0,0,8,0"
+                                Visibility="{Binding HasCustomerCredit, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <Button Content="Final Settlement"
                                 Command="{Binding FinalSettlementCommand}"
                                 Style="{StaticResource Button.Warning.Compact}" />
                     </WrapPanel>
                 </Grid>
 
-                <Border Grid.Row="1"
-                        Margin="0,16,0,0"
-                        Padding="12,10"
-                        CornerRadius="{StaticResource Radius.Control}"
-                        Background="{DynamicResource Brush.Badge.Neutral.Background}"
-                        BorderBrush="{DynamicResource Brush.Badge.Neutral.Border}"
-                        BorderThickness="1"
-                        Visibility="{Binding IsSettledBannerVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="This Thaka project is settled and finalized. Records are read-only."
-                               FontFamily="{StaticResource Font.Primary}"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource Brush.Badge.Neutral.Text}" />
-                </Border>
+                <StackPanel Grid.Row="1">
+                    <Border Margin="0,16,0,0"
+                            Padding="12,10"
+                            CornerRadius="{StaticResource Radius.Control}"
+                            Background="{DynamicResource Brush.Badge.Neutral.Background}"
+                            BorderBrush="{DynamicResource Brush.Badge.Neutral.Border}"
+                            BorderThickness="1"
+                            Visibility="{Binding IsSettledBannerVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       VerticalAlignment="Center"
+                                       Text="This Thaka project is settled and finalized. Records are read-only."
+                                       FontFamily="{StaticResource Font.Primary}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Brush.Badge.Neutral.Text}" />
+                            <Button Grid.Column="1"
+                                    Content="Reopen Project"
+                                    Command="{Binding ReopenProjectCommand}"
+                                    Style="{StaticResource Button.Neutral}"
+                                    Margin="12,0,0,0" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Operator Choice: Same-Project Credit Retention vs Authorized Refund (OWNER-UPDATE-20261019-001) -->
+                    <Border Margin="0,16,0,0"
+                            Padding="16,14"
+                            CornerRadius="{StaticResource Radius.Control}"
+                            Background="{DynamicResource Brush.Badge.Warning.Background}"
+                            BorderBrush="{DynamicResource Brush.Badge.Warning.Border}"
+                            BorderThickness="1"
+                            Visibility="{Binding HasCustomerCredit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Customer Credit Balance: "
+                                                   FontFamily="{StaticResource Font.Primary}"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
+                                        <TextBlock Text="{Binding CustomerCreditFormatted}"
+                                                   FontFamily="{StaticResource Font.Numeric}"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
+                                    </StackPanel>
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="Payments collected exceed net material charges. Operator choice: retain credit in this project to automatically absorb future material charges, or issue an authorized cash drawer refund."
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource Brush.Text.Primary}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <Button Content="Retain Credit in Project"
+                                            Command="{Binding RetainCreditCommand}"
+                                            Style="{StaticResource Button.Neutral}"
+                                            Margin="0,0,8,0" />
+                                    <Button Content="Issue Cash Refund"
+                                            Command="{Binding OpenRefundCreditCommand}"
+                                            Style="{StaticResource Button.Warning.Compact}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Inline Authorized Refund Entry Panel -->
+                            <Border Margin="0,12,0,0"
+                                    Padding="14,12"
+                                    CornerRadius="{StaticResource Radius.Control}"
+                                    Background="{DynamicResource Brush.Surface.Raised}"
+                                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                                    BorderThickness="1"
+                                    Visibility="{Binding IsRefundPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel>
+                                    <TextBlock Text="Authorize Cash Drawer Refund"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Brush.Text.Primary}"
+                                               Margin="0,0,0,10" />
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="160" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Refund Amount (Rs.)"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource Brush.Text.Muted}"
+                                                       Margin="0,0,0,4" />
+                                            <TextBox Text="{Binding RefundAmountInput, UpdateSourceTrigger=PropertyChanged, StringFormat=N2}"
+                                                     Style="{StaticResource Input.TextBox}" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Reason / Authorization Reference"
+                                                       FontFamily="{StaticResource Font.Primary}"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource Brush.Text.Muted}"
+                                                       Margin="0,0,0,4" />
+                                            <TextBox Text="{Binding RefundReasonInput, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource Input.TextBox}" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                            <Button Content="Confirm Refund"
+                                                    Command="{Binding ConfirmRefundCreditCommand}"
+                                                    Style="{StaticResource Button.Payment.Compact}"
+                                                    Margin="0,0,8,0" />
+                                            <Button Content="Cancel"
+                                                    Command="{Binding CloseRefundCreditCommand}"
+                                                    Style="{StaticResource Button.Neutral}" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Text="Processing cash refund from drawer…"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource Brush.Text.Muted}"
+                                               Margin="0,8,0,0"
+                                               Visibility="{Binding IsRefundingCredit, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                                    <TextBlock Text="{Binding RefundErrorMessage}"
+                                               FontFamily="{StaticResource Font.Primary}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource Brush.Badge.Danger.Text}"
+                                               Margin="0,8,0,0"
+                                               Visibility="{Binding HasRefundErrorMessage, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
 
                 <Grid Grid.Row="2" Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
@@ -171,12 +310,16 @@
                             Command="{Binding SwitchTabCommand}"
                             CommandParameter="Payments"
                             Style="{StaticResource Button.Neutral}" />
-                    <Button Grid.Column="2"
-                            Content="Reverse Selected Issue"
-                            Command="{Binding ReverseMaterialCommand}"
-                            Style="{StaticResource Button.Warning.Compact}"
-                            HorizontalAlignment="Right"
-                            Visibility="{Binding IsMaterialsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Reverse Selected Issue"
+                                Command="{Binding ReverseMaterialCommand}"
+                                Style="{StaticResource Button.Warning.Compact}"
+                                Visibility="{Binding IsMaterialsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Content="Reverse Selected Payment"
+                                Command="{Binding ReversePaymentCommand}"
+                                Style="{StaticResource Button.Warning.Compact}"
+                                Visibility="{Binding IsPaymentsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
                 </Grid>
 
                 <Grid Grid.Row="4">
@@ -198,6 +341,7 @@
                     </DataGrid>
 
                     <DataGrid ItemsSource="{Binding PaymentLedger}"
+                              SelectedItem="{Binding SelectedPayment, Mode=TwoWay}"
                               IsReadOnly="True"
                               AutoGenerateColumns="False"
                               Style="{StaticResource Table.DataGrid}"

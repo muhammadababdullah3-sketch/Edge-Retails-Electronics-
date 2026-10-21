@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using EdgeRetails.Application.Features.Catalog;
+using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
@@ -27,6 +29,11 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
     public bool HasMoreProducts => _nextProductId.HasValue;
     public ICommand MoreProductsCommand { get; }
     private const int ProductPageSize = 200;
+
+    public ProductManagementViewModel()
+        : this(null!, null!, null, null)
+    {
+    }
 
     public ProductManagementViewModel(
         IToastService toastService,
@@ -60,13 +67,194 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !IsLoading);
         MoreProductsCommand = new RelayCommand(() => _ = LoadMoreProductsAsync());
         CloseDetailCommand = new RelayCommand(CloseProductDetail);
+        FilterBySelectedTaxonomyCommand = new RelayCommand(FilterBySelectedTaxonomy, () => HasSelectedTaxonomyNode);
 
+        InitializeTaxonomyTree();
         _ = RefreshAsync();
     }
 
     public ObservableCollection<BackendProductManagementItem> FilteredProducts { get; }
     public ObservableCollection<string> Categories { get; }
     public IReadOnlyList<string> StatusFilters { get; }
+    public ObservableCollection<TaxonomyTreeNodeViewModel> TaxonomyTree { get; } = new();
+
+    private TaxonomyTreeNodeViewModel? _selectedTaxonomyNode;
+    public TaxonomyTreeNodeViewModel? SelectedTaxonomyNode
+    {
+        get => _selectedTaxonomyNode;
+        set
+        {
+            if (SetProperty(ref _selectedTaxonomyNode, value))
+            {
+                OnPropertyChanged(nameof(SelectedTaxonomyNodeDisplay));
+                OnPropertyChanged(nameof(HasSelectedTaxonomyNode));
+                OnPropertyChanged(nameof(HasTaxonomyRedirect));
+                OnPropertyChanged(nameof(TaxonomyRedirectNotice));
+                ((RelayCommand)FilterBySelectedTaxonomyCommand).NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool HasSelectedTaxonomyNode => _selectedTaxonomyNode is not null;
+
+    public string? SelectedTaxonomyNodeDisplay => _selectedTaxonomyNode is not null
+        ? $"{_selectedTaxonomyNode.Level}: {_selectedTaxonomyNode.Code} — {_selectedTaxonomyNode.Name}"
+        : "No node selected";
+
+    public bool HasTaxonomyRedirect => _selectedTaxonomyNode?.IsDeprecated == true;
+
+    public string? TaxonomyRedirectNotice => _selectedTaxonomyNode?.IsDeprecated == true
+        ? $"REDIRECT NOTICE: Class {_selectedTaxonomyNode.Code} is deprecated. Active canonical target: {_selectedTaxonomyNode.RedirectTargetCode}"
+        : null;
+
+    private int _selectedTabIndex;
+    public int SelectedTabIndex
+    {
+        get => _selectedTabIndex;
+        set => SetProperty(ref _selectedTabIndex, value);
+    }
+
+    public ICommand FilterBySelectedTaxonomyCommand { get; }
+
+    public void FilterBySelectedTaxonomy()
+    {
+        if (_selectedTaxonomyNode is not null)
+        {
+            var targetCode = !string.IsNullOrWhiteSpace(_selectedTaxonomyNode.RedirectTargetCode)
+                ? _selectedTaxonomyNode.RedirectTargetCode
+                : _selectedTaxonomyNode.Code;
+
+            SearchText = targetCode;
+            SelectedTabIndex = 0;
+            ApplyFilters();
+        }
+    }
+
+    public void InitializeTaxonomyTree()
+    {
+        if (TaxonomyTree.Count > 0)
+        {
+            return;
+        }
+
+        var divisions = TaxonomyV3Store.Divisions;
+        var departments = TaxonomyV3Store.Departments;
+        var classes = TaxonomyV3Store.ProductClasses;
+
+        var deptLookup = departments.GroupBy(d => d.DivisionCode)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var classLookup = classes.GroupBy(c => c.DepartmentCode)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var div in divisions)
+        {
+            var divNode = new TaxonomyTreeNodeViewModel(
+                div.Code,
+                div.Name,
+                "Division");
+
+            if (deptLookup.TryGetValue(div.Code, out var depts))
+            {
+                foreach (var dept in depts)
+                {
+                    var deptNode = new TaxonomyTreeNodeViewModel(
+                        dept.Code,
+                        dept.Name,
+                        "Department");
+
+                    if (classLookup.TryGetValue(dept.Code, out var clsList))
+                    {
+                        foreach (var cls in clsList)
+                        {
+                            var clsNode = new TaxonomyTreeNodeViewModel(
+                                cls.ClassRef,
+                                cls.ClassName,
+                                "Class",
+                                isSellable: !cls.IsNavigationOnly,
+                                isDeprecated: cls.IsRedirect,
+                                redirectTargetCode: cls.CanonicalClassRef);
+
+                            deptNode.Children.Add(clsNode);
+                        }
+                    }
+
+                    divNode.Children.Add(deptNode);
+                }
+            }
+
+            TaxonomyTree.Add(divNode);
+        }
+    }
+
+    public static (bool IsValid, string? ErrorMessage) ValidateAttributeValue(AttributeProfile profile, string? rawValue)
+    {
+        if (profile is null)
+        {
+            return (false, "Profile is null.");
+        }
+
+        var value = rawValue?.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (string.Equals(profile.EffectiveRequiredness, "REQUIRED", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, $"Attribute '{profile.AttributeName}' is required.");
+            }
+            return (true, null);
+        }
+
+        if (string.Equals(profile.ValueType, "NUMBER", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!decimal.TryParse(value, out var numericVal))
+            {
+                return (false, $"Attribute '{profile.AttributeName}' must be a valid number.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.NumericMin) && decimal.TryParse(profile.NumericMin, out var minVal))
+            {
+                if (numericVal < minVal)
+                {
+                    return (false, $"Attribute '{profile.AttributeName}' value {numericVal} is less than minimum allowed bound {minVal}.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.NumericMax) && decimal.TryParse(profile.NumericMax, out var maxVal))
+            {
+                if (numericVal > maxVal)
+                {
+                    return (false, $"Attribute '{profile.AttributeName}' value {numericVal} exceeds maximum allowed bound {maxVal}.");
+                }
+            }
+
+            return (true, null);
+        }
+
+        if (string.Equals(profile.ValueType, "ENUM", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(profile.EnumSuggestedValues))
+            {
+                var allowed = profile.EnumSuggestedValues.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (!allowed.Any(a => string.Equals(a, value, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return (false, $"Attribute '{profile.AttributeName}' value '{value}' is not among allowed choices: {profile.EnumSuggestedValues}.");
+                }
+            }
+
+            return (true, null);
+        }
+
+        if (string.Equals(profile.ValueType, "BOOLEAN", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!bool.TryParse(value, out _))
+            {
+                return (false, $"Attribute '{profile.AttributeName}' must be true or false.");
+            }
+
+            return (true, null);
+        }
+
+        return (true, null);
+    }
 
     public string SearchText
     {
@@ -305,12 +493,38 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
             var term = SearchText.Trim();
+            var matchingTaxonomyCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var matchingClassNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var cls = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
+                string.Equals(c.ClassRef, term, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(c.CanonicalClassRef, term, StringComparison.OrdinalIgnoreCase));
+
+            if (cls is not null)
+            {
+                matchingClassNames.Add(cls.ClassName);
+                var dept = TaxonomyV3Store.Departments.FirstOrDefault(d => string.Equals(d.Code, cls.DepartmentCode, StringComparison.OrdinalIgnoreCase));
+                if (dept is not null)
+                {
+                    matchingTaxonomyCategories.Add(dept.Name);
+                }
+            }
+
+            var deptByCode = TaxonomyV3Store.Departments.FirstOrDefault(d => string.Equals(d.Code, term, StringComparison.OrdinalIgnoreCase));
+            if (deptByCode is not null)
+            {
+                matchingTaxonomyCategories.Add(deptByCode.Name);
+            }
+
             products = products.Where(x =>
                 x.Sku.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 x.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 (x.Brand?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (x.Model?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                x.Category.Contains(term, StringComparison.OrdinalIgnoreCase));
+                x.Category.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                matchingTaxonomyCategories.Contains(x.Category) ||
+                matchingClassNames.Any(cn => x.Name.Contains(cn, StringComparison.OrdinalIgnoreCase) || (x.AttributesJson?.Contains(cn, StringComparison.OrdinalIgnoreCase) ?? false)) ||
+                (x.AttributesJson?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
         FilteredProducts.Clear();
@@ -320,6 +534,13 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         }
 
         NotifyState();
+    }
+
+    internal void SetSnapshotForTesting(BackendProductManagementSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        RebuildCategoryFilter();
+        ApplyFilters();
     }
 
     private void ScheduleBackendPageRefresh()
@@ -589,5 +810,37 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
                     "Catalog status change failed. Check the connection and try again."),
                 ToastTone.Danger);
         }
+    }
+}
+
+public sealed class TaxonomyTreeNodeViewModel : ViewModelBase
+{
+    public string Code { get; }
+    public string Name { get; }
+    public string Level { get; }
+    public bool IsSellable { get; }
+    public bool IsDeprecated { get; }
+    public string? RedirectTargetCode { get; }
+
+    public string DisplayText => IsDeprecated
+        ? $"{Code} - {Name} [REDIRECT -> {RedirectTargetCode}]"
+        : (!IsSellable ? $"{Code} - {Name} [NON-SELLABLE]" : $"{Code} - {Name}");
+
+    public ObservableCollection<TaxonomyTreeNodeViewModel> Children { get; } = new();
+
+    public TaxonomyTreeNodeViewModel(
+        string code,
+        string name,
+        string level,
+        bool isSellable = true,
+        bool isDeprecated = false,
+        string? redirectTargetCode = null)
+    {
+        Code = code;
+        Name = name;
+        Level = level;
+        IsSellable = isSellable;
+        IsDeprecated = isDeprecated;
+        RedirectTargetCode = redirectTargetCode;
     }
 }

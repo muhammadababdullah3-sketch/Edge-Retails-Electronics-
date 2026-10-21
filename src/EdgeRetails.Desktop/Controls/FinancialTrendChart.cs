@@ -311,16 +311,50 @@ public sealed class FinancialTrendChart : FrameworkElement
         };
         pen.Freeze();
 
+        // Area fill beneath the series curve
+        if (points.Count > 1 && brush is SolidColorBrush solid)
+        {
+            var areaGeometry = new StreamGeometry();
+            using (var ctx = areaGeometry.Open())
+            {
+                var firstPt = new Point(PointToX(0, points.Count, plot), ValueToY(selector(points[0]), plot, min, max));
+                var lastPt = new Point(PointToX(points.Count - 1, points.Count, plot), ValueToY(selector(points[^1]), plot, min, max));
+                var baselineY = plot.Bottom;
+
+                ctx.BeginFigure(new Point(firstPt.X, baselineY), isFilled: true, isClosed: true);
+                ctx.LineTo(firstPt, isStroked: false, isSmoothJoin: true);
+
+                for (var i = 1; i < points.Count; i++)
+                {
+                    var pt = new Point(PointToX(i, points.Count, plot), ValueToY(selector(points[i]), plot, min, max));
+                    ctx.LineTo(pt, isStroked: false, isSmoothJoin: true);
+                }
+
+                ctx.LineTo(new Point(lastPt.X, baselineY), isStroked: false, isSmoothJoin: true);
+            }
+            areaGeometry.Freeze();
+
+            var fillBrush = new LinearGradientBrush(
+                Color.FromArgb(36, solid.Color.R, solid.Color.G, solid.Color.B),
+                Color.FromArgb(3, solid.Color.R, solid.Color.G, solid.Color.B),
+                new Point(0, 0),
+                new Point(0, 1));
+            fillBrush.Freeze();
+            dc.DrawGeometry(fillBrush, null, areaGeometry);
+        }
+
         dc.DrawGeometry(null, pen, geometry);
 
-        if (points.Count <= 12)
+        if (points.Count <= 16)
         {
+            var innerDot = Brushes.White;
             for (var i = 0; i < points.Count; i++)
             {
                 var point = new Point(
                     PointToX(i, points.Count, plot),
                     ValueToY(selector(points[i]), plot, min, max));
-                dc.DrawEllipse(brush, null, point, 2.8, 2.8);
+                dc.DrawEllipse(brush, null, point, 3.8, 3.8);
+                dc.DrawEllipse(innerDot, null, point, 1.8, 1.8);
             }
         }
     }

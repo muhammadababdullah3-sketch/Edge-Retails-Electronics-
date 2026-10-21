@@ -71,10 +71,26 @@ public sealed class SupplierOpeningBalanceHandler(
             await operationLock.AcquireAsync(command.ClientOperationId, ct);
             await resourceLock.AcquireAsync("supplier-account", command.SupplierId, ct);
             var prior = await outcomes.GetOutcomeAsync(command.ClientOperationId, ct);
-            if (prior is not null && (prior.OperationType != SourceType || prior.PayloadFingerprint != fingerprint))
+            if (prior is not null)
             {
-                return Result<SupplierOpeningBalanceResult>.Failure(
-                    "idempotency.payload_mismatch", "Opening operation was previously submitted with different authority or parameters.");
+                if (prior.OperationType != SourceType)
+                {
+                    return Result<SupplierOpeningBalanceResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity already belongs to another operation ({prior.OperationType}).");
+                }
+                if (prior.ActorId.HasValue && command.ActorId != Guid.Empty && prior.ActorId.Value != command.ActorId)
+                {
+                    return Result<SupplierOpeningBalanceResult>.Failure(
+                        "idempotency.context_mismatch",
+                        $"Operation actor '{command.ActorId}' does not match original actor '{prior.ActorId.Value}'.");
+                }
+                if (!string.IsNullOrEmpty(prior.PayloadFingerprint) && prior.PayloadFingerprint != fingerprint)
+                {
+                    return Result<SupplierOpeningBalanceResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Opening operation was previously submitted with different authority or parameters.");
+                }
             }
             var hasSource = await accounts.HasSourceEntryAsync(
                 SupplierAccountEntryType.OpeningBalance, SourceType, command.ClientOperationId, ct);

@@ -11,6 +11,7 @@ public sealed class WarrantyViewModel : ViewModelBase
 {
     private readonly IBackendOperationsService? _operationsService;
     private readonly IToastService? _toastService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private const int DashboardPageSize = 200;
     private readonly List<WarrantyQueueRowDto> _allRows = [];
     private CancellationTokenSource? _searchCts;
@@ -50,10 +51,12 @@ public sealed class WarrantyViewModel : ViewModelBase
 
     public WarrantyViewModel(
         IBackendOperationsService? operationsService = null,
-        IToastService? toastService = null)
+        IToastService? toastService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _operationsService = operationsService;
         _toastService = toastService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         Rows = [];
         Timeline = [];
@@ -412,7 +415,26 @@ public sealed class WarrantyViewModel : ViewModelBase
             }).ToArray();
         }
 
-        _pendingClaimOperationId ??= Guid.CreateVersion7();
+        var operationKey = $"warranty-claim:{SelectedIntakeRow.SaleId:D}:{SelectedIntakeRow.SaleItemId:D}";
+        var unitPayload = units is { Count: > 0 }
+            ? string.Join(",", units.OrderBy(u => u.OriginalInventoryUnitId).Select(u => u.OriginalInventoryUnitId?.ToString("D") ?? string.Empty))
+            : string.Empty;
+        var canonicalPayload = $"{customerId:D}|{SelectedIntakeRow.ProductId:D}|{quantity}|{ClaimIntakeFaultText?.Trim()}|{unitPayload}";
+
+        Guid opId;
+        try
+        {
+            opId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            _toastService?.Show(
+                "An earlier claim for this item has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                ToastTone.Warning);
+            return;
+        }
+
+        _pendingClaimOperationId = opId;
         IsLoading = true;
         try
         {
@@ -423,15 +445,24 @@ public sealed class WarrantyViewModel : ViewModelBase
                 SelectedIntakeRow.ProductId,
                 quantity,
                 SelectedIntakeRow.SaleItemId,
-                ClaimIntakeFaultText,
+                ClaimIntakeFaultText ?? string.Empty,
                 units,
-                _pendingClaimOperationId.Value);
+                opId);
 
+            _operationIntents.Complete(operationKey, opId);
             _toastService?.Show($"Warranty claim {claimId:D} created.", ToastTone.Success);
             _pendingClaimOperationId = null;
             ClaimIntakeFaultText = string.Empty;
             ClaimIntakeUnitIdsText = string.Empty;
             await RefreshAsync();
+        }
+        catch (DesktopApiException ex) when (DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(ex))
+        {
+            _operationIntents.Complete(operationKey, opId);
+            _pendingClaimOperationId = null;
+            _toastService?.Show(
+                $"{DesktopErrorPresentation.ForException(ex, "The warranty claim was rejected.")}",
+                ToastTone.Warning);
         }
         catch (OperationException ex)
         {

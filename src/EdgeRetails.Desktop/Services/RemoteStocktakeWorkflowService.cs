@@ -1,7 +1,9 @@
 using System.Net.Http;
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Gateways;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 
 namespace EdgeRetails.Desktop.Services;
@@ -19,6 +21,10 @@ public sealed class RemoteStocktakeWorkflowService(
     public Task<IReadOnlyList<BackendScannerMatch>> ResolveScannerAsync(
         string input, CancellationToken cancellationToken = default) =>
         _pos.ResolveScannerAsync(input, cancellationToken);
+
+    public Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode, CancellationToken cancellationToken = default) =>
+        _pos.GetPackByTrackingCodeAsync(trackingCode, cancellationToken);
 
     public Task<IReadOnlyList<BackendExactUnit>> GetExactUnitsAsync(
         Guid productId,
@@ -147,10 +153,18 @@ public sealed class RemoteStocktakeWorkflowService(
         IReadOnlyCollection<Guid> foundInventoryUnitIds,
         IReadOnlyCollection<string> unexpectedIdentitySnapshots,
         string? reviewNote,
+        IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
+        decimal minimumSellableIncrement = 1m,
+        decimal separateLooseQuantity = 0m,
         CancellationToken cancellationToken = default)
     {
+        var measuredPayload = measuredContainerQuantities is { Count: > 0 }
+            ? string.Join(',', measuredContainerQuantities.OrderBy(x => x.Key).Select(x => FormattableString.Invariant($"{x.Key:D}={QuantityMath.RoundQuantity(x.Value)}")))
+            : string.Empty;
+        var incrementPayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(minimumSellableIncrement)}");
+        var loosePayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(separateLooseQuantity)}");
         var key = $"serialized-count:{stocktakeId:D}:{productId:D}";
-        var payload = $"{stocktakeId:D}|{productId:D}|{string.Join(',', foundInventoryUnitIds.Order())}|{string.Join('|', unexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{Normalize(reviewNote)}";
+        var payload = $"{stocktakeId:D}|{productId:D}|{string.Join(',', foundInventoryUnitIds.Order())}|{string.Join('|', unexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{Normalize(reviewNote)}|{measuredPayload}|{incrementPayload}|{loosePayload}";
         await PostSuccessAsync(
             $"/api/inventory/stocktake/{stocktakeId:D}/serialized-counts",
             key, "Stocktake.SerializedCount", payload,
@@ -158,7 +172,11 @@ public sealed class RemoteStocktakeWorkflowService(
                 productId,
                 foundInventoryUnitIds,
                 unexpectedIdentitySnapshots,
-                Normalize(reviewNote), GetOperationId(key, payload)), cancellationToken);
+                Normalize(reviewNote),
+                GetOperationId(key, payload),
+                measuredContainerQuantities,
+                minimumSellableIncrement,
+                separateLooseQuantity), cancellationToken);
     }
 
     public async Task ReviewStocktakeAsync(
@@ -381,24 +399,74 @@ public sealed class RemoteStocktakeWorkflowService(
         Guid? sourcePurchaseItemId,
         CancellationToken cancellationToken)
     {
-        var query = $"/api/inventory/exact-units?productId={productId:D}&pageSize=200";
-        if (status is not null)
+        var allUnits = new List<BackendExactUnit>();
+        Guid? beforeUnitId = null;
+        var seenIds = new HashSet<Guid>();
+        const int pageSize = 200;
+        const int maxPages = 50;
+
+        for (var page = 0; page < maxPages; page++)
         {
-            query += $"&status={Uri.EscapeDataString(status.Value.ToString())}";
+            var query = $"/api/inventory/exact-units?productId={productId:D}&pageSize={pageSize}";
+            if (status is not null)
+            {
+                query += $"&status={Uri.EscapeDataString(status.Value.ToString())}";
+            }
+
+            if (sourcePurchaseItemId is Guid purchaseItemId)
+            {
+                query += $"&sourcePurchaseItemId={purchaseItemId:D}";
+            }
+
+            if (beforeUnitId.HasValue)
+            {
+                query += $"&beforeUnitId={beforeUnitId.Value:D}";
+            }
+
+            var rows = await apiClient.GetAsync<ExactInventoryUnitDto[]>(query, cancellationToken);
+            if (rows is null || rows.Length == 0)
+            {
+                break;
+            }
+
+            var newCount = 0;
+            foreach (var x in rows)
+            {
+                if (seenIds.Add(x.InventoryUnitId))
+                {
+                    allUnits.Add(new BackendExactUnit(
+                        x.InventoryUnitId, x.ProductId, x.ProductName, x.Sku ?? string.Empty,
+                        x.TrackingCode ?? string.Empty, x.SerialNumber ?? string.Empty,
+                        x.Imei1 ?? string.Empty, x.Imei2 ?? string.Empty, x.Status,
+                        x.AcquisitionCost, x.SourcePurchaseItemId, x.PurchaseNumber ?? string.Empty,
+                        x.SupplierName ?? string.Empty, x.CreatedAt, x.Version));
+                    newCount++;
+                }
+            }
+
+            if (page == maxPages - 1 && rows.Length >= pageSize && newCount > 0)
+            {
+                throw new BackendOperationException(
+                    "inventory.exact_units_page_limit_exceeded",
+                    $"Exact inventory units query exceeded the maximum limit of {maxPages * pageSize} units for product {productId:D}. Narrow the query criteria.");
+            }
+
+            if (newCount == 0 && rows.Length >= pageSize)
+            {
+                throw new BackendOperationException(
+                    "inventory.exact_units_cursor_cycle",
+                    $"Exact inventory units query encountered repeated results at cursor {beforeUnitId:D}.");
+            }
+
+            if (newCount == 0 || rows.Length < pageSize)
+            {
+                break;
+            }
+
+            beforeUnitId = rows[^1].InventoryUnitId;
         }
 
-        if (sourcePurchaseItemId is Guid purchaseItemId)
-        {
-            query += $"&sourcePurchaseItemId={purchaseItemId:D}";
-        }
-
-        var rows = await apiClient.GetAsync<ExactInventoryUnitDto[]>(query, cancellationToken);
-        return [.. rows.Select(x => new BackendExactUnit(
-            x.InventoryUnitId, x.ProductId, x.ProductName, x.Sku ?? string.Empty,
-            x.TrackingCode ?? string.Empty, x.SerialNumber ?? string.Empty,
-            x.Imei1 ?? string.Empty, x.Imei2 ?? string.Empty, x.Status,
-            x.AcquisitionCost, x.SourcePurchaseItemId, x.PurchaseNumber ?? string.Empty,
-            x.SupplierName ?? string.Empty, x.CreatedAt, x.Version))];
+        return allUnits;
     }
 
     private static BackendStocktakeSnapshot MapStocktake(StocktakeSnapshotDto row) =>
@@ -435,7 +503,10 @@ public sealed class RemoteStocktakeWorkflowService(
         IReadOnlyCollection<Guid> FoundInventoryUnitIds,
         IReadOnlyCollection<string> UnexpectedIdentitySnapshots,
         string? ReviewNote,
-        Guid ClientOperationId);
+        Guid ClientOperationId,
+        IReadOnlyDictionary<Guid, decimal>? MeasuredContainerQuantities = null,
+        decimal? MinimumSellableIncrement = null,
+        decimal? SeparateLooseQuantity = null);
     private sealed record StocktakeActionRequest(Guid ClientOperationId);
     private sealed record StocktakePostRequest(
         Guid? ClientOperationId,

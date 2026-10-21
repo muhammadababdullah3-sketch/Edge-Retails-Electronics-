@@ -42,6 +42,9 @@
                         <Setter Property="Background" Value="{DynamicResource Gradient.Kpi.Thaka}" />
                         <Setter Property="BorderBrush" Value="{StaticResource Brush.Thaka}" />
                     </DataTrigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Effect" Value="{StaticResource Shadow.Card}" />
+                    </Trigger>
                 </Style.Triggers>
             </Style>
         </Border.Style>

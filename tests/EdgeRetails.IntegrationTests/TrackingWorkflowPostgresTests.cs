@@ -308,7 +308,7 @@ public sealed class TrackingWorkflowPostgresTests
 
     private static async Task WaitForDatabaseLockAsync(string applicationName)
     {
-        await using var observer = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var observer = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await observer.OpenAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         while (true)

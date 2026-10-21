@@ -17,4 +17,45 @@
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="TextAlignment" Value="Center" />
     </Style>
+
+    <!-- Modern Keycap Style for Keyboard Shortcuts (F1-F12, Esc, Enter) -->
+    <Style x:Key="Badge.Keycap" TargetType="Border">
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="5,1" />
+        <Setter Property="CornerRadius" Value="3.5" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}" />
+        <Setter Property="Background" Value="{DynamicResource Brush.Surface.Subtle}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+    </Style>
+
+    <Style x:Key="Badge.Keycap.Text" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Mono}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Muted}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="Badge.Keycap.Dark" TargetType="Border">
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="6,1" />
+        <Setter Property="CornerRadius" Value="3.5" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="#4DFFFFFF" />
+        <Setter Property="Background" Value="#26000000" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+    </Style>
+
+    <Style x:Key="Badge.Keycap.Dark.Text" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Mono}" />
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextAlignment" Value="Center" />
+    </Style>
 </ResourceDictionary>

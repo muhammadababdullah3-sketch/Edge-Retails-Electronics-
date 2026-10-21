@@ -10,7 +10,7 @@
                     <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
                     <TextBlock Text="Customer information" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
-                <Button Content="✕" Command="{Binding CloseCommand}" Style="{StaticResource Button.Text.Neutral}" HorizontalAlignment="Right"/>
+                <Button Command="{Binding CloseCommand}" Style="{StaticResource Button.Close}" HorizontalAlignment="Right"/>
             </Grid>
         </Border>
         <ScrollViewer Grid.Row="1" Padding="21,16">

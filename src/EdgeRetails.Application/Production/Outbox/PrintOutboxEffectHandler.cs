@@ -33,7 +33,7 @@ public sealed class PrintOutboxEffectHandler : IOutboxEffectHandler
             payload.BusinessDocumentId,
             payload.PrinterProfileName,
             IsReprint: payload.IsReprint,
-            CorrelationId: payload.CorrelationId,
+            CorrelationId: payload.CorrelationId ?? message.IdempotencyKey,
             PrintJobId: null,
             RequestMode: payload.IsReprint ? PrintRequestMode.Reprint : PrintRequestMode.Initial);
 

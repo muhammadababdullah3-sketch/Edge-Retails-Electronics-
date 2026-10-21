@@ -196,6 +196,12 @@ public sealed class DemoTransactionService : ITransactionService
             throw new InvalidOperationException("Return must contain at least one item and a positive refund amount.");
         }
 
+        if (!string.Equals(request.RefundMethod, "Cash Refund", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.RefundMethod, "Bank Refund", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Store credit is not an approved retail return method. Approved retail refund methods are Cash and Bank.");
+        }
+
         var invoiceNumber = NormalizeInvoice(request.InvoiceNumber);
         SaleReturnRecord record;
 

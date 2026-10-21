@@ -93,7 +93,10 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
 
     public string DisplayText => $"{ProjectName} ({CustomerName})";
 
-    public string Subtitle => $"{Location} • Balance Rs. {Balance:N0}";
+    public string Subtitle =>
+        Balance < 0m
+            ? $"{Location} • Credit (Rs. {Math.Abs(Balance):N0})"
+            : $"{Location} • Balance Rs. {Balance:N0}";
 
     public string Phone
     {
@@ -180,9 +183,10 @@ public sealed class ThakaProjectListItemViewModel : ViewModelBase
         }
     }
 
-    public decimal Balance => Math.Max(0m, MaterialValue - Paid - SettlementDiscount);
+    public decimal Balance => MaterialValue - Paid - SettlementDiscount;
 
-    public string BalanceFormatted => $"Rs. {Balance:N0}";
+    public string BalanceFormatted =>
+        Balance < 0m ? $"(Rs. {Math.Abs(Balance):N0}) [Credit]" : $"Rs. {Balance:N0}";
 
     public string Status
     {

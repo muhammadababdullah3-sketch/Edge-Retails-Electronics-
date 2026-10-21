@@ -91,7 +91,8 @@ public sealed class Phase7Pass3IntegrityTests
             _fakes.Transactions,
             _fakes.UnitOfWork,
             operationLock: _fakes.OperationLock,
-            sales: _fakes.Sales);
+            sales: _fakes.Sales,
+            outcomeLedger: _fakes.OutcomeLedger);
 
     private SavePosDraftHandler CreateSavePosDraftHandler() =>
         new(

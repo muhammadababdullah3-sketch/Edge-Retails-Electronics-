@@ -156,6 +156,9 @@ public interface IInventoryRepository
     void AddLot(InventoryLot lot);
     void AddLotBucketBalance(InventoryLotBucketBalance balance);
     void AddLotConsumption(InventoryLotConsumption consumption);
+    void AddPackAllocation(PackAllocation allocation);
+    Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByMovementAsync(Guid movementId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByUnitAsync(Guid unitId, CancellationToken cancellationToken);
 
     Task<Stocktake?> GetOpenStocktakeForUpdateAsync(CancellationToken cancellationToken);
     Task<Stocktake?> GetStocktakeForUpdateAsync(
@@ -478,6 +481,12 @@ public interface IThakaRepository
     Task<ThakaPaymentReversal?> GetPaymentReversalByPaymentAsync(
         Guid paymentId,
         CancellationToken cancellationToken);
+    Task<ThakaCreditRefund?> GetCreditRefundByOperationIdAsync(
+        Guid clientOperationId,
+        CancellationToken cancellationToken);
+    Task<decimal> GetCreditRefundsTotalAsync(
+        Guid projectId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<ThakaMaterialIssueItem>> GetIssueItemsAsync(
         Guid materialIssueId,
         CancellationToken cancellationToken);
@@ -505,4 +514,5 @@ public interface IThakaRepository
     void AddReopening(ThakaReopening reopening);
     void AddMaterialReversal(ThakaMaterialReversal reversal);
     void AddPaymentReversal(ThakaPaymentReversal reversal);
+    void AddCreditRefund(ThakaCreditRefund refund);
 }

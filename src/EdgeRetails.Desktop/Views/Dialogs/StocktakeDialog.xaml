@@ -14,8 +14,8 @@
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
                         <TextBlock Text="{Binding StatusDisplay}" Margin="0,0,12,0"
                                    VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <Button Content="✕" Command="{Binding CloseCommand}"
-                                Style="{StaticResource Button.Text.Neutral}"
+                        <Button Command="{Binding CloseCommand}"
+                                Style="{StaticResource Button.Close}"
                                 IsCancel="True" />
                     </StackPanel>
                 </Grid>

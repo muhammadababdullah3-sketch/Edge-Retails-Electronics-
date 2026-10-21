@@ -420,7 +420,7 @@ public sealed class DemoBusinessDirectoryService
         RefreshSupplierMetrics();
         RaiseStateChanged();
     }
-    private void RefreshCustomerMetrics()
+    public void RefreshCustomerMetrics()
     {
         foreach (var customer in Customers)
         {
@@ -428,7 +428,7 @@ public sealed class DemoBusinessDirectoryService
         }
     }
 
-    private void RefreshCustomerMetrics(CustomerDirectoryRecord customer)
+    public void RefreshCustomerMetrics(CustomerDirectoryRecord customer)
     {
         var transactions = _transactionService.GetAllTransactions()
             .Where(transaction => MatchesCustomer(
@@ -465,7 +465,7 @@ public sealed class DemoBusinessDirectoryService
         var activeProjects = _retailState.ThakaProjects.Where(project => project.IsActive)
             .Where(project => MatchesCustomer(customer, project.CustomerName, project.Phone)).ToArray();
         customer.ActiveThakaCount = activeProjects.Length;
-        customer.CurrentThakaBalance = activeProjects.Sum(project => project.Balance);
+        customer.CurrentThakaBalance = activeProjects.Sum(project => Math.Max(0m, project.Balance));
     }
 
     private void RefreshSupplierMetrics()

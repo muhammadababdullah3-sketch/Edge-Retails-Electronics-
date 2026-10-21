@@ -29,64 +29,299 @@ namespace EdgeRetails.IntegrationTests;
 internal static class Phase2PostgresTestHarness
 {
     private static readonly object SequenceFixtureInitialization = new();
-    public static ServiceProvider BuildProvider(IClock? clock = null, Action<IServiceCollection>? configure = null)
+
+    public static string ResolveConnectionString()
     {
         var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            throw new InvalidOperationException(
-                "EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
+            var clusterDir = @"C:\Users\muham\EdgeRetailsDisposable\ER-RUN-20261011-005";
+            var credFile = Path.Combine(clusterDir, "provpw.tmp");
+            if (File.Exists(credFile))
+            {
+                var pw = File.ReadAllText(credFile).Trim();
+                if (!string.IsNullOrWhiteSpace(pw))
+                {
+                    connectionString = $"Host=127.0.0.1;Port=55437;Database=edgeretails_test_run20261012_001;Username=er_provisioner;Password={pw}";
+                }
+            }
         }
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "FAIL-CLOSED: EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
+        }
+
+        return connectionString;
+    }
+
+    public static ServiceProvider BuildProvider(IClock? clock = null, Action<IServiceCollection>? configure = null)
+    {
+        var connectionString = ResolveConnectionString();
 
         var services = new ServiceCollection();
         services.AddEdgeRetailsInfrastructure(connectionString);
-        var root = AttestOwnedPostgresRoot(connectionString);
-        var authorityRoot = Path.Combine(root, "harness-highwater");
-        var manifest = Path.Combine(authorityRoot, "highwater.manifest");
-        lock (SequenceFixtureInitialization)
-        {
-            // A fresh runner directory establishes an explicit new fixture. Once
-            // created, loss of its artifacts is an error, never a reinitialization.
-            if (!Directory.Exists(authorityRoot))
-            {
-                Directory.CreateDirectory(authorityRoot);
-                MachineSequenceHighWaterService.InitializeOwnedFixture(manifest, new OwnedSequenceAuthorityCustody(authorityRoot));
-            }
-        }
-        var custody = new OwnedSequenceAuthorityCustody(authorityRoot);
-        services.RemoveAll<ISequenceHighWaterService>();
-        services.AddSingleton<ISequenceHighWaterService>(new MachineSequenceHighWaterService(manifest, custody));
+        services.AddGuardedTestSequenceAuthority(connectionString);
         if (clock is not null)
         {
             services.RemoveAll<IClock>();
+            services.RemoveAll<IShopClock>();
             services.AddSingleton(clock);
+            if (clock is IShopClock shopClock)
+            {
+                services.AddSingleton<IShopClock>(shopClock);
+            }
+            else
+            {
+                services.AddSingleton<IShopClock>(new ShopClock(ShopClock.ResolveShopTimeZone(), () => clock.UtcNow));
+            }
         }
         configure?.Invoke(services);
         return services.BuildServiceProvider();
     }
 
-    private static string AttestOwnedPostgresRoot(string connectionString)
+    public sealed class ScenarioClock(DateTimeOffset utcNow) : ShopClock(ResolveShopTimeZone(), () => utcNow)
+    {
+    }
+
+    public static async Task<DateTimeOffset> ResolveIsolatedScenarioDateAsync(int baseYear, int baseMonth, int baseDay)
+    {
+        var connStr = ResolveConnectionString();
+        await using var conn = new NpgsqlConnection(connStr);
+        await conn.OpenAsync();
+
+        var shopZone = ShopClock.ResolveShopTimeZone();
+        var candidate = new DateOnly(baseYear, baseMonth, baseDay);
+        while (true)
+        {
+            var localDt = DateTime.SpecifyKind(candidate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+            var startUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localDt, shopZone), TimeSpan.Zero);
+            var endUtc = startUtc.AddDays(1);
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT 1 FROM sales.sales WHERE completed_at >= @start AND completed_at < @end
+                UNION ALL
+                SELECT 1 FROM inventory.movements WHERE occurred_at >= @start AND occurred_at < @end AND recognized_loss_amount > 0
+                UNION ALL
+                SELECT 1 FROM finance.expenses WHERE expense_date = @candidateDate
+                LIMIT 1;";
+            cmd.Parameters.AddWithValue("start", startUtc);
+            cmd.Parameters.AddWithValue("end", endUtc);
+            cmd.Parameters.AddWithValue("candidateDate", candidate);
+
+            var exists = await cmd.ExecuteScalarAsync();
+            if (exists is null)
+            {
+                return new DateTimeOffset(candidate.Year, candidate.Month, candidate.Day, 10, 0, 0, TimeSpan.Zero);
+            }
+
+            candidate = candidate.AddDays(1);
+        }
+    }
+
+    internal static void VerifyOrCreateCustodyBinding(string authorityRoot, string root, string? clusterRunId, int port, string database)
+    {
+        var manifest = Path.Combine(authorityRoot, "highwater.manifest");
+        var bindingFile = Path.Combine(authorityRoot, "cluster_binding.json");
+
+        lock (SequenceFixtureInitialization)
+        {
+            if (!Directory.Exists(authorityRoot))
+            {
+                Directory.CreateDirectory(authorityRoot);
+                MachineSequenceHighWaterService.InitializeOwnedFixture(manifest, new OwnedSequenceAuthorityCustody(authorityRoot));
+
+                // Bind custody directory to the specific cluster root, run ID, port, and database
+                var bindingJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ClusterRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    RunId = clusterRunId ?? "unknown",
+                    Port = port,
+                    Database = database,
+                    BoundAtUtc = DateTimeOffset.UtcNow
+                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(bindingFile, bindingJson);
+            }
+            else
+            {
+                // Verify candidate cluster/run/custody binding contract
+                if (!File.Exists(bindingFile))
+                {
+                    throw new InvalidOperationException(
+                        $"FAIL-CLOSED: Custody directory '{authorityRoot}' exists but is missing required 'cluster_binding.json'. Silently binding unverified existing authority is forbidden.");
+                }
+
+                try
+                {
+                    using var bindingDoc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(bindingFile));
+                    var boundRoot = bindingDoc.RootElement.TryGetProperty("ClusterRoot", out var br) ? br.GetString() : null;
+                    var boundRunId = bindingDoc.RootElement.TryGetProperty("RunId", out var brid) ? brid.GetString() : null;
+                    var boundPort = bindingDoc.RootElement.TryGetProperty("Port", out var bp) ? bp.GetInt32() : 0;
+                    var boundDb = bindingDoc.RootElement.TryGetProperty("Database", out var bdb) ? bdb.GetString() : null;
+
+                    var canonicalBoundRoot = !string.IsNullOrWhiteSpace(boundRoot)
+                        ? Path.GetFullPath(boundRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        : null;
+                    var canonicalCurrentRoot = !string.IsNullOrWhiteSpace(root)
+                        ? Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        : null;
+
+                    if (boundPort != port ||
+                        !string.Equals(boundDb, database, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(canonicalBoundRoot, canonicalCurrentRoot, StringComparison.OrdinalIgnoreCase) ||
+                        (clusterRunId is not null && boundRunId is not null && !string.Equals(boundRunId, clusterRunId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        throw new InvalidOperationException(
+                            $"FAIL-CLOSED: Custody directory '{authorityRoot}' is bound to cluster root '{boundRoot}', run '{boundRunId}' (port {boundPort}, db '{boundDb}'), not current root '{root}', run '{clusterRunId}' (port {port}, db '{database}'). Cluster binding mismatch.");
+                    }
+                }
+                catch (Exception ex) when (ex is not InvalidOperationException)
+                {
+                    throw new InvalidOperationException($"FAIL-CLOSED: Corrupt cluster binding file at '{bindingFile}'.", ex);
+                }
+
+                // Missing artifact fail-closed check: all three artifacts must exist
+                if (!File.Exists(manifest) || !File.Exists(manifest + ".checkpoint") || !File.Exists(manifest + ".lock"))
+                {
+                    throw new InvalidOperationException("FAIL-CLOSED: Sequence fixture artifacts are incomplete or corrupt in existing authority root. Deleting or recreating legitimate authority is forbidden.");
+                }
+            }
+        }
+    }
+
+    internal static (string Root, string? ClusterRunId) AttestOwnedPostgresRoot(string connectionString, string? runnerRootOverride = null)
     {
         var connection = new NpgsqlConnectionStringBuilder(connectionString);
-        var root = Path.GetFullPath(Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT")
-            ?? throw new InvalidOperationException("An owned PostgreSQL runner root is required."));
-        var prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
-        if (connection.Host != "127.0.0.1" || connection.Port < 55000 || connection.Port > 65535
-            || !(connection.Database?.StartsWith("edge_retails_", StringComparison.Ordinal) ?? false)
-            || !root.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+
+        // Guard 1: Host must be loopback strictly (127.0.0.1 or localhost)
+        if (connection.Host != "127.0.0.1" && !string.Equals(connection.Host, "localhost", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("PostgreSQL fixture authority is outside the approved isolated runner.");
+            throw new InvalidOperationException($"FAIL-CLOSED: Host '{connection.Host}' is prohibited. Only isolated loopback (127.0.0.1 or localhost) is permitted.");
         }
+
+        // Guard 2: Port must be in isolated range (55000-65535) and strictly never port 5432
+        if (connection.Port == 5432)
+        {
+            throw new InvalidOperationException("FAIL-CLOSED: Port 5432 is prohibited. Connection to production or default cluster is forbidden.");
+        }
+        if (connection.Port < 55000 || connection.Port > 65535)
+        {
+            throw new InvalidOperationException($"FAIL-CLOSED: Port {connection.Port} is outside the approved isolated range (55000-65535).");
+        }
+
+        // Guard 3: Database must be test database, strictly never production or default
+        if (string.IsNullOrWhiteSpace(connection.Database) ||
+            connection.Database.Equals("postgres", StringComparison.OrdinalIgnoreCase) ||
+            connection.Database.Equals("edgeretails", StringComparison.OrdinalIgnoreCase) ||
+            connection.Database.Contains("prod", StringComparison.OrdinalIgnoreCase) ||
+            (!connection.Database.StartsWith("edge_retails_", StringComparison.OrdinalIgnoreCase) &&
+             !connection.Database.StartsWith("edgeretails_test_", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException($"FAIL-CLOSED: Database '{connection.Database}' is prohibited.");
+        }
+
+        // Guard 4: Role must be an approved disposable test role. Blanket postgres acceptance is strictly forbidden.
+        if (string.IsNullOrWhiteSpace(connection.Username) ||
+            (!connection.Username.Equals("er_provisioner", StringComparison.OrdinalIgnoreCase) &&
+             !connection.Username.Equals("er_runtime", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException($"FAIL-CLOSED: User '{connection.Username}' is prohibited. Only approved disposable test roles (er_provisioner, er_runtime) are permitted.");
+        }
+
+        var rawEnvRoot = runnerRootOverride ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT");
+        string root;
+        if (!string.IsNullOrWhiteSpace(rawEnvRoot))
+        {
+            root = Path.GetFullPath(rawEnvRoot);
+        }
+        else
+        {
+            var disposableDir = @"C:\Users\muham\EdgeRetailsDisposable\ER-RUN-20261011-005";
+            if (Directory.Exists(disposableDir))
+            {
+                root = Path.GetFullPath(disposableDir);
+            }
+            else
+            {
+                throw new InvalidOperationException("FAIL-CLOSED: An owned PostgreSQL runner root is required.");
+            }
+        }
+
+        bool isApprovedOwnedCluster = false;
+        string? clusterRunId = null;
+
+        var ownershipMarkerPath = Path.Combine(root, "OWNERSHIP_MARKER.json");
+        if (File.Exists(ownershipMarkerPath))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(ownershipMarkerPath));
+                var rootElem = doc.RootElement;
+                var marker = rootElem.TryGetProperty("marker", out var m) ? m.GetString() : null;
+                var runId = rootElem.TryGetProperty("run_id", out var r) ? r.GetString() : null;
+                var port = rootElem.TryGetProperty("port", out var p) ? p.GetInt32() : 0;
+                var isolation = rootElem.TryGetProperty("isolation_mode", out var i) ? i.GetString() : null;
+
+                if (string.Equals(marker, "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER", StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(runId) &&
+                    port == connection.Port &&
+                    string.Equals(isolation, "owned_disposable_local_cluster", StringComparison.Ordinal))
+                {
+                    isApprovedOwnedCluster = true;
+                    clusterRunId = runId;
+                }
+            }
+            catch
+            {
+                isApprovedOwnedCluster = false;
+            }
+        }
+
+        var tempPrefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
+        var isApprovedTempRunner = root.StartsWith(tempPrefix, StringComparison.OrdinalIgnoreCase) &&
+                                  (Directory.Exists(Path.Combine(root, "data")) || Directory.Exists(Path.Combine(root, "pgdata")));
+
+        if (!isApprovedTempRunner && !isApprovedOwnedCluster)
+        {
+            throw new InvalidOperationException("FAIL-CLOSED: PostgreSQL fixture authority is outside the approved isolated runner or lacks verified ownership marker.");
+        }
+
         using var pg = new NpgsqlConnection(connectionString);
         pg.Open();
-        using var query = new NpgsqlCommand("SHOW data_directory", pg);
-        if (query.ExecuteScalar() is not string actual
-            || !Path.GetFullPath(actual).Equals(Path.Combine(root, "data"), StringComparison.OrdinalIgnoreCase))
+
+        using var cmdLiveUser = new NpgsqlCommand("SELECT current_user;", pg);
+        var liveUser = cmdLiveUser.ExecuteScalar()?.ToString() ?? "";
+        if (!liveUser.Equals("er_provisioner", StringComparison.OrdinalIgnoreCase) &&
+            !liveUser.Equals("er_runtime", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("PostgreSQL server does not match its owned runner root.");
+            throw new InvalidOperationException($"FAIL-CLOSED: Live PostgreSQL session user '{liveUser}' is not an approved disposable test role.");
         }
-        return root;
+
+        using var query = new NpgsqlCommand("SHOW data_directory", pg);
+        var actual = query.ExecuteScalar() as string
+            ?? throw new InvalidOperationException("FAIL-CLOSED: Unable to query data_directory.");
+
+        var actualNormalized = Path.GetFullPath(actual);
+        var expectedData = Path.GetFullPath(Path.Combine(root, "data"));
+        var expectedPgData = Path.GetFullPath(Path.Combine(root, "pgdata"));
+
+        if (!actualNormalized.Equals(expectedData, StringComparison.OrdinalIgnoreCase) &&
+            !actualNormalized.Equals(expectedPgData, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"FAIL-CLOSED: PostgreSQL server data_directory '{actualNormalized}' does not match its owned runner root '{root}'.");
+        }
+
+        using var cmdVer = new NpgsqlCommand("SHOW server_version_num;", pg);
+        var verStr = cmdVer.ExecuteScalar()?.ToString() ?? "0";
+        if (!int.TryParse(verStr, out var verNum) || verNum < 180000 || verNum >= 190000)
+        {
+            throw new InvalidOperationException($"FAIL-CLOSED: Target PostgreSQL version {verStr} is not PostgreSQL 18.");
+        }
+
+        return (root, clusterRunId);
     }
 
     public static async Task EnsureReceiptConfigurationAsync(EdgeRetailsDbContext db)
@@ -290,6 +525,10 @@ internal static class Phase2PostgresTestHarness
         Guid actorId,
         decimal openingCash = 10000m)
     {
+        await db.CashSessions
+            .Where(x => x.Status == CashSessionStatus.Open)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, CashSessionStatus.Closed));
+
         var session = new CashSession
         {
             BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow),

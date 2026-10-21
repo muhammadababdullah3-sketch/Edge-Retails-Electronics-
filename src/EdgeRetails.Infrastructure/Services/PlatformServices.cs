@@ -5,22 +5,34 @@ using System.Text;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Production;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EdgeRetails.Infrastructure.Services;
 
-public sealed class SystemClock : IClock
+public class ShopClock : IShopClock
 {
     private readonly TimeZoneInfo _shopTimeZone;
+    private readonly Func<DateTimeOffset>? _utcNowProvider;
 
-    public SystemClock()
+    public ShopClock()
+        : this(ResolveShopTimeZone(), null)
     {
-        _shopTimeZone = ResolveShopTimeZone();
     }
 
-    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+    public ShopClock(TimeZoneInfo shopTimeZone, Func<DateTimeOffset>? utcNowProvider = null)
+    {
+        _shopTimeZone = shopTimeZone ?? throw new ArgumentNullException(nameof(shopTimeZone));
+        _utcNowProvider = utcNowProvider;
+    }
+
+    public DateTimeOffset UtcNow => _utcNowProvider?.Invoke() ?? DateTimeOffset.UtcNow;
+
+    public DateTimeOffset ShopNow => TimeZoneInfo.ConvertTime(UtcNow, _shopTimeZone);
+
+    public TimeZoneInfo ShopTimeZone => _shopTimeZone;
 
     public DateOnly ShopDate
     {
@@ -31,9 +43,31 @@ public sealed class SystemClock : IClock
         }
     }
 
-    private static TimeZoneInfo ResolveShopTimeZone()
+    public DateOnly ToShopDate(DateTimeOffset utcTimestamp)
     {
-        foreach (var id in new[] { "Asia/Karachi", "Pakistan Standard Time" })
+        var local = TimeZoneInfo.ConvertTime(utcTimestamp, _shopTimeZone);
+        return DateOnly.FromDateTime(local.DateTime);
+    }
+
+    public DateTimeOffset ToUtc(DateOnly shopDate, TimeOnly time)
+    {
+        var localDateTime = shopDate.ToDateTime(time);
+        var offset = _shopTimeZone.GetUtcOffset(localDateTime);
+        return new DateTimeOffset(localDateTime, offset).ToUniversalTime();
+    }
+
+    public (DateTimeOffset StartUtc, DateTimeOffset EndUtc) GetShopDayUtcRange(DateOnly shopDate)
+    {
+        var startUtc = ToUtc(shopDate, TimeOnly.MinValue);
+        var nextDay = shopDate.AddDays(1);
+        var endUtc = ToUtc(nextDay, TimeOnly.MinValue);
+        return (startUtc, endUtc);
+    }
+
+    public static TimeZoneInfo ResolveShopTimeZone(IEnumerable<string>? candidateZoneIds = null)
+    {
+        var candidates = candidateZoneIds ?? new[] { "Asia/Karachi", "Pakistan Standard Time" };
+        foreach (var id in candidates)
         {
             try
             {
@@ -47,7 +81,21 @@ public sealed class SystemClock : IClock
             }
         }
 
-        return TimeZoneInfo.Utc;
+        throw new BusinessRuleException(
+            "time.shop_timezone_unresolvable",
+            "Authoritative shop timezone 'Asia/Karachi' or 'Pakistan Standard Time' could not be resolved on this system. Silent fallback to UTC or host local time is forbidden.");
+    }
+}
+
+public sealed class SystemClock : ShopClock
+{
+    public SystemClock() : base()
+    {
+    }
+
+    public SystemClock(TimeZoneInfo shopTimeZone, Func<DateTimeOffset>? utcNowProvider = null)
+        : base(shopTimeZone, utcNowProvider)
+    {
     }
 }
 

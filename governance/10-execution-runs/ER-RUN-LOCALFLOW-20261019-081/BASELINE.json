@@ -1,0 +1,60 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-081",
+  "predecessor_run_id": "ER-RUN-LOCALFLOW-20261019-080",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-001 / OWNER-UPDATE-20261019-007",
+  "timestamp_utc": "2026-10-19T14:00:00Z",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "database_custody": {
+    "operational_postgres_port": 5432,
+    "operational_server_port": 7150,
+    "custody_status": "FAIL_CLOSED_PROTECTED",
+    "port_5432_state": "ISOLATED_UNTOUCHED_PID_5564",
+    "port_7150_state": "ISOLATED_UNTOUCHED_PID_3432",
+    "dedicated_disposable_postgres_port": 55437,
+    "dedicated_disposable_server_port": 7155,
+    "disposable_port_status": "INACTIVE_UNBOUND",
+    "server_side_ledger_guarantees": "UNPROVEN_DUE_TO_PORT_PROTECTION"
+  },
+  "parallel_execution": {
+    "capacity_limit": 4,
+    "capacity_scope": "all_actors",
+    "coordinator_slots": 1,
+    "other_active_slots": 0,
+    "available_worker_slots": 3,
+    "requested_parallelism": 2,
+    "actors": {
+      "integrator": {
+        "id": "pos-source-integrator",
+        "runtime_id": "actor-pos-integrator-081",
+        "role": "POS source code integrator"
+      },
+      "test_coordinator": {
+        "id": "test-coordinator",
+        "runtime_id": "actor-test-coordinator-081",
+        "role": "Test creation, execution, and raw TRX collection"
+      },
+      "reviewer": {
+        "id": "reviewer",
+        "runtime_id": "actor-reviewer-081",
+        "role": "Read-only architectural, safety, and regression review"
+      }
+    }
+  },
+  "canonical_findings_status": {
+    "LF01": "BLOCKED_PENDING_DISPOSABLE_DB",
+    "LF02": "CLOSED_AND_VERIFIED",
+    "LF03": "CLOSED_AND_VERIFIED",
+    "LF04": "CLOSED_AND_VERIFIED",
+    "LF05": "CLOSED_AND_VERIFIED",
+    "LF06": "CLOSED_AND_VERIFIED",
+    "LF07": "CLOSED_AND_VERIFIED",
+    "LF08": "CLOSED_AND_VERIFIED",
+    "LF09": "CLOSED_AND_VERIFIED",
+    "LF10": "CLOSED_AND_VERIFIED",
+    "LF11": "CLOSED_AND_VERIFIED",
+    "LF12": "CLOSED_AND_VERIFIED",
+    "LF13": "BLOCKED_PENDING_DISPOSABLE_DB",
+    "LF14": "REMAINS_OPEN_ANALYSIS_PHASE",
+    "LF15": "CLOSED_AND_VERIFIED"
+  }
+}

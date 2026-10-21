@@ -139,37 +139,29 @@
                 <ControlTemplate TargetType="Button">
 
                     <Border x:Name="Root"
-
                             Background="{TemplateBinding Background}"
-
                             BorderBrush="{TemplateBinding BorderBrush}"
-
                             BorderThickness="{TemplateBinding BorderThickness}"
-
                             CornerRadius="{StaticResource Radius.Control}"
-
-                            SnapsToDevicePixels="True">
-
+                            SnapsToDevicePixels="True"
+                            RenderTransformOrigin="0.5,0.5">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
-
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-
                                           RecognizesAccessKey="True" />
-
                     </Border>
-
                     <ControlTemplate.Triggers>
-
-                        <Trigger Property="IsEnabled" Value="False">
-
-                            <Setter TargetName="Root" Property="Opacity" Value="0.55" />
-
-                            <Setter Property="Cursor" Value="Arrow" />
-
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Root" Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.985" ScaleY="0.985" />
+                                </Setter.Value>
+                            </Setter>
                         </Trigger>
-
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.55" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
                     </ControlTemplate.Triggers>
 
                 </ControlTemplate>
@@ -313,7 +305,7 @@
 
         <Setter Property="Height" Value="{StaticResource Dimension.Button.CompactAction}" />
 
-        <Setter Property="Foreground" Value="{StaticResource Brush.White}" />
+        <Setter Property="Foreground" Value="{StaticResource Brush.Warning.Foreground}" />
 
         <Setter Property="Background" Value="{StaticResource Gradient.Warning}" />
 
@@ -617,6 +609,56 @@
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Muted}" />
 
     </Style>
+
+    <!-- Standard Dialog Close Button: 32x32 hit bound, rounded 6px hover/pressed highlight, vector close icon -->
+    <Style x:Key="Button.Close" TargetType="Button">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual.Button.Text}" />
+        <Setter Property="ToolTip" Value="Close" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" SnapsToDevicePixels="True">
+                        <Path x:Name="IconPath"
+                              Data="{StaticResource Icon.Close}"
+                              Stroke="{DynamicResource Brush.Text.Muted}"
+                              StrokeThickness="1.5"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Width="10"
+                              Height="10"
+                              Stretch="Uniform"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                            <Setter TargetName="IconPath" Property="Stroke" Value="{DynamicResource Brush.Text.Primary}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Selection.Subtle}" />
+                            <Setter TargetName="IconPath" Property="Stroke" Value="{DynamicResource Brush.Text.Primary}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Hover.Subtle}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Focus.Ring}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Button.CloseCross" TargetType="Button" BasedOn="{StaticResource Button.Close}" />
 
 </ResourceDictionary>
 

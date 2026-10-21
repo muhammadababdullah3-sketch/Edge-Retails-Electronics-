@@ -11,8 +11,8 @@
                         <TextBlock Text="{Binding Subtitle}" Margin="0,4,0,0" FontSize="12.5"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
-                    <Button HorizontalAlignment="Right" Content="✕" Command="{Binding CancelCommand}"
-                            Style="{StaticResource Button.Text.Neutral}"
+                    <Button HorizontalAlignment="Right" Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Close}"
                             IsCancel="True" />
                 </Grid>
                 <Grid Margin="0,14,0,0">

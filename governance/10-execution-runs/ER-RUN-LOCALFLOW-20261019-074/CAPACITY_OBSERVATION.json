@@ -1,0 +1,14 @@
+{
+  "run_id": "ER-RUN-LOCALFLOW-20261019-074",
+  "concurrent_workers": 6,
+  "worker_lanes": [
+    "lane-a",
+    "lane-b",
+    "lane-c",
+    "lane-d",
+    "lane-e",
+    "lane-f"
+  ],
+  "parallel_execution_observed": true,
+  "disposable_pg_instances": 1
+}

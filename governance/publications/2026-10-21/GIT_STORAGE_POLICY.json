@@ -1,0 +1,898 @@
+{
+  "snapshot_commit_parent": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "hash_scope": "PUBLISHED_SNAPSHOT.json file hashes identify raw worktree bytes captured before Git text normalization",
+  "source_storage": "Existing text/eol Git policy applied: CRLF-to-LF storage conversion only; no semantic source changes",
+  "evidence_storage": "governance/** -text preserves exact bytes required by manifests",
+  "raw_and_committed_digests": [
+    {
+      "path": "HONEST_REVIEW.md",
+      "raw_sha256": "078dd844b51ae058990d0823a79c7a710f586f93e0275a16a7ce710bf4134b74",
+      "committed_sha256": "7647399f07860afdc9630ebf352ed538a38c337d70cf11618e8d8a91e5752762",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "W4_HANDOFF.md",
+      "raw_sha256": "d6bb24ba90ef71f8e6495a73ea580522f2a197e4add7baa565ae128c3f0a52ba",
+      "committed_sha256": "dd41d0c695a286653bdccbd18b14f0b47d3c3c16ce17541ee55782bcaebd2e60",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/build_full_125_crosswalk_data.py",
+      "raw_sha256": "ab4f1235ab53afc937c0ffd0cc7eb9e345212d7f328fa9095fd79bb66f9e992d",
+      "committed_sha256": "25d1dd5380b69e8fb95ce058513f5a45033f6a916d829611cfc0d653427805dd",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_cw_counts.py",
+      "raw_sha256": "1f4fe22911c19109457acf6bbfebcb4b2a452bd4e4b2ac2d15a155c858a9065d",
+      "committed_sha256": "46a162b57c39f2ceb0d8158cdc6829cbff49bc87eca3076d0fbc18d21dbcbfa3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_cw_sample.py",
+      "raw_sha256": "d7edbede1dbacf2e24b75a268b20645dc12a9ef3a8249de10354d9cfb25a61f4",
+      "committed_sha256": "d09befc1b0f5ec4f3770b61e4ab89408aeaa1ebfe3f4e9ae5ee51998eec1d327",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_delivery_index.py",
+      "raw_sha256": "3f4948783a39bb596af986d8d1cfb591e4e3ba3194e2df4035f03d245a8d4b5d",
+      "committed_sha256": "1ff09117c1a4c36d83b6f2c9278079049920b11f50c72f7bf2ee18f6ee864b58",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_exact_trx_names.py",
+      "raw_sha256": "048827c2552e30c78b9ee0a519bc1003ea551f24d09643ee0d9d979258f04b04",
+      "committed_sha256": "5d8493f9018c99d88bdf4f34bf321225730de3b900101fbc2206f03272bd06e7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_gates_details.py",
+      "raw_sha256": "3ef9425e76b022a208bda7bb5fd4df8c83ef9d56549d538981e0fd0a3bff87b3",
+      "committed_sha256": "64a92482cec32de36d782bd0621d9c6bf3dafbacade40e187a213e23c9009a3e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_gates_structure.py",
+      "raw_sha256": "ad9a908211c3450fac5a30c1c1277fdb60da5e0f1f4a531c844ba4ca9c5a4b32",
+      "committed_sha256": "bea39e5e102fafd8d914ac93e6dd612d08d4347af5741a73776d056b477e11a7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_manifest_003.py",
+      "raw_sha256": "80783dc26c41c59f4c1a7566752e51b499815b28062bbdc72ec7e60108f2effa",
+      "committed_sha256": "8795643b9d506295590ce90fd9ef8ef76c2636353d0765d875bf07acb13a498a",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_original_crosswalk.py",
+      "raw_sha256": "d3582928b4080afae529d96d4f8bfaa2a26be31a4ae414c49010fb035f649a30",
+      "committed_sha256": "7e07e37e2c05202562b683276eac34fe9b7bc7301b12e77b084b355efe10412f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_rrv_and_14plus7.py",
+      "raw_sha256": "a145081ab9fdd40a850b3e2297dbdf19d4d89b51c85291c46f4df614419fcc68",
+      "committed_sha256": "1a8f9df23cd8acd01645d18449b95652b651cc3218eecb9f17a2c384484522c1",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_trx_counts.py",
+      "raw_sha256": "4334d9b777fdfe359e7528a06ea5258b29d9c9158a3986e050728925dc1296cf",
+      "committed_sha256": "f73d58aa06e31ad04325f2aa54eb85df206475b48748c31ef3163cbea22ba224",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_w1_samples.py",
+      "raw_sha256": "24abd2b7e0fcdd0a5acd420ed6dc71a8801138cc4b5b2e62b67147ee06c28b61",
+      "committed_sha256": "51ec0ee9a97b108f112798ee89b3554335b6018e1ce0ffb10f7aa10509573b2b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_w2_proof.py",
+      "raw_sha256": "54d1c79ecd61c39fe2ebaf5ce81e1c9f231f1e50af98508a4417167aa0208880",
+      "committed_sha256": "56ec224a5d0de9007326b7f496aa74650a1ce00ef912b61bede6f5f601f4778e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_w2_samples.py",
+      "raw_sha256": "57dc959e2d34b890a01f815d064448a47ceca51cfd5808138081ebdad3d4f89c",
+      "committed_sha256": "4788f8b1cf9ef7a19a22242fdc4744108d4103856a1d1ace371651d33c24d785",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_w3_tasks_details.py",
+      "raw_sha256": "c857517e6c8530802708d14127677e29512b0bc79fac935837cb8a6a5f6b89fa",
+      "committed_sha256": "d9c9b36ddc9b7f5412411e24d45f12ac28c194326c70596b879c76e04a99f4f5",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/check_w4_tasks_details.py",
+      "raw_sha256": "17177e29c5ac224e3e8484736ee8a4070f2035a01f82b9a8115d7466e7376eb1",
+      "committed_sha256": "245c4fd47582b169c4bef597ed0ff07a322d1c33c0c282accf96ab0c09984f80",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/crosswalk_output.json",
+      "raw_sha256": "fd17ec76c16376490d2b6c2deae3b1458513642b1b828407c69e2deb3ef01c0d",
+      "committed_sha256": "894972fcc4553ce9b7b40fc91288a762db81b24432ea698faed919b99c823da3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/find_14plus7.py",
+      "raw_sha256": "48216aba9b71347d06bf1e6fede0de86ad70d9299e7ac1bbd5bc969220cd2362",
+      "committed_sha256": "4c3f7ec5e934ffd9d324e8bce4a9f6cd730c98bca731f1f38780e981e3f760c3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/find_rrv_files.py",
+      "raw_sha256": "0282c428a4ddfb9e332bcff86eb558d9c1e531a52308a6a0ecc162f7476ca2d9",
+      "committed_sha256": "d2f1410ed8f534b7fae8a3ee861f63220e6dd32a52afe203131d9df7ff6764f2",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/find_task11.py",
+      "raw_sha256": "c64d5acd4af7a501e0667ded9e89a70459be9c249825f26bd6db29e5263f0a11",
+      "committed_sha256": "db515a3859f28115114fb64fae1576e92b43e4e44a65fbb0514138ba2e3b7118",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/generate_w4_run005_delivery.py",
+      "raw_sha256": "ebfef63ea96add5793339ff917d4f00c097c17e24c17f0b0bc15e19bd911f37f",
+      "committed_sha256": "e5536c0d49cb920e0df4892516bff338ce0629b4ec5b4aceabcfb3387c5835aa",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_all_receipts.py",
+      "raw_sha256": "6c817d55c1b347c6e06cac212a2ba5df4313dc179f17fbffa614a305dd60950e",
+      "committed_sha256": "b5dc296b6bd3d31a5b5240f76be9ee382a35fa03af78d94712796bbc7fff119e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_closure_tasks.py",
+      "raw_sha256": "bf0519a085334747bb87e2c3046e74b80399e507fd18f613d9c92f325bb53a37",
+      "committed_sha256": "1936f855ab15487a9240da38ca3cb468af63162586a91e3954af15cfa12c2880",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_receipt_schemas.py",
+      "raw_sha256": "934974898bd3d4b4d10fcc9e66a472d70e8eaeccc876d23297b7ecb2260789c4",
+      "committed_sha256": "5076fe7bf618b217ccbdcfe899a638ff09fca81b4b7633114f74dcbf7ea1f4e1",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_w1_001.py",
+      "raw_sha256": "c4ac6da4cbb97117989fc95a64015e77b5443ccb41172fd1f55e4ec9f09366c7",
+      "committed_sha256": "6357a2c8b74d523ad3187d256048ef745222c4da9d992482f3e15a7f5e1ec7b9",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_w2_028.py",
+      "raw_sha256": "1b93b463a3015c09224f9cd7e08472042f7397c655f81aef075c98ca104ec9c3",
+      "committed_sha256": "f8bea8e935aab06de0a5c35d4c2c17322e264f52124206aee2bc3c0acf0510ec",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_w3_098.py",
+      "raw_sha256": "f5c8a0e6075671ad6000f1c6ddd502c648097693cf54d2ec5f75dd6da0e1ab43",
+      "committed_sha256": "505e53112c631dace37b91703e418b0c9f473ac104cb926830f604d905e69816",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/inspect_w4_106.py",
+      "raw_sha256": "a4687d7ff5c4d80f01c6b530eea6a90f80a6847d2521621b47e15847e4c16831",
+      "committed_sha256": "f9afa6132f875334f728c231a7ce0e1e3d37bed0c9879b9f5b65413363a4ade7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/print_all_rrvs.py",
+      "raw_sha256": "f5210e925152732464aa6efe6712a9f07b32056c1b56531a54028500015eab1f",
+      "committed_sha256": "4832d4ecd9c038da72fe7a425f656dcd54d525dc60ca3a6038a23e126aace662",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/read_governance_review.py",
+      "raw_sha256": "7ccc61f8e182ce2ecfcb2dacf27d26eb2459c916c12736b89b8543b91428eac5",
+      "committed_sha256": "f747466c5c3d5db49321d518256ee7b9de11d6f4c7b089e1ddd822e06804bc25",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/read_w0_head.py",
+      "raw_sha256": "f04d4295cbc893d93fece62060c0dbfbd67ac6641a83808a6ce4d533f718464d",
+      "committed_sha256": "510218fc2fcac2b357c011de76798e63b9407f244a5c97b7cbd7da19be9124ee",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/read_w0_register.py",
+      "raw_sha256": "879dacd307854857f73dbc8f9aa713a6983d81a7e2c327917e0daa8d2b77dd64",
+      "committed_sha256": "38e1c6eefb32693f50de0801b67ace17d93b8409e849aad6298bddf229644291",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/test_find_trx.py",
+      "raw_sha256": "960aa59ac1d371aaada12bf541ec9094abeb4a686366890b13f7b56f67ddb904",
+      "committed_sha256": "624c7171a6935506751bf1f1b31357d24900905496fde309b2bb08290234be2f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/test_sha.py",
+      "raw_sha256": "e367c885bcc59fb475dbc4c61b2a029f163d89e16d9a79346f72070444d60b2b",
+      "committed_sha256": "a662b04c283b1a8d2e7927269fe50a2ab9950c321c203b2a068aff1baf73c7b1",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/test_task_builder.py",
+      "raw_sha256": "faf997d10badcb4e4a194ec8d932025ecacdd0e3bd2619a4890df8f5dce580df",
+      "committed_sha256": "129dd39b333f7c3e49f467a539b1a6c9e7475e4cb8091cefb6c852f094af8edf",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "scripts/test_write.py",
+      "raw_sha256": "475d00c770a1fd7de8d1795099359fb7a72c445307b231776e7defcadc072992",
+      "committed_sha256": "4c1212b31989290f21f6bb508e40cdfbaf6adfcd2df37c1b4b7edf6e0405f8b0",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Abstractions/PlatformAbstractions.cs",
+      "raw_sha256": "50352e8e0fc18a25348e1f779e8b80127c18bcd71b2a6bb1558ced367a109056",
+      "committed_sha256": "225483428418e6a2336964864be3bd101fd99ae3e92ced786dc935829b7c1544",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Abstractions/RepositoryAbstractions.cs",
+      "raw_sha256": "edf1dc013421ac7ec3e94f8630b2f95fa6ff1571f7682616c7f49e1cfd0cdad6",
+      "committed_sha256": "a455fb4defd8f384178a7dbff2462cbe1ca4ab9a7fbbc530817618dded036261",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Catalog/ProductManagementHandlers.cs",
+      "raw_sha256": "18723a5130f9bcdbbe9648ced23fab31428ad38fb24484dcb96c34b7979a4b7e",
+      "committed_sha256": "0e362a753c533d0e3525e7e4afa2e052477281512968ba63d0764da612a96b5e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Catalog/ProductManagementQueries.cs",
+      "raw_sha256": "858b25814a2e9daaf281b7a6fee0a07881d5a2c5a677cf8144c2c576a6cb9a42",
+      "committed_sha256": "6e376918fc14bf495ce069e2f2a4247277ac3a344692dedec2e1741faaff1e1f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Catalog/TaxonomyV3Store.cs",
+      "raw_sha256": "063a88fdb505a997ae484f8c6ecc9c58812bbbff622a46b84aff6a8b8700b5c3",
+      "committed_sha256": "48b8d95f5eda2b71a209c5997c01a9f7e2545a22d88b844eff40b51d97a0889b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Finance/CashSessionHandlers.cs",
+      "raw_sha256": "789f1904736a8d9c9ea08b4ea803ecb109566025b0fb872cf8f6331002be179b",
+      "committed_sha256": "696684130d3f624247bf19cc65b14645730265fe74185b160ea7462c60ac76b3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Finance/ExpenseHandlers.cs",
+      "raw_sha256": "c2eaf126a681e06adb210294ac9e8bf46e7cfa6ba6ec7073d17457c9a86f4a8f",
+      "committed_sha256": "798572ba9d7c76cc95a657917ba399a889f51eedf9945678912aa94b4ace0814",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Finance/SupplierAccountHandlers.cs",
+      "raw_sha256": "6eeb93d4df7a674bf9b2a14c832d19150ec486288f146b1cf3603581aedc7e5a",
+      "committed_sha256": "89b983f087eeeaf0628bdc0e29fbcf68e7c4faca9d5af84e16b4f6437eb01515",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Identity/IdentityHandlers.cs",
+      "raw_sha256": "80a628624fa207500d0ee1aceed18c69500d08daa16d53e98f524cd90f6cc3f4",
+      "committed_sha256": "fb2712f935d0171cf9d258762b8846cc9147016a8c3d06459dae42b1a8de9a2c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Inventory/Phase4WorkflowQueries.cs",
+      "raw_sha256": "bfa52ce21d6fa7654046617144d8a23daff4b73da7a018ad1a5eba86a2583341",
+      "committed_sha256": "ea622c91ee90bfc66288ede04991ab82a92c82aa132d82547259984723c0169f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Inventory/StockAdjustmentHandlers.cs",
+      "raw_sha256": "9ffb05a1ec67a05344438fa8dfdcd079757b1bc2de314be8dc3f3c304a26ea2f",
+      "committed_sha256": "f0ec4457ea51810c793f158aed1d5974c938d7999dd6c2ee5698dd377514c06f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Inventory/StocktakeHandlers.cs",
+      "raw_sha256": "edebf2de3b085a0cf1aac5baef7db2e6369474244a5b2089f9d94c447066a215",
+      "committed_sha256": "c144b267dca2c6ece9cee87c8fe75eac9a3492c0e084dc278e7ab977f5a6e5a8",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Purchasing/CreatePurchaseHandler.cs",
+      "raw_sha256": "215e0ba311574919f2a79c41d66790c6f4b775a0b3d8d8475cfae7b6d79556cc",
+      "committed_sha256": "08e8a411c394a4c8b1e072062265b57f171d66dc13ed178e176b4d2d4fc643a6",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Purchasing/PurchaseReturnHandler.cs",
+      "raw_sha256": "5c1a4736477483c8ed20923a2022d6321974eef57ccaab5ec626b9c29cead23b",
+      "committed_sha256": "cc282734451d59f99b6c6ddb879b8fcb9606a068a5f18ed52330748e5a8ea0ed",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Purchasing/VoidPurchaseHandler.cs",
+      "raw_sha256": "9099ebbb014856609a2cd95a417e7a3984b00b28067ca785d559c95703513b06",
+      "committed_sha256": "8057fbec960ca312697f6a7accefff260a35c53343fa4d1eb3615e2620df5367",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Reporting/ReportingQueries.cs",
+      "raw_sha256": "ce63b82924eed91911847d1b05a7db911af4f06127e1becdd266560d300c94e4",
+      "committed_sha256": "f11e73081444135b553d0c818bd747226b28ed2729322ef0d27f0702eb1f0c0e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Sales/CompleteSaleHandler.cs",
+      "raw_sha256": "01bd4f9f4d7f19a8285fb31b1ceef45da46d42289f92750c6cd863d3741290e9",
+      "committed_sha256": "b5d786f475093e682d6d526ce7fd66179d8d1d9d60d80f70ea096baf5356b817",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Sales/PosDraftHandlers.cs",
+      "raw_sha256": "29d669610a6b53e04f55cd27d2368eb4d2fa591a37dfafe0d1cfa2223c725a8d",
+      "committed_sha256": "f4c9afb641120a832d394cfba9821ec5ec613e7c33f5c36bf11697f698dfaf54",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Sales/SaleReturnHandler.cs",
+      "raw_sha256": "48fdcf1e56b390c12f91027e26d5f498231351eece5a73f666009b0ec70bdd85",
+      "committed_sha256": "b87aa3b70947208e5ef59eca7cc8d3c901adaaac4624879a83b70865c33bfa2d",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Thaka/ThakaHandlers.cs",
+      "raw_sha256": "8d87c4917be405af9ac5ddd8d428f73efe9613a92241d2d431a320919480dc38",
+      "committed_sha256": "6359d4faf76dda65ea1111a7c7f15dd4959a3fff99911121079214af1760c8e9",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Thaka/ThakaPaymentHandlers.cs",
+      "raw_sha256": "2227c7af33f6de20c926058bb69e18decd84dacbacc991e6c1b20dc19db4ee3d",
+      "committed_sha256": "8e1646af2207fc7e07f5954e59a13b3e5ca68eb671edee725bf39a3c15bde49a",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Thaka/ThakaReversalHandlers.cs",
+      "raw_sha256": "ddab1a4ec4ca0d9bb778032762b083ec2af1d33a4e3c64175b515cfd1ad3e119",
+      "committed_sha256": "e30df50085f348406d15d9de5db20b7895e85b3bbb440852e6897155e2e74f07",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Thaka/ThakaSettlementHandlers.cs",
+      "raw_sha256": "c60a95907269eea6bd2da53f3f3222973edf32584267cc8039d8a958491db1be",
+      "committed_sha256": "42167a47e255dc0d9fb2cbd17383086a0661aa861ed81e33fd45323f83d697b8",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Features/Warranty/WarrantyHandlers.cs",
+      "raw_sha256": "d04d718ef2503727200c8190175d6bd04a447e4a3e47f56a871b6c1aed3a6632",
+      "committed_sha256": "757402c8dba5999b23929444a7c758865711c3a10728c3b60d4776ff00fc570c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Application/Production/Outbox/PrintOutboxEffectHandler.cs",
+      "raw_sha256": "be0b4294ce3317cce9fd8564fac724a4ba9a2f0b3910e379fbe32899eaf913df",
+      "committed_sha256": "a6d425f6e0f0dd0aad3bc5928e2a98e3a65ee87fa15f9558dab2dded706753f3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/App.xaml",
+      "raw_sha256": "ad6a145f1036249568758b319602c1420423c0e7122e31a4bf71255a3a6b744b",
+      "committed_sha256": "80abf651ae2df735c939692c2d4a7da84e4d7b0a75fbd034160194e7d2700bba",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/FinancialTrendChart.cs",
+      "raw_sha256": "d12c9e491f63c860b06edf9e684034c04528db5558565efa270c6c6c3e48d96b",
+      "committed_sha256": "deccc8b5d4f7e841c3660de984b6adad0c51ce7fa386c744f57d42b3e0c9d222",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Controls/ToastHost.xaml",
+      "raw_sha256": "892f8265c16f7485bc72f86693d407e02c5607a458ca55b4adc4aa480a8f8e07",
+      "committed_sha256": "388dc323374054d8dfdf071811a03709b78708e590887932ffff21be9f7b3cfb",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Navigation/PageViewModelFactory.cs",
+      "raw_sha256": "f0990160b6299f9983bd174c7560f24c7af21d6dc5e7d3abe1c7810b4bcb0c5b",
+      "committed_sha256": "eb48477a2d3366c32c3cbc8a60c2221e80809c1611ab98b7e810b15d703342a0",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Brushes.xaml",
+      "raw_sha256": "f3f9edb929fe3ccb355cf5022f28b94bd27c7154e3920b9c309716ed15e5603e",
+      "committed_sha256": "5e29f1e714bb07f7b15599365b68af2716fc08dd6c416196d6169e30e2a787ec",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/Buttons.xaml",
+      "raw_sha256": "9a5e09580d97039015a2ff05931059a13e69c1ec36403d47edaab8de78fbdf29",
+      "committed_sha256": "4ebe7e351011c6c2c50c2f51312177df3a1f1f3849baab1bd2f5c36ce1e3e35c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Resources/NavigationIcons.xaml",
+      "raw_sha256": "140c0ccfdff1308bf08f00370f076638252052dad9549b2f7c2f11cb48a1beeb",
+      "committed_sha256": "5cd031a726d257a070fa11987326346a4c01a9704b7be97e408134a32b39488c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/BackendBusinessOperationsService.cs",
+      "raw_sha256": "df0494a37e5250718a0dc3ad5da0e4fcd9c096f0d22517012757f7731f6f8496",
+      "committed_sha256": "e537e21d217a3cd2dd7b55858e34ee5302939df6f52977baee87428918d7ee0e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/BackendThakaService.cs",
+      "raw_sha256": "f953ed8cf14b1fa8c5efeb9fea279f779789ef68e5deaa9057ea597473758b41",
+      "committed_sha256": "d2a96cf0c70bfdce0b3b8afbb3e82a16fe5e39d7d5ff2921c54f8a094bf4da5c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/BackendTransactionService.cs",
+      "raw_sha256": "1615763edd71ae7aa63e28d1f6524031facd0046066da7cb758b9e5586cc5cb8",
+      "committed_sha256": "1e993ac14c0e5a6a3272c27fb306ade42b6fcb29790ff1a97f75bce586997b3d",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/BackendWorkflowReadService.cs",
+      "raw_sha256": "5c1f332ab47fbcf317a02b3a3b28018380c18682ea6277224c5c1960939917cc",
+      "committed_sha256": "99de0b0d4942bffb5dfaede312d1849bb96ddded720db1e853a49d91e4519851",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoBusinessDirectoryService.cs",
+      "raw_sha256": "9588fca04a9c63e95c827ceeaa62f72902bcf3b6a4b73847891552b4c684637e",
+      "committed_sha256": "a26ebd153ed59eaf52b40a3a93e76e9072a69854c98873cf6ad4aa57d5353a86",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoIdentityService.cs",
+      "raw_sha256": "8b05c703901dfa0879d4a90a96f52f95b9571bfa2597e88c6aa8dd3ecd47047a",
+      "committed_sha256": "c3dfda740c7a36decbbca2b0fc6cc0cd5fcf8cae457a9bc51d1d5d57235bc18e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoReportingService.cs",
+      "raw_sha256": "4f50661f704d9ea6cb6f596e50a0554a4e8ca315c912f492981f950f77d0c7b6",
+      "committed_sha256": "a00835da0feba9ae3075623a9a6ea79e271c3f1b4ce18174df0cf426edd8a8d7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoRetailState.cs",
+      "raw_sha256": "8e7959f1b681b75c4540483b8ddd3c55c1e9b4bd036671e4e36d19a18928e929",
+      "committed_sha256": "c48566b37be81dfd2841cf46eb73f249ab1c765645c9504c1391be68ac4c7560",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DemoTransactionService.cs",
+      "raw_sha256": "1b875db929ae74637f8e3c728d629d755ba0e0561d503d6e91a68ea748c7f0e4",
+      "committed_sha256": "ec83c617d7e2a554b968a79747af7d891eb98c8b75ffdf0e7a499db7d460fa37",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/DesignPreviewSessionContext.cs",
+      "raw_sha256": "b00810c429f292ba6438401810adbfc2133db15101232179fb0ea332dded1d1b",
+      "committed_sha256": "608c2133914c7c393912b026d5be14069ef460732a349f0d6c87abb68098f21f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/ITransactionService.cs",
+      "raw_sha256": "04e778e516fa394ddaa1c89f59a588921022f18ca6221ee2669d056545426053",
+      "committed_sha256": "b85c073000c980bcd50ecf0f2a35f742ea209286cb1f55c9221da320455ec6f4",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteBackendOperationsService.cs",
+      "raw_sha256": "ecfb4022413085eb8cdac14d85ac4facadc502fd3aea17e55e808458caa19716",
+      "committed_sha256": "3e150c23950780238189c3df47185e8245c30b919043875e7da430448b9aa010",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteBackendThakaService.cs",
+      "raw_sha256": "4faef0488ed940847de011cabd5509a8bc97901da2d20db819cb423dbad5867b",
+      "committed_sha256": "8b5aa5a8155f85d4b414cb5bd209d7f8eac599135cf9ea8f1f4ad4d161248ab7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteStocktakeWorkflowService.cs",
+      "raw_sha256": "d68e3e379a511c1df4e3354a2f8d45e7a8a5799ac2f31702ac55412a80dca3aa",
+      "committed_sha256": "b8b3211a8e91f3cd557a9aa72fa398545fd996d14015880af8f3fb6ef39ed4d8",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/CompleteSaleViewModel.cs",
+      "raw_sha256": "2b59b675fb715bb9764fc07aa42ed582b371ee909f5baaaff6f5e376a8eee38a",
+      "committed_sha256": "3b0506848d167d8e068424e397c49855ff25e9b7a5335ac74650a4d43a7e2c4d",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ExpensesViewModel.cs",
+      "raw_sha256": "77122e080eaa7ec359a01646909b414a98cfd0b45767a84677e22f266f4d5fe6",
+      "committed_sha256": "fd4631767f481709fb4a52a74a2041a07eb538a61d12855e62291a76731b03d4",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/InventoryViewModel.cs",
+      "raw_sha256": "705048db3f5b66a3750abec307328bb9c8be5421466db6b3037b5a001a8b1ee6",
+      "committed_sha256": "4853ab1b24d2400f4985f13e3b34d00fc527745217c1a487645cf5dab34476e9",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/NewPurchaseViewModel.cs",
+      "raw_sha256": "8ea8f194a9d82037e9f2678a81e403c1365b87701a8a5d13c89c195fbb2c4958",
+      "committed_sha256": "2143bf0d092917019adc4ffd3cf615cc9c4422560304c2a903df06a706416fb7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PosCartItemViewModel.cs",
+      "raw_sha256": "d1d8d2552091598ceaa3c88f3e8210bf1a925765240ce077b629827368e777d1",
+      "committed_sha256": "f2db031fba514418c3cd8f0b5b523ff199ca702a6f3ffeb71779acb4d91446ca",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PosViewModel.cs",
+      "raw_sha256": "9ee1ac9a73a4e09b049786173c7d65249a413b1937512a433abdceb3e7654bf1",
+      "committed_sha256": "60c80dc9ce9d66fc01d51caa49fd010afd5d5023f1fbe62d465787e4f180de18",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ProductEditViewModel.cs",
+      "raw_sha256": "afbce14cc37b96ac326c4912e89e1ce36e0506b95d9b33f09060282ef56a3566",
+      "committed_sha256": "352466e8cddef52987e16c97c74b79dfcdd323bbb77a6bc533cc80ce292f425d",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ProductManagementViewModel.cs",
+      "raw_sha256": "bbbdfdeb8464805c1b1b291ce223dab8bcf968f5baa726566ff5ba7c2256de48",
+      "committed_sha256": "a27e014649cd81c961db8688120d45e888a5a5e051bbcf86f7aff3827cafe8c5",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PurchaseDetailViewModel.cs",
+      "raw_sha256": "608c2a53efcbe072b0ff29b4a166ce46c57c494dfc6ee2c7e79d00eb6891386a",
+      "committed_sha256": "8180b0470b859d1a5ef01d6568c0dc3904819ed9234b386e4b56041cce5fd5b7",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PurchaseHistoryViewModel.cs",
+      "raw_sha256": "7002d0d27dbdf922c6d90154d20c93fb185d5edfcc55e2cf3c3c3c066b8a05e8",
+      "committed_sha256": "11bd7de2e822e76bfbcd931fd839fd81af652f06b29fffba45d66928d83a5b51",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/PurchaseReturnViewModel.cs",
+      "raw_sha256": "d2f579c7675f0499f91ab95f87f29bb58da9d0c375514a608cf87656dd9e8470",
+      "committed_sha256": "9f8a4b951448516ad66c249d28a682e8339b443fd64fd4dd65f3b55f477e2a0d",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SaleDetailViewModel.cs",
+      "raw_sha256": "6528bd434cf68de1ea67340799b6b1a4b0789f89d078a540f4772c10adab1351",
+      "committed_sha256": "dc3a35c61eb820ef89141c6543d107b561a5e5c3f5dd629a2473a427d634f39c",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SalesHistoryViewModel.cs",
+      "raw_sha256": "29a94ee53d70cdf057af703d0fac67f185548347b4f8b40843d45364db806dd4",
+      "committed_sha256": "e8d6e8dbe15536ae4f97de6cdaaca3b0ce73132bd5c5594b1b5e09f2a886ac10",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SalesReturnViewModel.cs",
+      "raw_sha256": "a714906e7a77804ab5ad952dd1ec39bbc414fddd153c78e272c9cefc633a064b",
+      "committed_sha256": "dbdd5df25fd1517aa2fb1ff9b58e1f7c8ca1e810a1bd524804c1a523bc3f1fd3",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SerializedStocktakeScanViewModel.cs",
+      "raw_sha256": "bfda996bead27f29d8d663b5cf5433b611c608144126839132ea8179e38460b0",
+      "committed_sha256": "20ba7283316dbc7aa42ce1958a7692f7d4af0232ca7f405db0d490424728dedb",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/StockAdjustmentViewModel.cs",
+      "raw_sha256": "3f81eaa287da0f1b955fec913378319c13b9c5625e7b1247712eec02b3d29c27",
+      "committed_sha256": "7d6ecce7920d4ec5514fc92bd08a229850cd59273faf1a4b743bb5481085984f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/SuppliersViewModel.cs",
+      "raw_sha256": "c895402fa07866c885d151c25f011a0bcc3a36fb66a388f6e0a964b446d880cd",
+      "committed_sha256": "80db92bd29107e00a2277079222a3387fa2be3720983c12353ed48d00e54a648",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ThakaAddMaterialViewModel.cs",
+      "raw_sha256": "78ae8c06695cc0a78cb2a419a41528930d888f58cb5432436ae148fd9f1b9198",
+      "committed_sha256": "a2f22850aaf9a454b5bed69909fd2d8b7f627a33f25691cc508a9f92b379cd27",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ThakaFinalSettlementViewModel.cs",
+      "raw_sha256": "20113ef7b238200b02c4271253801dea325a1fbb59f5c7374345c4fb05553ab9",
+      "committed_sha256": "0f1691b07f5afac9e75821426465c05c9ac72155a44dedac4c932d705640d2eb",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ThakaProjectListItemViewModel.cs",
+      "raw_sha256": "f7de5e88a7125585b6709c9d98833a6c8d763a666742cbe04d3a8ae27a291774",
+      "committed_sha256": "52a65865dbedd506d1b354fc24283adaf1732cffd95b4c4a499a5b852dfcaf17",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ThakaProjectsViewModel.cs",
+      "raw_sha256": "8bf050a56f0e3cf8314ce0eec109c7e7770ff967ec010c41ee0bac0e90744dfa",
+      "committed_sha256": "67cc0af56b5845e614c35f0579982e93f0b57461c7f1a11827a837acbc3f154b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/ViewModels/ThakaWorkspaceViewModel.cs",
+      "raw_sha256": "3e98c4e951935f5233ebf288d44afceb1707742507f076fd31f9b6a22ccf6c36",
+      "committed_sha256": "eab784ca506aed8ee5919c979d3a6cb0be51c0992ad634fc7e5cd48a538f86a8",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/CatalogReferenceManagerDialog.xaml",
+      "raw_sha256": "3e4567dd0c95d44fd8ef7f031e1662064ab6ab172cb89b01bbd68de0d23def76",
+      "committed_sha256": "18ee3b097be94d1c1381eb6575a23bf9cacb0921926690d4eebdc68358000ce0",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/ExactUnitPickerDialog.xaml",
+      "raw_sha256": "2c0dabcccf86b6df74c6414161d626234e2096e0177bafb819a62c799bdbfec4",
+      "committed_sha256": "75c507c368e2c2cfd0960f127419856d5306f39b466baa6a7236422b542dfce1",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/PosDraftsDialog.xaml",
+      "raw_sha256": "82b65d0e73a1153414a2537644b9502a8a391bf66957820fe892cede83cef5d6",
+      "committed_sha256": "5d5e391ba936468649b90b086dcc3cfd3f7035747a68a8dbb6ffb2e30eecc904",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/PriceCheckDialog.xaml",
+      "raw_sha256": "969d3deaae59436621028373f6dbf3cd921ad3c37cb99be16188f7f9cdd516df",
+      "committed_sha256": "ed58577464fe779af52d97bf7cb3281e47066b2cf77ff3896ed2a30876d8942a",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/ProductEditDialog.xaml",
+      "raw_sha256": "f6218c9dc93f421025754879ebc1e681cbbdd889a585c36c0ecd7ce813e10cc8",
+      "committed_sha256": "2c31325655ac10ec1fda5c8f3c52595b0aaa0ac906cd5eb7103085f1ad9b87e2",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/PurchaseReturnDialog.xaml",
+      "raw_sha256": "20e571f25690ee40ca9fae7cec90ec803b894efb92cf049c51651b1f4348144d",
+      "committed_sha256": "71053be9f81f7e06c627d7a5d525d3aaa5e0f3aa0acf25a55201a50cb7719569",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/SerializedPurchaseIntakeDialog.xaml",
+      "raw_sha256": "0c0082c3d08632f9d3735119002bb15615c8a934a287dee4bb15371c1c8494ab",
+      "committed_sha256": "e90c0527c1b098e739cfe8bd0ffc1004aefe7e50916c315c063872a13c4854f5",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/SerializedStocktakeScanDialog.xaml",
+      "raw_sha256": "07a94faa66e9e2686152f3821ff54ead92a130fe9ff29158045c040f36fecaf8",
+      "committed_sha256": "9a08bf4886711072a3d745ff8ea11b99d744bc89bbff31df7922b4ce304dd368",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/StocktakeDialog.xaml",
+      "raw_sha256": "d4014f4b2dade941e9fe613bc60e616c1962a319baea20aba0bf5e3dc349621f",
+      "committed_sha256": "c49eea68ce195037c040f7d31a031ff9ec5af2c81116aa8da72216042b273e21",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/SupplierEditDialog.xaml",
+      "raw_sha256": "a957813bf6e63801215643938d4bcdf62b0ebb87457b2835f366459044cb3e8f",
+      "committed_sha256": "74eaaf6d92dcf68ae0c2ee771a3982abad200ae95e541ed10ee7c4cdd0e0d12b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/Dialogs/ThakaAddMaterialDialog.xaml",
+      "raw_sha256": "9a35f3743f46fa4b6bf355e9ffbc48f9ab1329d91772fe947ddeeccbb5c7652d",
+      "committed_sha256": "07f1d9d23d226f6643be261712ceff5dd92cfda625455910cb0a836fda46ab73",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/LoginView.xaml",
+      "raw_sha256": "49c958d7990f4a39fc65ff0f98466cfb5565e65517358936548c75e8a8fadd5f",
+      "committed_sha256": "a7279dedbe085ad9433b974eed0230f0c190319fdea7762fa4ef11d8634453d0",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/PosView.xaml",
+      "raw_sha256": "a071a3e8ba01de40307362fd21346ca80dffb336d00792dfe6909f055d2d9a04",
+      "committed_sha256": "fdd89d851fbc32003484ba83bede990c6f0e436af4a1f3c89328a820884c276a",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Views/ProductManagementView.xaml",
+      "raw_sha256": "bfab324875ffc22f0c626a17bde91f928bd7157b7751d1e6dbb53ede7401ae34",
+      "committed_sha256": "014691f8be34ef76384d6f113ade1c5dd023259dcded8a7ed70c4df57a263cc2",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Domain/Finance/CashModels.cs",
+      "raw_sha256": "6539e6a09733c75e6355675324563dd15fc6c4cff78f3ce864746c5216d6fc8e",
+      "committed_sha256": "9a2aaa8215d1fc10956e25b74953ef2e4922128b633e183aeadb44618984f598",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Domain/Inventory/InventoryModels.cs",
+      "raw_sha256": "847b21f840e8449945bdaa6f0a3940e7bdf74ab690a3a5a927fd57d5de7cc56b",
+      "committed_sha256": "773b11516cd9a5a1ca4e0f543dcf320c4af772279e98ec776d10c08504265d2f",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Domain/Thaka/ThakaModels.cs",
+      "raw_sha256": "99a3c986ade780429aabde7fbb1833c302fe2114e4bf6e6d67744cc498f79c50",
+      "committed_sha256": "f944a080391919d196165531b36eb783ac42ec71dba730967091bd1bc5f627bb",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "raw_sha256": "41c3d735d1e8a71f27e74463d9d3ddf104b56a604badda9fd8003b1ae2f562f8",
+      "committed_sha256": "59911ae8cd48b971a8736be2e4a05c6513c6c580d727d2f2973f23f0860a8c5b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Configurations/InventoryConfigurations.cs",
+      "raw_sha256": "9f788f84cd9a9241da693b75c0db82051c3791be8ac008affca1ebfee391261a",
+      "committed_sha256": "b4fcdb188adc45473a65813c98b00d8bf8edc3d00dc75538bbd693f6f6a6a3ea",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Configurations/ThakaConfigurations.cs",
+      "raw_sha256": "e0f5c008312c3abf13f92b8255be02b06e2ef995057bf9c6bfda463b321ea952",
+      "committed_sha256": "1b8cc5aab2f20714e8dc366b1fbd20caa7f94d66286616d1a93c79f36c93c2e9",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/EdgeRetailsDbContext.cs",
+      "raw_sha256": "42269ddb1c6d0f566fc0708cf28d4b1213e0b6901df85f99385eebaef2883866",
+      "committed_sha256": "07575284e7a64d008e2ede137f26da537217e8c7b2670c148dd8324772539648",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261012050955_Phase11PhysicalPackContainerSubLedger.Designer.cs",
+      "raw_sha256": "a6d68b48eeaed3407eea43b78c90b99d9a8d57aaedcc7fd4fc7a6ab108ab9f09",
+      "committed_sha256": "e9f5990290d5f54933d60aae154e1593568a5be948bf00f528297aee829b9c49",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261012050955_Phase11PhysicalPackContainerSubLedger.cs",
+      "raw_sha256": "7d6f6dc0cde881b0e47ae350edc5877a2a401b22d26ace0b6e7f53f208e16420",
+      "committed_sha256": "4fac284f4524c77dce752581f8c9e1d4b1492eda27a1daae206d11736c2a14e5",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261012144915_Phase11DurablePostingPeriodLockAndAudit.Designer.cs",
+      "raw_sha256": "11453c73194aacfb37b5fe33f6825fdb71b8b7afbc5ab62cd07babcadcff7a41",
+      "committed_sha256": "9b939138688d05e3dcd00fa0fa42ff32d3be6988c096565808eb88e00bf7d0ff",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261012144915_Phase11DurablePostingPeriodLockAndAudit.cs",
+      "raw_sha256": "ac0b423a07f17a4b802010424a1667286759a8f07ab3f40bc8bfe440bb17be99",
+      "committed_sha256": "a7b0428e5d96755a1e69345cbb2bfc3780f6fe1868a40523c5473b856cab0b39",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261015103137_Phase12OperationOutcomeResponsePayload.Designer.cs",
+      "raw_sha256": "84af2cbaf1dc672663ad2b8b0b7f500bd1207c48e365d365537e1d3685b43e2f",
+      "committed_sha256": "464fbf8855b99f640be24f49968ee38faadb45f29d8f4229d55c48be9c1f5f47",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261015103137_Phase12OperationOutcomeResponsePayload.cs",
+      "raw_sha256": "8ffb0ea80c3b21483e1e65776213687aeb70dbd8c459551dc2f5a841aba5c011",
+      "committed_sha256": "80d3b28549aaa02f3acb054242ae56d6ba77565046dce685b47aa0744d75b7b8",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Persistence/Migrations/EdgeRetailsDbContextModelSnapshot.cs",
+      "raw_sha256": "910c2c545d70783b7b93a428c27dfdae8e838be6055e6231a75e65d888eff7c7",
+      "committed_sha256": "23df1e9efd0e238d1e4bbc8dd329bab7f6bdbdcd4c71413c17ed5d3b7ad8fbba",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Repositories/BusinessModuleRepositories.cs",
+      "raw_sha256": "0785dd1fc4285e709af303a9bd774f619ea3624cc96c5ba90f25c8057c493dc3",
+      "committed_sha256": "29909e4ae8b5f229d3e909d205f596e4cc8e4c35d3c020c552b7efe6950f6df9",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Repositories/EfRepositories.cs",
+      "raw_sha256": "9f2c91b7f758ff9af60d98b3da679bbab05ece422d1839f8690a9fc0e3fc1fba",
+      "committed_sha256": "47b51fd46bdff35a2d43ab829e4855cca7dc6e2f96827bbfe1e4f78d07bf3157",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs",
+      "raw_sha256": "f8eb80059e81e69aed02eed9c6e01ef0f3e5ab7fc978cea033285e3a500fb4ce",
+      "committed_sha256": "51848630f1675fa8159c4e96c4a79db1f0bbfd9a04349743957b065f9c3024cb",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/DapperReadServices.cs",
+      "raw_sha256": "95813840bd792896f0fa7ea886b5b6a61ee8e797aaf072a9bfef15c88569fe74",
+      "committed_sha256": "9d93a39f6dce6a683cc88e5ff00c485dfdd2b7a21c93dab9e35507944bee614b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/Phase4WorkflowReadService.cs",
+      "raw_sha256": "07fd995217dc76c5af4429d25eb6274667e93b04e602da2727e27918dbd62015",
+      "committed_sha256": "fa45e36214b6ec617dee971f2ff11f64541f6a4292b037a7186eb881533fca4e",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/PlatformServices.cs",
+      "raw_sha256": "474e4892a4c73e7c31295f401cd85f608f13c33d768965fe1a50834c87b1e847",
+      "committed_sha256": "5bbd258dcbc4fa3e4a286e749b7b6cd72284b95bbde37b3555f1264960604786",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/ProductManagementReadService.cs",
+      "raw_sha256": "3107468510f1b663a3f9078ccb768100189e6ee2607ffb072ff699b8b3cc772e",
+      "committed_sha256": "2b1c8e7bc35bbcd26a86a5266e9becdc8cff45608fa8c609db9aee993c30c727",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/ThakaReadService.cs",
+      "raw_sha256": "b5fd61a20f9e2eb16602ece0f83e4f194298a458dc731343a305416f7f20f0bd",
+      "committed_sha256": "4b2ca53ce7c0f587d66fa274f37ac06e5f2e89bed2411906c073246c16c75a70",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "src/EdgeRetails.Server/Controllers/InventoryController.cs",
+      "raw_sha256": "d6bd8abe62d4fd949c96f1c41bd7628d9b86706085475d4f3d440c1814dcd664",
+      "committed_sha256": "4e89b7291d86aae3bf91572bbf3b0cbae5bece3f1d06ff54feb365b72489b776",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/PosCatalogBrowsingPerformanceTests.cs",
+      "raw_sha256": "d448a889ad18e1048a665fccd93a53768776d34d44adeb7dbd67c24a70ee12bc",
+      "committed_sha256": "5c0d51131492bdb1701f1e4a2f7a7742108622d6c2bd42b82489816c0e4a586b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase4MultiTerminalConcurrencyTests.cs",
+      "raw_sha256": "4596282f2a9514769e99ecf60912a8cdcdcaeefe65432ed123d3a60a58cef6e1",
+      "committed_sha256": "c6ca831201354f9d7231a345338b69e318393604c8b3a8404fe4a203f76de4fe",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass5GoldenScenariosPostgresTests.cs",
+      "raw_sha256": "4e3544666cd5b4a9b8aa7acab5322789c7d91da4b6141fa4b8d2e9074d7ab5f3",
+      "committed_sha256": "3f49bb4f573afb83d54d0175ce6fe4bca5a11932c96ecefaa9535bdb06396048",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/Sprint5ForensicAuditTests.cs",
+      "raw_sha256": "6d1dbdf99cc7ddeb416f66fad5791228bb43bd4fcd596ae99361766ebf4ff121",
+      "committed_sha256": "d634f7a7002506484725b4a48af530126d31c78328f5c40c75fd9307dbdf7a4b",
+      "change": "Git text CRLF-to-LF normalization only"
+    },
+    {
+      "path": "tests/EdgeRetails.UnitTests/StockAdjustmentHandlerBehavioralTests.cs",
+      "raw_sha256": "6113ea30f5d752db1c0720fadec74ce2bae5cbd789673ef8325773bd3d9fe262",
+      "committed_sha256": "87c6a84ee4afacca76e8740411f334df205af0ba7b38a1c7905d02342716b958",
+      "change": "Git text CRLF-to-LF normalization only"
+    }
+  ],
+  "build": "Exact raw-byte snapshot4bb1f21 solution build succeeded0warnings0errors; normalized source is equivalent",
+  "originals": "Live worktree source bytes preserved"
+}

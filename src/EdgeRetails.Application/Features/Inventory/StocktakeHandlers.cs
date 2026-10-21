@@ -13,6 +13,24 @@ namespace EdgeRetails.Application.Features.Inventory;
 
 internal static class StocktakeOperationOutcome
 {
+    public static async Task<Result?> CheckPreLockAsync(
+        Guid operationId,
+        string operationType,
+        Guid actorId,
+        string payload,
+        IOperationOutcomeLedger? ledger,
+        CancellationToken cancellationToken)
+    {
+        if (operationId == Guid.Empty || ledger is null)
+            return null;
+
+        var existing = await ledger.GetOutcomeAsync(operationId, cancellationToken);
+        if (existing is null)
+            return null;
+
+        return EvaluateOutcome(existing, operationType, actorId, payload);
+    }
+
     public static async Task<Result?> BeginAsync(
         Guid operationId,
         string operationType,
@@ -31,15 +49,52 @@ internal static class StocktakeOperationOutcome
         if (existing is null)
             return null;
 
-        var fingerprint = Fingerprint(operationType, payload);
-        if (existing.State == OperationOutcomeState.Succeeded &&
-            existing.OperationType == operationType &&
-            string.Equals(existing.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+        return EvaluateOutcome(existing, operationType, actorId, payload);
+    }
+
+    private static Result EvaluateOutcome(
+        OperationOutcomeRecord existing,
+        string operationType,
+        Guid actorId,
+        string payload)
+    {
+        if (!string.Equals(existing.OperationType, operationType, StringComparison.Ordinal))
+        {
+            return Result.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{existing.OperationType}', not '{operationType}'.");
+        }
+
+        var legacyFingerprint = Fingerprint(operationType, payload);
+        var versionedFingerprint = VersionedFingerprint(operationType, payload);
+        var matches = string.IsNullOrEmpty(existing.PayloadFingerprint) ||
+                      string.Equals(existing.PayloadFingerprint, versionedFingerprint, StringComparison.Ordinal) ||
+                      string.Equals(existing.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        var actorMatches = !existing.ActorId.HasValue || actorId == Guid.Empty || existing.ActorId.Value == actorId;
+
+        if (!matches || !actorMatches)
+        {
+            return Result.Failure(
+                "inventory.stocktake_operation_conflict",
+                "This stocktake operation id is already associated with another or unresolved operation.");
+        }
+
+        if (existing.State == OperationOutcomeState.Succeeded && existing.WasCommitted)
+        {
             return Result.Success();
+        }
+
+        if (existing.State == OperationOutcomeState.Failed)
+        {
+            return Result.Failure(
+                existing.ErrorCode ?? "idempotency.outcome_unknown",
+                existing.ErrorMessage ?? "Stocktake operation previously failed.");
+        }
 
         return Result.Failure(
-            "inventory.stocktake_operation_conflict",
-            "This stocktake operation id is already associated with another or unresolved operation.");
+            "idempotency.outcome_unknown",
+            "Stocktake operation outcome is unresolved.");
     }
 
     public static Task CompleteAsync(
@@ -58,8 +113,11 @@ internal static class StocktakeOperationOutcome
                 stocktakeId,
                 stocktakeId.ToString("D"),
                 actorId: actorId,
-                payloadFingerprint: Fingerprint(operationType, payload),
+                payloadFingerprint: VersionedFingerprint(operationType, payload),
                 cancellationToken: cancellationToken);
+
+    public static string VersionedFingerprint(string operationType, string payload) =>
+        OperationPayloadFingerprint.ComputeVersionedFingerprint("Stocktake." + operationType, new { operationType, payload }, "v1");
 
     public static string Fingerprint(string operationType, string payload) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{operationType}|{payload}")));
@@ -100,11 +158,33 @@ public sealed class CreateStocktakeHandler
         _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<Guid>> HandleAsync(
+    public async Task<Result<Guid>> HandleAsync(
         CreateStocktakeCommand command,
         CancellationToken cancellationToken)
     {
-        return _transactions.ExecuteAsync(async ct =>
+        if (command.Scope == StocktakeScope.Category && command.CategoryId is null)
+        {
+            return Result<Guid>.Failure(
+                "inventory.stocktake_category_required",
+                "Category is required for a category stocktake.");
+        }
+
+        var payload = $"{command.Scope}|{command.CategoryId:D}|{command.Note?.Trim()}";
+        var legacyFingerprint = StocktakeOperationOutcome.Fingerprint("CreateStocktake", payload);
+        var versionedFingerprint = StocktakeOperationOutcome.VersionedFingerprint("CreateStocktake", payload);
+
+        if (command.ClientOperationId != Guid.Empty && _outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                var preResult = EvaluateCreateOutcome(preOutcome, command, versionedFingerprint, legacyFingerprint);
+                if (preResult.HasValue)
+                    return preResult.Value;
+            }
+        }
+
+        return await _transactions.ExecuteAsync(async ct =>
         {
             if (_authorizer is not null && command.ActorId != Guid.Empty)
             {
@@ -118,15 +198,6 @@ public sealed class CreateStocktakeHandler
                 }
             }
 
-            if (command.Scope == StocktakeScope.Category && command.CategoryId is null)
-            {
-                return Result<Guid>.Failure(
-                    "inventory.stocktake_category_required",
-                    "Category is required for a category stocktake.");
-            }
-
-            var payload = $"{command.Scope}|{command.CategoryId:D}|{command.Note?.Trim()}";
-            var payloadFingerprint = StocktakeOperationOutcome.Fingerprint("CreateStocktake", payload);
             if (command.ClientOperationId != Guid.Empty && _outcomeLedger is not null)
             {
                 if (_operationLock is not null)
@@ -135,17 +206,9 @@ public sealed class CreateStocktakeHandler
                 var existingOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
                 if (existingOutcome is not null)
                 {
-                    if (existingOutcome.State == OperationOutcomeState.Succeeded &&
-                        existingOutcome.OperationType == "CreateStocktake" &&
-                        string.Equals(existingOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal) &&
-                        existingOutcome.EntityId.HasValue)
-                    {
-                        return Result<Guid>.Success(existingOutcome.EntityId.Value);
-                    }
-
-                    return Result<Guid>.Failure(
-                        "inventory.stocktake_operation_conflict",
-                        "This stocktake operation id is already associated with another or unresolved operation.");
+                    var postResult = EvaluateCreateOutcome(existingOutcome, command, versionedFingerprint, legacyFingerprint);
+                    if (postResult.HasValue)
+                        return postResult.Value;
                 }
             }
 
@@ -176,13 +239,56 @@ public sealed class CreateStocktakeHandler
                     stocktake.Id,
                     stocktake.Id.ToString("D"),
                     actorId: command.ActorId,
-                    payloadFingerprint: payloadFingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(stocktake.Id);
         }, cancellationToken);
+    }
+
+    private static Result<Guid>? EvaluateCreateOutcome(
+        OperationOutcomeRecord existingOutcome,
+        CreateStocktakeCommand command,
+        string versionedFingerprint,
+        string legacyFingerprint)
+    {
+        if (!string.Equals(existingOutcome.OperationType, "CreateStocktake", StringComparison.Ordinal))
+        {
+            return Result<Guid>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{existingOutcome.OperationType}', not 'CreateStocktake'.");
+        }
+
+        var matches = string.IsNullOrEmpty(existingOutcome.PayloadFingerprint) ||
+                      string.Equals(existingOutcome.PayloadFingerprint, versionedFingerprint, StringComparison.Ordinal) ||
+                      string.Equals(existingOutcome.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        var actorMatches = !existingOutcome.ActorId.HasValue || command.ActorId == Guid.Empty || existingOutcome.ActorId.Value == command.ActorId;
+
+        if (!matches || !actorMatches)
+        {
+            return Result<Guid>.Failure(
+                "inventory.stocktake_operation_conflict",
+                "This stocktake operation id is already associated with another or unresolved operation.");
+        }
+
+        if (existingOutcome.State == OperationOutcomeState.Succeeded && existingOutcome.WasCommitted && existingOutcome.EntityId.HasValue)
+        {
+            return Result<Guid>.Success(existingOutcome.EntityId.Value);
+        }
+
+        if (existingOutcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<Guid>.Failure(
+                existingOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                existingOutcome.ErrorMessage ?? "Stocktake creation previously failed.");
+        }
+
+        return Result<Guid>.Failure(
+            "idempotency.outcome_unknown",
+            "This stocktake operation outcome is unresolved.");
     }
 }
 
@@ -398,7 +504,10 @@ public sealed record RecordSerializedStocktakeCommand(
     IReadOnlyCollection<string> UnexpectedIdentitySnapshots,
     Guid ActorId,
     string? ReviewNote,
-    Guid ClientOperationId = default);
+    Guid ClientOperationId = default,
+    IReadOnlyDictionary<Guid, decimal>? MeasuredContainerQuantities = null,
+    decimal MinimumSellableIncrement = 1m,
+    decimal SeparateLooseQuantity = 0m);
 
 public sealed class RecordSerializedStocktakeHandler
 {
@@ -434,11 +543,23 @@ public sealed class RecordSerializedStocktakeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            var payload = $"{command.StocktakeId:D}|{command.ProductId:D}|{string.Join(',', command.FoundInventoryUnitIds.Order())}|{string.Join('|', command.UnexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{command.ReviewNote?.Trim()}";
+            var measuredPayload = command.MeasuredContainerQuantities is { Count: > 0 }
+                ? string.Join(',', command.MeasuredContainerQuantities.OrderBy(x => x.Key).Select(x => FormattableString.Invariant($"{x.Key:D}={QuantityMath.RoundQuantity(x.Value)}")))
+                : string.Empty;
+            var incrementPayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(command.MinimumSellableIncrement)}");
+            var loosePayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(command.SeparateLooseQuantity)}");
+            var payload = $"{command.StocktakeId:D}|{command.ProductId:D}|{string.Join(',', command.FoundInventoryUnitIds.Order())}|{string.Join('|', command.UnexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{command.ReviewNote?.Trim()}|{measuredPayload}|{incrementPayload}|{loosePayload}";
             var replay = await StocktakeOperationOutcome.BeginAsync(command.ClientOperationId,
                 "Stocktake.SerializedCount", command.ActorId, payload, _operationLock, _outcomeLedger, ct);
             if (replay is { } completedReplay)
                 return completedReplay;
+
+            if (command.SeparateLooseQuantity < 0m)
+            {
+                return Result.Failure(
+                    "inventory.stocktake_loose_quantity_negative",
+                    "Separate loose quantity cannot be negative.");
+            }
 
             var stocktake = await _inventory.GetStocktakeForUpdateAsync(command.StocktakeId, ct);
             if (stocktake is null || stocktake.Status != StocktakeStatus.Counting)
@@ -544,15 +665,71 @@ public sealed class RecordSerializedStocktakeHandler
             }
 
             item.CountedSellableQty = foundKnown.Count(x => x.Status == InventoryUnitStatus.InStock);
+            var effectiveReviewNote = command.ReviewNote?.Trim();
             if (product.TrackingMode == TrackingMode.Container)
             {
                 item.CountedSellableQty = 0m;
+                var shortRemnantAlerts = new List<string>();
                 foreach (var unit in foundKnown.Where(x => x.Status == InventoryUnitStatus.InStock))
-                    item.CountedSellableQty += await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                {
+                    decimal unitRemaining;
+                    if (command.MeasuredContainerQuantities is not null &&
+                        command.MeasuredContainerQuantities.TryGetValue(unit.Id, out var measuredQty))
+                    {
+                        var roundedMeasured = QuantityMath.RoundQuantity(measuredQty);
+                        if (roundedMeasured < 0m)
+                        {
+                            return Result.Failure(
+                                "inventory.container_measured_quantity_negative",
+                                "Measured container quantity cannot be negative.");
+                        }
+                        var initialCapacity = unit.InitialBaseQuantity ?? 0m;
+                        if (initialCapacity > 0m && roundedMeasured > initialCapacity)
+                        {
+                            return Result.Failure(
+                                "inventory.container_measured_exceeds_initial",
+                                $"Measured quantity {roundedMeasured} cannot exceed initial container capacity {initialCapacity}.");
+                        }
+                        unitRemaining = roundedMeasured;
+                    }
+                    else
+                    {
+                        unitRemaining = unit.RemainingBaseQuantity ??
+                            await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                    }
+
+                    if (unitRemaining > 0m && unitRemaining < command.MinimumSellableIncrement)
+                    {
+                        shortRemnantAlerts.Add($"{unit.TrackingCode ?? unit.Id.ToString()}: {unitRemaining}m < {command.MinimumSellableIncrement}m");
+                    }
+                    item.CountedSellableQty += unitRemaining;
+                }
+
+                if (shortRemnantAlerts.Count > 0)
+                {
+                    var alertText = $"[Short remnant review: {string.Join(", ", shortRemnantAlerts)}]";
+                    effectiveReviewNote = string.IsNullOrWhiteSpace(effectiveReviewNote)
+                        ? alertText
+                        : $"{effectiveReviewNote} {alertText}";
+                }
             }
+
+            var roundedLoose = QuantityMath.RoundQuantity(command.SeparateLooseQuantity);
+            if (roundedLoose > 0m)
+            {
+                item.CountedSellableQty += roundedLoose;
+                if (effectiveReviewNote == null || !effectiveReviewNote.Contains("[Loose stock counted:"))
+                {
+                    var looseText = FormattableString.Invariant($"[Loose stock counted: {roundedLoose:0.######}]");
+                    effectiveReviewNote = string.IsNullOrWhiteSpace(effectiveReviewNote)
+                        ? looseText
+                        : $"{effectiveReviewNote} {looseText}";
+                }
+            }
+
             item.CountedBy = command.ActorId;
             item.CountedAt = _clock.UtcNow;
-            item.ReviewNote = command.ReviewNote?.Trim();
+            item.ReviewNote = effectiveReviewNote;
 
             await StocktakeOperationOutcome.CompleteAsync(command.ClientOperationId,
                 "Stocktake.SerializedCount", stocktake.Id, command.ActorId, payload, _outcomeLedger, ct);
@@ -724,6 +901,41 @@ public sealed class PostStocktakeHandler
                 "Client operation id is required.");
         }
 
+        if (_outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!IsPostStocktakeOperation(preOutcome.OperationType))
+                {
+                    return Result.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity already belongs to operation type '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (preOutcome.EntityId.HasValue && preOutcome.EntityId.Value != command.StocktakeId)
+                {
+                    return Result.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted for a different stocktake.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result.Failure(
+                        preOutcome.ErrorCode ?? "inventory.stocktake_failed",
+                        preOutcome.ErrorMessage ?? "Stocktake reconciliation previously failed.");
+                }
+            }
+        }
+
         string? payloadFingerprint = null;
 
         var result = await _transactions.ExecuteAsync(async ct =>
@@ -760,6 +972,20 @@ public sealed class PostStocktakeHandler
                 var existingOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
                 if (existingOutcome is not null)
                 {
+                    if (!IsPostStocktakeOperation(existingOutcome.OperationType))
+                    {
+                        return Result.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to operation type '{existingOutcome.OperationType}'.");
+                    }
+
+                    if (existingOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && existingOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
                     if (!string.IsNullOrEmpty(existingOutcome.PayloadFingerprint) &&
                         !string.Equals(existingOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal))
                     {
@@ -779,6 +1005,10 @@ public sealed class PostStocktakeHandler
                             existingOutcome.ErrorCode ?? "inventory.stocktake_failed",
                             existingOutcome.ErrorMessage ?? "Stocktake reconciliation previously failed.");
                     }
+
+                    return Result.Failure(
+                        "idempotency.outcome_unknown",
+                        "Stocktake reconciliation outcome is unresolved.");
                 }
             }
             else
@@ -788,6 +1018,19 @@ public sealed class PostStocktakeHandler
                 {
                     return Result.Success();
                 }
+            }
+
+            if (stocktake.Status == StocktakeStatus.Posted)
+            {
+                var existingMovement = await _inventory.GetMovementByCorrelationIdAsync(command.ClientOperationId, ct);
+                if (existingMovement is not null)
+                {
+                    return Result.Success();
+                }
+
+                return Result.Failure(
+                    "idempotency.outcome_unknown",
+                    "Stocktake is already posted, but matching operation outcome evidence was not found.");
             }
 
             if (stocktake.Status != StocktakeStatus.Review)
@@ -854,13 +1097,15 @@ public sealed class PostStocktakeHandler
                     continue;
                 }
 
+                var missingChecks = unitChecks
+                    .Where(x => x.Result == StocktakeUnitCheckResult.Missing)
+                    .ToArray();
+
                 if (variance < 0 &&
-                    product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                    (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece ||
+                     (product.TrackingMode == TrackingMode.Container && missingChecks.Length > 0)))
                 {
                     var removalQty = Math.Abs(variance);
-                    var missingChecks = unitChecks
-                        .Where(x => x.Result == StocktakeUnitCheckResult.Missing)
-                        .ToArray();
 
                     if (missingChecks.Any(x => x.InventoryUnitId is null) ||
                         missingChecks.Select(x => x.InventoryUnitId).Distinct().Count() != missingChecks.Length ||
@@ -1016,7 +1261,8 @@ public sealed class PostStocktakeHandler
             return Result.Success();
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -1030,6 +1276,11 @@ public sealed class PostStocktakeHandler
 
         return result;
     }
+
+    private static bool IsPostStocktakeOperation(string? operationType) =>
+        string.Equals(operationType, "Stocktake", StringComparison.Ordinal) ||
+        string.Equals(operationType, "Stocktake.Post", StringComparison.Ordinal) ||
+        string.Equals(operationType, "PostStocktake", StringComparison.Ordinal);
 }
 
 public sealed record CancelStocktakeCommand(Guid StocktakeId, Guid ActorId = default, Guid ClientOperationId = default);

@@ -1,14 +1,25 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Exceptions;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Sales;
+using EdgeRetails.Domain.SystemConfiguration;
+using EdgeRetails.Application.Production.Outbox;
+using EdgeRetails.Application.Production.Printing;
 
 namespace EdgeRetails.Application.Features.Sales;
+
+public sealed record PackAllocationDetails(
+    string? TrackingCode = null,
+    Guid? AllocatedContainerId = null,
+    decimal? RequestedCutLength = null);
 
 public sealed record CompleteSaleLineInput(
     Guid ProductId,
@@ -17,7 +28,10 @@ public sealed record CompleteSaleLineInput(
     decimal ExpectedUnitPrice,
     IReadOnlyList<Guid> InventoryUnitIds,
     decimal? PriceOverrideUnitPrice = null,
-    string? PriceOverrideReason = null);
+    string? PriceOverrideReason = null,
+    Guid? PreferredPackUnitId = null,
+    bool AllowSplitCuts = false,
+    PackAllocationDetails? PackAllocationDetails = null);
 
 public sealed record CompleteSaleCommand(
     Guid ClientOperationId,
@@ -29,7 +43,11 @@ public sealed record CompleteSaleCommand(
     decimal AmountTendered,
     string? PaymentReference,
     Guid? QuotationId,
-    IReadOnlyList<CompleteSaleLineInput> Lines)
+    IReadOnlyList<CompleteSaleLineInput> Lines,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null,
+    Guid? RegisteredTerminalId = null)
 {
     // Trusted application context: these properties are inaccessible to the public API binder.
     internal Guid? SourceDraftId { get; init; }
@@ -44,6 +62,62 @@ public sealed record CompleteSaleResult(
     decimal ChangeGiven,
     bool WasExisting);
 
+public static class CompleteSaleCanonicalPayload
+{
+    public static object CreateIntentProjection(CompleteSaleCommand command)
+    {
+        return new
+        {
+            command.CustomerId,
+            command.CashierUserId,
+            command.SessionId,
+            InvoiceDiscount = Math.Round(command.InvoiceDiscount, 2, MidpointRounding.AwayFromZero),
+            PaymentMethod = command.PaymentMethod.ToString(),
+            AmountTendered = Math.Round(command.AmountTendered, 2, MidpointRounding.AwayFromZero),
+            command.QuotationId,
+            PostingDate = command.PostingDate?.ToString("yyyy-MM-dd"),
+            SupervisorApproval = command.SupervisorApproval is null
+                ? null
+                : new
+                {
+                    command.SupervisorApproval.SupervisorId,
+                    Reason = command.SupervisorApproval.Reason?.Trim()
+                    // Explicitly EXCLUDE SupervisorPin and RequestedAtUtc per §22 / MON-P12W1-005
+                },
+            // Exclude PaymentReference per approved legacy concurrent retry rule (lines 1149-1152)
+            // Exclude CallerSuppliedBooleanOverride as transport flag
+            Lines = command.Lines.Select(line => new
+            {
+                line.ProductId,
+                line.ProductUnitId,
+                EnteredQuantity = line.EnteredQuantity,
+                ExpectedUnitPrice = Math.Round(line.ExpectedUnitPrice, 2, MidpointRounding.AwayFromZero),
+                InventoryUnitIds = line.InventoryUnitIds.OrderBy(id => id).ToList(), // Canonical sort for unordered sets per §22
+                PriceOverrideUnitPrice = line.PriceOverrideUnitPrice.HasValue
+                    ? Math.Round(line.PriceOverrideUnitPrice.Value, 2, MidpointRounding.AwayFromZero)
+                    : (decimal?)null,
+                PriceOverrideReason = line.PriceOverrideReason?.Trim(),
+                line.PreferredPackUnitId,
+                line.AllowSplitCuts,
+                PackAllocationDetails = line.PackAllocationDetails is null
+                    ? null
+                    : new
+                    {
+                        line.PackAllocationDetails.TrackingCode,
+                        line.PackAllocationDetails.AllocatedContainerId,
+                        line.PackAllocationDetails.RequestedCutLength
+                    }
+            }).ToList()
+        };
+    }
+
+    public static string ComputeFingerprint(CompleteSaleCommand command)
+    {
+        var projection = CreateIntentProjection(command);
+        return OperationPayloadFingerprint.ComputeVersionedFingerprint("Sale", projection, OperationPayloadFingerprint.DefaultVersion);
+    }
+}
+
 internal sealed record PreparedSaleLine(
     CompleteSaleLineInput Input,
     Product Product,
@@ -54,7 +128,8 @@ internal sealed record PreparedSaleLine(
     string? PriceOverrideReason,
     Guid? PriceOverrideBy,
     decimal GrossLineTotal,
-    IReadOnlyList<InventoryUnit> SerializedUnits);
+    IReadOnlyList<InventoryUnit> SerializedUnits,
+    PackAllocationResult? PackAllocation = null);
 
 public sealed class CompleteSaleHandler
 {
@@ -75,6 +150,9 @@ public sealed class CompleteSaleHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly IPackSubLedgerAllocationAuthority _packAllocations;
+    private readonly IShopPostingValidationService? _postingValidation;
+    private readonly IOutboxWriter? _outboxWriter;
 
     public CompleteSaleHandler(
         ISalesRepository sales,
@@ -93,7 +171,10 @@ public sealed class CompleteSaleHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPackSubLedgerAllocationAuthority? packAllocations = null,
+        IShopPostingValidationService? postingValidation = null,
+        IOutboxWriter? outboxWriter = null)
     {
         _sales = sales;
         _quotations = quotations;
@@ -112,6 +193,9 @@ public sealed class CompleteSaleHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _packAllocations = packAllocations ?? new PackSubLedgerAllocationAuthority();
+        _postingValidation = postingValidation;
+        _outboxWriter = outboxWriter;
     }
 
     public async Task<Result<CompleteSaleResult>> HandleAsync(
@@ -139,11 +223,26 @@ public sealed class CompleteSaleHandler
         {
             return Result<CompleteSaleResult>.Failure("sales.draft_replay_authority_required", "Draft completion requires canonical outcome authority.");
         }
+        var canonicalSaleFingerprint = command.ClientOperationId != Guid.Empty
+            ? CompleteSaleCanonicalPayload.ComputeFingerprint(command)
+            : null;
+        var effectiveFingerprint = draftFingerprint ?? canonicalSaleFingerprint;
         var ownsDraftOutcome = false;
         var bindingRejected = false;
 
-        if (command.Lines.GroupBy(x => new { x.ProductId, x.ProductUnitId })
-            .Any(g => g.Count() > 1))
+        var allInventoryUnits = command.Lines.SelectMany(x => x.InventoryUnitIds).ToList();
+        if (allInventoryUnits.Count != allInventoryUnits.Distinct().Count())
+        {
+            return Result<CompleteSaleResult>.Failure(
+                "sales.serial_selected_twice",
+                "A serialized unit cannot be selected twice in one sale.");
+        }
+
+        var hasDuplicateCommodityLine = command.Lines
+            .GroupBy(x => new { x.ProductId, x.ProductUnitId })
+            .Any(g => g.Count() > 1 && g.Any(x => x.InventoryUnitIds.Count == 0));
+
+        if (hasDuplicateCommodityLine)
         {
             return Result<CompleteSaleResult>.Failure(
                 "sales.duplicate_line",
@@ -158,6 +257,7 @@ public sealed class CompleteSaleHandler
                 ct);
             if (!authorization.IsSuccess)
             {
+                bindingRejected = true;
                 return Result<CompleteSaleResult>.Failure(
                     authorization.Error!.Code,
                     authorization.Error.Message);
@@ -165,13 +265,11 @@ public sealed class CompleteSaleHandler
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
 
-            var existing = await _sales.GetSaleByClientOperationIdAsync(
-                command.ClientOperationId,
-                ct);
             var outcome = _outcomeLedger is null ? null : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
             var existingDraftBinding = outcome?.PayloadFingerprint?.StartsWith("PosDraft:v1:", StringComparison.Ordinal) == true;
             if (draftFingerprint is not null || existingDraftBinding)
             {
+                var existingForDraft = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct);
                 if (outcome is not null)
                 {
                     if (draftFingerprint is null || outcome.OperationType != "Sale" ||
@@ -181,14 +279,28 @@ public sealed class CompleteSaleHandler
                         return Result<CompleteSaleResult>.Failure("idempotency.payload_mismatch", "Operation belongs to another draft completion intent.");
                     }
                     if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted ||
-                        existing is null || outcome.EntityId != existing.Id)
+                        existingForDraft is null || outcome.EntityId != existingForDraft.Id)
                     {
                         bindingRejected = true;
                         return Result<CompleteSaleResult>.Failure(outcome.ErrorCode ?? "idempotency.outcome_unknown",
                             outcome.ErrorMessage ?? "Reconcile the previous draft sale outcome.");
                     }
+
+                    if (!await MatchesExistingSalePayloadAsync(existingForDraft, command, ct))
+                    {
+                        bindingRejected = true;
+                        return Result<CompleteSaleResult>.Failure("idempotency.payload_mismatch", "Operation was previously submitted with different sale details.");
+                    }
+
+                    var payment = await _sales.GetSalePaymentAsync(existingForDraft.Id, ct);
+                    return Result<CompleteSaleResult>.Success(new(
+                        existingForDraft.Id,
+                        existingForDraft.InvoiceNumber,
+                        existingForDraft.GrandTotal,
+                        payment?.ChangeGiven ?? 0m,
+                        true));
                 }
-                else if (existing is not null)
+                else if (existingForDraft is not null)
                 {
                     bindingRejected = true;
                     return Result<CompleteSaleResult>.Failure("idempotency.legacy_draft_requires_reconciliation", "Existing sale has no canonical draft binding.");
@@ -204,35 +316,123 @@ public sealed class CompleteSaleHandler
                     ownsDraftOutcome = true;
                 }
             }
-            if (existing is not null)
-            {
-                if (!await MatchesExistingSalePayloadAsync(existing, command, ct))
-                {
-                    return Result<CompleteSaleResult>.Failure(
-                        "idempotency.payload_mismatch",
-                        "Operation was previously submitted with different sale details.");
-                }
 
-                if (_outcomeLedger is not null && draftFingerprint is null && !existingDraftBinding)
+            // Area 12D / MON-P12W1-007: Outcome ledger claim & replay evaluation BEFORE mutable current-state evaluation
+            if (draftFingerprint is null && !existingDraftBinding && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty && effectiveFingerprint is not null)
+            {
+                try
                 {
-                    await _outcomeLedger.RecordSuccessAsync(
+                    var claim = await _outcomeLedger.ClaimAsync(
                         command.ClientOperationId,
                         "Sale",
+                        effectiveFingerprint,
+                        actorId: command.CashierUserId,
+                        terminalId: command.RegisteredTerminalId,
+                        sessionId: command.SessionId,
+                        cancellationToken: ct);
+
+                    if (claim.Status == OperationClaimStatus.AlreadySucceeded)
+                    {
+                        // 1. Authoritative durable response payload replay
+                        if (!string.IsNullOrEmpty(claim.Outcome?.ResponsePayload))
+                        {
+                            try
+                            {
+                                var cached = System.Text.Json.JsonSerializer.Deserialize<CompleteSaleResult>(claim.Outcome.ResponsePayload);
+                                if (cached is not null && cached.SaleId != Guid.Empty && !string.IsNullOrEmpty(cached.InvoiceNumber))
+                                {
+                                    return Result<CompleteSaleResult>.Success(cached with { WasExisting = true });
+                                }
+
+                                return Result<CompleteSaleResult>.Failure(
+                                    "idempotency.outcome_corrupted",
+                                    "The operation was recorded as succeeded, but the cached response payload is corrupted.");
+                            }
+                            catch
+                            {
+                                return Result<CompleteSaleResult>.Failure(
+                                    "idempotency.outcome_corrupted",
+                                    "The operation was recorded as succeeded, but the cached response payload is corrupted.");
+                            }
+                        }
+
+                        // 2. Legacy fallback if ResponsePayload was not cached (e.g. pre-Phase-12 record)
+                        var existingSale = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct);
+                        if (existingSale is not null)
+                        {
+                            var payment = await _sales.GetSalePaymentAsync(existingSale.Id, ct);
+                            return Result<CompleteSaleResult>.Success(new CompleteSaleResult(
+                                existingSale.Id,
+                                existingSale.InvoiceNumber,
+                                existingSale.GrandTotal,
+                                payment?.ChangeGiven ?? 0m,
+                                true));
+                        }
+
+                        // 3. MON-P12W1-007: Fail closed on corrupt/missing outcome; NEVER fall through to mutate a second sale!
+                        return Result<CompleteSaleResult>.Failure(
+                            "idempotency.outcome_corrupted",
+                            "Operation was recorded as succeeded but the resulting sale could not be recovered.");
+                    }
+
+                    if (claim.Status == OperationClaimStatus.AlreadyFailed)
+                    {
+                        return Result<CompleteSaleResult>.Failure(
+                            claim.ErrorCode ?? "sale.already_failed",
+                            claim.ErrorMessage ?? "The operation previously failed.");
+                    }
+
+                    if (claim.Status == OperationClaimStatus.InFlight)
+                    {
+                        return Result<CompleteSaleResult>.Failure(
+                            "idempotency.operation_in_flight",
+                            "Operation is currently in flight.");
+                    }
+                }
+                catch (IdempotencyPayloadMismatchException)
+                {
+                    bindingRejected = true;
+                    return Result<CompleteSaleResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "The operation payload does not match the original submission for this operation ID.");
+                }
+                catch (IdempotencyOperationTypeMismatchException)
+                {
+                    bindingRejected = true;
+                    return Result<CompleteSaleResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        "The operation type does not match the original submission for this operation ID.");
+                }
+                catch (IdempotencyContextMismatchException ex)
+                {
+                    bindingRejected = true;
+                    return Result<CompleteSaleResult>.Failure(
+                        "idempotency.context_mismatch",
+                        ex.Message);
+                }
+            }
+
+            // Fallback for tests or environments running without an outcome ledger
+            if (_outcomeLedger is null && command.ClientOperationId != Guid.Empty)
+            {
+                var existing = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct);
+                if (existing is not null)
+                {
+                    if (!await MatchesExistingSalePayloadAsync(existing, command, ct))
+                    {
+                        return Result<CompleteSaleResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different sale details.");
+                    }
+
+                    var payment = await _sales.GetSalePaymentAsync(existing.Id, ct);
+                    return Result<CompleteSaleResult>.Success(new CompleteSaleResult(
                         existing.Id,
                         existing.InvoiceNumber,
-                        actorId: command.CashierUserId,
-                        sessionId: command.SessionId,
-                        payloadFingerprint: draftFingerprint,
-                        cancellationToken: ct);
+                        existing.GrandTotal,
+                        payment?.ChangeGiven ?? 0m,
+                        true));
                 }
-
-                var payment = await _sales.GetSalePaymentAsync(existing.Id, ct);
-                return Result<CompleteSaleResult>.Success(new(
-                    existing.Id,
-                    existing.InvoiceNumber,
-                    existing.GrandTotal,
-                    payment?.ChangeGiven ?? 0m,
-                    true));
             }
 
             foreach (var productId in command.Lines
@@ -436,10 +636,18 @@ public sealed class CompleteSaleHandler
                     _inventory.AddMovement(movement);
 
                     decimal totalCost;
-                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
                     {
                         totalCost = await ConsumeSerializedAsync(
                             line,
+                            movement,
+                            ct);
+                    }
+                    else if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
+                    {
+                        totalCost = await ConsumePackAllocationAsync(
+                            line,
+                            line.PackAllocation,
                             movement,
                             ct);
                     }
@@ -507,15 +715,36 @@ public sealed class CompleteSaleHandler
                     };
                     _sales.AddSaleItem(saleItem);
 
-                    foreach (var unit in line.SerializedUnits)
+                    if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
                     {
-                        _sales.AddSaleItemUnit(new SaleItemUnit
+                        foreach (var alloc in line.PackAllocation.Allocations)
                         {
-                            SaleItemId = saleItem.Id,
-                            InventoryUnitId = unit.Id,
-                            UnitCostSnapshot = unit.AcquisitionCost,
-                            WarrantyValidUntil = saleItem.WarrantyValidUntil
-                        });
+                            alloc.MovementId = movement.Id;
+                            alloc.SaleItemId = saleItem.Id;
+                            alloc.ValidateInvariants();
+                            _inventory.AddPackAllocation(alloc);
+
+                            _sales.AddSaleItemUnit(new SaleItemUnit
+                            {
+                                SaleItemId = saleItem.Id,
+                                InventoryUnitId = alloc.PackUnitId,
+                                UnitCostSnapshot = alloc.TotalCostSnapshot,
+                                WarrantyValidUntil = saleItem.WarrantyValidUntil
+                            });
+                        }
+                    }
+                    else
+                    {
+                        foreach (var unit in line.SerializedUnits)
+                        {
+                            _sales.AddSaleItemUnit(new SaleItemUnit
+                            {
+                                SaleItemId = saleItem.Id,
+                                InventoryUnitId = unit.Id,
+                                UnitCostSnapshot = unit.AcquisitionCost,
+                                WarrantyValidUntil = saleItem.WarrantyValidUntil
+                            });
+                        }
                     }
                 }
 
@@ -577,27 +806,76 @@ public sealed class CompleteSaleHandler
                     command.ClientOperationId,
                     $"Invoice {sale.InvoiceNumber}; total {sale.GrandTotal:0.00}; payment {command.PaymentMethod}.");
 
-                if (_outcomeLedger is not null)
-                {
-                    await _outcomeLedger.RecordSuccessAsync(
-                        command.ClientOperationId,
-                        "Sale",
-                        sale.Id,
-                        sale.InvoiceNumber,
-                        actorId: command.CashierUserId,
-                        sessionId: command.SessionId,
-                        payloadFingerprint: draftFingerprint,
-                        cancellationToken: ct);
-                }
-
-                await _unitOfWork.SaveChangesAsync(ct);
-
-                return Result<CompleteSaleResult>.Success(new(
+                var saleResult = new CompleteSaleResult(
                     sale.Id,
                     sale.InvoiceNumber,
                     sale.GrandTotal,
                     change,
-                    false));
+                    false);
+
+                if (_outcomeLedger is not null)
+                {
+                    var responseJson = System.Text.Json.JsonSerializer.Serialize(saleResult);
+                    await _outcomeLedger.RecordSuccessWithResponseAsync(
+                        command.ClientOperationId,
+                        "Sale",
+                        sale.Id,
+                        responsePayload: responseJson,
+                        responseStatusCode: 200,
+                        responseContentType: "application/json",
+                        documentNumber: sale.InvoiceNumber,
+                        actorId: command.CashierUserId,
+                        terminalId: command.RegisteredTerminalId,
+                        sessionId: command.SessionId,
+                        payloadFingerprint: effectiveFingerprint,
+                        cancellationToken: ct);
+                }
+
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? _clock.ShopDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.Sale,
+                        EntityId: sale.Id,
+                        EntityNumber: sale.InvoiceNumber,
+                        ActorId: command.CashierUserId,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: null,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<CompleteSaleResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
+                }
+
+                if (_outboxWriter is not null)
+                {
+                    _outboxWriter.Enqueue(new OutboxMessage
+                    {
+                        Id = Guid.NewGuid(),
+                        EffectType = PrintOutboxEffectHandler.TypeName,
+                        SourceType = "Sale",
+                        SourceId = sale.Id.ToString("D"),
+                        PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PrintOutboxPayload(
+                            ProductionDocumentKind.PosSaleReceipt,
+                            sale.Id,
+                            "DefaultReceipt",
+                            IsReprint: false,
+                            CorrelationId: command.ClientOperationId.ToString("D"))),
+                        IdempotencyKey = "print-sale-" + command.ClientOperationId.ToString("N"),
+                        Status = OutboxMessageStatus.Pending,
+                        AttemptCount = 0,
+                        CreatedAt = _clock.UtcNow
+                    });
+                }
+
+                await _unitOfWork.SaveChangesAsync(ct);
+
+                return Result<CompleteSaleResult>.Success(saleResult);
             }
             catch (BusinessRuleException ex)
             {
@@ -619,6 +897,7 @@ public sealed class CompleteSaleHandler
                         {
                             await _outcomeLedger.RecordFailureAsync(command.ClientOperationId, "Sale",
                                 result.Error!.Code, result.Error.Message, actorId: command.CashierUserId,
+                                terminalId: command.RegisteredTerminalId,
                                 sessionId: command.SessionId, payloadFingerprint: draftFingerprint, cancellationToken: ct);
                         }
                         return true;
@@ -632,7 +911,9 @@ public sealed class CompleteSaleHandler
                 result.Error?.Code ?? "sale.failed",
                 result.Error?.Message ?? "Sale completion failed.",
                 actorId: command.CashierUserId,
+                terminalId: command.RegisteredTerminalId,
                 sessionId: command.SessionId,
+                payloadFingerprint: effectiveFingerprint,
                 cancellationToken: cancellationToken);
         }
 
@@ -757,9 +1038,11 @@ public sealed class CompleteSaleHandler
             }
 
             IReadOnlyList<InventoryUnit> serializedUnits = Array.Empty<InventoryUnit>();
-            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+            PackAllocationResult? packAllocationResult = null;
+
+            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
             {
-                var physicalCount = product.TrackingMode == TrackingMode.Container ? quantity.EnteredQuantity : quantity.BaseQuantity;
+                var physicalCount = quantity.BaseQuantity;
                 if (!QuantityMath.IsWhole(physicalCount) ||
                     input.InventoryUnitIds.Count != decimal.ToInt32(physicalCount))
                 {
@@ -793,16 +1076,107 @@ public sealed class CompleteSaleHandler
                 }
 
                 serializedUnits = units.OrderBy(x => x.Id).ToArray();
-                if (product.TrackingMode == TrackingMode.Container)
+            }
+            else if (product.TrackingMode == TrackingMode.Container)
+            {
+                var isCable = product.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase) ||
+                              product.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) ||
+                              product.AttributesJson?.Contains("Length", StringComparison.OrdinalIgnoreCase) == true;
+
+                if (!isCable && !QuantityMath.IsWhole(quantity.BaseQuantity))
                 {
-                    foreach (var unit in serializedUnits)
+                    throw new BusinessRuleException(
+                        "sales.pack_fractional_count_prohibited",
+                        $"Fractional unit quantity '{quantity.BaseQuantity}' is not permitted for count-based pack product '{product.Name}'.");
+                }
+
+                var isStrictPack = product.AttributesJson?.Contains("\"strict_pack\": true", StringComparison.OrdinalIgnoreCase) == true ||
+                                   product.AttributesJson?.Contains("\"AllowLooseSale\": false", StringComparison.OrdinalIgnoreCase) == true;
+
+                if (isStrictPack && input.InventoryUnitIds.Count == 0 && input.PreferredPackUnitId is null && input.PackAllocationDetails is null)
+                {
+                    throw new BusinessRuleException(
+                        "sales.pack_tracking_required",
+                        $"Product '{product.Name}' strictly enforces pack tracking; container allocation details are required.");
+                }
+
+                IReadOnlyList<InventoryUnit> eligibleUnits;
+                if (input.InventoryUnitIds.Count > 0)
+                {
+                    foreach (var id in input.InventoryUnitIds)
                     {
-                        var receivedBase = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
-                        if (receivedBase != quantity.BaseQuantity / serializedUnits.Count)
-                            throw new BusinessRuleException("sales.container_quantity_mismatch",
-                                "Selected sale unit does not match the original physical pack quantity.");
+                        if (!selectedSerializedIds.Add(id))
+                        {
+                            throw new BusinessRuleException(
+                                "sales.serial_selected_twice",
+                                "A pack unit cannot be selected twice in one sale.");
+                        }
+                    }
+
+                    eligibleUnits = await _inventory.GetInventoryUnitsForUpdateAsync(
+                        product.Id,
+                        input.InventoryUnitIds,
+                        ct);
+
+                    if (eligibleUnits.Count != input.InventoryUnitIds.Count ||
+                        eligibleUnits.Any(x => x.Status != InventoryUnitStatus.InStock || x.InventoryLotId is null))
+                    {
+                        throw new BusinessRuleException(
+                            "sales.serial_not_sellable",
+                            $"One or more pack units for '{product.Name}' are not sellable.");
+                    }
+
+                    if (!isCable && input.PackAllocationDetails is null)
+                    {
+                        foreach (var u in eligibleUnits)
+                        {
+                            var unitQty = u.RemainingBaseQuantity ?? u.InitialBaseQuantity ?? await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(u, ct);
+                            if (unitQty > 0m && unitQty != quantity.BaseQuantity / eligibleUnits.Count)
+                            {
+                                throw new BusinessRuleException(
+                                    "sales.container_quantity_mismatch",
+                                    "Selected sale unit does not match the original physical pack quantity.");
+                            }
+                        }
                     }
                 }
+                else
+                {
+                    eligibleUnits = await _inventory.GetSellableInventoryUnitsAsync(product.Id, ct);
+                }
+
+                var preferredUnitId = input.PreferredPackUnitId
+                    ?? input.PackAllocationDetails?.AllocatedContainerId
+                    ?? (input.InventoryUnitIds.Count == 1 ? input.InventoryUnitIds[0] : null);
+
+                if (preferredUnitId is null && !string.IsNullOrWhiteSpace(input.PackAllocationDetails?.TrackingCode))
+                {
+                    var matchedByCode = eligibleUnits.FirstOrDefault(u =>
+                        string.Equals(u.TrackingCode, input.PackAllocationDetails.TrackingCode.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (matchedByCode is not null)
+                    {
+                        preferredUnitId = matchedByCode.Id;
+                    }
+                }
+
+                var allocRequest = new PackAllocationRequest(
+                    ProductId: product.Id,
+                    RequestedBaseQuantity: quantity.BaseQuantity,
+                    MovementId: Guid.Empty,
+                    OperationType: PackAllocationOperationTypes.Sale,
+                    ActorId: cashierUserId,
+                    OccurredAt: _clock.UtcNow,
+                    PreferredPackUnitId: preferredUnitId,
+                    AllowSplitCuts: input.AllowSplitCuts,
+                    IsCableOrLengthProduct: isCable,
+                    MinimumCutIncrement: 1m);
+
+                packAllocationResult = _packAllocations.Allocate(eligibleUnits, allocRequest);
+                serializedUnits = packAllocationResult.Allocations
+                    .Select(a => eligibleUnits.First(u => u.Id == a.PackUnitId))
+                    .Distinct()
+                    .OrderBy(u => u.Id)
+                    .ToArray();
             }
             else if (input.InventoryUnitIds.Count > 0)
             {
@@ -813,13 +1187,17 @@ public sealed class CompleteSaleHandler
 
             if (input.PriceOverrideUnitPrice is not null)
             {
-                var belowCurrentCost = product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container
+                var belowCurrentCost = product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece
                     ? serializedUnits.Any(unit => finalUnitPrice < Money(unit.AcquisitionCost))
-                    : await IsBelowCurrentCostAsync(
-                        product.Id,
-                        productUnit.FactorToBaseUnit,
-                        finalUnitPrice,
-                        ct);
+                    : product.TrackingMode == TrackingMode.Container
+                        ? (packAllocationResult is not null
+                            ? (finalUnitPrice < Money(packAllocationResult.TotalCostDerecognized / quantity.EnteredQuantity))
+                            : await IsBelowCurrentCostAsync(product.Id, productUnit.FactorToBaseUnit, finalUnitPrice, ct))
+                        : await IsBelowCurrentCostAsync(
+                            product.Id,
+                            productUnit.FactorToBaseUnit,
+                            finalUnitPrice,
+                            ct);
                 if (belowCurrentCost)
                 {
                     var belowCostPermission = await _authorization.AuthorizeAsync(
@@ -845,7 +1223,8 @@ public sealed class CompleteSaleHandler
                 overrideReason,
                 overrideBy,
                 Money(quantity.EnteredQuantity * finalUnitPrice),
-                serializedUnits));
+                serializedUnits,
+                packAllocationResult));
         }
 
         return result;
@@ -887,23 +1266,42 @@ public sealed class CompleteSaleHandler
         // reference stored by the winning request rather than turning the replay into a second
         // payment or rejecting an otherwise identical sale.
 
-        var persistedItems = (await _sales.GetSaleItemsAsync(sale.Id, cancellationToken))
+        var persistedItems = (await _sales.GetSaleItemsAsync(sale.Id, cancellationToken)).ToArray();
+        var persistedUnitsMap = new Dictionary<Guid, Guid[]>();
+        foreach (var item in persistedItems)
+        {
+            var units = (await _sales.GetSaleItemUnitsAsync(item.Id, cancellationToken))
+                .Select(x => x.InventoryUnitId)
+                .OrderBy(x => x)
+                .ToArray();
+            persistedUnitsMap[item.Id] = units;
+        }
+
+        var sortedPersisted = persistedItems
             .OrderBy(x => x.ProductId)
             .ThenBy(x => x.ProductUnitId)
+            .ThenBy(x => x.UnitPrice)
+            .ThenBy(x => x.EnteredQuantity)
+            .ThenBy(x => persistedUnitsMap[x.Id].FirstOrDefault())
             .ToArray();
-        var requestedItems = command.Lines
+
+        var sortedRequested = command.Lines
             .OrderBy(x => x.ProductId)
             .ThenBy(x => x.ProductUnitId)
+            .ThenBy(x => x.PriceOverrideUnitPrice is decimal overridePrice ? Money(overridePrice) : Money(x.ExpectedUnitPrice))
+            .ThenBy(x => x.EnteredQuantity)
+            .ThenBy(x => x.InventoryUnitIds.OrderBy(id => id).FirstOrDefault())
             .ToArray();
-        if (persistedItems.Length != requestedItems.Length)
+
+        if (sortedPersisted.Length != sortedRequested.Length)
         {
             return false;
         }
 
-        for (var index = 0; index < persistedItems.Length; index++)
+        for (var index = 0; index < sortedPersisted.Length; index++)
         {
-            var persisted = persistedItems[index];
-            var requested = requestedItems[index];
+            var persisted = sortedPersisted[index];
+            var requested = sortedRequested[index];
             var requestedReason = requested.PriceOverrideUnitPrice is null
                 ? null
                 : requested.PriceOverrideReason?.Trim();
@@ -922,10 +1320,7 @@ public sealed class CompleteSaleHandler
                 return false;
             }
 
-            var selectedUnitIds = (await _sales.GetSaleItemUnitsAsync(persisted.Id, cancellationToken))
-                .Select(x => x.InventoryUnitId)
-                .OrderBy(x => x)
-                .ToArray();
+            var selectedUnitIds = persistedUnitsMap[persisted.Id];
             var requestedUnitIds = requested.InventoryUnitIds.OrderBy(x => x).ToArray();
             if (!selectedUnitIds.SequenceEqual(requestedUnitIds))
             {
@@ -988,6 +1383,72 @@ public sealed class CompleteSaleHandler
                 MovementId = movement.Id,
                 InventoryUnitId = unit.Id,
                 FromStatus = from,
+                ToStatus = unit.Status
+            });
+        }
+
+        return Cost(totalCost);
+    }
+
+    private async Task<decimal> ConsumePackAllocationAsync(
+        PreparedSaleLine line,
+        PackAllocationResult packAllocResult,
+        InventoryMovement movement,
+        CancellationToken ct)
+    {
+        decimal totalCost = 0m;
+
+        foreach (var alloc in packAllocResult.Allocations)
+        {
+            var unit = line.SerializedUnits.First(u => u.Id == alloc.PackUnitId);
+            var lotId = unit.InventoryLotId ?? alloc.LotId;
+
+            var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
+                lotId,
+                InventoryBucket.Sellable,
+                ct)
+                ?? throw new BusinessRuleException(
+                    "sales.serial_lot_missing",
+                    "Pack inventory lot was not found.");
+
+            if (lotBalance.Quantity < alloc.AllocatedBaseQuantity)
+            {
+                throw new BusinessRuleException(
+                    "sales.serial_lot_insufficient",
+                    "Pack inventory lot is no longer sellable.");
+            }
+
+            lotBalance.Quantity = QuantityMath.RoundQuantity(
+                lotBalance.Quantity - alloc.AllocatedBaseQuantity);
+
+            _inventory.AddLotConsumption(new InventoryLotConsumption
+            {
+                LotId = lotId,
+                MovementId = movement.Id,
+                Quantity = alloc.AllocatedBaseQuantity,
+                UnitCostSnapshot = alloc.UnitCostSnapshot,
+                TotalCostSnapshot = alloc.TotalCostSnapshot,
+                OccurredAt = _clock.UtcNow
+            });
+
+            totalCost += await _costs.RemoveCarryingValueAsync(
+                line.Product.Id,
+                alloc.AllocatedBaseQuantity,
+                alloc.UnitCostSnapshot,
+                ct);
+
+            var fromStatus = unit.Status;
+            if (alloc.PackStateAfter == PackState.Consumed)
+            {
+                unit.Status = InventoryUnitStatus.Sold;
+            }
+            unit.Version++;
+
+            _inventory.AddMovementUnit(new InventoryMovementUnit
+            {
+                MovementId = movement.Id,
+                InventoryUnitId = unit.Id,
+                FromStatus = fromStatus,
                 ToStatus = unit.Status
             });
         }

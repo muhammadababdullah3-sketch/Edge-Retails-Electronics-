@@ -18,6 +18,7 @@ using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
 using EdgeRetails.Infrastructure.Persistence;
+using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -76,10 +77,8 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
         return session.OpeningCash + movements.Sum(x => x.SignedAmount);
     }
 
-    private sealed class ScenarioClock(DateTimeOffset utcNow) : IClock
+    private sealed class ScenarioClock(DateTimeOffset utcNow) : ShopClock(ResolveShopTimeZone(), () => utcNow)
     {
-        public DateTimeOffset UtcNow => utcNow;
-        public DateOnly ShopDate => DateOnly.FromDateTime(utcNow.UtcDateTime);
     }
 
     private static async Task AssertGoldenEndpointAsync(
@@ -115,7 +114,8 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
     [Fact]
     public async Task GoldenScenarioA_SerializedFullLifecycle_IntakeSaleReturnExchangeWarrantyTerminalSale()
     {
-        var clock = new ScenarioClock(new DateTimeOffset(2035, 1, 10, 10, 0, 0, TimeSpan.Zero));
+        var scenarioDate = await Phase2PostgresTestHarness.ResolveIsolatedScenarioDateAsync(2035, 1, 10);
+        var clock = new ScenarioClock(scenarioDate);
         await using var provider = Phase2PostgresTestHarness.BuildProvider(clock);
         await using var scope = provider.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -141,9 +141,10 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
             return await db.InventoryUnits.SingleAsync(x => x.ProductId == seed.ProductId && !prior.Contains(x.Id));
         }
 
-        var unit1 = await ReceiveUnitAsync(3000m, "SN-GA-1");
-        var unit2 = await ReceiveUnitAsync(3200m, "SN-GA-2");
-        var unit3 = await ReceiveUnitAsync(3400m, "SN-GA-3");
+        var gaSuffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var unit1 = await ReceiveUnitAsync(3000m, $"SN-GA-1-{gaSuffix}");
+        var unit2 = await ReceiveUnitAsync(3200m, $"SN-GA-2-{gaSuffix}");
+        var unit3 = await ReceiveUnitAsync(3400m, $"SN-GA-3-{gaSuffix}");
 
         var costState1 = await db.ProductCostStates.AsNoTracking().SingleAsync(x => x.ProductId == seed.ProductId);
         Assert.Equal(3m, costState1.CostedQty);
@@ -273,7 +274,8 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
     [Fact]
     public async Task GoldenScenarioB_PurchaseExpenseVoidPurchaseReturnSupplierRefund_ReconcilesOneChain()
     {
-        var clock = new ScenarioClock(new DateTimeOffset(2035, 1, 11, 10, 0, 0, TimeSpan.Zero));
+        var scenarioDate = await Phase2PostgresTestHarness.ResolveIsolatedScenarioDateAsync(2035, 1, 11);
+        var clock = new ScenarioClock(scenarioDate);
         await using var provider = Phase2PostgresTestHarness.BuildProvider(clock);
         await using var scope = provider.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -299,7 +301,7 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
         db.ExpenseCategories.Add(category);
         await db.SaveChangesAsync();
         var expense = await services.GetRequiredService<PostExpenseHandler>().HandleAsync(new PostExpenseCommand(
-            Guid.NewGuid(), category.Id, null, DateOnly.FromDateTime(DateTime.UtcNow), 60m,
+            Guid.NewGuid(), category.Id, null, clock.ShopDate, 60m,
             ExpensePaymentMethod.Cash, "Receiving delivery expense", "GOLDEN-B", seed.ActorId), default);
         Assert.True(expense.IsSuccess, expense.Error?.Message);
         db.ChangeTracker.Clear();
@@ -347,7 +349,8 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
     [Fact]
     public async Task GoldenScenarioC_TrackedSaleCustomerWarrantyReplacementHandover_ReconcilesOneChain()
     {
-        var clock = new ScenarioClock(new DateTimeOffset(2035, 1, 12, 10, 0, 0, TimeSpan.Zero));
+        var scenarioDate = await Phase2PostgresTestHarness.ResolveIsolatedScenarioDateAsync(2035, 1, 12);
+        var clock = new ScenarioClock(scenarioDate);
         await using var provider = Phase2PostgresTestHarness.BuildProvider(clock);
         await using var scope = provider.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -420,7 +423,8 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
     [InlineData(TrackingMode.Length)]
     public async Task GoldenScenarioD_MixedSuppliersLaterMwaCreditScrapRepair_ReconcilesOneChain(TrackingMode mode)
     {
-        var clock = new ScenarioClock(new DateTimeOffset(2035, mode == TrackingMode.Length ? 2 : 3, 15, 10, 0, 0, TimeSpan.Zero));
+        var scenarioDate = await Phase2PostgresTestHarness.ResolveIsolatedScenarioDateAsync(2035, mode == TrackingMode.Length ? 2 : 3, 15);
+        var clock = new ScenarioClock(scenarioDate);
         await using var provider = Phase2PostgresTestHarness.BuildProvider(clock);
         await using var scope = provider.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -670,11 +674,13 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
 
         // 1. INTAKE:
         // Receive 2 serialized units of P1 on credit (InitialPaymentAmount = 0m, payable = 2000m)
+        var mix1 = "MIX-PHONE-1-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var mix2 = "MIX-PHONE-2-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
         var purchaseP1 = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
             p1.SupplierId, "P5-MIX-P1-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
             PurchaseSettlementMode.External, p1.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(p1.ProductId, p1.ProductUnitId, 2m, 1000m, 1500m,
-                [new SerializedIdentityInput("MIX-PHONE-1"), new SerializedIdentityInput("MIX-PHONE-2")])],
+                [new SerializedIdentityInput(mix1), new SerializedIdentityInput(mix2)])],
             InitialPaymentAmount: 0m), default);
         Assert.True(purchaseP1.IsSuccess, purchaseP1.Error?.Message);
 
@@ -745,7 +751,7 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
         // 5. MANUAL CASH OUT:
         // Store manager pays 200m cash for office cleaning supplies
         var manualCash = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, p1.ActorId, "Office supplies purchase", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, p1.ActorId, "Office supplies purchase", null, Guid.NewGuid()), default);
         Assert.True(manualCash.IsSuccess, manualCash.Error?.Message);
         db.ChangeTracker.Clear();
 
@@ -811,8 +817,9 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
             return await db.InventoryUnits.SingleAsync(x => x.ProductId == seed.ProductId && !prior.Contains(x.Id));
         }
 
-        var unit1 = await ReceiveUnitAsync("SN-GD-1");
-        var unit2 = await ReceiveUnitAsync("SN-GD-2");
+        var gdSuffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var unit1 = await ReceiveUnitAsync($"SN-GD-1-{gdSuffix}");
+        var unit2 = await ReceiveUnitAsync($"SN-GD-2-{gdSuffix}");
 
         // 2. SHORTAGE -> MISSING: Adjust Unit 1 as Lost/Missing
         var missingOperationId = Guid.NewGuid();
@@ -897,7 +904,7 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
 
         // Attempt manual cash movement with negative amount
         var negativeCash = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.In, -100m, seed.ActorId, "Invalid negative cash", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.In, -100m, seed.ActorId, "Invalid negative cash", null, Guid.NewGuid()), default);
         Assert.False(negativeCash.IsSuccess);
     }
 }

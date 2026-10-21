@@ -11,8 +11,8 @@
                         <TextBlock Text="{Binding RequirementDisplay}" Margin="0,4,0,0" FontSize="12.5"
                                    Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap" />
                     </StackPanel>
-                    <Button Content="✕" HorizontalAlignment="Right" Command="{Binding CancelCommand}"
-                            Style="{StaticResource Button.Text.Neutral}"
+                    <Button HorizontalAlignment="Right" Command="{Binding CancelCommand}"
+                            Style="{StaticResource Button.Close}"
                             IsCancel="True" />
                 </Grid>
                 <TextBlock Text="{Binding ValidationMessage}" Margin="0,10,0,0"

@@ -829,7 +829,8 @@ public sealed class CustomLanServerWebApplicationFactory : WebApplicationFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=127.0.0.1;Port=5432;Database=edge_retails_test;Username=test");
+        var testDb = Phase2PostgresTestHarness.ResolveConnectionString();
+        builder.UseSetting("EDGE_RETAILS_TEST_DB", testDb);
 
         builder.ConfigureServices(services =>
         {

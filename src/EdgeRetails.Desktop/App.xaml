@@ -231,6 +231,18 @@
             <DataTemplate DataType="{x:Type viewModels:Sprint1OverlayPreviewViewModel}">
                 <views:Sprint1OverlayPreviewView />
             </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:PackPickerViewModel}">
+                <dialogs:PackPickerDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:CableCutViewModel}">
+                <dialogs:CableCutDialog />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type viewModels:SupervisorApprovalModalViewModel}">
+                <dialogs:SupervisorApprovalModalDialog />
+            </DataTemplate>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

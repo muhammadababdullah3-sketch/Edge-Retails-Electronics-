@@ -3,6 +3,7 @@ using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
+using System.Globalization;
 
 namespace EdgeRetails.Application.Features.Finance;
 
@@ -66,11 +67,12 @@ public sealed class CreateSupplierPaymentHandler
         CreateSupplierPaymentCommand command,
         CancellationToken cancellationToken)
     {
-        if (command.ClientOperationId == Guid.Empty || command.SupplierId == Guid.Empty || command.Amount <= 0)
+        if (command.ClientOperationId == Guid.Empty || command.SupplierId == Guid.Empty || command.Amount <= 0 ||
+            !Enum.IsDefined(command.Purpose) || !Enum.IsDefined(command.Method))
         {
             return Result<SupplierPaymentResult>.Failure(
                 "supplier.payment_invalid",
-                "Supplier, positive amount, and client operation id are required.");
+                "Supplier, positive amount, valid purpose, valid method, and client operation id are required.");
         }
 
         var result = await _transactions.ExecuteAsync(async ct =>
@@ -87,25 +89,58 @@ public sealed class CreateSupplierPaymentHandler
                     authorization.Error.Message);
             }
 
+            var domainProjection = new
+            {
+                command.SupplierId,
+                Amount = decimal.Round(command.Amount, 2, MidpointRounding.AwayFromZero),
+                Purpose = command.Purpose.ToString(),
+                Method = command.Method.ToString(),
+                ExternalReference = Normalize(command.ExternalReference),
+                Note = Normalize(command.Note),
+                command.ActorId
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("SupplierPayment", domainProjection);
             var fingerprint = OperationPayloadFingerprint.ComputeSha256(
                 "1",
                 command.SupplierId.ToString("D"),
-                command.Amount.ToString("0.00"),
+                command.Amount.ToString("0.00", CultureInfo.InvariantCulture),
                 command.Purpose.ToString(),
                 command.Method.ToString(),
                 Normalize(command.ExternalReference),
                 Normalize(command.Note),
                 command.ActorId.ToString("D"));
 
+            bool FingerprintMatches(string? fp) =>
+                string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(fp, fingerprint, StringComparison.OrdinalIgnoreCase);
+
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             if (_outcomeLedger is not null)
             {
                 var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierPayment", StringComparison.OrdinalIgnoreCase))
+                if (outcome is not null)
                 {
-                    return Result<SupplierPaymentResult>.Failure(
-                        "idempotency.payload_mismatch",
-                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    if (!string.Equals(outcome.OperationType, "SupplierPayment", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result<SupplierPaymentResult>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    }
+
+                    if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<SupplierPaymentResult>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                        !FingerprintMatches(outcome.PayloadFingerprint))
+                    {
+                        return Result<SupplierPaymentResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different supplier payment parameters.");
+                    }
                 }
             }
             var existing = await _accounts.GetPaymentByClientOperationIdAsync(command.ClientOperationId, ct);
@@ -132,7 +167,7 @@ public sealed class CreateSupplierPaymentHandler
                         existing.Id,
                         existing.PaymentNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: fingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -236,7 +271,7 @@ public sealed class CreateSupplierPaymentHandler
                     payment.Id,
                     payment.PaymentNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: fingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -367,14 +402,49 @@ public sealed class ReverseSupplierPaymentHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            var domainProjection = new
+            {
+                command.PaymentId,
+                Reason = command.Reason.Trim(),
+                command.ActorId
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("SupplierPaymentReversal", domainProjection);
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "1",
+                command.PaymentId.ToString("D"),
+                command.Reason.Trim(),
+                command.ActorId.ToString("D"));
+
+            bool FingerprintMatches(string? fp) =>
+                string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(fp, fingerprint, StringComparison.OrdinalIgnoreCase);
+
             if (_outcomeLedger is not null)
             {
                 var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierPaymentReversal", StringComparison.OrdinalIgnoreCase))
+                if (outcome is not null)
                 {
-                    return Result.Failure(
-                        "idempotency.payload_mismatch",
-                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    if (!string.Equals(outcome.OperationType, "SupplierPaymentReversal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    }
+
+                    if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                        !FingerprintMatches(outcome.PayloadFingerprint))
+                    {
+                        return Result.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different reversal parameters.");
+                    }
                 }
             }
             var payment = await _accounts.GetPaymentForUpdateAsync(command.PaymentId, ct);
@@ -382,12 +452,6 @@ public sealed class ReverseSupplierPaymentHandler
             {
                 return Result.Failure("supplier.payment_not_found", "Supplier payment was not found.");
             }
-
-            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
-                "1",
-                command.PaymentId.ToString("D"),
-                command.Reason.Trim(),
-                command.ActorId.ToString("D"));
 
             await _resourceLock.AcquireAsync("supplier-account", payment.SupplierId, ct);
 
@@ -412,7 +476,7 @@ public sealed class ReverseSupplierPaymentHandler
                         existingReversal.Id,
                         payment.PaymentNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: fingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -491,7 +555,7 @@ public sealed class ReverseSupplierPaymentHandler
                     reversal.Id,
                     payment.PaymentNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: fingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -597,10 +661,22 @@ public sealed class CreateSupplierRefundHandler
                 authorization.Error.Message);
         }
 
+        var domainProjection = new
+        {
+            command.SupplierId,
+            Amount = amount,
+            Method = command.Method.ToString(),
+            ExternalReference = Normalize(command.ExternalReference),
+            ReferenceType = Normalize(command.ReferenceType),
+            command.ReferenceId,
+            Note = Normalize(command.Note),
+            command.ActorId
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("SupplierRefund", domainProjection);
         var fingerprint = OperationPayloadFingerprint.ComputeSha256(
             "1",
             command.SupplierId.ToString("D"),
-            amount.ToString("0.00"),
+            amount.ToString("0.00", CultureInfo.InvariantCulture),
             command.Method.ToString(),
             Normalize(command.ExternalReference),
             Normalize(command.ReferenceType),
@@ -608,15 +684,37 @@ public sealed class CreateSupplierRefundHandler
             Normalize(command.Note),
             command.ActorId.ToString("D"));
 
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, fingerprint, StringComparison.OrdinalIgnoreCase);
+
         await _operationLock.AcquireAsync(command.ClientOperationId, ct);
-        if (_outcomeLedger is not null)
+        if (_outcomeLedger is not null && authoritativeBalance is null)
         {
             var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-            if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierRefund", StringComparison.OrdinalIgnoreCase))
+            if (outcome is not null)
             {
-                return Result<SupplierRefundResult>.Failure(
-                    "idempotency.payload_mismatch",
-                    $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                if (!string.Equals(outcome.OperationType, "SupplierRefund", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result<SupplierRefundResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                }
+
+                if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<SupplierRefundResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                    !FingerprintMatches(outcome.PayloadFingerprint))
+                {
+                    return Result<SupplierRefundResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with different supplier refund parameters.");
+                }
             }
         }
         var existing = await _accounts.GetRefundByClientOperationIdAsync(command.ClientOperationId, ct);
@@ -631,7 +729,7 @@ public sealed class CreateSupplierRefundHandler
                     "idempotency.payload_mismatch", "The refund operation was previously posted with different parameters.");
             }
 
-            if (_outcomeLedger is not null)
+            if (_outcomeLedger is not null && authoritativeBalance is null)
             {
                 await _outcomeLedger.RecordSuccessAsync(
                     command.ClientOperationId,
@@ -639,7 +737,7 @@ public sealed class CreateSupplierRefundHandler
                     existing.Id,
                     existing.RefundNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: fingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -732,7 +830,7 @@ public sealed class CreateSupplierRefundHandler
             command.ClientOperationId,
             $"{refund.RefundNumber}; supplier={command.SupplierId:D}; amount={refund.Amount:0.00}.");
 
-        if (_outcomeLedger is not null)
+        if (_outcomeLedger is not null && authoritativeBalance is null)
         {
             await _outcomeLedger.RecordSuccessAsync(
                 command.ClientOperationId,
@@ -740,7 +838,7 @@ public sealed class CreateSupplierRefundHandler
                 refund.Id,
                 refund.RefundNumber,
                 actorId: command.ActorId,
-                payloadFingerprint: fingerprint,
+                payloadFingerprint: versionedFingerprint,
                 cancellationToken: ct);
         }
 
@@ -803,6 +901,13 @@ public sealed class ReverseSupplierRefundHandler
 
     public Task<Result> HandleAsync(ReverseSupplierRefundCommand command, CancellationToken cancellationToken)
     {
+        if (command.RefundId == Guid.Empty || command.ClientOperationId == Guid.Empty || string.IsNullOrWhiteSpace(command.Reason))
+        {
+            return Task.FromResult(Result.Failure(
+                "supplier.refund_reversal_invalid",
+                "Refund, reason, and client operation id are required."));
+        }
+
         return _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -815,14 +920,49 @@ public sealed class ReverseSupplierRefundHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            var domainProjection = new
+            {
+                command.RefundId,
+                Reason = command.Reason.Trim(),
+                command.ActorId
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("SupplierRefundReversal", domainProjection);
+            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
+                "1",
+                command.RefundId.ToString("D"),
+                command.Reason.Trim(),
+                command.ActorId.ToString("D"));
+
+            bool FingerprintMatches(string? fp) =>
+                string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(fp, fingerprint, StringComparison.OrdinalIgnoreCase);
+
             if (_outcomeLedger is not null)
             {
                 var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                if (outcome is not null && !string.Equals(outcome.OperationType, "SupplierRefundReversal", StringComparison.OrdinalIgnoreCase))
+                if (outcome is not null)
                 {
-                    return Result.Failure(
-                        "idempotency.payload_mismatch",
-                        $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    if (!string.Equals(outcome.OperationType, "SupplierRefundReversal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
+                    }
+
+                    if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                        !FingerprintMatches(outcome.PayloadFingerprint))
+                    {
+                        return Result.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different reversal parameters.");
+                    }
                 }
             }
             var refund = await _accounts.GetRefundForUpdateAsync(command.RefundId, ct);
@@ -830,12 +970,6 @@ public sealed class ReverseSupplierRefundHandler
             {
                 return Result.Failure("supplier.refund_not_found", "Supplier refund was not found.");
             }
-
-            var fingerprint = OperationPayloadFingerprint.ComputeSha256(
-                "1",
-                command.RefundId.ToString("D"),
-                command.Reason.Trim(),
-                command.ActorId.ToString("D"));
 
             await _resourceLock.AcquireAsync("supplier-account", refund.SupplierId, ct);
 
@@ -860,7 +994,7 @@ public sealed class ReverseSupplierRefundHandler
                         existingReversal.Id,
                         refund.RefundNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: fingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -938,7 +1072,7 @@ public sealed class ReverseSupplierRefundHandler
                     reversal.Id,
                     refund.RefundNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: fingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -992,11 +1126,12 @@ public sealed class SupplierAccountAdjustmentHandler
     public Task<Result> HandleAsync(SupplierAccountAdjustmentCommand command, CancellationToken cancellationToken)
     {
         if (command.SupplierId == Guid.Empty || command.ClientOperationId == Guid.Empty ||
-            command.Amount <= 0 || string.IsNullOrWhiteSpace(command.Reason))
+            command.Amount <= 0 || string.IsNullOrWhiteSpace(command.Reason) ||
+            !Enum.IsDefined(command.Direction))
         {
             return Task.FromResult(Result.Failure(
                 "supplier.adjustment_invalid",
-                "Supplier, positive amount, reason, and client operation id are required."));
+                "Supplier, positive amount, valid direction, reason, and client operation id are required."));
         }
 
         return _transactions.ExecuteAsync(async ct =>

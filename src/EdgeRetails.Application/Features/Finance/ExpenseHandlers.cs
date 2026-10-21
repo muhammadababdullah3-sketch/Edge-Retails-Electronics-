@@ -3,6 +3,7 @@ using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Application.Features.Finance;
 
@@ -15,7 +16,9 @@ public sealed record PostExpenseCommand(
     ExpensePaymentMethod PaymentMethod,
     string Description,
     string? Reference,
-    Guid ActorId);
+    Guid ActorId,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record PostExpenseResult(
     Guid ExpenseId,
@@ -32,7 +35,11 @@ public sealed class PostExpenseHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
-    private readonly IUnitOfWork _unitOfWork; public PostExpenseHandler(
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger _outcomes;
+    private readonly IShopPostingValidationService? _postingValidation;
+
+    public PostExpenseHandler(
         IExpenseRepository expenses,
         ICashMovementService cashMovements,
         IOperationLock operationLock,
@@ -42,7 +49,8 @@ public sealed class PostExpenseHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger outcomeLedger)
+        IOperationOutcomeLedger outcomeLedger,
+        IShopPostingValidationService? postingValidation = null)
     {
         _expenses = expenses;
         _cashMovements = cashMovements;
@@ -54,9 +62,8 @@ public sealed class PostExpenseHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomes = outcomeLedger;
+        _postingValidation = postingValidation;
     }
-
-    private readonly IOperationOutcomeLedger _outcomes;
 
     public Task<Result<PostExpenseResult>> HandleAsync(
         PostExpenseCommand command,
@@ -112,9 +119,15 @@ public sealed class PostExpenseHandler
                         $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
                 }
 
+                if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId != command.ActorId)
+                {
+                    return Result<PostExpenseResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
                 if (outcome.State != OperationOutcomeState.Succeeded ||
                     !outcome.WasCommitted || existing is null || outcome.EntityId != existing.Id ||
-                    (outcome.ActorId.HasValue && outcome.ActorId != command.ActorId) ||
                     (outcome.PayloadFingerprint is not null && outcome.PayloadFingerprint != fingerprint))
                 {
                     return Result<PostExpenseResult>.Failure("idempotency.payload_mismatch",
@@ -226,6 +239,26 @@ public sealed class PostExpenseHandler
                 actorId: command.ActorId,
                 payloadFingerprint: fingerprint,
                 cancellationToken: ct);
+
+            if (_postingValidation is not null)
+            {
+                var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                    OperationType: PostingOperationTypes.Expense,
+                    EntityId: expense.Id,
+                    EntityNumber: expense.ExpenseNumber,
+                    ActorId: command.ActorId,
+                    PostingDate: command.ExpenseDate,
+                    SupplierDocumentDate: null,
+                    SupervisorApproval: command.SupervisorApproval,
+                    CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                if (!postingValidationResult.IsSuccess)
+                {
+                    return Result<PostExpenseResult>.Failure(
+                        postingValidationResult.Error!.Code,
+                        postingValidationResult.Error.Message);
+                }
+            }
 
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<PostExpenseResult>.Success(

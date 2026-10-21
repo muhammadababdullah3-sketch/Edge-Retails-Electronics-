@@ -6,6 +6,7 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Purchasing;
 
 namespace EdgeRetails.Application.Features.Purchasing;
@@ -36,7 +37,10 @@ public sealed record CreatePurchaseCommand(
     decimal? InitialPaymentAmount = null,
     SupplierSettlementMethod? InitialPaymentMethod = null,
     string? InitialPaymentExternalReference = null,
-    bool ReceiveStockImmediately = true);
+    bool ReceiveStockImmediately = true,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record CreatePurchaseResult(
     Guid PurchaseId,
@@ -71,6 +75,7 @@ public sealed class CreatePurchaseHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISequenceHighWaterService _highWaterService;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public CreatePurchaseHandler(
         IPurchasingRepository purchases,
@@ -91,7 +96,8 @@ public sealed class CreatePurchaseHandler
         IUnitOfWork unitOfWork,
         ISequenceHighWaterService? highWaterService = null,
         IOperationOutcomeLedger? outcomeLedger = null,
-        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _purchases = purchases;
         _parties = parties;
@@ -112,6 +118,7 @@ public sealed class CreatePurchaseHandler
         _highWaterService = highWaterService ?? NullSequenceHighWaterService.Instance;
         _outcomeLedger = outcomeLedger;
         _physicalUnits = physicalUnitCreationAuthority;
+        _postingValidation = postingValidation;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -139,14 +146,51 @@ public sealed class CreatePurchaseHandler
                 "A product may appear only once on a purchase.");
         }
 
+        var today = _clock is IShopClock sc ? sc.ShopDate : DateOnly.FromDateTime(_clock.UtcNow.UtcDateTime);
+        if (command.PurchaseDate > today)
+        {
+            return Result<CreatePurchaseResult>.Failure(
+                "purchasing.date_in_future", "Purchase date cannot be in the future.");
+        }
+
         if (_outcomeLedger is null)
         {
             return Result<CreatePurchaseResult>.Failure("purchasing.replay_authority_missing", "Canonical purchase outcome authority is required.");
         }
-        string fingerprint;
+        string versionedFingerprint;
+        string legacyFingerprint;
         try
         {
-            fingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
+            var domainProjection = new
+            {
+                command.SupplierId,
+                Invoice = command.SupplierInvoiceNumber.Trim(),
+                command.PurchaseDate,
+                Note = command.Note?.Trim(),
+                OtherCharges = command.OtherCharges.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                command.SettlementMode,
+                command.CreatedBy,
+                command.ReceiveStockImmediately,
+                InitialPayment = command.InitialPaymentAmount?.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                command.InitialPaymentMethod,
+                InitialReference = command.InitialPaymentExternalReference?.Trim(),
+                Lines = command.Lines.Select(x => new
+                {
+                    x.ProductId,
+                    x.ProductUnitId,
+                    Quantity = x.EnteredQuantity.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Cost = x.EnteredUnitCost.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Price = x.BaseUnitSalePrice.ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+                    Units = x.SerializedUnits.Select(u => new
+                    {
+                        Serial = IdentityNormalizationRules.NormalizeOptionalSerialNumber(u.SerialNumber),
+                        Imei1 = IdentityNormalizationRules.NormalizeOptionalImei(u.Imei1),
+                        Imei2 = IdentityNormalizationRules.NormalizeOptionalImei(u.Imei2)
+                    }).ToArray()
+                }).ToArray()
+            };
+            versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("Purchase", domainProjection);
+            legacyFingerprint = OperationPayloadFingerprint.ComputeSha256(System.Text.Json.JsonSerializer.Serialize(new
             {
                 Operation = "CreatePurchase", Version = 1, command.ClientOperationId, command.SupplierId,
                 Invoice = command.SupplierInvoiceNumber.Trim(), command.PurchaseDate,
@@ -173,6 +217,17 @@ public sealed class CreatePurchaseHandler
         {
             return Result<CreatePurchaseResult>.Failure(ex.Code, ex.Message);
         }
+
+        var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+        if (preLockOutcome is not null)
+        {
+            var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, versionedFingerprint, legacyFingerprint, cancellationToken);
+            if (evaluated.HasValue)
+            {
+                return evaluated.Value;
+            }
+        }
+
         var ownsOutcome = false;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
@@ -191,15 +246,10 @@ public sealed class CreatePurchaseHandler
             var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
             if (outcome is not null)
             {
-                if (outcome.OperationType != "Purchase" || outcome.ActorId != command.CreatedBy ||
-                    outcome.PayloadFingerprint != fingerprint)
+                var evaluated = await EvaluateGuardedOutcomeAsync(outcome, command, versionedFingerprint, legacyFingerprint, ct);
+                if (evaluated.HasValue)
                 {
-                    return Result<CreatePurchaseResult>.Failure("idempotency.payload_mismatch", "Operation was submitted with a different purchase intent or lacks canonical payload evidence.");
-                }
-                if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted || !outcome.EntityId.HasValue)
-                {
-                    return Result<CreatePurchaseResult>.Failure(outcome.ErrorCode ?? "idempotency.outcome_unknown",
-                        outcome.ErrorMessage ?? "Reconcile the previous purchase outcome before another execution.");
+                    return evaluated.Value;
                 }
             }
 
@@ -513,6 +563,7 @@ public sealed class CreatePurchaseHandler
                                     "inventory.physical_unit_authority_unavailable",
                                     "Physical-unit creation authority is unavailable.");
                             }
+                            var isContainer = line.Product.TrackingMode == TrackingMode.Container;
                             var creation = await _physicalUnits.CreateAsync(
                                 command.SupplierId,
                                 line.Product.Id,
@@ -521,7 +572,11 @@ public sealed class CreatePurchaseHandler
                                     InventoryUnitStatus.InStock,
                                     PurchaseReceiptCost.PhysicalAcquisitionCost(effectiveLineCost, line.Input.SerializedUnits.Count, unitIndex), lotId,
                                     InventoryUnitOriginType.Purchase,
-                                    SourcePurchaseItemId: item.Id)).ToArray(),
+                                    SourcePurchaseItemId: item.Id,
+                                    InitialBaseQuantity: isContainer ? item.FactorToBaseSnapshot : (decimal?)null,
+                                    RemainingBaseQuantity: isContainer ? item.FactorToBaseSnapshot : (decimal?)null,
+                                    PackState: isContainer ? PackState.Sealed : (PackState?)null,
+                                    IsLooseStock: false)).ToArray(),
                                 ct);
                             if (!creation.IsSuccess || creation.Value is null)
                             {
@@ -680,8 +735,29 @@ public sealed class CreatePurchaseHandler
                         purchase.Id,
                         purchase.PurchaseNumber,
                         actorId: command.CreatedBy,
-                        payloadFingerprint: fingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
+                }
+
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? command.PurchaseDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.Purchase,
+                        EntityId: purchase.Id,
+                        EntityNumber: purchase.PurchaseNumber,
+                        ActorId: command.CreatedBy,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: command.PurchaseDate,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<CreatePurchaseResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
                 }
 
                 await _unitOfWork.SaveChangesAsync(ct);
@@ -704,7 +780,13 @@ public sealed class CreatePurchaseHandler
                 if (latest is not null)
                 {
                     Result<CreatePurchaseResult> replay;
-                    if (latest.OperationType != "Purchase" || latest.ActorId != command.CreatedBy || latest.PayloadFingerprint != fingerprint)
+                    if (latest.OperationType != "Purchase")
+                        replay = Result<CreatePurchaseResult>.Failure("idempotency.operation_type_mismatch", $"Operation was registered as '{latest.OperationType}', not 'Purchase'.");
+                    else if (latest.ActorId.HasValue && latest.ActorId.Value != command.CreatedBy)
+                        replay = Result<CreatePurchaseResult>.Failure("idempotency.context_mismatch", "Operation actor mismatch.");
+                    else if (!string.IsNullOrEmpty(latest.PayloadFingerprint) &&
+                             !string.Equals(latest.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                             !string.Equals(latest.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase))
                         replay = Result<CreatePurchaseResult>.Failure("idempotency.payload_mismatch", "Operation identity now belongs to a different purchase intent.");
                     else if (latest.State == OperationOutcomeState.Succeeded && latest.WasCommitted &&
                              purchase is not null && latest.EntityId == purchase.Id)
@@ -721,7 +803,7 @@ public sealed class CreatePurchaseHandler
                 }
                 await _outcomeLedger.RecordFailureAsync(command.ClientOperationId, "Purchase",
                     result.Error!.Code, result.Error.Message, actorId: command.CreatedBy,
-                    payloadFingerprint: fingerprint, cancellationToken: ct);
+                    payloadFingerprint: versionedFingerprint, cancellationToken: ct);
                 // Preserve failure evidence in a committed transaction, without replacing a newer outcome.
                 return (Result: result, Recorded: true);
             }, cancellationToken);
@@ -917,5 +999,64 @@ public sealed class CreatePurchaseHandler
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
+
+    private async Task<Result<CreatePurchaseResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        CreatePurchaseCommand command,
+        string versionedFingerprint,
+        string legacyFingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "Purchase")
+        {
+            return Result<CreatePurchaseResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'Purchase'.");
+        }
+
+        var matches = !string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+            (string.Equals(outcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(outcome.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase));
+
+        if (!matches)
+        {
+            return Result<CreatePurchaseResult>.Failure(
+                "idempotency.payload_mismatch",
+                "Operation was submitted with a different purchase intent or lacks canonical payload evidence.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CreatedBy)
+        {
+            return Result<CreatePurchaseResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted && outcome.EntityId.HasValue)
+        {
+            var purchase = await _purchases.GetPurchaseAsync(outcome.EntityId.Value, ct);
+            if (purchase is not null)
+            {
+                return Result<CreatePurchaseResult>.Success(new(
+                    purchase.Id,
+                    purchase.PurchaseNumber,
+                    purchase.GrandTotal,
+                    WasExisting: true));
+            }
+
+            return Result<CreatePurchaseResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed purchase outcome has no matching purchase; reconciliation is required.");
+        }
+
+        if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted || !outcome.EntityId.HasValue)
+        {
+            return Result<CreatePurchaseResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous purchase outcome before another execution.");
+        }
+
+        return null;
+    }
 }
 

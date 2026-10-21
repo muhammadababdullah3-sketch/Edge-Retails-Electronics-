@@ -30,7 +30,8 @@ public enum CashMovementType
     SupplierPaymentCashOut = 11,
     SupplierPaymentReversalCashIn = 12,
     SupplierRefundCashIn = 13,
-    SupplierRefundReversalCashOut = 14
+    SupplierRefundReversalCashOut = 14,
+    ThakaCreditRefundCashOut = 15
 }
 
 public sealed class CashSession : Entity
