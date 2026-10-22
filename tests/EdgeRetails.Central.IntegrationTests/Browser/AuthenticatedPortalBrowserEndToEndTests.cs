@@ -640,7 +640,12 @@ async def main():
     reply_text = fixture['replyText']
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            launch_options = {"headless": True}
+            chromium_executable = os.environ.get("CENTRAL_PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+            if chromium_executable:
+                assert pathlib.Path(chromium_executable).is_file(), f"Configured Chromium executable not found: {chromium_executable}"
+                launch_options["executable_path"] = chromium_executable
+            browser = await p.chromium.launch(**launch_options)
             context = await browser.new_context(viewport={"width": 1440, "height": 1000}, ignore_https_errors=True)
             page = await context.new_page()
             page.on('console', lambda message: events['consoleErrors'].append(message.text) if message.type == 'error' else None)
