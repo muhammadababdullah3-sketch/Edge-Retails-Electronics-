@@ -129,6 +129,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA central
 
 -- Runtime role strictly forbidden from DROP, TRUNCATE, and ALTERing audit trail
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA central FROM central054_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON central.audit_records FROM central054_app;
 ```
 
 ---
