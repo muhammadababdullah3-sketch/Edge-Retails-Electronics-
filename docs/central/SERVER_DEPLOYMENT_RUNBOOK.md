@@ -127,6 +127,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA central
 ALTER DEFAULT PRIVILEGES IN SCHEMA central 
     GRANT USAGE, SELECT ON SEQUENCES TO central054_app;
 
+-- The Central storage cleanup worker may delete expired download capabilities only.
+GRANT DELETE ON central.object_download_grants TO central054_app;
+
 -- Runtime role strictly forbidden from DROP, TRUNCATE, and ALTERing audit trail
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA central FROM central054_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON central.audit_records FROM central054_app;
