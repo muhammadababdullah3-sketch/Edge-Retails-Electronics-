@@ -1,0 +1,2001 @@
+{
+  "schema_document": "contracts.schema.json",
+  "engineering_version": "040",
+  "routes": [
+    {
+      "operationId": "auth.login",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/login",
+      "auth_surface": "bootstrap",
+      "permission": "auth.login",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Login"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/AuthResult"
+      },
+      "mutating": false,
+      "implementation_task": 4,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "auth.mfa",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/mfa",
+      "auth_surface": "challenge",
+      "permission": "auth.mfa",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Mfa"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/AdminSession"
+      },
+      "mutating": false,
+      "implementation_task": 4,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "auth.stepup",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/step-up",
+      "auth_surface": "admin",
+      "permission": "auth.stepup",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/StepUpRequest"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/StepUpGrant"
+      },
+      "mutating": false,
+      "implementation_task": 4,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "installation.bootstrap.challenge",
+      "method": "POST",
+      "path": "/api/licensing/v1/bootstrap/challenge",
+      "auth_surface": "bootstrap",
+      "permission": "installation.bootstrap.challenge",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/BootstrapChallengeRequest"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/BootstrapChallenge"
+      },
+      "mutating": false,
+      "implementation_task": 10,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "activation.issue",
+      "method": "POST",
+      "path": "/api/admin/v1/activation-tokens",
+      "auth_surface": "admin",
+      "permission": "activation.issue",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "activation.issue"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/ActivationIssue"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/ActivationIssued"
+      },
+      "mutating": true,
+      "implementation_task": 10,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "customer.create",
+      "method": "POST",
+      "path": "/api/admin/v1/customers",
+      "auth_surface": "admin",
+      "permission": "customer.create",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "customer.create"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Customer"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 7,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "shop.register",
+      "method": "POST",
+      "path": "/api/admin/v1/shops",
+      "auth_surface": "admin",
+      "permission": "shop.register",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "shop.register"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Shop"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 7,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "price.snapshot",
+      "method": "POST",
+      "path": "/api/admin/v1/pricing-snapshots",
+      "auth_surface": "admin",
+      "permission": "price.snapshot",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "price.snapshot"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/PriceRequest"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 7,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "order.create",
+      "method": "POST",
+      "path": "/api/admin/v1/orders",
+      "auth_surface": "admin",
+      "permission": "order.create",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "order.create"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Order"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 7,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "payment.review",
+      "method": "POST",
+      "path": "/api/admin/v1/payments/{id}/review",
+      "auth_surface": "admin",
+      "permission": "payment.review",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "payment.review"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/PaymentReview"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 8,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.issue",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/issue",
+      "auth_surface": "admin",
+      "permission": "license.issue",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.issue"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 9,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.renew",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/renew",
+      "auth_surface": "admin",
+      "permission": "license.renew",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.renew"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 9,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.extend",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/extend",
+      "auth_surface": "admin",
+      "permission": "license.extend",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.extend"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 9,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.pause",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/pause",
+      "auth_surface": "admin",
+      "permission": "license.pause",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.pause"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.resume",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/resume",
+      "auth_surface": "admin",
+      "permission": "license.resume",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.resume"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.suspend",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/suspend",
+      "auth_surface": "admin",
+      "permission": "license.suspend",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.suspend"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.reinstate",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/reinstate",
+      "auth_surface": "admin",
+      "permission": "license.reinstate",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.reinstate"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.revoke",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/revoke",
+      "auth_surface": "admin",
+      "permission": "license.revoke",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.revoke"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/LicenseCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "license.policy",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/policy",
+      "auth_surface": "admin",
+      "permission": "license.policy",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "license.policy"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Policy"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 14,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "activation.review",
+      "method": "POST",
+      "path": "/api/admin/v1/activations/{id}/review",
+      "auth_surface": "admin",
+      "permission": "activation.review",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "activation.review"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/ActivationDecision"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 10,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "hardware.review",
+      "method": "POST",
+      "path": "/api/admin/v1/hardware-reviews/{id}/decide",
+      "auth_surface": "admin",
+      "permission": "hardware.review",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "hardware.review"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/HardwareCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 12,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "primary.transfer",
+      "method": "POST",
+      "path": "/api/admin/v1/transfers/{id}/decide",
+      "auth_surface": "admin",
+      "permission": "primary.transfer",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "primary.transfer"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/TransferCommand"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 12,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "sensitive.approve",
+      "method": "POST",
+      "path": "/api/admin/v1/sensitive-approvals/{id}/decide",
+      "auth_surface": "admin",
+      "permission": "sensitive.approve",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "sensitive.approve"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/SensitiveApproval"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 13,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "admin.manage",
+      "method": "POST",
+      "path": "/api/admin/v1/admin-users/{id}/commands",
+      "auth_surface": "admin",
+      "permission": "admin.manage",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "admin.manage"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/AdminAction"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 4,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "support.create",
+      "method": "POST",
+      "path": "/api/admin/v1/support/tickets",
+      "auth_surface": "admin",
+      "permission": "support.create",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "support.create"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Ticket"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 18,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "support.reply",
+      "method": "POST",
+      "path": "/api/admin/v1/support/tickets/{id}/commands",
+      "auth_surface": "admin",
+      "permission": "support.reply",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "support.reply"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/TicketAction"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 18,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "dashboard.view",
+      "method": "GET",
+      "path": "/api/admin/v1/dashboard",
+      "auth_surface": "admin",
+      "permission": "dashboard.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "queues.view",
+      "method": "GET",
+      "path": "/api/admin/v1/queues/{kind}",
+      "auth_surface": "admin",
+      "permission": "queues.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "customer.view",
+      "method": "GET",
+      "path": "/api/admin/v1/customers/{id}",
+      "auth_surface": "admin",
+      "permission": "customer.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "shop.view",
+      "method": "GET",
+      "path": "/api/admin/v1/shops/{id}",
+      "auth_surface": "admin",
+      "permission": "shop.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "license.view",
+      "method": "GET",
+      "path": "/api/admin/v1/licenses/{id}",
+      "auth_surface": "admin",
+      "permission": "license.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 22,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "search.masked",
+      "method": "GET",
+      "path": "/api/admin/v1/search",
+      "auth_surface": "admin",
+      "permission": "search.masked",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "audit.view",
+      "method": "GET",
+      "path": "/api/admin/v1/audit",
+      "auth_surface": "admin",
+      "permission": "audit.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 23,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "sessions.view",
+      "method": "GET",
+      "path": "/api/admin/v1/sessions",
+      "auth_surface": "admin",
+      "permission": "sessions.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 20,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "notifications.view",
+      "method": "GET",
+      "path": "/api/admin/v1/notifications",
+      "auth_surface": "admin",
+      "permission": "notifications.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 21,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "support.view",
+      "method": "GET",
+      "path": "/api/admin/v1/support/tickets",
+      "auth_surface": "admin",
+      "permission": "support.view",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Page"
+      },
+      "mutating": false,
+      "implementation_task": 22,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "support.attachment.download",
+      "method": "GET",
+      "path": "/api/admin/v1/support/tickets/{ticketId}/attachments/{objectId}/download",
+      "auth_surface": "admin",
+      "permission": "support.view",
+      "request": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "response": {
+        "contentType": "application/octet-stream",
+        "headers": ["Content-Length", "Content-Range", "Digest", "X-Object-Id"]
+      },
+      "mutating": false,
+      "implementation_task": 18,
+      "invariants": [
+        "Ticket and shop scope are loaded from persisted records; client object IDs are not authority",
+        "Object must be listed on the persisted ticket, belong to its shop, have support-attachment purpose and not be tombstoned",
+        "No object bytes before capability and ticket/object authorization"
+      ]
+    },
+    {
+      "operationId": "installation.register",
+      "method": "POST",
+      "path": "/api/licensing/v1/primary/register",
+      "auth_surface": "bootstrap_installation",
+      "permission": "installation.register",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "installation.register"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/InstallRegistration"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 10,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "activation.redeem",
+      "method": "POST",
+      "path": "/api/licensing/v1/activation/redeem",
+      "auth_surface": "bootstrap_installation",
+      "permission": "activation.redeem",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "activation.redeem"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/ActivationRedeem"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 10,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "installation.reconcile",
+      "method": "POST",
+      "path": "/api/licensing/v1/reconcile",
+      "auth_surface": "installation",
+      "permission": "installation.reconcile",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "installation.reconcile"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Reconcile"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/SignedEntitlement"
+      },
+      "mutating": true,
+      "implementation_task": 24,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "backup.upload.init",
+      "method": "POST",
+      "path": "/api/licensing/v1/backups/uploads",
+      "auth_surface": "installation",
+      "permission": "backup.upload.init",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "backup.upload.init"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/UploadInit"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/UploadSession"
+      },
+      "mutating": true,
+      "implementation_task": 15,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "backup.upload.finalize",
+      "method": "POST",
+      "path": "/api/licensing/v1/backups/uploads/{id}/finalize",
+      "auth_surface": "installation",
+      "permission": "backup.upload.finalize",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "backup.upload.finalize"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/UploadFinalize"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 15,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "support.bundle",
+      "method": "POST",
+      "path": "/api/licensing/v1/support/bundles",
+      "auth_surface": "installation",
+      "permission": "support.bundle",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "support.bundle"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/Ticket"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 18,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "backup.download",
+      "method": "GET",
+      "path": "/api/licensing/v1/backups/{id}/download",
+      "auth_surface": "installation",
+      "permission": "backup.download",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/ObjectAction"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/ObjectDownloadGrant"
+      },
+      "mutating": false,
+      "implementation_task": 16,
+      "invariants": [
+        "Installation proof binds the path, canonical request and persisted installation/shop principal",
+        "Only the persisted owning installation may request a grant for its active encrypted-backup object",
+        "Grant token is high entropy, persisted only as a hash, explicitly short-lived and scoped to one installation, shop and immutable object"
+      ]
+    },
+    {
+      "operationId": "backup.download.content",
+      "method": "GET",
+      "path": "/api/licensing/v1/backups/download-grants/{grantId}/content",
+      "auth_surface": "download_grant",
+      "permission": "object.download.grant",
+      "request": {
+        "headers": ["X-Central-Download-Token", "Range (optional)"]
+      },
+      "response": {
+        "contentType": "application/octet-stream",
+        "headers": ["Content-Length", "Content-Range", "Digest", "X-Object-Id"]
+      },
+      "mutating": false,
+      "implementation_task": 16,
+      "invariants": [
+        "Opaque bearer token is compared to a persisted hash in constant time",
+        "Grant expiry, installation status, shop, purpose and immutable object ownership are revalidated before bytes are opened",
+        "Invalid, expired or revoked grant returns no object bytes"
+      ]
+    },
+    {
+      "operationId": "operation.lookup",
+      "method": "GET",
+      "path": "/api/licensing/v1/operations/{id}",
+      "auth_surface": "installation",
+      "permission": "operation.lookup",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": false,
+      "implementation_task": 3,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "activation.status",
+      "method": "GET",
+      "path": "/api/licensing/v1/activation/{id}/status",
+      "auth_surface": "bootstrap_installation",
+      "permission": "activation.status",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": false,
+      "implementation_task": 10,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "trustset.get",
+      "method": "GET",
+      "path": "/api/licensing/v1/trust-set",
+      "auth_surface": "installation",
+      "permission": "trustset.get",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/TrustSet"
+      },
+      "mutating": false,
+      "implementation_task": 6,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "evidence.upload.init",
+      "method": "POST",
+      "path": "/api/admin/v1/evidence/uploads",
+      "auth_surface": "admin",
+      "permission": "evidence.upload.init",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "evidence.upload.init"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/UploadInit"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/UploadSession"
+      },
+      "mutating": true,
+      "implementation_task": 8,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "evidence.upload.finalize",
+      "method": "POST",
+      "path": "/api/admin/v1/evidence/uploads/{id}/finalize",
+      "auth_surface": "admin",
+      "permission": "evidence.upload.finalize",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "evidence.upload.finalize"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/UploadFinalize"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 8,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "evidence.download",
+      "method": "GET",
+      "path": "/api/admin/v1/evidence/{id}/download",
+      "auth_surface": "admin",
+      "permission": "evidence.download",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/ObjectAction"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": false,
+      "implementation_task": 8,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "certificate.sign",
+      "method": "POST",
+      "path": "/internal/v1/sign",
+      "auth_surface": "service",
+      "permission": "certificate.sign",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "certificate.sign"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/SigningRequest"
+          }
+        },
+        "required": [
+          "meta",
+          "payload"
+        ]
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 6,
+      "invariants": [
+        "Principal-to-shop/target ownership derived server-side; supplied IDs are never authority",
+        "No sensitive response/object/error before authorization",
+        "Mutation: canonical versioned payload digest recomputed; immutable outcome/audit/outbox atomic; version conflicts cause no silent write"
+      ]
+    },
+    {
+      "operationId": "operation.admin.lookup",
+      "method": "GET",
+      "path": "/api/admin/v1/operations/{id}",
+      "auth_surface": "admin",
+      "permission": "operation.admin.lookup",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/Query"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": false,
+      "implementation_task": 3,
+      "invariants": [
+        "Backend permission-filtered and PII-masked; bounded pagination",
+        "No business authority inferred from client cache/count"
+      ]
+    },
+    {
+      "operationId": "addon.renew",
+      "method": "POST",
+      "path": "/api/admin/v1/licenses/{id}/addons/{entitlementId}/renew",
+      "auth_surface": "admin",
+      "permission": "addon.renew",
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "meta",
+          "payload"
+        ],
+        "properties": {
+          "meta": {
+            "allOf": [
+              {
+                "$ref": "contracts.schema.json#/$defs/CommandMeta"
+              },
+              {
+                "properties": {
+                  "operationType": {
+                    "const": "addon.renew"
+                  }
+                },
+                "required": [
+                  "operationType"
+                ]
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "contracts.schema.json#/$defs/AddonRenewalCommand"
+          }
+        }
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/Outcome"
+      },
+      "mutating": true,
+      "implementation_task": 9,
+      "invariants": [
+        "Authenticated principal-to-license/entitlement/shop binding",
+        "Approved paid order target/kind/catalog/effective term must agree; idempotent consumption and expected entitlement version",
+        "Renew only support/premium entitlement; no base commercial expiry, termKind, security policy or capabilities outside purchased add-on changed",
+        "Domain/outcome/audit/outbox atomic; changed payload/type/context replay conflicts"
+      ]
+    }
+  ],
+  "binary_routes": [
+    {
+      "method": "PUT",
+      "path": "/api/{surface}/v1/uploads/{id}/content",
+      "content_type": "application/octet-stream",
+      "headers": [
+        "Content-Range",
+        "Content-Length",
+        "chunk-sha256",
+        "request nonce/date/signature for installation surface"
+      ],
+      "guard": "Existing principal-scoped upload session binds purpose, immutable object metadata, maximum bytes and expiry. Compare offset+chunk digest: exact retry returns accepted offset; different bytes at same offset conflict. No target filesystem path supplied by client. Finalize computes whole object digest/length server-side; metadata+audit/outbox publication coordinated with object state; quarantine then finalized; orphan cleanup/tombstone reconciliation after restart."
+    },
+    {
+      "method": "GET",
+      "path": "/api/licensing/v1/backups/download-grants/{grantId}/content and /api/admin/v1/support/tickets/{ticketId}/attachments/{objectId}/download",
+      "response": "application/octet-stream ciphertext or approved evidence attachment; Content-Length/Range, digest and immutable object id",
+      "guard": "No object bytes before per-shop/purpose authorization; backup bytes require an expiring grant scoped to principal and object; support bytes require validated support.view and persisted ticket/shop attachment binding; local verified restore remains separate"
+    }
+  ],
+  "auth": {
+    "admin": "HTTPS; server-issued secure session; HttpOnly+Secure+SameSite cookie, CSRF/origin checks on mutations; MFA and action-scoped fresh stepup; security revision; capability RBAC; configurable idle/absolute TTL. No shared generic IsAdmin.",
+    "installation": "HTTPS plus installation asymmetric request proof (key id, timestamp, nonce, method/path/body digest) bound to authenticated install/shop and challenge; replay window/config; installed private key never leaves machine; bootstrap token only activation scope. Never reuse admin cookie/service secret.",
+    "service": "Restricted network/service credentials with signing purpose/allowlist and issuance revision validation; dedicated production custody; no private keys in ordinary DB or response.",
+    "bootstrap": "Rate-limited exact bootstrap endpoints; token/challenge scoped and hashed at rest; no implicit tenant authority.",
+    "challenge": "Short-lived preauthentication challenge only, zero business capabilities; MFA proof consumes or rate-limits exact challenge; privileged routes require authenticated MFA session. A trusted provider may return full session only with independently verified MFA, never caller mfaSatisfied flag.",
+    "bootstrap_installation": "Rate-limited activation-only bootstrap. Server challenge binds one-time token hash, install ID, submitted public-key bytes and recomputed key fingerprint, hardware binding, nonce, method/path/payload digest and expiry. Verify proof of possession with submitted key; self-asserted key/fingerprint alone grants NO license or authenticated installation authority. Check token server record and eligible paid license/shop. Only register/redemption/status until fresh human approval/current-state check and certificate issuance; ordinary reconcile/upload endpoints require approved persisted installation identity. Prevent cross-token key substitution/replay."
+  },
+  "canonicalization": "Versioned canonical JSON profile chosen and tested against actual existing validator. UTF8, deterministic object-key order, stable number/time/null semantics, no arbitrary normalization changing intent. Fingerprint covers fingerprintVersion+operationType+canonical payload+principal/shop binding. Sign immutable envelope version/purpose/key/profile/authority/policy and payload digest. Reject unsupported profiles/algorithms and purpose confusion. Algorithm never selected by untrusted header alone.",
+  "errors": [
+    "auth.admin_session_required",
+    "auth.mfa_required",
+    "authorization.denied",
+    "authorization.step_up_required",
+    "idempotency.conflict",
+    "concurrency.conflict",
+    "activation.token_expired",
+    "activation.token_consumed",
+    "activation.installation_mismatch",
+    "certificate.issuance_stale",
+    "certificate.signing_unavailable",
+    "policy.configuration_required",
+    "policy.invalid",
+    "storage.integrity_mismatch",
+    "storage.upload_conflict",
+    "rate_limit.exceeded"
+  ],
+  "semantic_rules": [
+    "Format validation and all domain invariants require implementation tests; structural JSON is not a running API",
+    "Absent policy/config fails issuance/affected activation clearly; never invent global commercial values or treat network outage as suspension",
+    "Signed dates monotonic: validFrom<=leaseExpires<=offlineGraceUntil; approved extension applies only until exact extensionEndUtc and recorded after-extension policy",
+    "Shop/license/install/actor references must agree with authenticated principal; primaryCapacity always1 in V1",
+    "Hardware uncertainty is reviewable; hard-deny activation/token/payment/cross-shop/revocation is not generic override",
+    "SensitiveApproval approver!=requester, exact action digest, expiry/version/step-up rechecked atomically before execute",
+    "No local keyed HMAC authenticity verification is claimed by keyless central vault; opaque local manifest authentication retained for local restore",
+    "Plan/role/provider/numeric values are explicit configured IDs, not static plan enums or new owner-approved defaults",
+    "Commercial termKind LIFETIME requires validUntilUtc null and no billing period/recurring base renewal; fixed term requires real expiry after start",
+    "Support/premium expiration does not expire valid lifetime base entitlement or trigger base subscription lock/watermark",
+    "Commercial validity is distinct from signed certificate/lease verification dates and original outage/authorized security policy",
+    "PricingSnapshot/order termKind and signed commercialTerm must match authoritative plan/catalog; client termKind cannot grant lifetime for a timed purchase",
+    "PriceRequest/Order.termKind and billingPeriodId describe PURCHASED ITEM, never implicitly the existing base term. purchaseTarget binds BASE_LICENSE/SUPPORT/PREMIUM_UPGRADE and existing base license for addons. Lifetime base may purchase FIXED_TERM support with annual/monthly billing period; that does not convert its base to fixed term.",
+    "Base license.renew/extend reject target LIFETIME as inapplicable; addon.renew is distinct paid-order-backed entitlement command; plan conversion has explicit approved order/authority revision and is not disguised renewal.",
+    "EXPIRED add-on must retain real historical expiry; NOT_PURCHASED may have null expiry. Datetime chronology, catalog ownership and finite periods still enforced server-side."
+  ],
+  "bootstrap_boundary": "Only authorized admin activation.issue after approved commercial eligibility creates/delivers token; store hash and immutable binding, not raw secret. Approved configured delivery channel sends token once with delivery/outbox reference; operation replay returns reference, never logs or reissues secret. Challenge requests never issue a commercial token, perform sale, enroll unrestricted authority or reveal cross-shop token existence. Human approval consumes once after first-redemption policy. Installation private key stays machine protected; public key is checked against proof and server binding.",
+  "auth_result_boundary": "PreAuthChallenge has no sessionId/capabilities, businessAuthority=false, only MFA endpoint allowed. Authenticated AdminSession requires mfaSatisfied=true from verified provider. StepUpGrant binds session, exact actionScope/targetPayloadSha256 and expiry; cannot grant a wider general session or survive privilege revision."
+}

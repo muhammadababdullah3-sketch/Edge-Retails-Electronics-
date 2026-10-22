@@ -1,0 +1,90 @@
+using System.Net;
+using System.Text.Json;
+using EdgeRetails.Central.Application.DTOs;
+using EdgeRetails.Central.Domain.Common;
+
+namespace EdgeRetails.Central.Api.Middleware;
+
+public class CentralExceptionHandlingMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<CentralExceptionHandlingMiddleware> _logger;
+
+    public CentralExceptionHandlingMiddleware(RequestDelegate next, ILogger<CentralExceptionHandlingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            await _next(context);
+        }
+        catch (CentralDomainException ex)
+        {
+            if (context.Response.HasStarted)
+            {
+                _logger.LogError(ex, "Request failed after the response started.");
+                throw;
+            }
+            _logger.LogWarning(ex, "Central domain exception: {Code} - {Message}", ex.Code, ex.Message);
+            await HandleDomainExceptionAsync(context, ex);
+        }
+        catch (Exception ex)
+        {
+            if (context.Response.HasStarted)
+            {
+                _logger.LogError(ex, "Unhandled server exception occurred after the response started.");
+                throw;
+            }
+            _logger.LogError(ex, "Unhandled server exception occurred.");
+            await HandleGenericExceptionAsync(context, ex);
+        }
+    }
+
+    private static async Task HandleDomainExceptionAsync(HttpContext context, CentralDomainException ex)
+    {
+        var statusCode = ex.Code switch
+        {
+            "INVALID_CREDENTIALS" or "INVALID_MFA_PROOF" or "INVALID_STEPUP_PROOF" => HttpStatusCode.Unauthorized,
+            "SESSION_INVALID" or "INVALID_CHALLENGE" or "USER_INACTIVE" or "CALLER_UNAUTHORIZED" or "INTERNAL_AUTH_REQUIRED" => HttpStatusCode.Unauthorized,
+            "SECURITY_POLICY_REQUIRED" or "INDEPENDENT_APPROVAL_UNAVAILABLE" or "DELEGATION_FORBIDDEN" or "FORBIDDEN" or "UNAUTHORIZED_CAPABILITY" or "SELF_ESCALATION_PROHIBITED" or "APPROVAL_REQUIRED" or "INVALID_STEPUP_GRANT" or "CROSS_ORIGIN_PROHIBITED" => HttpStatusCode.Forbidden,
+            "KEY_NOT_FOUND" or "NOT_FOUND" or "SUPPORT_ATTACHMENT_NOT_FOUND" or "OBJECT_NOT_FOUND" or "DOWNLOAD_GRANT_NOT_FOUND" => HttpStatusCode.NotFound,
+            "OPERATION_TYPE_CONFLICT" or "OPERATION_ID_CONFLICT" or "CONCURRENCY_CONFLICT" or "SIGNING_REQUEST_CONFLICT" or "UPLOAD_CHUNK_CONFLICT" or "UPLOAD_OFFSET_CONFLICT" or "STORAGE_OBJECT_CONFLICT" => HttpStatusCode.Conflict,
+            _ => HttpStatusCode.BadRequest
+        };
+
+        context.Response.StatusCode = (int)statusCode;
+        context.Response.ContentType = "application/json";
+
+        var errorDto = new ErrorDto
+        {
+            Code = ex.Code,
+            RequestId = Guid.NewGuid(),
+            Retryable = statusCode == HttpStatusCode.Conflict || statusCode == HttpStatusCode.ServiceUnavailable,
+            SafeMessageKey = ex.SafeMessageKey
+        };
+
+        var json = JsonSerializer.Serialize(errorDto);
+        await context.Response.WriteAsync(json);
+    }
+
+    private static async Task HandleGenericExceptionAsync(HttpContext context, Exception ex)
+    {
+        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+        context.Response.ContentType = "application/json";
+
+        var errorDto = new ErrorDto
+        {
+            Code = "INTERNAL_SERVER_ERROR",
+            RequestId = Guid.NewGuid(),
+            Retryable = true,
+            SafeMessageKey = "error.internal"
+        };
+
+        var json = JsonSerializer.Serialize(errorDto);
+        await context.Response.WriteAsync(json);
+    }
+}

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EdgeRetails.Central.Api/EdgeRetails.Central.Api.csproj" />
+    <Project Path="src/EdgeRetails.Central.Application/EdgeRetails.Central.Application.csproj" />
+    <Project Path="src/EdgeRetails.Central.Domain/EdgeRetails.Central.Domain.csproj" />
+    <Project Path="src/EdgeRetails.Central.Infrastructure/EdgeRetails.Central.Infrastructure.csproj" />
+    <Project Path="src/EdgeRetails.ProtectedSigner/EdgeRetails.ProtectedSigner.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EdgeRetails.Central.IntegrationTests/EdgeRetails.Central.IntegrationTests.csproj" />
+    <Project Path="tests/EdgeRetails.Central.UnitTests/EdgeRetails.Central.UnitTests.csproj" />
+  </Folder>
+</Solution>
