@@ -58,11 +58,21 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> StepUp([FromBody] StepUpRequestDto request, CancellationToken cancellationToken)
     {
         var credential = CentralSessionCredentials.Parse(Request);
-        if (!credential.IsValid || credential.SessionId != request.SessionId ||
-            await _authService.ValidateSessionAsync(credential.SessionId, cancellationToken) is null)
+        if (!credential.IsValid || request.SessionId != Guid.Empty && credential.SessionId != request.SessionId)
         {
             return Unauthorized(new { code = "SESSION_INVALID" });
         }
+
+        var session = await _authService.ValidateSessionAsync(credential.SessionId, cancellationToken);
+        if (session is null)
+        {
+            return Unauthorized(new { code = "SESSION_INVALID" });
+        }
+
+        // The HttpOnly cookie is the authority. The body field remains supported for
+        // contract-compatible callers, but browser clients that do not retain session
+        // identifiers may send Guid.Empty and the validated server session is bound here.
+        request.SessionId = session.SessionId;
         var grant = await _stepUpService.VerifyAndGrantStepUpAsync(request, cancellationToken);
         return Ok(grant);
     }

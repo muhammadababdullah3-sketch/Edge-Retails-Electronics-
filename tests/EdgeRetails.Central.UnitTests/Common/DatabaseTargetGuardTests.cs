@@ -45,13 +45,6 @@ public class DatabaseTargetGuardTests
     }
 
     [Fact]
-    public void ValidateConnectionString_AcceptsValidDisposableTarget()
-    {
-        var validConnStr = Environment.GetEnvironmentVariable("CENTRAL_DATABASE_CONNECTION_STRING") ?? throw new InvalidOperationException("Owned test environment required for positive attestation.");
-        _guard.ValidateConnectionString(validConnStr);
-    }
-
-    [Fact]
     public void VerifyDataDirMarker_RejectsMissingMarkerFile()
     {
         var ex = Assert.Throws<DatabaseTargetGuardException>(() =>

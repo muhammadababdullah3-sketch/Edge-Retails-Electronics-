@@ -105,17 +105,32 @@ public sealed class StorageReconciliationTests
             seed.UploadSessions.Add(session);
             await seed.SaveChangesAsync();
         }
-        await using (var fresh = Open())
+        try
         {
-            var failure = await Assert.ThrowsAsync<CentralDomainException>(() => new StorageReconciliationService(fresh, Storage()).ReconcileUploadAsync(session.Id, now));
-            Assert.Equal("UPLOAD_STORAGE_INCONSISTENT", failure.Code);
+            await using (var fresh = Open())
+            {
+                var failure = await Assert.ThrowsAsync<CentralDomainException>(() => new StorageReconciliationService(fresh, Storage()).ReconcileUploadAsync(session.Id, now));
+                Assert.Equal("UPLOAD_STORAGE_INCONSISTENT", failure.Code);
+            }
+            await using var verify = Open();
+            var persisted = await verify.UploadSessions.AsNoTracking().SingleAsync(x => x.Id == session.Id);
+            Assert.Equal(3, persisted.AcceptedOffset);
+            Assert.Equal(UploadSession.StatusUploading, persisted.Status);
         }
-        await using var verify = Open();
-        var persisted = await verify.UploadSessions.AsNoTracking().SingleAsync(x => x.Id == session.Id);
-        Assert.Equal(3, persisted.AcceptedOffset);
-        Assert.Equal(UploadSession.StatusUploading, persisted.Status);
+        finally
+        {
+            // Preserve the negative assertion, then transition the synthetic orphan through
+            // the audited expiry path so recovery sees no uploading session with missing bytes.
+            await using var cleanup = Open();
+            var leftover = await cleanup.UploadSessions.SingleOrDefaultAsync(x => x.Id == session.Id);
+            if (leftover is not null)
+            {
+                Assert.True(await new StorageReconciliationService(cleanup, Storage()).ReconcileUploadAsync(session.Id, now.AddDays(1)));
+                var expired = await cleanup.UploadSessions.AsNoTracking().SingleAsync(x => x.Id == session.Id);
+                Assert.Equal(UploadSession.StatusExpired, expired.Status);
+            }
+        }
     }
-
     [Fact]
     public async Task ExpiredStagingCleanup_PersistsExpiryAuditAndPreservesHoldAndRetention()
     {
@@ -190,6 +205,63 @@ public sealed class StorageReconciliationTests
         Assert.False(File.Exists(path));
         await using var verify = Open();
         Assert.True((await verify.EncryptedObjects.AsNoTracking().SingleAsync(x => x.Id == record.Id)).IsTombstoned);
+    }
+
+    [Fact]
+    public async Task TombstoneCleanup_EnforcesPersistedLegalHoldAndRetentionAcrossServiceRestarts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var shopId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var path = await Storage().SaveCiphertextAsync(shopId, objectId, new MemoryStream(Bytes));
+        var record = EncryptedObjectRecord.Create(objectId, shopId, Guid.NewGuid(),
+            EncryptedObjectRecord.PurposeEncryptedBackup, Bytes.Length, "application/octet-stream", Digest, path,
+            Guid.NewGuid(), null, now.AddDays(-2), now.AddHours(-1));
+        record.Tombstone(now);
+        await using (var seed = Open())
+        {
+            seed.EncryptedObjects.Add(record);
+            await seed.SaveChangesAsync();
+            // Simulate a persisted hold applied after deletion intent was recorded. The reconciler
+            // must honor authoritative persisted state even for legacy/inconsistent rows.
+            await seed.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE central.encrypted_objects SET \"IsUnderLegalHold\" = TRUE WHERE \"Id\" = {objectId}");
+        }
+
+        await using (var held = Open())
+        {
+            Assert.False(await new StorageReconciliationService(held, Storage()).ReconcileTombstoneAsync(objectId, now));
+        }
+        Assert.True(File.Exists(path));
+
+        await using (var releaseHold = Open())
+        {
+            await releaseHold.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE central.encrypted_objects SET \"IsUnderLegalHold\" = FALSE, \"RetentionUntilUtc\" = {now.AddHours(1)} WHERE \"Id\" = {objectId}");
+        }
+        await using (var retained = Open())
+        {
+            Assert.False(await new StorageReconciliationService(retained, Storage()).ReconcileTombstoneAsync(objectId, now));
+        }
+        Assert.True(File.Exists(path));
+
+        await using (var retentionElapsed = Open())
+        {
+            await retentionElapsed.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE central.encrypted_objects SET \"RetentionUntilUtc\" = {now.AddSeconds(-1)} WHERE \"Id\" = {objectId}");
+        }
+        await using (var eligible = Open())
+        {
+            Assert.True(await new StorageReconciliationService(eligible, Storage()).ReconcileTombstoneAsync(objectId, now));
+        }
+        Assert.False(File.Exists(path));
+        await using var verify = Open();
+        var persisted = await verify.EncryptedObjects.AsNoTracking().SingleAsync(x => x.Id == objectId);
+        Assert.True(persisted.IsTombstoned);
+        Assert.False(persisted.IsUnderLegalHold);
+        var expectedRetentionUtc = now.AddSeconds(-1);
+        var expectedPostgresTimestamp = expectedRetentionUtc.AddTicks(-(expectedRetentionUtc.UtcTicks % 10));
+        Assert.Equal(expectedPostgresTimestamp, persisted.RetentionUntilUtc);
     }
 
     [Fact]

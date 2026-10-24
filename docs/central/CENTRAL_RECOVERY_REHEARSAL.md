@@ -13,7 +13,7 @@ length and finalized digest checks remain strict.
 
 ## Inputs
 
-Run from `C:/Users/muham/EdgeRetailsWorktrees/central-one` with the actual attested values. Do not copy a historical PID, password or port from an earlier run.
+Run from the root of the currently attached, managed Central candidate. Confirm it with `git rev-parse --show-toplevel` and `git branch --show-current` before using the relative script paths below. Supply the actual attested values for this run; do not copy a historical checkout path, PID, password or port.
 
 | Environment variable | Meaning |
 |---|---|
@@ -110,7 +110,7 @@ These are required assertions, not claims that they have run. The coordinator ow
 
 ## Result and follow-on verification
 
-Inspect `recovery-manifest.json`, `commands.json`, `RESTORED_TARGET_MARKER.json`, storage readbacks and the externally hashed bundle manifest. A failed run writes `failure.json` when an owned new evidence directory was established. `PASS` covers the script's explicit schema/data/ACL/file-restoration assertions only. Outbox counts preserve pending/failed/dead-letter states, compare effect payload/aggregate/event identities and reject missing/orphaned effects; they do **not** prove hosted worker replay or actual downstream business effects. The manifest states `NOT_EXERCISED_BY_THIS_SCRIPT` for worker replay.
+Inspect `recovery-manifest.json`, `commands.json`, `RESTORED_TARGET_MARKER.json`, storage readbacks and the externally hashed bundle manifest. A failed run writes `failure.json` when an owned new evidence directory was established. V3 `PASS` includes the script's explicit schema/data/ACL/file-restoration checks, protected development signer recovery, and an actual hosted outbox-worker replay against the restored disposable target. Run 029N's manifest records two host/worker starts, one durable synthetic effect on each pass, zero duplicate effects, resolution of the initial pending set, and an unchanged dead-letter snapshot. This proves only the controlled local replay and consumer idempotence; `externalDelivery=NOT_CONFIGURED_OR_INVOKED`, so it proves no external provider delivery or production business effect. The `protectedSigner` section covers only DPAPI-protected development key material bound to the same Windows user, not production or customer keys.
 
 To exercise the restored application, the coordinator must bind `CENTRAL_PG_DATABASE` and both application connection strings to the restored database, use `RESTORED_TARGET_MARKER.json`, and configure:
 
@@ -119,9 +119,9 @@ $env:CENTRAL_OBJECT_STORAGE_ROOT = '<manifest restoredObjectStorageRoot>'
 $env:CENTRAL_PAYMENT_STORAGE_ROOT = '<manifest restoredPaymentStorageRoot>'
 ```
 
-Then prove application restart, authorized reads/downloads, upload continuation, pending/ACK-loss replay and duplicate-effect absence through the actual hosted worker. Reconcile the new business-effect tables as well as inbox/outbox receipts. Keep original failure/dead-letter state explicit. These are separate integration assertions; this script does not silently run a host or advance business effects.
+The rehearsal starts the actual Central host to exercise its durable worker twice, but that narrow replay is not a substitute for restored-application acceptance. Separately prove authorized reads/downloads, upload continuation, full business-effect reconciliation, and ACK-loss/re-dispatch behavior against the restored target. Reconcile business-effect tables as well as inbox/outbox receipts. Keep original failure/dead-letter state explicit; do not infer external delivery from the synthetic replay.
 
-Protected development signing keys are excluded from the bundle and governance exports. Restored signing/trust DB metadata requires a separately protected key-store recovery/restart assertion using the approved custody boundary; never place plaintext private keys in the dump, ordinary DB columns or review evidence. Schema-upgrade/rollback and clean application reconstruction also require their own candidate-bound rehearsal. Customer-edge/POS restore remains deferred. Production restore, publication and live cutover remain NOT_EXECUTED unless separately authorized.
+Plaintext development signing keys are excluded from the database dump and governance evidence. The approved recovery bundle may contain DPAPI-protected development signer bytes plus the source root binding needed for the same-user disposable rehearsal; V3 verifies re-protection, reopen and synthetic signing without writing plaintext keys to the dump, ordinary DB columns, or review evidence. Schema-upgrade/rollback and clean application reconstruction still require their own candidate-bound rehearsal. Customer-edge/POS restore remains deferred. Production restore, publication and live cutover remain NOT_EXECUTED unless separately authorized.
 
 The database archive contains sensitive local synthetic fixture state (for example session/authentication data). Keep it in the owned development environment with its existing access controls. Deliver hashes, redacted observations and reconstruction instructions to governance; do not publish real credentials or protected signing material. This document adds no provider, cryptographic, retention or commercial policy.
 

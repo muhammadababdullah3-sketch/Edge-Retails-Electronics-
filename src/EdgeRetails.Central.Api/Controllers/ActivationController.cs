@@ -99,10 +99,8 @@ public class ActivationController : ControllerBase
         CancellationToken cancellationToken)
     {
         var review = await _activationService.ReportHardwareDiscrepancyAsync(
-            request.ShopId,
             request.InstallationId,
             request.ReportedFingerprint,
-            request.StoredFingerprint,
             request.Reason,
             cancellationToken);
 
@@ -136,6 +134,14 @@ public class ActivationController : ControllerBase
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
         }
 
+        if (command.CommandMeta is null || command.CommandMeta.ClientOperationId == Guid.Empty ||
+            command.CommandMeta.OperationType != "primary.transfer" || command.CommandMeta.FingerprintVersion != 1 ||
+            command.CommandMeta.ExpectedVersion < 0 || command.CommandMeta.PolicyVersion < 0 ||
+            string.IsNullOrWhiteSpace(command.CommandMeta.PayloadSha256) || string.IsNullOrWhiteSpace(command.CommandMeta.Reason))
+        {
+            return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
+        }
+
         var transfer = await _activationService.InitiatePrimaryTransferAsync(command, adminId, cancellationToken);
         return Ok(transfer);
     }
@@ -152,6 +158,15 @@ public class ActivationController : ControllerBase
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
         }
 
+        if (command.CommandMeta is null || command.CommandMeta.ClientOperationId == Guid.Empty ||
+            command.CommandMeta.OperationType != "primary.transfer" || command.CommandMeta.FingerprintVersion != 1 ||
+            command.CommandMeta.ExpectedVersion < 1 || command.CommandMeta.PolicyVersion < 0 ||
+            string.IsNullOrWhiteSpace(command.CommandMeta.PayloadSha256) || string.IsNullOrWhiteSpace(command.CommandMeta.Reason) ||
+            command.SensitiveApprovalId == Guid.Empty)
+        {
+            return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
+        }
+
         await _activationService.ApprovePrimaryTransferAsync(transferId, adminId, command.SensitiveApprovalId, command, cancellationToken);
         return Ok(new { success = true, status = "APPROVED" });
     }
@@ -159,6 +174,7 @@ public class ActivationController : ControllerBase
     [HttpPost("primary-transfers/{transferId:guid}/complete")]
     public async Task<IActionResult> CompletePrimaryTransfer(
         [FromRoute] Guid transferId,
+        [FromBody] CompletePrimaryTransferCommand command,
         CancellationToken cancellationToken)
     {
         var adminId = await GetAdminUserIdAsync(cancellationToken);
@@ -167,7 +183,15 @@ public class ActivationController : ControllerBase
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
         }
 
-        await _activationService.CompletePrimaryTransferAsync(transferId, adminId, cancellationToken);
+        if (command.CommandMeta is null || command.CommandMeta.ClientOperationId == Guid.Empty ||
+            command.CommandMeta.OperationType != "primary.transfer" || command.CommandMeta.FingerprintVersion != 1 ||
+            command.CommandMeta.ExpectedVersion < 1 || command.CommandMeta.PolicyVersion < 0 ||
+            string.IsNullOrWhiteSpace(command.CommandMeta.PayloadSha256) || string.IsNullOrWhiteSpace(command.CommandMeta.Reason))
+        {
+            return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
+        }
+
+        await _activationService.CompletePrimaryTransferAsync(transferId, adminId, command, cancellationToken);
         return Ok(new { success = true, status = "COMPLETED" });
     }
 
@@ -199,6 +223,5 @@ public class ReportHardwareDiscrepancyRequest
     public Guid ShopId { get; set; }
     public Guid InstallationId { get; set; }
     public string ReportedFingerprint { get; set; } = string.Empty;
-    public string StoredFingerprint { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
 }

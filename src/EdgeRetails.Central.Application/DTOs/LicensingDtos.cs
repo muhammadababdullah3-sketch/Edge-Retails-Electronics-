@@ -163,6 +163,7 @@ public class SignedEntitlementDto
     public int TrustSetVersion { get; set; }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class ReconcileCommandDto
 {
     [JsonPropertyName("installationId")]

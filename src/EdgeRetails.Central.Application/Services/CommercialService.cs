@@ -38,7 +38,6 @@ public class CommercialService : ICommercialService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-
         if (_operationLedger is not null && command.CommandMeta is not null && command.CommandMeta.ClientOperationId != Guid.Empty)
         {
             var actorScope = $"admin:{adminId}";
@@ -1182,11 +1181,17 @@ public class CommercialService : ICommercialService
                 payload: command,
                 executeAsync: async cmd =>
                 {
+                    if (cmd.NewValidUntilUtc <= DateTimeOffset.UtcNow)
+                    {
+                        throw new CentralDomainException("INVALID_RENEWAL_DATE", "entitlement.invalid_renewal_date", "Add-on expiry must be a future time.");
+                    }
+
                     var lic = await _dbContext.CommercialLicenses.FindAsync(new object[] { licenseId }, cancellationToken)
                         ?? throw new CentralDomainException("LICENSE_NOT_FOUND", "license.not_found", $"License {licenseId} does not exist.");
 
                     var order = await _dbContext.Orders.FindAsync(new object[] { cmd.ApprovedOrderId }, cancellationToken)
                         ?? throw new CentralDomainException("ORDER_NOT_FOUND", "entitlement.order_not_found", $"Order {cmd.ApprovedOrderId} does not exist.");
+                    await SecurityTransaction.BeginAsync(_dbContext, $"commercial-order:{order.Id:D}", cancellationToken);
 
                     if (order.Status != Order.StatusPaidApproved)
                     {
@@ -1201,6 +1206,14 @@ public class CommercialService : ICommercialService
                     if (order.PurchaseTarget == PlanCatalogItem.TargetBaseLicense)
                     {
                         throw new CentralDomainException("INVALID_ADDON_ORDER", "entitlement.base_order_cannot_renew_addon", "Base license order cannot be used to renew an add-on.");
+                    }
+
+                    var targetedEntitlement = await _dbContext.CommercialEntitlements
+                        .FirstOrDefaultAsync(e => e.LicenseId == licenseId && e.Kind == order.PurchaseTarget, cancellationToken);
+                    ValidateAddonOrderTarget(order, licenseId, targetedEntitlement?.Id);
+                    if (await _dbContext.CommercialEntitlements.AnyAsync(e => e.LastOrderId == order.Id, cancellationToken))
+                    {
+                        throw new CentralDomainException("ORDER_ALREADY_FULFILLED", "entitlement.order_already_fulfilled", $"Order {order.Id} has already renewed an add-on.");
                     }
 
                     if (await _dbContext.CommercialLicenses.AnyAsync(l => l.InitialOrderId == order.Id, cancellationToken))
@@ -1266,11 +1279,17 @@ public class CommercialService : ICommercialService
 
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, licenseId.ToString(), cancellationToken);
 
+        if (command.NewValidUntilUtc <= DateTimeOffset.UtcNow)
+        {
+            throw new CentralDomainException("INVALID_RENEWAL_DATE", "entitlement.invalid_renewal_date", "Add-on expiry must be a future time.");
+        }
+
         var licenseDirect = await _dbContext.CommercialLicenses.FindAsync(new object[] { licenseId }, cancellationToken)
             ?? throw new CentralDomainException("LICENSE_NOT_FOUND", "license.not_found", $"License {licenseId} does not exist.");
 
         var orderDirect = await _dbContext.Orders.FindAsync(new object[] { command.ApprovedOrderId }, cancellationToken)
             ?? throw new CentralDomainException("ORDER_NOT_FOUND", "entitlement.order_not_found", $"Order {command.ApprovedOrderId} does not exist.");
+        await SecurityTransaction.BeginAsync(_dbContext, $"commercial-order:{orderDirect.Id:D}", cancellationToken);
 
         if (orderDirect.Status != Order.StatusPaidApproved)
         {
@@ -1285,6 +1304,14 @@ public class CommercialService : ICommercialService
         if (orderDirect.PurchaseTarget == PlanCatalogItem.TargetBaseLicense)
         {
             throw new CentralDomainException("INVALID_ADDON_ORDER", "entitlement.base_order_cannot_renew_addon", "Base license order cannot be used to renew an add-on.");
+        }
+
+        var existingEntitlementDirect = await _dbContext.CommercialEntitlements
+            .FirstOrDefaultAsync(e => e.LicenseId == licenseId && e.Kind == orderDirect.PurchaseTarget, cancellationToken);
+        ValidateAddonOrderTarget(orderDirect, licenseId, existingEntitlementDirect?.Id);
+        if (await _dbContext.CommercialEntitlements.AnyAsync(e => e.LastOrderId == orderDirect.Id, cancellationToken))
+        {
+            throw new CentralDomainException("ORDER_ALREADY_FULFILLED", "entitlement.order_already_fulfilled", $"Order {orderDirect.Id} has already renewed an add-on.");
         }
 
         if (await _dbContext.CommercialLicenses.AnyAsync(l => l.InitialOrderId == orderDirect.Id, cancellationToken))
@@ -1332,6 +1359,15 @@ public class CommercialService : ICommercialService
         }
 
         return entitlementDirect;
+    }
+
+    private static void ValidateAddonOrderTarget(Order order, Guid licenseId, Guid? existingEntitlementId)
+    {
+        if (order.BaseLicenseId is Guid targetedLicenseId && targetedLicenseId != licenseId ||
+            order.ExistingEntitlementId is Guid targetedEntitlementId && targetedEntitlementId != existingEntitlementId)
+        {
+            throw new CentralDomainException("TARGET_MISMATCH", "entitlement.order_target_mismatch", "The paid order is bound to a different license or entitlement.");
+        }
     }
 
     private static string GetStorageFullPath(string relativePath)

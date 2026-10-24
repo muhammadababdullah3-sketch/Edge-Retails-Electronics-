@@ -45,9 +45,11 @@ builder.Services.AddSingleton<IObjectStorageProvider, DiskObjectStorageProvider>
 
 // Scoped services
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
+builder.Services.AddSingleton(_ => AdminAuthenticationPolicy.FromEnvironment());
 builder.Services.AddScoped<CentralRequestAuthorizationFilter>();
 builder.Services.AddScoped<InstallationRequestProofService>();
 builder.Services.AddScoped<IStepUpService, StepUpService>();
+builder.Services.AddSingleton(_ => SensitiveApprovalPolicy.FromEnvironment());
 builder.Services.AddScoped<IOperationLedgerService, OperationLedgerService>();
 builder.Services.AddScoped<ICentralAuditService, CentralAuditService>();
 builder.Services.AddSingleton(_ => CentralOutboxOptions.FromEnvironment());
@@ -100,14 +102,14 @@ var app = builder.Build();
 
 // Middleware pipeline
 app.UseMiddleware<CentralExceptionHandlingMiddleware>();
+app.UseMiddleware<W1DenialAuditMiddleware>();
 app.UseMiddleware<RateLimitingMiddleware>();
 app.UseMiddleware<CsrfProtectionMiddleware>();
 
-// Static portal assets do not participate in the admin denial audit or resolve the Central database.
+// Denial auditing is scoped to /api and /internal, so portal assets never resolve Central services.
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRouting();
-app.UseMiddleware<W1DenialAuditMiddleware>();
 
 app.MapControllers();
 

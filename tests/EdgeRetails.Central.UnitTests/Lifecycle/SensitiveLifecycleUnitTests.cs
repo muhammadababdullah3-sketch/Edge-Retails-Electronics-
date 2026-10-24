@@ -1,10 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Application.Services;
 using EdgeRetails.Central.Domain.Commercial;
 using EdgeRetails.Central.Domain.Common;
 using EdgeRetails.Central.Domain.Licensing;
+using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Infrastructure.Persistence;
 using EdgeRetails.Central.UnitTests.Activation;
 using Microsoft.EntityFrameworkCore;
@@ -24,31 +27,205 @@ public class SensitiveLifecycleUnitTests : IDisposable
     {
         var options = new DbContextOptionsBuilder<CentralDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(warnings => warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
         _dbContext = new CentralDbContext(options);
         _auditService = new CentralAuditService(_dbContext);
         _signerClient = new TestProtectedSignerClient();
-        _stepUpService = new StepUpService(_dbContext, new TotpService());
-        _lifecycleService = new SensitiveLifecycleService(_dbContext, _signerClient, _stepUpService, _auditService);
+        _stepUpService = new StepUpService(
+            _dbContext,
+            new TotpService(),
+            AdminAuthenticationPolicy.FromValues("300", "900", "28800", "300"));
+        _lifecycleService = new SensitiveLifecycleService(
+            _dbContext, _signerClient, _stepUpService, _auditService,
+            approvalPolicy: new SensitiveApprovalPolicy { RequestLifetime = TimeSpan.FromHours(1) });
+    }
+
+    [Fact]
+    public async Task StepUp_MissingLifetimeConfiguration_DeniesGrantAndValidation()
+    {
+        var unconfigured = new StepUpService(
+            _dbContext,
+            new TotpService(),
+            AdminAuthenticationPolicy.FromValues("300", "900", "28800", null));
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            unconfigured.VerifyAndGrantStepUpAsync(new StepUpRequestDto()));
+
+        Assert.Equal("AUTH_POLICY_NOT_CONFIGURED", exception.Code);
+        Assert.False(await unconfigured.ValidateStepUpGrantAsync(Guid.NewGuid(), "license.revoke", new string('a', 64)));
+        Assert.Empty(await _dbContext.StepUpGrants.ToListAsync());
+    }
+
+    private async Task<(SensitiveApprovalRequest Request, Guid RequesterAdminId)> RequestApprovalWithStepUpAsync(
+        string operationType, Guid targetEntityId, string digest, string actionScope)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = AdminUser.Create($"approval-{Guid.NewGuid():N}", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(user.Id, "token-hash", now, TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true,
+            user.SecurityRevision, new[] { "sensitive.approve" });
+        var grant = StepUpGrant.Create(session.Id, actionScope, digest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(user);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+        var request = await _lifecycleService.RequestApprovalAsync(
+            operationType, targetEntityId, digest, actionScope, user.Id, session.Id, grant.Id);
+        return (request, user.Id);
+    }
+
+    [Fact]
+    public async Task RequestApproval_RequiresConfiguredLifetimeBeforeAnyPersistence()
+    {
+        var service = new SensitiveLifecycleService(
+            _dbContext, _signerClient, _stepUpService, _auditService,
+            approvalPolicy: new SensitiveApprovalPolicy());
+
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() => service.RequestApprovalAsync(
+            "license.revoke", Guid.NewGuid(), new string('a', 64), "license.revoke",
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()));
+
+        Assert.Equal("APPROVAL_POLICY_NOT_CONFIGURED", error.Code);
+        Assert.Empty(await _dbContext.SensitiveApprovalRequests.ToListAsync());
+        Assert.Empty(await _dbContext.CentralOutboxMessages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RequestApproval_RejectsWrongScopeStepUpWithoutPersistingApproval()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = AdminUser.Create("scope-check", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(requester.Id, "scope-token", now, TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true,
+            requester.SecurityRevision, new[] { "sensitive.approve" });
+        var digest = new string('a', 64);
+        var grant = StepUpGrant.Create(session.Id, "license.pause", digest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(requester);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() => _lifecycleService.RequestApprovalAsync(
+            "license.revoke", Guid.NewGuid(), digest, "license.revoke", requester.Id, session.Id, grant.Id));
+
+        Assert.Equal("STEP_UP_REQUIRED", error.Code);
+        Assert.Empty(await _dbContext.SensitiveApprovalRequests.ToListAsync());
+        Assert.Empty(await _dbContext.CentralOutboxMessages.ToListAsync());
+        Assert.False((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
+    }
+
+    [Fact]
+    public async Task RequestApproval_RejectsSessionOwnedByDifferentRequester()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var sessionOwner = AdminUser.Create("session-owner", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(sessionOwner.Id, "owner-token", now, TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true,
+            sessionOwner.SecurityRevision, new[] { "sensitive.approve" });
+        var digest = new string('a', 64);
+        var grant = StepUpGrant.Create(session.Id, "license.revoke", digest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(sessionOwner);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() => _lifecycleService.RequestApprovalAsync(
+            "license.revoke", Guid.NewGuid(), digest, "license.revoke", Guid.NewGuid(), session.Id, grant.Id));
+
+        Assert.Equal("STEP_UP_REQUIRED", error.Code);
+        Assert.Empty(await _dbContext.SensitiveApprovalRequests.ToListAsync());
+        Assert.False((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
+    }
+
+    [Fact]
+    public async Task RequestApproval_RejectsExpiredStepUpGrantWithoutPersistence()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = AdminUser.Create("expired-stepup", "hash", "salt", "synthetic", true, now.AddHours(-1));
+        var session = AdminSession.Create(requester.Id, "expired-stepup-token", now.AddMinutes(-1), TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true,
+            requester.SecurityRevision, new[] { "sensitive.approve" });
+        var digest = new string('a', 64);
+        var grant = StepUpGrant.Create(session.Id, "license.revoke", digest, Guid.NewGuid(), now.AddMinutes(-10), TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(requester);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() => _lifecycleService.RequestApprovalAsync(
+            "license.revoke", Guid.NewGuid(), digest, "license.revoke", requester.Id, session.Id, grant.Id));
+
+        Assert.Equal("STEP_UP_REQUIRED", error.Code);
+        Assert.Empty(await _dbContext.SensitiveApprovalRequests.ToListAsync());
+        Assert.Empty(await _dbContext.CentralOutboxMessages.ToListAsync());
+        Assert.False((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
+    }
+
+    [Fact]
+    public async Task RequestApproval_RetryWithConsumedGrantReturnsSamePersistedRequest()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = AdminUser.Create($"approval-retry-{Guid.NewGuid():N}", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(requester.Id, "approval-retry-session", now,
+            TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true, requester.SecurityRevision, new[] { "sensitive.approve" });
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("canonical revoke payload")));
+        var grant = StepUpGrant.Create(session.Id, "license.revoke", digest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        var targetId = Guid.NewGuid();
+        _dbContext.AdminUsers.Add(requester);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var first = await _lifecycleService.RequestApprovalAsync(
+            "LICENSE_REVOKE", targetId, digest, "license.revoke", requester.Id, session.Id, grant.Id);
+        var retry = await _lifecycleService.RequestApprovalAsync(
+            "LICENSE_REVOKE", targetId, digest, "license.revoke", requester.Id, session.Id, grant.Id);
+
+        Assert.Equal(first.Id, retry.Id);
+        Assert.Equal(SensitiveApprovalRequest.StatusPending, retry.Status);
+        Assert.Single(await _dbContext.SensitiveApprovalRequests.Where(x => x.Id == first.Id).ToListAsync());
+        Assert.Single(await _dbContext.CentralOperationRecords.Where(x => x.ClientOperationId == grant.Id).ToListAsync());
+        Assert.Single(await _dbContext.CentralOutboxMessages.Where(x => x.Id == first.Id).ToListAsync());
+        Assert.Single(await _dbContext.CentralAuditRecords.Where(x => x.Action == "SENSITIVE_APPROVAL_REQUESTED" && x.ResourceId == first.Id.ToString()).ToListAsync());
+        Assert.True((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
+    }
+
+    [Fact]
+    public async Task RequestApproval_ConsumedGrantCannotBeReplayedWithDifferentPayload()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = AdminUser.Create($"approval-conflict-{Guid.NewGuid():N}", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(requester.Id, "approval-conflict-session", now,
+            TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true, requester.SecurityRevision, new[] { "sensitive.approve" });
+        var firstDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("original canonical payload")));
+        var changedDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("changed canonical payload")));
+        var grant = StepUpGrant.Create(session.Id, "license.revoke", firstDigest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        var targetId = Guid.NewGuid();
+        _dbContext.AdminUsers.Add(requester);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var first = await _lifecycleService.RequestApprovalAsync(
+            "LICENSE_REVOKE", targetId, firstDigest, "license.revoke", requester.Id, session.Id, grant.Id);
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() => _lifecycleService.RequestApprovalAsync(
+            "LICENSE_REVOKE", Guid.NewGuid(), changedDigest, "license.revoke", requester.Id, session.Id, grant.Id));
+
+        Assert.Equal("OPERATION_ID_CONFLICT", error.Code);
+        Assert.Single(await _dbContext.SensitiveApprovalRequests.Where(x => x.Id == first.Id).ToListAsync());
+        Assert.Single(await _dbContext.CentralOperationRecords.Where(x => x.ClientOperationId == grant.Id).ToListAsync());
+        Assert.True((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
     }
 
     [Fact]
     public async Task LifeSecurity_Oracle_DualControl_StrictlyProhibitsSelfApproval()
     {
-        var requesterAdminId = Guid.NewGuid();
         var targetEntityId = Guid.NewGuid();
-        var stepUpSessionId = Guid.NewGuid();
         string targetDigest = new string('a', 64);
 
-        var request = await _lifecycleService.RequestApprovalAsync(
+        var (request, requesterAdminId) = await RequestApprovalWithStepUpAsync(
             "license.revoke",
             targetEntityId,
             targetDigest,
-            "license.revoke",
-            requesterAdminId,
-            stepUpSessionId,
-            TimeSpan.FromHours(2));
+            "license.revoke");
 
         Assert.NotNull(request);
         Assert.Equal(SensitiveApprovalRequest.StatusPending, request.Status);
@@ -82,19 +259,14 @@ public class SensitiveLifecycleUnitTests : IDisposable
     [Fact]
     public async Task LifeSecurity_RejectsPayloadDigestMismatchOnApproval()
     {
-        var requesterAdminId = Guid.NewGuid();
         var targetEntityId = Guid.NewGuid();
-        var stepUpSessionId = Guid.NewGuid();
         string initialDigest = new string('a', 64);
 
-        var request = await _lifecycleService.RequestApprovalAsync(
+        var (request, _) = await RequestApprovalWithStepUpAsync(
             "primary.transfer",
             targetEntityId,
             initialDigest,
-            "primary.transfer",
-            requesterAdminId,
-            stepUpSessionId,
-            TimeSpan.FromHours(2));
+            "primary.transfer");
 
         var distinctApproverAdminId = Guid.NewGuid();
         string tamperedDigest = new string('b', 64);
@@ -108,6 +280,85 @@ public class SensitiveLifecycleUnitTests : IDisposable
             }, distinctApproverAdminId));
 
         Assert.Equal("PAYLOAD_MISMATCH", ex.Code);
+    }
+
+    [Fact]
+    public async Task CanonicalLicenseLifecycle_RequiresAndConsumesFreshExactStepUpAtExecution()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = AdminUser.Create($"canonical-lifecycle-{Guid.NewGuid():N}", "hash", "salt", "synthetic", true, now);
+        var session = AdminSession.Create(requester.Id, "canonical-lifecycle-session", now,
+            TimeSpan.FromMinutes(15), TimeSpan.FromHours(8), true, requester.SecurityRevision, new[] { "license.pause" });
+        var approver = AdminUser.Create($"canonical-approver-{Guid.NewGuid():N}", "hash", "salt", "synthetic", true, now);
+        var catalogItem = PlanCatalogItem.Create("PLAN-CANONICAL-LIFECYCLE", "Canonical lifecycle", PlanCatalogItem.TargetBaseLicense, "LIFETIME", null, 500m, "USD");
+        var snapshot = PricingSnapshot.Create(Guid.NewGuid(), catalogItem, 1, now);
+        var order = Order.CreateFromSnapshot(snapshot, Guid.NewGuid(), now);
+        order.ApprovePayment(Guid.NewGuid(), approver.Id, now);
+        var license = CommercialLicense.Issue(order, now, null, now);
+        var capabilityPolicyId = Guid.NewGuid();
+        var policy = ShopEnforcementPolicy.Create(license.ShopId, license.Id, 1, ShopEnforcementPolicy.FullStop,
+            null, Guid.NewGuid(), 86400, 86400, 300, capabilityPolicyId, "{}", "synthetic-signature", "synthetic-key", approver.Id, now);
+        using var payloadDocument = JsonDocument.Parse($"{{\"licenseId\":\"{license.Id:D}\",\"effectiveAtUtc\":\"{now:O}\",\"capabilityPolicyId\":\"{capabilityPolicyId:D}\"}}");
+        var payload = payloadDocument.RootElement.Clone();
+        var serializer = new CanonicalJsonSerializer();
+        var (_, payloadHash) = serializer.SerializeAndHash(payload);
+        var approval = SensitiveApprovalRequest.Request("LICENSE_PAUSE", license.Id, payloadHash, requester.Id,
+            "license.pause", session.Id, now, now.AddHours(1));
+        approval.Approve(approver.Id, payloadHash, now);
+
+        _dbContext.AdminUsers.AddRange(requester, approver);
+        _dbContext.AdminSessions.Add(session);
+        _dbContext.CommercialLicenses.Add(license);
+        _dbContext.ShopEnforcementPolicies.Add(policy);
+        _dbContext.SensitiveApprovalRequests.Add(approval);
+        await _dbContext.SaveChangesAsync();
+
+        CanonicalDirectoryMeta BuildMeta() => new()
+        {
+            ClientOperationId = Guid.NewGuid(),
+            OperationType = "license.pause",
+            FingerprintVersion = 1,
+            PayloadSha256 = payloadHash,
+            ExpectedVersion = 1,
+            PolicyVersion = 1,
+            Reason = "Synthetic canonical lifecycle test",
+            SensitiveApprovalId = approval.Id
+        };
+
+        var missingGrant = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _lifecycleService.ExecuteCanonicalLicenseLifecycleAsync("license.pause", license.Id, capabilityPolicyId,
+                now, payload, BuildMeta(), requester.Id, session.Id));
+        Assert.Equal("STEP_UP_REQUIRED", missingGrant.Code);
+        Assert.Equal(CommercialLicense.StatusActive, (await _dbContext.CommercialLicenses.FindAsync(license.Id))!.Status);
+        Assert.Equal(SensitiveApprovalRequest.StatusApproved, (await _dbContext.SensitiveApprovalRequests.FindAsync(approval.Id))!.Status);
+
+        var wrongActionGrant = StepUpGrant.Create(session.Id, "license.resume", payloadHash, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        var wrongDigest = new string('f', 64);
+        var wrongDigestGrant = StepUpGrant.Create(session.Id, "license.pause", wrongDigest, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        _dbContext.StepUpGrants.AddRange(wrongActionGrant, wrongDigestGrant);
+        await _dbContext.SaveChangesAsync();
+
+        var mismatchedGrant = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _lifecycleService.ExecuteCanonicalLicenseLifecycleAsync("license.pause", license.Id, capabilityPolicyId,
+                now, payload, BuildMeta(), requester.Id, session.Id));
+        Assert.Equal("STEP_UP_REQUIRED", mismatchedGrant.Code);
+        Assert.False((await _dbContext.StepUpGrants.FindAsync(wrongActionGrant.Id))!.IsConsumed);
+        Assert.False((await _dbContext.StepUpGrants.FindAsync(wrongDigestGrant.Id))!.IsConsumed);
+        Assert.Equal(CommercialLicense.StatusActive, (await _dbContext.CommercialLicenses.FindAsync(license.Id))!.Status);
+        Assert.Equal(SensitiveApprovalRequest.StatusApproved, (await _dbContext.SensitiveApprovalRequests.FindAsync(approval.Id))!.Status);
+
+        var grant = StepUpGrant.Create(session.Id, "license.pause", payloadHash, Guid.NewGuid(), now, TimeSpan.FromMinutes(5));
+        _dbContext.StepUpGrants.Add(grant);
+        await _dbContext.SaveChangesAsync();
+
+        var outcome = await _lifecycleService.ExecuteCanonicalLicenseLifecycleAsync("license.pause", license.Id,
+            capabilityPolicyId, now, payload, BuildMeta(), requester.Id, session.Id);
+
+        Assert.Equal("SUCCEEDED", outcome.State);
+        Assert.Equal(CommercialLicense.StatusPaused, (await _dbContext.CommercialLicenses.FindAsync(license.Id))!.Status);
+        Assert.True((await _dbContext.StepUpGrants.FindAsync(grant.Id))!.IsConsumed);
+        Assert.Equal(SensitiveApprovalRequest.StatusConsumed, (await _dbContext.SensitiveApprovalRequests.FindAsync(approval.Id))!.Status);
+        Assert.Single(await _dbContext.CentralOutboxMessages.Where(x => x.AggregateId == license.Id.ToString("D")).ToListAsync());
     }
 
     [Fact]
@@ -135,14 +386,12 @@ public class SensitiveLifecycleUnitTests : IDisposable
         // Helper to create and approve a sensitive approval
         async Task<SensitiveApprovalRequest> CreateAndApprove(string opType)
         {
-            var req = await _lifecycleService.RequestApprovalAsync(
+            var (req, requesterAdminId) = await RequestApprovalWithStepUpAsync(
                 opType,
                 license.Id,
                 new string('0', 64),
-                opType,
-                adminId,
-                Guid.NewGuid(),
-                TimeSpan.FromHours(2));
+                opType);
+            adminId = requesterAdminId;
             await _lifecycleService.DecideApprovalAsync(req.Id, new DecideSensitiveApprovalCommand
             {
                 Decision = "APPROVE",

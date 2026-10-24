@@ -19,6 +19,7 @@ public class SensitiveApprovalRequest : Entity
     public Guid? ApproverAdminId { get; private set; }
     public string Status { get; private set; } = StatusPending;
     public string ActionScope { get; private set; } = string.Empty;
+    public string RequestReason { get; private set; } = string.Empty;
     public Guid StepUpSessionId { get; private set; }
     public DateTimeOffset RequestedAtUtc { get; private set; }
     public DateTimeOffset? DecidedAtUtc { get; private set; }
@@ -35,7 +36,8 @@ public class SensitiveApprovalRequest : Entity
         string actionScope,
         Guid stepUpSessionId,
         DateTimeOffset requestedAtUtc,
-        DateTimeOffset expiresAtUtc)
+        DateTimeOffset expiresAtUtc,
+        string requestReason = "")
     {
         if (string.IsNullOrWhiteSpace(operationType))
         {
@@ -53,6 +55,10 @@ public class SensitiveApprovalRequest : Entity
         {
             throw new CentralDomainException("INVALID_REQUESTER", "approval.invalid_requester", "Requester Admin ID is required.");
         }
+        if (requestReason is null || requestReason.Length > 500)
+        {
+            throw new CentralDomainException("INVALID_APPROVAL_REASON", "approval.invalid_reason", "Approval request reason must be 500 characters or fewer.");
+        }
         if (expiresAtUtc <= requestedAtUtc)
         {
             throw new CentralDomainException("INVALID_EXPIRATION", "approval.invalid_expiration", "Expiration must be after request time.");
@@ -67,6 +73,7 @@ public class SensitiveApprovalRequest : Entity
             RequesterAdminId = requesterAdminId,
             Status = StatusPending,
             ActionScope = actionScope.Trim(),
+            RequestReason = requestReason.Trim(),
             StepUpSessionId = stepUpSessionId,
             RequestedAtUtc = requestedAtUtc,
             ExpiresAtUtc = expiresAtUtc,

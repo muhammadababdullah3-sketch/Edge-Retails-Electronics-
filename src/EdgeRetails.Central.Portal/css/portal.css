@@ -831,3 +831,20 @@ button:disabled, input:disabled, textarea:disabled, select:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+/* Native dialogs use the same surface and focus backdrop as portal modals. */
+#sessions-revoke-dialog, #license-lifecycle-dialog {
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}

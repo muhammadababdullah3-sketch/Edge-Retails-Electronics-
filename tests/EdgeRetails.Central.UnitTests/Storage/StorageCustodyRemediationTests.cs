@@ -60,7 +60,7 @@ public sealed class StorageCustodyRemediationTests
             .UseInMemoryDatabase($"RestoreFailClosed_{Guid.NewGuid():N}")
             .Options;
         await using var context = new CentralDbContext(options);
-        var storage = new DiskObjectStorageProvider(Path.Combine(Path.GetTempPath(), $"central_restore_test_{Guid.NewGuid():N}"));
+        using var storage = new DiskObjectStorageProvider(Path.Combine(Path.GetTempPath(), $"central_restore_test_{Guid.NewGuid():N}"));
         var ledger = new ThrowingLedger();
         var service = new Wave3StorageAndSupportService(context, storage, ledger);
 

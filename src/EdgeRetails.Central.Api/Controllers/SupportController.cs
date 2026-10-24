@@ -98,7 +98,7 @@ public class SupportController : ControllerBase
             return Unauthorized(new { code = "SESSION_REQUIRED", safeMessageKey = "auth.session_required" });
         }
         var meta = CreateMeta(clientOperationId, "SUPPORT_TICKET_CREATE", dto);
-        var (outcome, ticketId) = await _supportService.CreateSupportTicketAsync(meta, dto, session.AdminUserId, $"admin:{session.AdminUserId:N}", cancellationToken);
+        var (outcome, ticketId) = await _supportService.CreateSupportTicketAsync(meta, dto, session.AdminUserId, session.SessionId, $"admin:{session.AdminUserId:N}", cancellationToken);
         return Ok(new { outcome, ticketId });
     }
 
@@ -121,7 +121,7 @@ public class SupportController : ControllerBase
         }
         dto.TicketId = ticketId;
         var meta = CreateMeta(clientOperationId, dto.Action.Equals("STATUS", StringComparison.OrdinalIgnoreCase) ? "SUPPORT_TICKET_STATUS" : "SUPPORT_TICKET_REPLY", dto);
-        var (outcome, success) = await _supportService.ReplySupportTicketAsync(meta, dto, session.AdminUserId.ToString("D"), $"admin:{session.AdminUserId:N}", cancellationToken);
+        var (outcome, success) = await _supportService.ReplySupportTicketAsync(meta, dto, session.AdminUserId.ToString("D"), session.SessionId, $"admin:{session.AdminUserId:N}", cancellationToken);
         return Ok(new { outcome, success });
     }
 

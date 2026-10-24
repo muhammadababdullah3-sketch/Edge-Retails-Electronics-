@@ -222,6 +222,13 @@ public class ApprovePrimaryTransferCommand
     public string? StepUpGrantToken { get; set; }
 }
 
+public class CompletePrimaryTransferCommand
+{
+    [JsonPropertyName("commandMeta")]
+    [Required]
+    public CommandMetaDto CommandMeta { get; set; } = null!;
+}
+
 public class DecideSensitiveApprovalCommand
 {
     [JsonPropertyName("commandMeta")]

@@ -14,17 +14,29 @@ public class CsrfProtectionMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var path = context.Request.Path;
+        var method = context.Request.Method.ToUpperInvariant();
+
+        // Error responses on authority routes must not be stored by browsers or intermediaries.
+        if (path.StartsWithSegments("/api") || path.StartsWithSegments("/internal"))
+        {
+            SetNoStoreHeaders(context.Response);
+            context.Response.OnStarting(() =>
+            {
+                SetNoStoreHeaders(context.Response);
+                return Task.CompletedTask;
+            });
+        }
+
         // Enforce HTTPS
         if (!context.Request.IsHttps)
         {
+            W1DenialAuditMiddleware.SetDenialCode(context, "HTTPS_REQUIRED");
             context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("{\"code\":\"HTTPS_REQUIRED\",\"safeMessageKey\":\"security.https_required\",\"message\":\"HTTPS is strictly required for Central authority endpoints.\"}");
             return;
         }
-
-        var path = context.Request.Path;
-        var method = context.Request.Method.ToUpperInvariant();
 
         // Customer restore is edge-owned. Return the explicit unsupported contract without
         // resolving MVC filters, Central services, or a database target.
@@ -40,29 +52,12 @@ public class CsrfProtectionMiddleware
         }
         var isMutating = method is "POST" or "PUT" or "DELETE" or "PATCH";
 
-        // Enforce no-store cache control on all API, internal, and auth routes
-        if (path.StartsWithSegments("/api") || path.StartsWithSegments("/internal"))
-        {
-            SetNoStoreHeaders(context.Response);
-            try
-            {
-                context.Response.OnStarting(() =>
-                {
-                    SetNoStoreHeaders(context.Response);
-                    return Task.CompletedTask;
-                });
-            }
-            catch
-            {
-                // Suppress if headers have already started
-            }
-        }
-
         // Prohibit cross-origin browser access to internal endpoints
         if (path.StartsWithSegments("/internal"))
         {
             if (context.Request.Headers.ContainsKey("Origin"))
             {
+                W1DenialAuditMiddleware.SetDenialCode(context, "CROSS_ORIGIN_PROHIBITED");
                 context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync("{\"code\":\"CROSS_ORIGIN_PROHIBITED\",\"safeMessageKey\":\"signer.cross_origin_prohibited\",\"message\":\"Cross-origin requests to internal endpoints are strictly prohibited.\"}");
@@ -77,6 +72,7 @@ public class CsrfProtectionMiddleware
         var credResult = CentralSessionCredentials.Parse(context.Request);
         if (credResult.ErrorCode == "SESSION_CREDENTIAL_CONFLICT")
         {
+            W1DenialAuditMiddleware.SetDenialCode(context, "SESSION_CREDENTIAL_CONFLICT");
             context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("{\"code\":\"SESSION_CREDENTIAL_CONFLICT\",\"safeMessageKey\":\"security.session_credential_conflict\",\"message\":\"Conflicting session credentials provided across transports.\"}");
@@ -113,6 +109,7 @@ public class CsrfProtectionMiddleware
 
             if (!isValidOrigin)
             {
+                W1DenialAuditMiddleware.SetDenialCode(context, "CSRF_REJECTED");
                 context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync("{\"code\":\"CSRF_REJECTED\",\"safeMessageKey\":\"security.csrf_rejected\",\"message\":\"Exact scheme, host, and port origin match required.\"}");
@@ -123,7 +120,7 @@ public class CsrfProtectionMiddleware
         await _next(context);
     }
 
-    private static void SetNoStoreHeaders(HttpResponse response)
+    public static void SetNoStoreHeaders(HttpResponse response)
     {
         response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
         response.Headers["Pragma"] = "no-cache";

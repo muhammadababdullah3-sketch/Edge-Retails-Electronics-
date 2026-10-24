@@ -17,11 +17,12 @@ public interface IActivationService
     Task ReviewActivationAsync(Guid redemptionId, ReviewActivationCommand command, Guid adminId, CancellationToken cancellationToken = default);
     Task<OutcomeDto> ReviewCanonicalActivationAsync(Guid redemptionId, CanonicalDirectoryMeta meta, CanonicalActivationDecisionDto decision, Guid adminId, Guid? adminSessionId, CancellationToken cancellationToken = default);
     Task<LicenseCertificate> IssueCertificateAsync(Guid installationId, Guid adminId, CancellationToken cancellationToken = default);
-    Task<HardwareReview> ReportHardwareDiscrepancyAsync(Guid shopId, Guid installationId, string reportedFingerprint, string storedFingerprint, string reason, CancellationToken cancellationToken = default);
+    Task<HardwareReview> ReportHardwareDiscrepancyAsync(Guid installationId, string reportedFingerprint, string reason, CancellationToken cancellationToken = default);
     Task DecideHardwareReviewAsync(Guid reviewId, DecideHardwareReviewCommand command, Guid adminId, CancellationToken cancellationToken = default);
     Task<PrimaryTransfer> InitiatePrimaryTransferAsync(InitiatePrimaryTransferCommand command, Guid adminId, CancellationToken cancellationToken = default);
     Task ApprovePrimaryTransferAsync(Guid transferId, Guid approverAdminId, Guid sensitiveApprovalId, CancellationToken cancellationToken = default);
     Task ApprovePrimaryTransferAsync(Guid transferId, Guid approverAdminId, Guid sensitiveApprovalId, ApprovePrimaryTransferCommand? command, CancellationToken cancellationToken = default);
-    Task CompletePrimaryTransferAsync(Guid transferId, Guid adminId, CancellationToken cancellationToken = default);
+    Task CompletePrimaryTransferAsync(Guid transferId, Guid adminId, CompletePrimaryTransferCommand command, CancellationToken cancellationToken = default);
     Task<SignedEntitlementDto> ReconcileInstallationAsync(ReconcileCommandDto command, CancellationToken cancellationToken = default);
+    Task<SignedEntitlementDto> ReconcileCanonicalInstallationAsync(CommandMetaDto meta, ReconcileCommandDto command, CancellationToken cancellationToken = default);
 }

@@ -98,7 +98,6 @@ public class CommercialController : ControllerBase
     }
 
     [HttpPost("uploads/sessions")]
-    [HttpPost("/api/admin/v1/evidence/uploads")]
     public async Task<IActionResult> InitUploadSession([FromBody] InitUploadSessionCommand command, CancellationToken cancellationToken)
     {
         var uploaderId = await GetAdminUserIdAsync(cancellationToken);
@@ -125,7 +124,6 @@ public class CommercialController : ControllerBase
     }
 
     [HttpPost("uploads/sessions/{sessionId:guid}/finalize")]
-    [HttpPost("/api/admin/v1/evidence/uploads/{sessionId:guid}/finalize")]
     public async Task<IActionResult> FinalizeUploadSession(
         [FromRoute] Guid sessionId,
         [FromQuery] Guid orderId,
@@ -145,6 +143,11 @@ public class CommercialController : ControllerBase
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
         }
 
+        if (!ManualCommercialCommandGuard.IsValid(command.CommandMeta, "payment.review"))
+        {
+            return BadRequest(new { code = "INVALID_OPERATION_META", safeMessageKey = "operation.invalid_meta" });
+        }
+
         var review = await _commercialService.ReviewPaymentAsync(command, adminId, cancellationToken);
         return Ok(review);
     }
@@ -157,6 +160,11 @@ public class CommercialController : ControllerBase
         if (adminId == Guid.Empty)
         {
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
+        }
+
+        if (!ManualCommercialCommandGuard.IsValid(command.CommandMeta, "license.issue"))
+        {
+            return BadRequest(new { code = "INVALID_OPERATION_META", safeMessageKey = "operation.invalid_meta" });
         }
 
         var license = await _commercialService.IssueLicenseAsync(command, adminId, cancellationToken);

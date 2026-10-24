@@ -1119,10 +1119,13 @@
       "auth_surface": "admin",
       "permission": "dashboard.view",
       "request": {
-        "$ref": "contracts.schema.json#/$defs/Query"
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
       },
       "response": {
-        "$ref": "contracts.schema.json#/$defs/Page"
+        "$ref": "contracts.schema.json#/$defs/DashboardMetrics"
       },
       "mutating": false,
       "implementation_task": 21,
@@ -1624,6 +1627,27 @@
         "Installation proof binds the path, canonical request and persisted installation/shop principal",
         "Only the persisted owning installation may request a grant for its active encrypted-backup object",
         "Grant token is high entropy, persisted only as a hash, explicitly short-lived and scoped to one installation, shop and immutable object"
+      ]
+    },
+    {
+      "operationId": "admin.backups.list",
+      "method": "GET",
+      "path": "/api/admin/v1/backups",
+      "auth_surface": "admin",
+      "permission": "backup.download",
+      "request": {
+        "$ref": "contracts.schema.json#/$defs/BackupMetadataQuery"
+      },
+      "response": {
+        "$ref": "contracts.schema.json#/$defs/BackupMetadataPage"
+      },
+      "mutating": false,
+      "implementation_task": 16,
+      "invariants": [
+        "Exact persisted admin capability backup.download is required",
+        "Only persisted encrypted-backup metadata is returned; storage paths and opaque custody records are excluded",
+        "Bounded cursor pagination and as-of projection version are read from one repeatable-read snapshot",
+        "Recorded ciphertext hash is metadata and does not assert a fresh byte-integrity or restore check"
       ]
     },
     {

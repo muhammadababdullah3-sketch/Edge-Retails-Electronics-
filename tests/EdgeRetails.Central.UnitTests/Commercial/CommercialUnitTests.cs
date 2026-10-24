@@ -102,6 +102,20 @@ public class CommercialUnitTests : IDisposable
     }
 
     [Fact]
+    public void CatalogRejectsLifetimeTermForTimedSupportAndPremiumAddons()
+    {
+        var supportError = Assert.Throws<CentralDomainException>(() => PlanCatalogItem.Create(
+            "SUPPORT-LIFE-INVALID", "Invalid lifetime support fixture", PlanCatalogItem.TargetSupport,
+            PlanCatalogItem.TermLifetime, null, 10m, "USD"));
+        Assert.Equal("LIFETIME_ADDON_PROHIBITED", supportError.Code);
+
+        var premiumError = Assert.Throws<CentralDomainException>(() => PlanCatalogItem.Create(
+            "PREMIUM-LIFE-INVALID", "Invalid lifetime premium fixture", PlanCatalogItem.TargetPremiumUpgrade,
+            PlanCatalogItem.TermLifetime, null, 10m, "USD"));
+        Assert.Equal("LIFETIME_ADDON_PROHIBITED", premiumError.Code);
+    }
+
+    [Fact]
     public void CanonicalOrder_PersistsPurchaseIdentityAndEnforcesTargetTermAndCapacity()
     {
         var now = DateTimeOffset.UtcNow;
@@ -423,6 +437,33 @@ public class CommercialUnitTests : IDisposable
         await _dbContext.SaveChangesAsync();
 
         var addonEnd = now.AddYears(1);
+        var expiredRenewal = await Assert.ThrowsAsync<CentralDomainException>(() => _commercialService.RenewAddonAsync(
+            license.Id,
+            new RenewAddonCommand
+            {
+                ApprovedOrderId = addonOrder.Id,
+                NewValidUntilUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+                CommandMeta = new CommandMetaDto()
+            },
+            adminId));
+        Assert.Equal("INVALID_RENEWAL_DATE", expiredRenewal.Code);
+
+        var mismatchedOrder = Order.CreateFromSnapshot(
+            addonSnapshot, customer.Id, now, "SUPPORT_RENEWAL", 1, Guid.NewGuid(), null);
+        mismatchedOrder.ApprovePayment(Guid.NewGuid(), adminId, now);
+        _dbContext.Orders.Add(mismatchedOrder);
+        await _dbContext.SaveChangesAsync();
+        var targetMismatch = await Assert.ThrowsAsync<CentralDomainException>(() => _commercialService.RenewAddonAsync(
+            license.Id,
+            new RenewAddonCommand
+            {
+                ApprovedOrderId = mismatchedOrder.Id,
+                NewValidUntilUtc = addonEnd,
+                CommandMeta = new CommandMetaDto()
+            },
+            adminId));
+        Assert.Equal("TARGET_MISMATCH", targetMismatch.Code);
+
         var entitlement = await _commercialService.RenewAddonAsync(license.Id, new RenewAddonCommand
         {
             ApprovedOrderId = addonOrder.Id,
@@ -440,6 +481,17 @@ public class CommercialUnitTests : IDisposable
         Assert.Equal("LIFETIME", reloadedLicense.TermKind);
         Assert.Null(reloadedLicense.ValidUntilUtc); // Still null!
         Assert.Equal("ACTIVE", reloadedLicense.Status);
+
+        var reusedOrder = await Assert.ThrowsAsync<CentralDomainException>(() => _commercialService.RenewAddonAsync(
+            license.Id,
+            new RenewAddonCommand
+            {
+                ApprovedOrderId = addonOrder.Id,
+                NewValidUntilUtc = addonEnd.AddYears(1),
+                CommandMeta = new CommandMetaDto()
+            },
+            adminId));
+        Assert.Equal("ORDER_ALREADY_FULFILLED", reusedOrder.Code);
     }
 
     [Fact]

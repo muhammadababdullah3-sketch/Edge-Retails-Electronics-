@@ -13,11 +13,13 @@ using EdgeRetails.Central.Domain.Commercial;
 using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Domain.Licensing;
 using EdgeRetails.Central.Domain.Outbox;
+using EdgeRetails.Central.Domain.Operations;
 using EdgeRetails.Central.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using EdgeRetails.ProtectedSigner.Services;
 using Xunit;
 
 namespace EdgeRetails.Central.IntegrationTests.Api;
@@ -90,6 +92,26 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
         return publicKey;
     }
 
+    private object ReconcileEnvelope(ReconcileCommandDto payload, Guid? operationId = null, int? expectedVersionOverride = null)
+    {
+        var expectedVersion = expectedVersionOverride;
+        if (!expectedVersion.HasValue)
+        {
+            using var db = GetDbContext();
+            expectedVersion = db.Installations.AsNoTracking().Where(x => x.Id == payload.InstallationId).Select(x => x.RowVersion).Single();
+        }
+        return new
+        {
+            meta = new CommandMetaDto
+            {
+                ClientOperationId = operationId ?? Guid.NewGuid(), OperationType = "installation.reconcile", FingerprintVersion = 1,
+                PayloadSha256 = _serializer.SerializeAndHash(payload).Sha256Hex, ExpectedVersion = expectedVersion.Value, PolicyVersion = 1,
+                Reason = "Synthetic installation reconciliation fixture"
+            },
+            payload
+        };
+    }
+
     private void AddInstallationProof(HttpRequestMessage request, Guid installationId, Guid shopId, Guid licenseId, string publicKeyPem)
     {
         Environment.SetEnvironmentVariable("CENTRAL_INSTALLATION_PROOF_WINDOW_SECONDS", "120"); // labelled synthetic integration fixture
@@ -121,10 +143,60 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
         request.Headers.Add("X-Installation-Signature", Convert.ToBase64String(signature));
     }
 
+    private async Task AddSignedPolicyFixtureAsync(Guid shopId, Guid licenseId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var policyPayload = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            extensionEndUtc = (DateTimeOffset?)null,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = 5_400,
+            offlineGraceSeconds = 86_400,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid()
+        };
+        var (canonicalJson, digest) = _serializer.SerializeAndHash(policyPayload);
+        using var scope = _factory.Services.CreateScope();
+        var signer = scope.ServiceProvider.GetRequiredService<IProtectedSignerClient>();
+        var key = await signer.EnsureActiveKeyAsync(EdgeRetails.Central.Domain.Signing.SigningPurpose.License);
+        var signingRequest = new SigningRequestDto
+        {
+            SigningRequestId = Guid.NewGuid(),
+            IssuanceRequestId = licenseId,
+            PayloadSha256 = digest,
+            AuthorityRevision = 1,
+            KeyId = key.KeyId,
+            KeyVersion = key.KeyVersion,
+            Purpose = EdgeRetails.Central.Domain.Signing.SigningPurpose.License,
+            CanonicalPayload = canonicalJson
+        };
+        var authority = scope.ServiceProvider.GetRequiredService<IProtectedSigningEngine>();
+        await authority.AuthorizeTestRequestAsync(signingRequest);
+        var signed = await signer.SignAsync(signingRequest);
+
+        using var db = GetDbContext();
+        db.ShopEnforcementPolicies.Add(ShopEnforcementPolicy.Create(
+            shopId, licenseId, 1, ShopEnforcementPolicy.FullStop, null,
+            policyPayload.afterExtensionPolicyId, policyPayload.leaseDurationSeconds,
+            policyPayload.offlineGraceSeconds, policyPayload.rollbackToleranceSeconds,
+            policyPayload.capabilityPolicyId, canonicalJson, signed.Signature, key.KeyId,
+            Guid.NewGuid(), now));
+        await db.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task CONE_T24_Outbox_DeadLetter_Isolation_And_Postgres_Deduplication()
     {
         using var db = GetDbContext();
+        // Run the manual dispatcher contract under one transaction so the
+        // class-scoped hosted worker cannot claim fixture rows between calls.
+        // DurableOutboxConsumerSink uses this same context, so its dedup record
+        // remains part of the fixture transaction as well.
+        await using var fixtureIsolation = await db.Database.BeginTransactionAsync();
         var sink = new DurableOutboxConsumerSink(db);
         var dispatcher = new OutboxDispatcher(db, sink);
 
@@ -162,6 +234,11 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
         Assert.Equal(1, sink.GetDeliveryCount(messageId1)); // Strictly deduplicated in PostgreSQL
 
         // 3. Test Dead-Letter isolation with failing sink
+        // Keep the fixture row invisible to the shared hosted worker until its
+        // manual retry assertions finish. The production dispatcher still uses
+        // SKIP LOCKED for concurrent workers; this test exercises the explicit
+        // maxRetries=2 contract without letting the host's configured policy
+        // consume the synthetic row between attempts.
         var failingMessageId = Guid.NewGuid();
         var failingSink = new MockFailingConsumerSink(failingMessageId);
         var failingDispatcher = new OutboxDispatcher(db, failingSink);
@@ -201,6 +278,60 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
         Assert.NotNull(msgAttempt3);
         Assert.Equal(OutboxStatus.DEAD_LETTER, msgAttempt3.Status);
         Assert.Equal(2, msgAttempt3.RetryCount);
+        await fixtureIsolation.CommitAsync();
+    }
+
+    [Fact]
+    public async Task CONE_T05_NotificationFailureAfterManualPaymentCommit_PreservesOrderDecision()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var customer = Customer.Create(
+            $"Synthetic notification-failure customer {Guid.NewGuid():N}",
+            $"notification-failure-{Guid.NewGuid():N}@example.invalid",
+            string.Empty,
+            now);
+        var shop = Shop.Create(customer.Id, $"NF_{Guid.NewGuid():N}"[..10], "Synthetic notification-failure shop", now);
+        var plan = PlanCatalogItem.Create(
+            $"NF{Guid.NewGuid():N}"[..12],
+            "Synthetic lifetime license",
+            PlanCatalogItem.TargetBaseLicense,
+            CommercialTerm.Lifetime,
+            null,
+            100m,
+            "USD");
+        var snapshot = PricingSnapshot.Create(shop.Id, plan, 1, now);
+        var order = Order.CreateFromSnapshot(snapshot, customer.Id, now);
+        order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), now);
+
+        var messageId = Guid.NewGuid();
+        var outbox = CentralOutboxMessage.Create(
+            messageId,
+            "commercial.payment_approved",
+            nameof(Order),
+            order.Id.ToString("D"),
+            """{"manualReview":true,"fixture":"synthetic-notification-failure"}""",
+            now);
+
+        using var db = GetDbContext();
+        db.Customers.Add(customer);
+        db.Shops.Add(shop);
+        db.PlanCatalogItems.Add(plan);
+        db.PricingSnapshots.Add(snapshot);
+        db.Orders.Add(order);
+        db.CentralOutboxMessages.Add(outbox);
+        await db.SaveChangesAsync();
+
+        // The notification consumer runs after the commercial transaction commits.
+        // A failed delivery may retry/dead-letter its own message, but cannot undo payment review.
+        var dispatcher = new OutboxDispatcher(db, new MockFailingConsumerSink(messageId));
+        await dispatcher.DispatchPendingMessagesAsync(batchSize: 500, maxRetries: 1);
+
+        db.ChangeTracker.Clear();
+        var persistedOrder = await db.Orders.AsNoTracking().SingleAsync(x => x.Id == order.Id);
+        var persistedMessage = await db.CentralOutboxMessages.AsNoTracking().SingleAsync(x => x.Id == messageId);
+        Assert.Equal(Order.StatusPaidApproved, persistedOrder.Status);
+        Assert.Equal(OutboxStatus.DEAD_LETTER, persistedMessage.Status);
+        Assert.Equal(1, persistedMessage.RetryCount);
     }
 
     [Fact]
@@ -267,6 +398,8 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
             await db.SaveChangesAsync();
         }
 
+        await AddSignedPolicyFixtureAsync(shopId, licenseId);
+
         // Execute Reconciliation Request
         var reconcileCommand = new ReconcileCommandDto
         {
@@ -278,7 +411,9 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileCommand) };
+        var reconcileOperationId = Guid.NewGuid();
+        var reconcileEnvelope = ReconcileEnvelope(reconcileCommand, reconcileOperationId);
+        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileEnvelope) };
         AddInstallationProof(reconcileRequest, installationId, shopId, licenseId, pubKeyPem);
         var response = await _client.SendAsync(reconcileRequest);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -295,14 +430,36 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
 
         using var replayRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile")
         {
-            Content = System.Net.Http.Json.JsonContent.Create(reconcileCommand)
+            Content = System.Net.Http.Json.JsonContent.Create(reconcileEnvelope)
         };
-        foreach (var header in reconcileRequest.Headers.Where(x => x.Key.StartsWith("X-Installation-", StringComparison.Ordinal)))
-        {
-            replayRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
-        }
+        AddInstallationProof(replayRequest, installationId, shopId, licenseId, pubKeyPem);
         var replayResponse = await _client.SendAsync(replayRequest);
-        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, replayResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, replayResponse.StatusCode);
+        var replayEntitlement = await replayResponse.Content.ReadFromJsonAsync<SignedEntitlementDto>();
+        Assert.NotNull(replayEntitlement);
+        Assert.Equal(signedEntitlement.Signature, replayEntitlement.Signature);
+
+        var alteredReplayPayload = new ReconcileCommandDto
+        {
+            InstallationId = reconcileCommand.InstallationId, CertificateId = reconcileCommand.CertificateId,
+            AuthorityRevision = reconcileCommand.AuthorityRevision, HardwareFingerprintHash = reconcileCommand.HardwareFingerprintHash,
+            ApplicationVersion = "different-payload-same-operation", LastVerifiedVendorTimeUtc = reconcileCommand.LastVerifiedVendorTimeUtc
+        };
+        using var conflictingReplay = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(alteredReplayPayload, reconcileOperationId))
+        };
+        AddInstallationProof(conflictingReplay, installationId, shopId, licenseId, pubKeyPem);
+        var conflictingResponse = await _client.SendAsync(conflictingReplay);
+        Assert.Equal(HttpStatusCode.Conflict, conflictingResponse.StatusCode);
+        var conflictJson = await ReadJsonAsync(conflictingResponse);
+        Assert.Equal("OPERATION_ID_CONFLICT", conflictJson["code"]?.GetValue<string>());
+        using (var verificationDb = GetDbContext())
+        {
+            Assert.Equal(1, await verificationDb.CentralOperationRecords.CountAsync(x => x.ClientOperationId == reconcileOperationId && x.OperationType == "installation.reconcile"));
+            Assert.Equal(1, await verificationDb.CentralSigningRequests.CountAsync(x => x.Id == reconcileOperationId && x.Status == "SIGNED"));
+            Assert.Equal(1, await verificationDb.CentralOutboxMessages.CountAsync(x => x.EventType == "licensing.installation_reconciled" && x.AggregateId == installationId.ToString()));
+        }
 
         // Fetch public trust set and verify signature
         using var trustRequest = new HttpRequestMessage(HttpMethod.Get, "/api/licensing/v1/trust-set");
@@ -419,6 +576,8 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
             await db.SaveChangesAsync();
         }
 
+        await AddSignedPolicyFixtureAsync(shopId, licenseId);
+
         var reconcileCommand = new ReconcileCommandDto
         {
             InstallationId = installationId,
@@ -429,7 +588,7 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileCommand) };
+        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(reconcileCommand)) };
         AddInstallationProof(reconcileRequest, installationId, shopId, licenseId, pubKeyPem);
         var response = await _client.SendAsync(reconcileRequest);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -514,7 +673,7 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileCommand) };
+        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(reconcileCommand)) };
         AddInstallationProof(reconcileRequest, installationId, shopId, licenseId, pubKeyPem);
         var response = await _client.SendAsync(reconcileRequest);
         Assert.False(response.IsSuccessStatusCode);

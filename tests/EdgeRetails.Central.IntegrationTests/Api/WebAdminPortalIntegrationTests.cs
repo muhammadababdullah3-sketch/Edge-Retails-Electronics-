@@ -76,6 +76,8 @@ public class WebAdminPortalIntegrationTests : IClassFixture<WebAdminPortalIntegr
         Assert.Contains("loadQueue", js);
         Assert.Contains("same-origin", js);
         Assert.Contains("async function loadRecovery()", js);
+        Assert.Contains("function isCanonicalBackupCursor(cursor)", js);
+        Assert.Contains("String(offset) === cursor", js);
         Assert.Contains("/api/admin/v1/notifications/status", js);
         Assert.Contains("A worker observation does not prove a backup, restore, host identity, or database target", js);
 
@@ -93,8 +95,9 @@ public class WebAdminPortalIntegrationTests : IClassFixture<WebAdminPortalIntegr
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var html = await response.Content.ReadAsStringAsync();
-        Assert.Contains("OPEN / UNAVAILABLE", html);
-        Assert.Contains("cannot report stored backups, key custody, ciphertext integrity or successful restoration", html);
+        Assert.Contains("This view reports persisted metadata only.", html);
+        Assert.Contains("it is not a live integrity check", html);
+        Assert.Contains("does not attest key custody or file availability", html);
         Assert.DoesNotContain("Zero-Knowledge Cryptographic Custody Enforced", html);
     }
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using EdgeRetails.Central.Application.Abstractions;
+using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Application.Services;
 using EdgeRetails.Central.Domain.Commercial;
@@ -61,11 +62,12 @@ public class ActivationUnitTests : IDisposable
         var shop = Shop.Create(Guid.NewGuid(), "SHOP-ACT-01", "Activation Shop", now);
         var item = PlanCatalogItem.Create("PLAN-ACT", "Plan Act", PlanCatalogItem.TargetBaseLicense, "LIFETIME", null, 500m, "USD");
         var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
-        var order = Order.CreateFromSnapshot(snapshot, Guid.NewGuid(), now);
+        var order = Order.CreateFromSnapshot(snapshot, shop.CustomerId, now);
         order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), now);
         var license = CommercialLicense.Issue(order, now, null, now);
 
         _dbContext.Shops.Add(shop);
+        _dbContext.Orders.Add(order);
         _dbContext.CommercialLicenses.Add(license);
         await _dbContext.SaveChangesAsync();
 
@@ -96,10 +98,11 @@ public class ActivationUnitTests : IDisposable
         var shop = Shop.Create(Guid.NewGuid(), "SHOP-BOOT-01", "Bootstrap Shop", now);
         var item = PlanCatalogItem.Create("PLAN-BOOT", "Plan Bootstrap", PlanCatalogItem.TargetBaseLicense, "LIFETIME", null, 500m, "USD");
         var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
-        var order = Order.CreateFromSnapshot(snapshot, Guid.NewGuid(), now);
+        var order = Order.CreateFromSnapshot(snapshot, shop.CustomerId, now);
         order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), now);
         var license = CommercialLicense.Issue(order, now, null, now);
         _dbContext.Shops.Add(shop);
+        _dbContext.Orders.Add(order);
         _dbContext.CommercialLicenses.Add(license);
         await _dbContext.SaveChangesAsync();
 
@@ -200,11 +203,12 @@ public class ActivationUnitTests : IDisposable
         var shop = Shop.Create(Guid.NewGuid(), "SHOP-ACT-02", "Activation Shop 2", now);
         var item = PlanCatalogItem.Create("PLAN-ACT2", "Plan Act 2", PlanCatalogItem.TargetBaseLicense, "LIFETIME", null, 500m, "USD");
         var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
-        var order = Order.CreateFromSnapshot(snapshot, Guid.NewGuid(), now);
+        var order = Order.CreateFromSnapshot(snapshot, shop.CustomerId, now);
         order.ApprovePayment(Guid.NewGuid(), adminId, now);
         var license = CommercialLicense.Issue(order, now, null, now);
 
         _dbContext.Shops.Add(shop);
+        _dbContext.Orders.Add(order);
         _dbContext.CommercialLicenses.Add(license);
         await _dbContext.SaveChangesAsync();
 
@@ -239,11 +243,12 @@ public class ActivationUnitTests : IDisposable
         var shop = Shop.Create(Guid.NewGuid(), "SHOP-ACT-03", "Activation Shop 3", now);
         var item = PlanCatalogItem.Create("PLAN-ACT3", "Plan Act 3", PlanCatalogItem.TargetBaseLicense, "LIFETIME", null, 500m, "USD");
         var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
-        var order = Order.CreateFromSnapshot(snapshot, Guid.NewGuid(), now);
+        var order = Order.CreateFromSnapshot(snapshot, shop.CustomerId, now);
         order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), now);
         var license = CommercialLicense.Issue(order, now, null, now);
 
         _dbContext.Shops.Add(shop);
+        _dbContext.Orders.Add(order);
         _dbContext.CommercialLicenses.Add(license);
         await _dbContext.SaveChangesAsync();
 
@@ -342,6 +347,7 @@ public class ActivationUnitTests : IDisposable
         _dbContext.CommercialLicenses.Add(license);
         _dbContext.Installations.Add(install);
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shop.Id, license.Id, adminId);
 
         // Issue 1st certificate
         var cert1 = await _activationService.IssueCertificateAsync(install.Id, adminId);
@@ -365,6 +371,54 @@ public class ActivationUnitTests : IDisposable
             .Where(c => c.InstallationId == install.Id && c.Status == LicenseCertificate.StatusActive)
             .ToListAsync();
         Assert.Single(activeCerts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CertificateIssuance_DoesNotPersistSignatureWhenLicenseAuthorityChangesDuringSigning(bool renewLicense)
+    {
+        var adminId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var customerId = Guid.NewGuid();
+        var shop = Shop.Create(customerId, "SHOP-CERT-RACE", "Certificate Race Shop", now);
+        var item = PlanCatalogItem.Create("PLAN-CERT-RACE", "Certificate Race Plan", PlanCatalogItem.TargetBaseLicense, PlanCatalogItem.TermFixed, "ANNUAL", 500m, "USD");
+        var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
+        var order = Order.CreateFromSnapshot(snapshot, customerId, now);
+        order.ApprovePayment(Guid.NewGuid(), adminId, now);
+        var license = CommercialLicense.Issue(order, now, now.AddDays(30), now);
+        using var clientRsa = RSA.Create(2048);
+        var installation = Installation.Register(shop.Id, license.Id, "HW-CERT-RACE", clientRsa.ExportSubjectPublicKeyInfoPem(), "POS-CERT-RACE", "Windows", now);
+        installation.Approve(now);
+
+        _dbContext.Shops.Add(shop);
+        _dbContext.Orders.Add(order);
+        _dbContext.CommercialLicenses.Add(license);
+        _dbContext.Installations.Add(installation);
+        await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shop.Id, license.Id, adminId);
+
+        _signerClient.BeforeSign = async (_, cancellationToken) =>
+        {
+            if (renewLicense)
+            {
+                license.RenewFixedTerm(now.AddDays(90), DateTimeOffset.UtcNow);
+            }
+            else
+            {
+                license.Revoke();
+            }
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        };
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _activationService.IssueCertificateAsync(installation.Id, adminId));
+
+        Assert.Equal("CONCURRENT_MODIFICATION", exception.Code);
+        Assert.Equal(renewLicense ? CommercialLicense.StatusActive : CommercialLicense.StatusRevoked, license.Status);
+        Assert.Empty(await _dbContext.LicenseCertificates
+            .Where(x => x.InstallationId == installation.Id)
+            .ToListAsync());
     }
 
     [Fact]
@@ -392,20 +446,32 @@ public class ActivationUnitTests : IDisposable
         _dbContext.Installations.Add(sourceInstall);
         _dbContext.Installations.Add(targetInstall);
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shop.Id, license.Id, adminId);
 
         // Source installation has active certificate
         var sourceCert = await _activationService.IssueCertificateAsync(sourceInstall.Id, adminId);
         Assert.Equal(LicenseCertificate.StatusActive, sourceCert.Status);
 
         // Initiate Primary Transfer
-        var transfer = await _activationService.InitiatePrimaryTransferAsync(new InitiatePrimaryTransferCommand
+        var transferCommand = new InitiatePrimaryTransferCommand
         {
             ShopId = shop.Id,
             SourceInstallationId = sourceInstall.Id,
             TargetInstallationId = targetInstall.Id,
             TransferReason = "Upgraded to new POS hardware",
-            CommandMeta = new CommandMetaDto()
-        }, adminId);
+            CommandMeta = new CommandMetaDto
+            {
+                ClientOperationId = Guid.NewGuid(),
+                OperationType = "primary.transfer",
+                FingerprintVersion = 1,
+                PayloadSha256 = new string('0', 64),
+                ExpectedVersion = 0,
+                PolicyVersion = 1,
+                Reason = "unit test transfer initiation"
+            }
+        };
+        transferCommand.CommandMeta.PayloadSha256 = new EdgeRetails.Central.Application.Common.CanonicalJsonSerializer().SerializeAndHash(transferCommand).Sha256Hex;
+        var transfer = await _activationService.InitiatePrimaryTransferAsync(transferCommand, adminId);
 
         Assert.NotNull(transfer);
         Assert.Equal(PrimaryTransfer.StatusPendingApproval, transfer.Status);
@@ -427,8 +493,22 @@ public class ActivationUnitTests : IDisposable
 
         await _activationService.ApprovePrimaryTransferAsync(transfer.Id, distinctApproverAdminId, approval.Id);
 
-        // Complete Transfer
-        await _activationService.CompletePrimaryTransferAsync(transfer.Id, distinctApproverAdminId);
+        // Complete through the versioned Central operation command.
+        var completionCommand = new CompletePrimaryTransferCommand
+        {
+            CommandMeta = new CommandMetaDto
+            {
+                ClientOperationId = Guid.NewGuid(),
+                OperationType = "primary.transfer",
+                FingerprintVersion = 1,
+                PayloadSha256 = new string('0', 64),
+                ExpectedVersion = transfer.RowVersion,
+                PolicyVersion = 1,
+                Reason = "unit test transfer completion"
+            }
+        };
+        completionCommand.CommandMeta.PayloadSha256 = new EdgeRetails.Central.Application.Common.CanonicalJsonSerializer().SerializeAndHash(completionCommand).Sha256Hex;
+        await _activationService.CompletePrimaryTransferAsync(transfer.Id, distinctApproverAdminId, completionCommand);
 
         // Check source installation: replaced/deactivated
         var reloadedSource = await _dbContext.Installations.FindAsync(sourceInstall.Id);
@@ -444,6 +524,91 @@ public class ActivationUnitTests : IDisposable
         var reloadedTransfer = await _dbContext.PrimaryTransfers.FindAsync(transfer.Id);
         Assert.NotNull(reloadedTransfer);
         Assert.Equal(PrimaryTransfer.StatusCompleted, reloadedTransfer.Status);
+
+        var targetCert = await _activationService.IssueCertificateAsync(targetInstall.Id, distinctApproverAdminId);
+        Assert.Equal(targetInstall.Id, targetCert.InstallationId);
+        Assert.Equal(LicenseCertificate.StatusActive, targetCert.Status);
+
+        var targetEntitlement = await _activationService.ReconcileInstallationAsync(new ReconcileCommandDto
+        {
+            InstallationId = targetInstall.Id,
+            CertificateId = targetCert.Id,
+            HardwareFingerprintHash = "HW-TARGET",
+            ApplicationVersion = "synthetic-transfer-test",
+            LastVerifiedVendorTimeUtc = now
+        });
+        Assert.Equal(targetInstall.Id, targetEntitlement.Payload.InstallationId);
+        Assert.Equal(targetCert.Id, targetEntitlement.Payload.CertificateId);
+
+        var copiedSourceCertificate = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _activationService.ReconcileInstallationAsync(new ReconcileCommandDto
+            {
+                InstallationId = targetInstall.Id,
+                CertificateId = sourceCert.Id,
+                HardwareFingerprintHash = "HW-TARGET",
+                ApplicationVersion = "synthetic-transfer-test",
+                LastVerifiedVendorTimeUtc = now
+            }));
+        Assert.Equal("CERTIFICATE_NOT_FOUND", copiedSourceCertificate.Code);
+    }
+
+    [Fact]
+    public void PrimaryTransfer_RejectRequiresPendingStateAndAdminIdentity()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = Guid.NewGuid();
+        var transfer = PrimaryTransfer.Initiate(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "synthetic transfer rejection fixture", requester, now);
+
+        var missingAdmin = Assert.Throws<CentralDomainException>(() => transfer.Reject(Guid.Empty));
+        Assert.Equal("INVALID_ADMIN_ID", missingAdmin.Code);
+        Assert.Equal(PrimaryTransfer.StatusPendingApproval, transfer.Status);
+        Assert.Equal(1, transfer.RowVersion);
+
+        transfer.Reject(Guid.NewGuid());
+        Assert.Equal(PrimaryTransfer.StatusRejected, transfer.Status);
+        Assert.Equal(2, transfer.RowVersion);
+
+        var repeatedReject = Assert.Throws<CentralDomainException>(() => transfer.Reject(Guid.NewGuid()));
+        Assert.Equal("NOT_PENDING", repeatedReject.Code);
+        Assert.Equal(PrimaryTransfer.StatusRejected, transfer.Status);
+        Assert.Equal(2, transfer.RowVersion);
+
+        var completed = PrimaryTransfer.Initiate(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "synthetic completed transfer fixture", requester, now);
+        completed.Approve(Guid.NewGuid(), Guid.NewGuid());
+        completed.Complete(now.AddMinutes(1));
+        var rejectCompleted = Assert.Throws<CentralDomainException>(() => completed.Reject(Guid.NewGuid()));
+        Assert.Equal("NOT_PENDING", rejectCompleted.Code);
+        Assert.Equal(PrimaryTransfer.StatusCompleted, completed.Status);
+        Assert.Equal(3, completed.RowVersion);
+    }
+
+    [Fact]
+    public void PrimaryTransfer_ApproveRequiresDistinctAdminAndSensitiveApproval()
+    {
+        var requester = Guid.NewGuid();
+        var transfer = PrimaryTransfer.Initiate(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "synthetic transfer approval fixture", requester, DateTimeOffset.UtcNow);
+
+        var missingAdmin = Assert.Throws<CentralDomainException>(() => transfer.Approve(Guid.Empty, Guid.NewGuid()));
+        Assert.Equal("INVALID_ADMIN_ID", missingAdmin.Code);
+        Assert.Equal(PrimaryTransfer.StatusPendingApproval, transfer.Status);
+        Assert.Equal(1, transfer.RowVersion);
+
+        var missingApproval = Assert.Throws<CentralDomainException>(() => transfer.Approve(Guid.NewGuid(), Guid.Empty));
+        Assert.Equal("APPROVAL_REQUIRED", missingApproval.Code);
+        Assert.Equal(PrimaryTransfer.StatusPendingApproval, transfer.Status);
+        Assert.Equal(1, transfer.RowVersion);
+
+        var selfApproval = Assert.Throws<CentralDomainException>(() => transfer.Approve(requester, Guid.NewGuid()));
+        Assert.Equal("SELF_APPROVAL_PROHIBITED", selfApproval.Code);
+        Assert.Equal(PrimaryTransfer.StatusPendingApproval, transfer.Status);
+        Assert.Equal(1, transfer.RowVersion);
+
+        transfer.Approve(Guid.NewGuid(), Guid.NewGuid());
+        Assert.Equal(PrimaryTransfer.StatusApproved, transfer.Status);
+        Assert.Equal(2, transfer.RowVersion);
     }
 
     [Fact]
@@ -467,11 +632,12 @@ public class ActivationUnitTests : IDisposable
         _dbContext.CommercialLicenses.Add(license);
         _dbContext.Installations.Add(install);
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shop.Id, license.Id, adminId);
 
         var cert = await _activationService.IssueCertificateAsync(install.Id, adminId);
         Assert.NotNull(cert);
 
-        var signedEntitlement = await _activationService.ReconcileInstallationAsync(new ReconcileCommandDto
+        var reconcileCommand = new ReconcileCommandDto
         {
             InstallationId = install.Id,
             CertificateId = cert.Id,
@@ -479,7 +645,21 @@ public class ActivationUnitTests : IDisposable
             HardwareFingerprintHash = "HW-REC-001",
             ApplicationVersion = "1.0.0-phase12",
             LastVerifiedVendorTimeUtc = now
-        });
+        };
+        var serializer = new CanonicalJsonSerializer();
+        var operationId = Guid.NewGuid();
+        var meta = new CommandMetaDto
+        {
+            ClientOperationId = operationId,
+            OperationType = "installation.reconcile",
+            FingerprintVersion = 1,
+            PayloadSha256 = serializer.SerializeAndHash(reconcileCommand).Sha256Hex,
+            ExpectedVersion = install.RowVersion,
+            PolicyVersion = 1,
+            Reason = "Synthetic unit reconciliation"
+        };
+        var signedEntitlement = await _activationService.ReconcileCanonicalInstallationAsync(meta, reconcileCommand);
+        var replayedEntitlement = await _activationService.ReconcileCanonicalInstallationAsync(meta, reconcileCommand);
 
         Assert.NotNull(signedEntitlement);
         Assert.Equal(1, signedEntitlement.EnvelopeVersion);
@@ -490,6 +670,33 @@ public class ActivationUnitTests : IDisposable
         Assert.Equal(shop.Id, signedEntitlement.Payload.ShopId);
         Assert.NotEmpty(signedEntitlement.Signature);
         Assert.NotEmpty(signedEntitlement.PayloadSha256);
+        Assert.Equal(signedEntitlement.Signature, replayedEntitlement.Signature);
+        Assert.Equal(1, await _dbContext.CentralOperationRecords.CountAsync(x => x.ClientOperationId == operationId && x.OperationType == "installation.reconcile"));
+        Assert.Equal(1, await _dbContext.CentralSigningRequests.CountAsync(x => x.Id == operationId && x.Status == "SIGNED"));
+        Assert.Equal(1, await _dbContext.CentralOutboxMessages.CountAsync(x => x.EventType == "licensing.installation_reconciled" && x.AggregateId == install.Id.ToString()));
+
+        var alteredCommand = new ReconcileCommandDto
+        {
+            InstallationId = reconcileCommand.InstallationId,
+            CertificateId = reconcileCommand.CertificateId,
+            AuthorityRevision = reconcileCommand.AuthorityRevision,
+            HardwareFingerprintHash = reconcileCommand.HardwareFingerprintHash,
+            ApplicationVersion = "different-payload-same-operation",
+            LastVerifiedVendorTimeUtc = reconcileCommand.LastVerifiedVendorTimeUtc
+        };
+        var conflictingMeta = new CommandMetaDto
+        {
+            ClientOperationId = operationId,
+            OperationType = "installation.reconcile",
+            FingerprintVersion = 1,
+            PayloadSha256 = serializer.SerializeAndHash(alteredCommand).Sha256Hex,
+            ExpectedVersion = install.RowVersion,
+            PolicyVersion = 1,
+            Reason = "Synthetic unit reconciliation"
+        };
+        var conflict = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _activationService.ReconcileCanonicalInstallationAsync(conflictingMeta, alteredCommand));
+        Assert.Equal("OPERATION_ID_CONFLICT", conflict.Code);
     }
 
     [Fact]
@@ -513,6 +720,7 @@ public class ActivationUnitTests : IDisposable
         _dbContext.CommercialLicenses.Add(license);
         _dbContext.Installations.Add(install);
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shop.Id, license.Id, Guid.NewGuid());
 
         var cert = await _activationService.IssueCertificateAsync(install.Id, adminId);
 
@@ -536,26 +744,60 @@ public class ActivationUnitTests : IDisposable
         _signerClient.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    private async Task AddSignedPolicyAsync(Guid shopId, Guid licenseId, Guid approverAdminId)
+    {
+        var policy = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            extensionEndUtc = (DateTimeOffset?)null,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = 5_400,
+            offlineGraceSeconds = 86_400,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid()
+        };
+        var serializer = new EdgeRetails.Central.Application.Common.CanonicalJsonSerializer();
+        var canonicalJson = serializer.SerializeCanonical(policy);
+        var signature = _signerClient.SignCanonical(canonicalJson);
+        _dbContext.ShopEnforcementPolicies.Add(ShopEnforcementPolicy.Create(
+            shopId, licenseId, 1, ShopEnforcementPolicy.FullStop, null,
+            policy.afterExtensionPolicyId, policy.leaseDurationSeconds,
+            policy.offlineGraceSeconds, policy.rollbackToleranceSeconds,
+            policy.capabilityPolicyId, canonicalJson, signature,
+            "central-ca-v1", approverAdminId, DateTimeOffset.UtcNow));
+        await _dbContext.SaveChangesAsync();
+    }
 }
 
 public class TestProtectedSignerClient : IProtectedSignerClient, IDisposable
 {
     private readonly RSA _caRsa = RSA.Create(2048);
 
-    public Task<SigningResponseDto> SignAsync(SigningRequestDto request, CancellationToken cancellationToken = default)
+    public Func<SigningRequestDto, CancellationToken, Task>? BeforeSign { get; set; }
+
+    public async Task<SigningResponseDto> SignAsync(SigningRequestDto request, CancellationToken cancellationToken = default)
     {
+        if (BeforeSign is not null)
+        {
+            await BeforeSign(request, cancellationToken);
+        }
+
         byte[] payloadBytes = Encoding.UTF8.GetBytes(request.CanonicalPayload);
         byte[] sigBytes = _caRsa.SignData(payloadBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         string sigHex = Convert.ToHexString(sigBytes).ToLowerInvariant();
 
-        return Task.FromResult(new SigningResponseDto
+        return new SigningResponseDto
         {
             SigningRequestId = request.SigningRequestId,
             Signature = sigHex,
             AlgorithmProfileId = "RS256",
             KeyId = request.KeyId,
             KeyVersion = request.KeyVersion
-        });
+        };
     }
 
     public Task<TrustSetDto> GetTrustSetAsync(CancellationToken cancellationToken = default)
@@ -572,7 +814,7 @@ public class TestProtectedSignerClient : IProtectedSignerClient, IDisposable
                     KeyVersion = 1,
                     PublicKey = _caRsa.ExportSubjectPublicKeyInfoPem(),
                     Status = "ACTIVE",
-                    Purpose = "LICENSE_CERTIFICATE"
+                    Purpose = EdgeRetails.Central.Domain.Signing.SigningPurpose.License
                 }
             }
         });
@@ -588,6 +830,12 @@ public class TestProtectedSignerClient : IProtectedSignerClient, IDisposable
             Status = "ACTIVE",
             Purpose = purpose
         });
+    }
+
+    public string SignCanonical(string canonicalPayload)
+    {
+        var signature = _caRsa.SignData(Encoding.UTF8.GetBytes(canonicalPayload), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return Convert.ToHexString(signature).ToLowerInvariant();
     }
 
     public bool VerifySignature(string publicKeyPem, string canonicalPayload, string signatureHexOrBase64)

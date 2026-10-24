@@ -267,12 +267,15 @@ public class Wave4DashboardAndPortalService
             .FirstOrDefaultAsync(s => s.Id == shopId, cancellationToken)
             ?? throw new CentralDomainException("SHOP_NOT_FOUND", "shop.not_found", $"Shop '{shopId}' not found.");
 
-        var activeLicenses = await _dbContext.CommercialLicenses
+        var commercialLicenses = await _dbContext.CommercialLicenses
             .AsNoTracking()
-            .Where(l => l.ShopId == shopId && l.Status == CommercialLicense.StatusActive)
+            .Where(l => l.ShopId == shopId)
             .OrderByDescending(l => l.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
+        var activeLicenses = commercialLicenses
+            .Where(l => l.Status == CommercialLicense.StatusActive)
+            .ToList();
         var license = activeLicenses.FirstOrDefault();
 
         List<CommercialEntitlementSummaryDto> addons = new();
@@ -291,6 +294,7 @@ public class Wave4DashboardAndPortalService
                 Kind = a.Kind,
                 Status = a.Status,
                 ValidUntilUtc = a.ValidUntilUtc,
+                RowVersion = a.RowVersion,
                 IsExpiringSoon = a.Status == CommercialEntitlement.StatusActive && a.ValidUntilUtc.HasValue && a.ValidUntilUtc <= now.AddDays(30)
             }).ToList();
         }
@@ -321,6 +325,13 @@ public class Wave4DashboardAndPortalService
                 PurchaseTarget = o.PurchaseTarget,
                 TermKind = o.TermKind,
                 Status = o.Status,
+                RowVersion = o.RowVersion,
+                BaseLicenseId = o.BaseLicenseId,
+                ExistingEntitlementId = o.ExistingEntitlementId,
+                IssuedLicenseId = _dbContext.CommercialLicenses
+                    .Where(license => license.InitialOrderId == o.Id)
+                    .Select(license => (Guid?)license.Id)
+                    .FirstOrDefault(),
                 TotalAmount = o.TotalAmount,
                 Currency = o.Currency,
                 CreatedAtUtc = o.CreatedAtUtc
@@ -362,6 +373,14 @@ public class Wave4DashboardAndPortalService
                 ValidUntilUtc = license.ValidUntilUtc,
                 AuthorityRevision = license.AuthorityRevision
             } : null,
+            CommercialLicenses = commercialLicenses.Select(activeLicense => new CommercialLicenseSummaryDto
+            {
+                Id = activeLicense.Id,
+                TermKind = activeLicense.TermKind,
+                Status = activeLicense.Status,
+                ValidUntilUtc = activeLicense.ValidUntilUtc,
+                AuthorityRevision = activeLicense.AuthorityRevision
+            }).ToList(),
             Addons = addons,
             Installations = installations,
             RecentOrders = recentOrders,
@@ -391,7 +410,9 @@ public class Wave4DashboardAndPortalService
         int pageSize,
         int offset,
         long? asOfVersion,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeSensitiveApprovalDetails = false,
+        bool includePaymentReviewDetails = false)
     {
         if (pageSize is < 1 or > 100 || offset is < 0 or > 100000 || filter?.Length > 200 || asOfVersion < 0)
         {
@@ -399,8 +420,9 @@ public class Wave4DashboardAndPortalService
         }
 
         var term = filter?.Trim() ?? string.Empty;
-        var query = BuildDashboardQueueQuery(queueType).Where(item =>
-            term == string.Empty || item.Title.Contains(term) || item.Status == term);
+        var hasEntityIdFilter = Guid.TryParse(term, out var entityIdFilter);
+        var query = BuildDashboardQueueQuery(queueType, includeSensitiveApprovalDetails, includePaymentReviewDetails).Where(item =>
+            term == string.Empty || item.Title.Contains(term) || item.Status == term || hasEntityIdFilter && item.EntityId == entityIdFilter);
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
         long authorizedCount = 0;
         using var fingerprint = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -423,15 +445,35 @@ public class Wave4DashboardAndPortalService
         return (rows, nextCursor, projectionVersion, authorizedCount);
     }
 
-    private IQueryable<QueueItemDto> BuildDashboardQueueQuery(string queueType)
+    private IQueryable<QueueItemDto> BuildDashboardQueueQuery(string queueType, bool includeSensitiveApprovalDetails = false, bool includePaymentReviewDetails = false)
     {
         return queueType.ToUpperInvariant() switch
         {
+            "ACTIVATION_REVIEW" =>
+                from redemption in _dbContext.ActivationRedemptions.AsNoTracking()
+                join token in _dbContext.ActivationTokens.AsNoTracking() on redemption.TokenId equals token.Id
+                join license in _dbContext.CommercialLicenses.AsNoTracking() on token.LicenseId equals license.Id
+                where redemption.Status == ActivationRedemption.StatusPending
+                select new QueueItemDto
+                {
+                    EntityId = redemption.Id,
+                    QueueType = "ACTIVATION_REVIEW",
+                    ShopId = license.ShopId,
+                    Title = "Pending activation review",
+                    Status = redemption.Status,
+                    CreatedAtUtc = redemption.RedeemedAtUtc,
+                    ReasonOrSummary = redemption.DecisionReasonCode,
+                    RequiresDualApproval = false,
+                    ResourceVersion = redemption.RowVersion,
+                    ValidationSnapshotVersion = redemption.ValidationSnapshotVersion
+                },
             "PAYMENT_REVIEW" => _dbContext.PaymentEvidences.AsNoTracking()
                 .Where(e => e.ReviewStatus == PaymentEvidence.ReviewPending)
                 .Select(e => new QueueItemDto
                 {
                     EntityId = e.Id, QueueType = "PAYMENT_REVIEW", ShopId = e.ShopId,
+                    OrderId = includePaymentReviewDetails ? e.OrderId : null,
+                    ResourceVersion = includePaymentReviewDetails ? e.RowVersion : null,
                     Title = $"Payment Proof Review - {e.MimeType}", Status = e.ReviewStatus,
                     CreatedAtUtc = e.UploadedAtUtc, ReasonOrSummary = $"File length: {e.ByteLength} bytes",
                     RequiresDualApproval = false
@@ -443,7 +485,17 @@ public class Wave4DashboardAndPortalService
                     EntityId = h.Id, QueueType = "HARDWARE_REVIEW", ShopId = h.ShopId,
                     Title = $"Hardware Change Review - Machine {h.ReportedMachineFingerprint}", Status = h.Status,
                     CreatedAtUtc = h.CreatedAtUtc, ReasonOrSummary = h.DiscrepancyReason,
-                    RequiresDualApproval = true
+                    RequiresDualApproval = true,
+                    ResourceVersion = h.RowVersion
+                }),
+            "PRIMARY_TRANSFER" => _dbContext.PrimaryTransfers.AsNoTracking()
+                .Where(t => t.Status == PrimaryTransfer.StatusPendingApproval || t.Status == PrimaryTransfer.StatusApproved)
+                .Select(t => new QueueItemDto
+                {
+                    EntityId = t.Id, QueueType = "PRIMARY_TRANSFER", ShopId = t.ShopId,
+                    Title = $"Primary transfer {t.SourceInstallationId:D} to {t.TargetInstallationId:D}",
+                    Status = t.Status, CreatedAtUtc = t.CreatedAtUtc, ReasonOrSummary = t.TransferReason,
+                    RequiresDualApproval = true, ResourceVersion = t.RowVersion
                 }),
             "DUAL_APPROVAL" => _dbContext.SensitiveApprovalRequests.AsNoTracking()
                 .Where(a => a.Status == SensitiveApprovalRequest.StatusPending)
@@ -451,8 +503,14 @@ public class Wave4DashboardAndPortalService
                 {
                     EntityId = a.Id, QueueType = "DUAL_APPROVAL", ShopId = Guid.Empty,
                     Title = $"Sensitive Action: {a.OperationType}", Status = a.Status,
-                    CreatedAtUtc = a.RequestedAtUtc, ReasonOrSummary = a.ActionScope,
-                    RequiresDualApproval = true
+                    CreatedAtUtc = a.RequestedAtUtc, ReasonOrSummary = includeSensitiveApprovalDetails ? a.RequestReason : a.ActionScope,
+                    RequiresDualApproval = true,
+                    ResourceVersion = a.RowVersion,
+                    ApprovalRequesterAdminId = includeSensitiveApprovalDetails ? a.RequesterAdminId : null,
+                    ApprovalTargetActionType = includeSensitiveApprovalDetails ? a.OperationType : null,
+                    ApprovalTargetId = includeSensitiveApprovalDetails ? a.TargetEntityId : null,
+                    ApprovalTargetPayloadSha256 = includeSensitiveApprovalDetails ? a.TargetPayloadSha256 : null,
+                    ApprovalExpiresAtUtc = includeSensitiveApprovalDetails ? a.ExpiresAtUtc : null
                 }),
             "SUPPORT_INBOX" => _dbContext.SupportTickets.AsNoTracking()
                 .Where(t => t.Status == "OPEN")

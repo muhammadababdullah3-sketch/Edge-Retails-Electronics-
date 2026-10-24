@@ -1,6 +1,8 @@
 using System.Net;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using EdgeRetails.Central.Api.Middleware;
 using EdgeRetails.Central.Api.Security;
 using EdgeRetails.Central.Application.Abstractions;
@@ -9,12 +11,21 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Routing;
+using Xunit.Abstractions;
 
 namespace EdgeRetails.Central.UnitTests.Security;
 
 public class CentralRequestAuthorizationTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public CentralRequestAuthorizationTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     private class TestAdminAuthService : IAdminAuthService
     {
         public Dictionary<Guid, AdminSessionDto> Sessions { get; } = new();
@@ -454,10 +465,168 @@ public class CentralRequestAuthorizationTests
     [InlineData("POST", "/api/admin/v1/licenses/11111111-1111-1111-1111-111111111111/revoke")]
     [InlineData("GET", "/api/admin/v1/dashboard/customer360/11111111-1111-1111-1111-111111111111")]
     [InlineData("GET", "/api/admin/v1/dashboard/queues/SUPPORT_INBOX")]
+    [InlineData("GET", "/api/admin/v1/backups")]
     public void PermissionMap_CoversActualControllerRoutes(string method, string path)
     {
         Assert.NotNull(CentralRequestAuthorizationFilter.ResolveRequiredPermission(method, path));
     }
+
+    [Fact]
+    public void EveryMappedControllerRoute_HasAnExplicitAuthorizationBoundary()
+    {
+        var controllerTypes = typeof(CentralRequestAuthorizationFilter).Assembly.GetTypes()
+            .Where(type => !type.IsAbstract && typeof(ControllerBase).IsAssignableFrom(type));
+        var routes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var controllerType in controllerTypes)
+        {
+            var controllerRoute = controllerType.GetCustomAttributes<RouteAttribute>(inherit: true)
+                .Select(attribute => attribute.Template)
+                .FirstOrDefault(template => template is not null) ?? string.Empty;
+
+            foreach (var action in controllerType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                foreach (var route in action.GetCustomAttributes<HttpMethodAttribute>(inherit: true))
+                {
+                    var methods = route.HttpMethods?.ToArray() ?? Array.Empty<string>();
+                    var template = ResolveRouteTemplate(controllerRoute, route.Template);
+                    var path = ToRepresentativePath(template);
+
+                    foreach (var method in methods)
+                    {
+                        routes.Add($"{method.ToUpperInvariant()} {path}");
+                    }
+                }
+            }
+        }
+
+        Assert.NotEmpty(routes);
+        _output.WriteLine($"Discovered mapped controller routes: {routes.Count}");
+        foreach (var route in routes.OrderBy(route => route, StringComparer.OrdinalIgnoreCase))
+        {
+            _output.WriteLine($"Covered route: {route} => {DescribeAuthorizationBoundary(route)}");
+        }
+        var unclassified = routes
+            .Where(route => DescribeAuthorizationBoundary(route) is null)
+            .OrderBy(route => route, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.True(unclassified.Length == 0,
+            $"Controller routes without an explicit authorization boundary: {string.Join("; ", unclassified)}");
+    }
+
+    [Theory]
+    [InlineData("/api/activation/v1/installations")]
+    [InlineData("/api/activation/v1/redeem")]
+    public async Task LegacyActivationRoutes_FailClosedEvenForAdminManage(string path)
+    {
+        var authService = new TestAdminAuthService();
+        var sessionId = Guid.NewGuid();
+        authService.Sessions[sessionId] = new AdminSessionDto
+        {
+            SessionId = sessionId,
+            AdminUserId = Guid.NewGuid(),
+            Capabilities = new List<string> { "admin.manage", "activation.issue" }
+        };
+        var filter = new CentralRequestAuthorizationFilter(authService);
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Method = "POST";
+        httpContext.Request.Path = path;
+        httpContext.Request.Headers.Cookie = $"{CentralSessionCredentials.CookieName}={sessionId:D}";
+        var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        await filter.OnAuthorizationAsync(filterContext);
+
+        var denied = Assert.IsType<ObjectResult>(filterContext.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, denied.StatusCode);
+        Assert.Equal("FORBIDDEN", denied.Value?.GetType().GetProperty("code")?.GetValue(denied.Value));
+    }
+
+    private static string? DescribeAuthorizationBoundary(string route)
+    {
+        var split = route.IndexOf(' ');
+        var method = route[..split];
+        var path = route[(split + 1)..];
+
+        var permission = CentralRequestAuthorizationFilter.ResolveRequiredPermission(method, path);
+        if (permission is not null)
+        {
+            return $"admin-capability:{permission}";
+        }
+
+        if (method == "GET" && Regex.IsMatch(path,
+                "^/api/licensing/v1/backups/download-grants/[^/]+/content$", RegexOptions.IgnoreCase))
+        {
+            return "opaque-download-grant";
+        }
+
+        if (method == "POST" && path.Equals("/api/licensing/v1/backups/rehearse", StringComparison.OrdinalIgnoreCase))
+        {
+            return "customer-restore-explicit-501-deferral";
+        }
+
+        if (IsInstallationProofRoute(method, path))
+        {
+            return "installation-asymmetric-proof-or-one-time-bootstrap-proof";
+        }
+
+        return (method, path.ToLowerInvariant()) switch
+        {
+            ("POST", "/api/admin/v1/auth/login") => "pre-authentication-login",
+            ("POST", "/api/admin/v1/auth/mfa") => "pre-authentication-mfa",
+            ("POST", "/api/activation/v1/challenge") => "anonymous-rate-limited-bootstrap-challenge",
+            ("POST", "/api/licensing/v1/bootstrap/challenge") => "anonymous-rate-limited-bootstrap-challenge",
+            ("POST", "/api/licensing/v1/primary/register") => "one-time-bootstrap-proof-controller",
+            ("POST", "/api/licensing/v1/activation/redeem") => "one-time-bootstrap-proof-controller",
+            ("GET", "/api/admin/v1/portal/session") => "validated-admin-session-context",
+            ("POST", "/api/admin/v1/auth/logout") => "validated-admin-session-logout",
+            ("POST", "/api/admin/v1/portal/sessions/revoke") => "sessions-revoke-capability",
+            ("POST", "/internal/v1/sign") => "internal-signer-token-and-origin-boundary",
+            ("POST", "/api/activation/v1/installations") => "fail-closed-unapproved-legacy-route",
+            ("POST", "/api/activation/v1/redeem") => "fail-closed-unapproved-legacy-route",
+            _ => null
+        };
+    }
+
+    private static bool IsInstallationProofRoute(string method, string path) =>
+        (method == "POST" && (path.Equals("/api/licensing/v1/reconcile", StringComparison.OrdinalIgnoreCase) ||
+                               path.Equals("/api/licensing/v1/support/bundles", StringComparison.OrdinalIgnoreCase) ||
+                               path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase))) ||
+        (method == "GET" && (path.Equals("/api/licensing/v1/trust-set", StringComparison.OrdinalIgnoreCase) ||
+                              Regex.IsMatch(path, "^/api/licensing/v1/operations/[^/]+$", RegexOptions.IgnoreCase) ||
+                              Regex.IsMatch(path, "^/api/licensing/v1/activation/[^/]+/status$", RegexOptions.IgnoreCase) ||
+                              path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase))) ||
+        (method == "PUT" && Regex.IsMatch(path, "^/api/licensing/v1/uploads/[^/]+/content$", RegexOptions.IgnoreCase)) ||
+        (method == "GET" && Regex.IsMatch(path, "^/api/licensing/v1/backups/download-grants/[^/]+/content$", RegexOptions.IgnoreCase)) ||
+        (method == "POST" && (path.Equals("/api/licensing/v1/primary/register", StringComparison.OrdinalIgnoreCase) ||
+                               path.Equals("/api/licensing/v1/activation/redeem", StringComparison.OrdinalIgnoreCase)));
+
+    private static string ResolveRouteTemplate(string controllerTemplate, string? actionTemplate)
+    {
+        if (actionTemplate is null)
+        {
+            return controllerTemplate;
+        }
+
+        if (actionTemplate.StartsWith("~/", StringComparison.Ordinal) || actionTemplate.StartsWith("/", StringComparison.Ordinal))
+        {
+            return actionTemplate.TrimStart('~', '/');
+        }
+
+        return string.IsNullOrEmpty(controllerTemplate)
+            ? actionTemplate
+            : $"{controllerTemplate.TrimEnd('/')}/{actionTemplate.TrimStart('/')}";
+    }
+
+    private static string ToRepresentativePath(string template) =>
+        "/" + Regex.Replace(template, "\\{([^}:]+)(?::[^}]+)?\\}", match =>
+        {
+            var name = match.Groups[1].Value;
+            return name.Contains("id", StringComparison.OrdinalIgnoreCase)
+                ? "00000000-0000-0000-0000-000000000001"
+                : "sample";
+        }).TrimStart('/');
 
     [Fact]
     public async Task CsrfMiddleware_CustomerRestoreShim_BypassesDatabaseAndSessionChecks()
@@ -522,4 +691,132 @@ public class CentralRequestAuthorizationTests
 
         Assert.Equal((int)HttpStatusCode.Forbidden, context.Response.StatusCode);
     }
+
+    [Fact]
+    public async Task RateLimitingMiddleware_MissingPolicy_FailsClosedOnProtectedEndpoint()
+    {
+        var previousAttempts = Environment.GetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS");
+        var previousWindow = Environment.GetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS");
+        RateLimitingMiddleware.Reset();
+        try
+        {
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", null);
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", null);
+            var nextCalled = false;
+            var middleware = new RateLimitingMiddleware(_ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            });
+            var context = new DefaultHttpContext();
+            context.Response.Body = new MemoryStream();
+            context.Request.Method = "POST";
+            context.Request.Path = "/api/admin/v1/auth/login";
+
+            await middleware.InvokeAsync(context);
+
+            Assert.False(nextCalled);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+            Assert.Contains("no-store", context.Response.Headers["Cache-Control"].ToString(), StringComparison.OrdinalIgnoreCase);
+            context.Response.Body.Position = 0;
+            using var reader = new StreamReader(context.Response.Body);
+            Assert.Contains("RATE_LIMIT_CONFIGURATION_REQUIRED", await reader.ReadToEndAsync());
+
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "2");
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60");
+            var nextCalls = 0;
+            var configuredMiddleware = new RateLimitingMiddleware(_ =>
+            {
+                nextCalls++;
+                return Task.CompletedTask;
+            });
+            DefaultHttpContext CreateContext()
+            {
+                var configured = new DefaultHttpContext();
+                configured.Response.Body = new MemoryStream();
+                configured.Request.Method = "POST";
+                configured.Request.Path = "/api/admin/v1/auth/login";
+                configured.Connection.RemoteIpAddress = System.Net.IPAddress.Loopback;
+                return configured;
+            }
+
+            await configuredMiddleware.InvokeAsync(CreateContext());
+            await configuredMiddleware.InvokeAsync(CreateContext());
+            var limitedContext = CreateContext();
+            await configuredMiddleware.InvokeAsync(limitedContext);
+            Assert.Equal(2, nextCalls);
+            Assert.Equal(StatusCodes.Status429TooManyRequests, limitedContext.Response.StatusCode);
+            Assert.Contains("no-store", limitedContext.Response.Headers["Cache-Control"].ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", previousAttempts);
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", previousWindow);
+            RateLimitingMiddleware.Reset();
+        }
+    }
+
+    [Fact]
+    public async Task RateLimitingMiddleware_ThrottlesExactInstallationBootstrapProofRoutes()
+    {
+        var previousAttempts = Environment.GetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS");
+        var previousWindow = Environment.GetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS");
+        RateLimitingMiddleware.Reset();
+        try
+        {
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "5");
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60");
+            var nextCalls = 0;
+            var middleware = new RateLimitingMiddleware(_ =>
+            {
+                nextCalls++;
+                return Task.CompletedTask;
+            });
+
+            foreach (var path in new[]
+            {
+                "/api/licensing/v1/bootstrap/challenge",
+                "/api/licensing/v1/primary/register",
+                "/api/licensing/v1/activation/redeem"
+            })
+            {
+                for (var attempt = 1; attempt <= 6; attempt++)
+                {
+                    var context = new DefaultHttpContext();
+                    context.Response.Body = new MemoryStream();
+                    context.Request.Method = "POST";
+                    context.Request.Path = path;
+                    context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.10");
+
+                    await middleware.InvokeAsync(context);
+
+                    Assert.Equal(attempt <= 5 ? StatusCodes.Status200OK : StatusCodes.Status429TooManyRequests, context.Response.StatusCode);
+                    if (attempt == 6)
+                    {
+                        Assert.Contains("no-store", context.Response.Headers.CacheControl.ToString(), StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+
+            // Similar-looking bootstrap paths are not implicitly treated as protected routes.
+            for (var attempt = 1; attempt <= 6; attempt++)
+            {
+                var context = new DefaultHttpContext();
+                context.Request.Method = "POST";
+                context.Request.Path = "/api/licensing/v1/bootstrap/challenge/extra";
+                context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.10");
+                await middleware.InvokeAsync(context);
+                Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+            }
+
+            Assert.Equal(21, nextCalls);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", previousAttempts);
+            Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", previousWindow);
+            RateLimitingMiddleware.Reset();
+        }
+    }
+
 }

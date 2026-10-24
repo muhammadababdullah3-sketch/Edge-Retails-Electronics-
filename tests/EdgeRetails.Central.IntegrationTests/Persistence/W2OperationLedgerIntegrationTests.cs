@@ -176,6 +176,8 @@ public sealed class W2OperationLedgerIntegrationTests
                 targetResource: $"licenses/{seed.LicenseId}/pause");
         }
 
+        var conflictingExecutionCount = 0;
+
         // 1. Changed payload (different token)
         var alteredPayload = new LicenseLifecycleCommand
         {
@@ -200,7 +202,11 @@ public sealed class W2OperationLedgerIntegrationTests
                 shopId: seed.ShopId,
                 meta: alteredPayload.CommandMeta,
                 payload: alteredPayload,
-                executeAsync: _ => Task.FromResult((true, (string?)"ref", 1, 1)),
+                executeAsync: _ =>
+                {
+                    Interlocked.Increment(ref conflictingExecutionCount);
+                    return Task.FromResult((true, (string?)"ref", 1, 1));
+                },
                 targetResource: $"licenses/{seed.LicenseId}/pause"));
             Assert.Equal("OPERATION_ID_CONFLICT", ex1.Code);
         }
@@ -214,12 +220,34 @@ public sealed class W2OperationLedgerIntegrationTests
                 shopId: seed.ShopId,
                 meta: initialPayload.CommandMeta,
                 payload: initialPayload,
-                executeAsync: _ => Task.FromResult((true, (string?)"ref", 1, 1)),
+                executeAsync: _ =>
+                {
+                    Interlocked.Increment(ref conflictingExecutionCount);
+                    return Task.FromResult((true, (string?)"ref", 1, 1));
+                },
                 targetResource: $"licenses/{seed.LicenseId}/pause"));
             Assert.Equal("OPERATION_ID_CONFLICT", ex2.Code);
         }
 
-        // 3. Changed operation type
+        // 3. Changed persisted shop scope
+        await using (var db = Open())
+        {
+            var ledger = new OperationLedgerService(db, _serializer);
+            var ex = await Assert.ThrowsAsync<CentralDomainException>(() => ledger.ExecuteOrReplayAsync(
+                actorScope: $"admin:{adminId}",
+                shopId: Guid.NewGuid(),
+                meta: initialPayload.CommandMeta,
+                payload: initialPayload,
+                executeAsync: _ =>
+                {
+                    Interlocked.Increment(ref conflictingExecutionCount);
+                    return Task.FromResult((true, (string?)"ref", 1, 1));
+                },
+                targetResource: $"licenses/{seed.LicenseId}/pause"));
+            Assert.Equal("OPERATION_ID_CONFLICT", ex.Code);
+        }
+
+        // 4. Changed operation type
         var changedTypeMeta = new CommandMetaDto
         {
             ClientOperationId = opId,
@@ -239,12 +267,16 @@ public sealed class W2OperationLedgerIntegrationTests
                 shopId: seed.ShopId,
                 meta: changedTypeMeta,
                 payload: initialPayload,
-                executeAsync: _ => Task.FromResult((true, (string?)"ref", 1, 1)),
+                executeAsync: _ =>
+                {
+                    Interlocked.Increment(ref conflictingExecutionCount);
+                    return Task.FromResult((true, (string?)"ref", 1, 1));
+                },
                 targetResource: $"licenses/{seed.LicenseId}/pause"));
             Assert.Equal("OPERATION_ID_CONFLICT", ex3.Code);
         }
 
-        // 4. Changed target resource
+        // 5. Changed target resource
         await using (var db = Open())
         {
             var ledger = new OperationLedgerService(db, _serializer);
@@ -253,9 +285,21 @@ public sealed class W2OperationLedgerIntegrationTests
                 shopId: seed.ShopId,
                 meta: initialPayload.CommandMeta,
                 payload: initialPayload,
-                executeAsync: _ => Task.FromResult((true, (string?)"ref", 1, 1)),
+                executeAsync: _ =>
+                {
+                    Interlocked.Increment(ref conflictingExecutionCount);
+                    return Task.FromResult((true, (string?)"ref", 1, 1));
+                },
                 targetResource: $"licenses/{seed.LicenseId}/other_action"));
             Assert.Equal("OPERATION_ID_CONFLICT", ex4.Code);
+        }
+
+        Assert.Equal(0, conflictingExecutionCount);
+        await using (var verification = Open())
+        {
+            var persistedLicense = await verification.CommercialLicenses.SingleAsync(x => x.Id == seed.LicenseId);
+            Assert.Equal(CommercialLicense.StatusPaused, persistedLicense.Status);
+            Assert.Equal(1, await verification.CentralOperationRecords.CountAsync(x => x.ClientOperationId == opId));
         }
     }
 

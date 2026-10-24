@@ -121,17 +121,6 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
             return;
         }
 
-        if (!credResult.IsPresent || credResult.SessionId == Guid.Empty)
-        {
-            context.Result = new UnauthorizedObjectResult(new
-            {
-                code = "SESSION_REQUIRED",
-                safeMessageKey = "auth.session_required",
-                message = "An authenticated admin session is required."
-            });
-            return;
-        }
-
         if (credResult.ErrorCode == "SESSION_CREDENTIAL_INVALID")
         {
             context.Result = new UnauthorizedObjectResult(new
@@ -139,6 +128,17 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
                 code = "SESSION_INVALID",
                 safeMessageKey = "auth.session_invalid",
                 message = "The provided session credential is invalid or malformed."
+            });
+            return;
+        }
+
+        if (!credResult.IsPresent || credResult.SessionId == Guid.Empty)
+        {
+            context.Result = new UnauthorizedObjectResult(new
+            {
+                code = "SESSION_REQUIRED",
+                safeMessageKey = "auth.session_required",
+                message = "An authenticated admin session is required."
             });
             return;
         }
@@ -275,6 +275,7 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
             "GET" when Regex.IsMatch(path, @"^/api/licensing/v1/activation/[^/]+/status$", RegexOptions.IgnoreCase) => true,
             "POST" when path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase) => true,
             "GET" when path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase) => true,
+            "POST" when path.Equals("/api/licensing/v1/support/bundles", StringComparison.OrdinalIgnoreCase) => true,
             "PUT" when Regex.IsMatch(path, @"^/api/licensing/v1/uploads/[^/]+/content$", RegexOptions.IgnoreCase) => true,
             _ => false
         };
@@ -291,6 +292,11 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
     /// </summary>
     public static string? ResolveRequiredPermission(string method, string path)
     {
+        if (method == "GET" && path.Equals("/api/admin/v1/backups", StringComparison.OrdinalIgnoreCase))
+        {
+            return "backup.download";
+        }
+
         if (method == "GET" && path.Equals("/api/admin/v1/notifications/status", StringComparison.OrdinalIgnoreCase))
         {
             return "notifications.view";

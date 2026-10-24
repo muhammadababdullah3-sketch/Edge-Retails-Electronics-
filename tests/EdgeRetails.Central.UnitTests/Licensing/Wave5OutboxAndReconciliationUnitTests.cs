@@ -233,6 +233,7 @@ public class Wave5OutboxAndReconciliationUnitTests : IDisposable
         _dbContext.LicenseCertificates.Add(cert);
 
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shopId, licenseId, Guid.NewGuid(), 5400, 86400, now);
 
         var reconcileCmd = new ReconcileCommandDto
         {
@@ -251,6 +252,55 @@ public class Wave5OutboxAndReconciliationUnitTests : IDisposable
         Assert.Equal(CommercialTerm.Lifetime, entitlement.Payload.CommercialTerm.TermKind);
         Assert.Null(entitlement.Payload.CommercialTerm.ValidUntilUtc); // Strictly NULL for Lifetime
         Assert.Equal(hwFingerprint, entitlement.Payload.HardwareFingerprintHash);
+    }
+
+    [Fact]
+    public async Task CONE_T25_Reconciliation_RejectsMissingPolicyInsteadOfInventingDefaults()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var customerId = Guid.NewGuid();
+        var shopId = Guid.NewGuid();
+        var licenseId = Guid.NewGuid();
+        var installId = Guid.NewGuid();
+        var certId = Guid.NewGuid();
+        const string fingerprint = "HW_NO_POLICY_FIXTURE";
+
+        var shop = Shop.Create(customerId, "SHOP-NOPOL", "No Policy Shop", now);
+        typeof(Shop).GetProperty("Id")!.SetValue(shop, shopId);
+        _dbContext.Shops.Add(shop);
+        var item = PlanCatalogItem.Create("PLAN-NOPOL", "No Policy Base", PlanCatalogItem.TargetBaseLicense,
+            CommercialTerm.Lifetime, null, 0m, "USD");
+        _dbContext.PlanCatalogItems.Add(item);
+        var snapshot = PricingSnapshot.Create(shopId, item, 1, now);
+        _dbContext.PricingSnapshots.Add(snapshot);
+        var order = Order.CreateFromSnapshot(snapshot, customerId, now);
+        typeof(Order).GetProperty("Status")!.SetValue(order, Order.StatusPaidApproved);
+        _dbContext.Orders.Add(order);
+        var license = CommercialLicense.Issue(order, now, null, now);
+        typeof(CommercialLicense).GetProperty("Id")!.SetValue(license, licenseId);
+        _dbContext.CommercialLicenses.Add(license);
+        var installation = Installation.Register(shopId, licenseId, fingerprint, "PEM", "no-policy-terminal", "Win", now);
+        installation.Approve(now);
+        typeof(Installation).GetProperty("Id")!.SetValue(installation, installId);
+        _dbContext.Installations.Add(installation);
+        var certificate = LicenseCertificate.Create(installId, licenseId, shopId, 1,
+            "CERT-NOPOL", "{}", "sig", "sha", now, now.AddHours(1), now.AddHours(25), now);
+        typeof(LicenseCertificate).GetProperty("Id")!.SetValue(certificate, certId);
+        _dbContext.LicenseCertificates.Add(certificate);
+        await _dbContext.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _activationService.ReconcileInstallationAsync(new ReconcileCommandDto
+            {
+                InstallationId = installId,
+                CertificateId = certId,
+                AuthorityRevision = license.AuthorityRevision,
+                HardwareFingerprintHash = fingerprint,
+                ApplicationVersion = "0.0.0-synthetic"
+            }));
+
+        Assert.Equal("POLICY_CONFIGURATION_REQUIRED", error.Code);
+        Assert.Empty(await _dbContext.CentralSigningRequests.ToListAsync());
     }
 
     [Fact]
@@ -292,12 +342,8 @@ public class Wave5OutboxAndReconciliationUnitTests : IDisposable
         typeof(LicenseCertificate).GetProperty("Id")!.SetValue(cert, certId);
         _dbContext.LicenseCertificates.Add(cert);
 
-        // Custom enforcement policy with 86400s lease duration and 172800s grace
-        var policy = ShopEnforcementPolicy.Create(
-            shopId, licenseId, 1, ShopEnforcementPolicy.FullStop, null, Guid.Empty, 86400, 172800, 300, Guid.Empty, "{\"policy\":\"full_stop\"}", "sig123", "central-ca-v1", Guid.NewGuid(), now);
-        _dbContext.ShopEnforcementPolicies.Add(policy);
-
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shopId, licenseId, Guid.NewGuid(), 86400, 172800, now);
 
         var reconcileCmd = new ReconcileCommandDto
         {
@@ -412,6 +458,7 @@ public class Wave5OutboxAndReconciliationUnitTests : IDisposable
         _dbContext.HardwareReviews.Add(review);
 
         await _dbContext.SaveChangesAsync();
+        await AddSignedPolicyAsync(shopId, licenseId, Guid.NewGuid(), 5400, 86400, now);
 
         var reconcileCmd = new ReconcileCommandDto
         {
@@ -428,6 +475,36 @@ public class Wave5OutboxAndReconciliationUnitTests : IDisposable
         Assert.NotNull(result);
         Assert.NotNull(result.Payload);
         Assert.Equal(newHw, result.Payload.HardwareFingerprintHash);
+    }
+
+    private async Task AddSignedPolicyAsync(
+        Guid shopId,
+        Guid licenseId,
+        Guid approverAdminId,
+        int leaseSeconds,
+        int graceSeconds,
+        DateTimeOffset now)
+    {
+        var policy = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            extensionEndUtc = (DateTimeOffset?)null,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = leaseSeconds,
+            offlineGraceSeconds = graceSeconds,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid()
+        };
+        var canonicalJson = _serializer.SerializeCanonical(policy);
+        var signature = _signerClient.SignCanonical(canonicalJson);
+        _dbContext.ShopEnforcementPolicies.Add(ShopEnforcementPolicy.Create(
+            shopId, licenseId, 1, ShopEnforcementPolicy.FullStop, null,
+            policy.afterExtensionPolicyId, leaseSeconds, graceSeconds, 300,
+            policy.capabilityPolicyId, canonicalJson, signature, "central-ca-v1", approverAdminId, now));
+        await _dbContext.SaveChangesAsync();
     }
 
     // ==========================================

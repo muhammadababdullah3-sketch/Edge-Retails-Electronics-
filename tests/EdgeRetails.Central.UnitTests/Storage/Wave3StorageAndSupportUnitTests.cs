@@ -17,7 +17,7 @@ using Xunit;
 
 namespace EdgeRetails.Central.UnitTests.Storage;
 
-public class Wave3StorageAndSupportUnitTests
+public class Wave3StorageAndSupportUnitTests : IDisposable
 {
     private readonly CentralDbContext _dbContext;
     private readonly DiskObjectStorageProvider _storageProvider;
@@ -569,5 +569,11 @@ public class Wave3StorageAndSupportUnitTests
             ReadAttempted = true;
             return base.ReadAsync(buffer, cancellationToken);
         }
+    }
+
+    public void Dispose()
+    {
+        _storageProvider.Dispose();
+        _dbContext.Dispose();
     }
 }

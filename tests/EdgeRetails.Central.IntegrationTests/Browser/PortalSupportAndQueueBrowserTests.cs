@@ -1,11 +1,12 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace EdgeRetails.Central.IntegrationTests.Browser;
 
 /// <summary>
 /// Browser-level SFR-11 harness. It consumes an explicitly provisioned isolated
-/// development fixture instead of fabricating an authenticated session in the browser.
+/// development fixture and uses the already provisioned Python Playwright runtime.
 /// See RequiredFixture below for the manifest contract.
 /// </summary>
 public sealed class PortalSupportAndQueueBrowserTests
@@ -27,6 +28,7 @@ public sealed class PortalSupportAndQueueBrowserTests
     {
         var fixturePath = Environment.GetEnvironmentVariable("CENTRAL_PORTAL_BROWSER_FIXTURE");
         var evidencePath = Environment.GetEnvironmentVariable("CENTRAL_PORTAL_BROWSER_EVIDENCE_DIR");
+        var pythonPath = Environment.GetEnvironmentVariable("CENTRAL_PLAYWRIGHT_PYTHON");
         if (string.IsNullOrWhiteSpace(fixturePath) || !File.Exists(fixturePath))
         {
             throw new InvalidOperationException($"SFR-11 browser fixture disappeared after test discovery. Required shape:{Environment.NewLine}{RequiredFixture}");
@@ -35,30 +37,35 @@ public sealed class PortalSupportAndQueueBrowserTests
         {
             throw new InvalidOperationException("SFR-11 browser evidence directory disappeared after test discovery.");
         }
-
-        var nodeProbe = await RunNodeAsync("try { require.resolve('playwright'); process.exit(0); } catch (_) { process.exit(2); }");
-        if (nodeProbe.ExitCode != 0)
+        if (string.IsNullOrWhiteSpace(pythonPath) || !File.Exists(pythonPath))
         {
-            throw new InvalidOperationException("SFR-11 browser fixture is present but the Playwright runtime is missing.");
+            throw new InvalidOperationException("SFR-11 requires the explicitly configured Python Playwright runtime.");
         }
 
         Directory.CreateDirectory(evidencePath);
         var evidenceAbsolute = Path.GetFullPath(evidencePath);
-        var scriptPath = Path.Combine(evidenceAbsolute, "portal-support-queue-browser.cjs");
-        await File.WriteAllTextAsync(scriptPath, BrowserHarness, new UTF8Encoding(false));
-        var run = await RunNodeAsync($"require({System.Text.Json.JsonSerializer.Serialize(scriptPath)});", fixturePath, evidenceAbsolute);
+        var scriptPath = Path.Combine(evidenceAbsolute, "portal-support-queue-browser.py");
+        await File.WriteAllTextAsync(scriptPath, PythonBrowserHarness, new UTF8Encoding(false));
+        var run = await RunPythonAsync(pythonPath, scriptPath, fixturePath, evidenceAbsolute);
         await File.WriteAllTextAsync(Path.Combine(evidenceAbsolute, "browser-run.log"), run.Output, new UTF8Encoding(false));
         if (run.ExitCode != 0)
         {
             throw new InvalidOperationException($"SFR-11 browser harness failed (exit {run.ExitCode}). See {Path.Combine(evidenceAbsolute, "browser-run.log")}.");
         }
+
+        var resultPath = Path.Combine(evidenceAbsolute, "browser-result.json");
+        Assert.True(File.Exists(resultPath), "SFR-11 browser harness did not write browser-result.json.");
+        using var result = JsonDocument.Parse(await File.ReadAllTextAsync(resultPath));
+        Assert.Equal("PASS", result.RootElement.GetProperty("result").GetString());
+        Assert.True(result.RootElement.GetProperty("sessionCookieRedactedFromTrace").GetBoolean());
     }
 
-    private static async Task<(int ExitCode, string Output)> RunNodeAsync(string script, params string[] args)
+    private static async Task<(int ExitCode, string Output)> RunPythonAsync(string pythonPath, string scriptPath,
+        string fixturePath, string evidencePath)
     {
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo("node")
+            StartInfo = new ProcessStartInfo(Path.GetFullPath(pythonPath))
             {
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -66,12 +73,9 @@ public sealed class PortalSupportAndQueueBrowserTests
                 CreateNoWindow = true
             }
         };
-        process.StartInfo.ArgumentList.Add("-e");
-        process.StartInfo.ArgumentList.Add(script);
-        foreach (var arg in args)
-        {
-            process.StartInfo.ArgumentList.Add(arg);
-        }
+        process.StartInfo.ArgumentList.Add(Path.GetFullPath(scriptPath));
+        process.StartInfo.ArgumentList.Add(Path.GetFullPath(fixturePath));
+        process.StartInfo.ArgumentList.Add(Path.GetFullPath(evidencePath));
         process.Start();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
@@ -79,94 +83,173 @@ public sealed class PortalSupportAndQueueBrowserTests
         return (process.ExitCode, (await stdoutTask) + Environment.NewLine + (await stderrTask));
     }
 
-    private const string BrowserHarness = """
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const { chromium } = require('playwright');
-    const fixturePath = process.argv[1];
-    const evidenceDir = process.argv[2];
-    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-    const events = { console: [], pageErrors: [], requests: [], responses: [] };
-    const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
-    const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const run = async () => {
-      requireValue(fixture.baseUrl && fixture.storageStatePath && fs.existsSync(fixture.storageStatePath), 'Fixture must provide baseUrl and an existing storageStatePath.');
-      requireValue(fixture.shopId && fixture.queueKind && Array.isArray(fixture.queuePageOneEntityIds) && Array.isArray(fixture.queuePageTwoEntityIds), 'Fixture is missing shopId, queueKind, or expected page entity IDs.');
-      requireValue(fixture.queuePageOneEntityIds.length > 0 && fixture.queuePageTwoEntityIds.length > 0, 'Queue fixture must contain at least one expected row on each page.');
-      const browser = await chromium.launch({ headless: true });
-      const context = await browser.newContext({ storageState: fixture.storageStatePath });
-      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
-      const page = await context.newPage();
-      page.on('console', message => { if (message.type() === 'error') events.console.push(message.text()); });
-      page.on('pageerror', error => events.pageErrors.push(String(error)));
-      page.on('request', request => { if (request.url().includes('/api/admin/v1/')) events.requests.push({ method: request.method(), url: request.url() }); });
-      page.on('response', response => { if (response.url().includes('/api/admin/v1/')) events.responses.push({ status: response.status(), url: response.url() }); });
-      let ticketId = null;
-      const uniqueSubject = `SFR11 browser ${new Date().toISOString()} ${Math.random().toString(16).slice(2)}`;
-      const replyText = `Persisted browser reply ${uniqueSubject}`;
-      try {
-        await page.goto(fixture.baseUrl, { waitUntil: 'networkidle' });
-        await page.locator('#app-shell').waitFor({ state: 'visible' });
-        requireValue(await page.locator('#auth-wrapper').isHidden(), 'Saved development session was not authenticated by the server.');
-        const capabilities = await page.locator('#session-capabilities').innerText();
-        for (const capability of ['queues.view', 'dashboard.view', 'support.view', 'support.create', 'support.reply'])
-          requireValue(capabilities.includes(capability), `Authenticated fixture lacks ${capability}.`);
+    private const string PythonBrowserHarness = """
+import asyncio, json, os, pathlib, sys, traceback, zipfile
+from playwright.async_api import async_playwright
 
-        await page.locator(`[data-queue="${fixture.queueKind}"]`).click();
-        const readQueueIds = async () => (await page.locator('#dashboard-queue-tbody tr').evaluateAll(rows => rows.map(row => row.cells[0]?.textContent?.trim()).filter(Boolean)));
-        await page.waitForFunction(() => document.querySelector('#dashboard-queue-status')?.textContent?.includes('page 1.'));
-        requireValue(JSON.stringify(await readQueueIds()) === JSON.stringify(fixture.queuePageOneEntityIds), 'Queue page 1 did not match the seeded snapshot.');
-        await page.locator('#dashboard-queue-next').click();
-        await page.waitForFunction(() => document.querySelector('#dashboard-queue-status')?.textContent?.includes('page 2.'));
-        requireValue(JSON.stringify(await readQueueIds()) === JSON.stringify(fixture.queuePageTwoEntityIds), 'Queue page 2 did not match the seeded snapshot.');
+fixture_path = pathlib.Path(sys.argv[1])
+evidence_dir = pathlib.Path(sys.argv[2])
+fixture = json.loads(fixture_path.read_text(encoding='utf-8'))
+events = {'console': [], 'pageErrors': [], 'requests': [], 'responses': []}
+result_path = evidence_dir / 'browser-result.json'
+events_path = evidence_dir / 'browser-events.json'
+trace_path = evidence_dir / 'portal-support-queue-trace.zip'
+screenshots = evidence_dir / 'screenshots'
+screenshots.mkdir(parents=True, exist_ok=True)
 
-        await page.locator('[data-view="customer360"]').click();
-        await page.locator('#customer-search-input').fill(fixture.shopId);
-        await page.locator('#btn-customer-search').click();
-        await page.locator('#customer-360-details').getByText(new RegExp(escapeRegExp(fixture.customer360ExpectedText || fixture.shopId))).waitFor();
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
 
-        await page.locator('[data-view="support"]').click();
-        await page.locator('#support-shop-id').fill(fixture.shopId);
-        await page.locator('#support-subject').fill(uniqueSubject);
-        await page.locator('#support-summary').fill(`Synthetic browser workflow ${uniqueSubject}`);
-        await page.locator('#support-create-submit').click();
-        await page.getByText(/Ticket [0-9a-f-]{36} was saved by the server\./i).waitFor();
-        const createText = await page.locator('#support-create-status').innerText();
-        ticketId = createText.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
-        requireValue(ticketId, 'Portal did not return a persisted support ticket ID.');
-        const ticketRow = page.locator('#support-tbody tr').filter({ hasText: uniqueSubject });
-        await ticketRow.getByRole('button', { name: 'Open Ticket' }).click();
-        await page.locator('#support-reply-form').locator('textarea').fill(replyText);
-        await page.locator('#support-reply-form').getByRole('button', { name: 'Save Reply' }).click();
-        await page.getByText('Reply saved in the portal. No external message was sent.').waitFor();
-        await page.reload({ waitUntil: 'networkidle' });
-        await page.locator('[data-view="support"]').click();
-        await page.locator('#support-tbody').getByText(uniqueSubject).waitFor();
-        await page.locator('#support-tbody tr').filter({ hasText: uniqueSubject }).getByRole('button', { name: 'Open Ticket' }).click();
-        await page.locator('#support-history').getByText(replyText).waitFor();
-        requireValue(events.console.length === 0 && events.pageErrors.length === 0, `Browser errors detected: ${JSON.stringify({ console: events.console, pageErrors: events.pageErrors })}`);
-        requireValue(events.responses.some(response => response.status >= 200 && response.status < 300 && response.url.includes('/api/admin/v1/queues/')), 'No successful authenticated queue request was observed.');
-        requireValue(events.responses.some(response => response.status >= 200 && response.status < 300 && response.url.includes('/api/admin/v1/dashboard/customer360/')), 'No successful Customer 360 request was observed.');
-        requireValue(events.responses.some(response => response.status >= 200 && response.status < 300 && response.url.includes('/api/admin/v1/support/tickets')), 'No successful support persistence read/write was observed.');
-        fs.writeFileSync(path.join(evidenceDir, 'browser-events.json'), JSON.stringify({ fixture: path.basename(fixturePath), ticketId, uniqueSubject, replyText, events }, null, 2));
-        console.log(JSON.stringify({ result: 'PASS', ticketId, checks: ['authenticated session', 'queue page 1', 'queue page 2', 'Customer 360', 'support create', 'support reply', 'reload persistence', 'console/network'] }));
-      } finally {
-        await context.tracing.stop({ path: path.join(evidenceDir, 'portal-support-queue-trace.zip') });
-        await browser.close();
-      }
-    };
-    run().catch(error => {
-      fs.writeFileSync(path.join(evidenceDir, 'browser-events.json'), JSON.stringify({ result: 'FAIL', message: String(error), events }, null, 2));
-      console.error(error && error.stack || error);
-      process.exitCode = 1;
-    });
-    """;
+def redact_trace(secrets):
+    if not trace_path.exists():
+        return not secrets
+    temporary = trace_path.with_suffix('.redacted.zip')
+    with zipfile.ZipFile(trace_path, 'r') as source, zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            for secret in secrets:
+                if secret:
+                    data = data.replace(secret.encode('utf-8'), b'[REDACTED]')
+            target.writestr(item, data)
+    temporary.replace(trace_path)
+    with zipfile.ZipFile(trace_path, 'r') as sanitized:
+        return all(secret.encode('utf-8') not in sanitized.read(item.filename)
+                   for item in sanitized.infolist() for secret in secrets if secret)
+
+async def main():
+    require(fixture.get('baseUrl') and fixture.get('storageStatePath') and pathlib.Path(fixture['storageStatePath']).is_file(),
+            'Fixture must provide baseUrl and an existing storageStatePath.')
+    require(fixture.get('shopId') and fixture.get('queueKind') and isinstance(fixture.get('queuePageOneEntityIds'), list)
+            and isinstance(fixture.get('queuePageTwoEntityIds'), list), 'Fixture is missing shopId, queueKind, or expected page entity IDs.')
+    require(fixture['queuePageOneEntityIds'] and fixture['queuePageTwoEntityIds'], 'Queue fixture must contain rows on both pages.')
+    state = json.loads(pathlib.Path(fixture['storageStatePath']).read_text(encoding='utf-8'))
+    secrets = [cookie.get('value', '') for cookie in state.get('cookies', [])
+               if cookie.get('name', '').lower() in ('central_session', 'authorization', 'access_token')]
+    browser = None
+    context = None
+    ticket_id = None
+    unique_subject = f"SFR11 browser {__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}"
+    reply_text = f'Persisted browser reply {unique_subject}'
+    try:
+        async with async_playwright() as playwright:
+            launch_options = {'headless': True}
+            executable = os.environ.get('CENTRAL_PLAYWRIGHT_CHROMIUM_EXECUTABLE')
+            if executable:
+                require(pathlib.Path(executable).is_file(), f'Configured Chromium executable not found: {executable}')
+                launch_options['executable_path'] = executable
+            browser = await playwright.chromium.launch(**launch_options)
+            context = await browser.new_context(storage_state=fixture['storageStatePath'], ignore_https_errors=True)
+            await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            page = await context.new_page()
+            page.on('console', lambda message: events['console'].append(message.text) if message.type == 'error' else None)
+            page.on('pageerror', lambda error: events['pageErrors'].append(str(error)))
+            page.on('request', lambda request: events['requests'].append({'method': request.method, 'url': request.url})
+                    if '/api/admin/v1/' in request.url else None)
+            page.on('response', lambda response: events['responses'].append({'status': response.status, 'url': response.url})
+                    if '/api/admin/v1/' in response.url else None)
+
+            await page.goto(fixture['baseUrl'], wait_until='networkidle')
+            await page.locator('#app-shell').wait_for(state='visible')
+            require(await page.locator('#auth-wrapper').is_hidden(), 'Saved development session was not authenticated by the server.')
+            capabilities = await page.locator('#session-capabilities').inner_text()
+            for capability in ['queues.view', 'dashboard.view', 'support.view', 'support.create', 'support.reply']:
+                require(capability in capabilities, f'Authenticated fixture lacks {capability}.')
+
+            queue_path = f"/api/admin/v1/queues/{fixture['queueKind']}"
+            async with page.expect_response(lambda response: queue_path in response.url and response.status == 200) as queue_page_one_response:
+                await page.locator(f'[data-queue="{fixture["queueKind"]}"]').click()
+            await queue_page_one_response.value
+            async def read_queue_ids():
+                return await page.locator('#dashboard-queue-tbody tr').evaluate_all(
+                    "rows => rows.map(row => row.cells[0]?.textContent?.trim()).filter(Boolean)")
+            await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('page 1.')")
+            await page.wait_for_function("document.querySelector('#dashboard-queue-tbody')?.textContent?.trim() && !document.querySelector('#dashboard-queue-tbody')?.textContent?.includes('Loading')")
+            page_one = await read_queue_ids()
+            require(page_one == fixture['queuePageOneEntityIds'], f'Queue page 1 mismatch: {page_one}')
+            await page.screenshot(path=str(screenshots / 'queue-page-1.png'), full_page=True)
+            async with page.expect_response(lambda response: queue_path in response.url and 'cursor=20' in response.url and response.status == 200) as queue_page_two_response:
+                await page.locator('#dashboard-queue-next').click()
+            await queue_page_two_response.value
+            await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('page 2.')")
+            await page.wait_for_function("document.querySelector('#dashboard-queue-tbody')?.textContent?.trim() && !document.querySelector('#dashboard-queue-tbody')?.textContent?.includes('Loading')")
+            page_two = await read_queue_ids()
+            require(page_two == fixture['queuePageTwoEntityIds'], f'Queue page 2 mismatch: {page_two}')
+            await page.screenshot(path=str(screenshots / 'queue-page-2.png'), full_page=True)
+
+            await page.locator('[data-view="customer360"]').click()
+            await page.locator('#customer-search-input').fill(fixture['shopId'])
+            await page.locator('#btn-customer-search').click()
+            expected_text = fixture.get('customer360ExpectedText') or fixture['shopId']
+            await page.locator('#customer-360-details').get_by_text(__import__('re').compile(__import__('re').escape(expected_text))).wait_for()
+            await page.screenshot(path=str(screenshots / 'customer-360.png'), full_page=True)
+
+            await page.locator('[data-view="support"]').click()
+            await page.locator('#support-shop-id').fill(fixture['shopId'])
+            await page.locator('#support-subject').fill(unique_subject)
+            await page.locator('#support-summary').fill(f'Synthetic browser workflow {unique_subject}')
+            await page.locator('#support-create-submit').click()
+            await page.get_by_text(__import__('re').compile(r'Ticket [0-9a-f-]{36} was saved by the server\.', __import__('re').I)).wait_for()
+            create_text = await page.locator('#support-create-status').inner_text()
+            match = __import__('re').search(r'[0-9a-f]{8}-[0-9a-f-]{27}', create_text, __import__('re').I)
+            require(match is not None, 'Portal did not return a persisted support ticket ID.')
+            ticket_id = match.group(0)
+            await page.screenshot(path=str(screenshots / 'support-created.png'), full_page=True)
+            ticket_row = page.locator('#support-tbody tr').filter(has_text=unique_subject)
+            await ticket_row.get_by_role('button', name='Open Ticket').click()
+            await page.locator('#support-reply-form').locator('textarea').fill(reply_text)
+            await page.locator('#support-reply-form').get_by_role('button', name='Save Reply').click()
+            await page.get_by_text('Reply saved in the portal. No external message was sent.').wait_for()
+            await page.screenshot(path=str(screenshots / 'support-reply.png'), full_page=True)
+            await page.reload(wait_until='networkidle')
+            await page.locator('[data-view="support"]').click()
+            await page.locator('#support-tbody').get_by_text(unique_subject).wait_for()
+            await page.locator('#support-tbody tr').filter(has_text=unique_subject).get_by_role('button', name='Open Ticket').click()
+            await page.locator('#support-history').get_by_text(reply_text).wait_for()
+            await page.screenshot(path=str(screenshots / 'support-reload-persistence.png'), full_page=True)
+
+            require(not events['console'] and not events['pageErrors'],
+                    f'Browser errors detected: {json.dumps({"console": events["console"], "pageErrors": events["pageErrors"]})}')
+            require(any(200 <= item['status'] < 300 and '/api/admin/v1/queues/' in item['url'] for item in events['responses']),
+                    'No successful authenticated queue request was observed.')
+            require(any(200 <= item['status'] < 300 and '/api/admin/v1/dashboard/customer360/' in item['url'] for item in events['responses']),
+                    'No successful Customer 360 request was observed.')
+            require(any(200 <= item['status'] < 300 and '/api/admin/v1/support/tickets' in item['url'] for item in events['responses']),
+                    'No successful support persistence read/write was observed.')
+            await context.tracing.stop(path=str(trace_path))
+            trace_redacted = redact_trace(secrets)
+            require(trace_redacted, 'A browser session credential remained in the trace after redaction.')
+            payload = {'result': 'PASS', 'ticketId': ticket_id, 'uniqueSubject': unique_subject, 'replyText': reply_text,
+                       'queuePageOne': page_one, 'queuePageTwo': page_two, 'sessionCookieRedactedFromTrace': trace_redacted,
+                       'checks': ['authenticated session', 'queue page 1', 'queue page 2', 'Customer 360', 'support create',
+                                  'support reply', 'reload persistence', 'session-secret redaction', 'console/network'],
+                       'events': events}
+            result_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+            events_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+            print(json.dumps({'result': 'PASS', 'ticketId': ticket_id, 'checks': payload['checks']}))
+    except Exception as error:
+        if context is not None:
+            try:
+                await context.tracing.stop(path=str(trace_path))
+                redact_trace(secrets)
+            except Exception:
+                pass
+        payload = {'result': 'FAIL', 'message': str(error), 'traceback': traceback.format_exc(), 'events': events}
+        result_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        events_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        print(json.dumps(payload), file=sys.stderr)
+        raise
+    finally:
+        if browser is not None:
+            await browser.close()
+
+asyncio.run(main())
+""";
 }
 
 /// <summary>
 /// Reports the browser journey as skipped at discovery when its explicitly owned
-/// fixture is absent. This avoids treating a missing fixture as a passing test or
-/// as a runtime failure in the xUnit v2 runner.
+/// fixture or Playwright Python runtime is absent. No browser acceptance is claimed.
 /// </summary>
 public sealed class PortalBrowserFixtureFactAttribute : FactAttribute
 {
@@ -174,9 +257,11 @@ public sealed class PortalBrowserFixtureFactAttribute : FactAttribute
     {
         var fixturePath = Environment.GetEnvironmentVariable("CENTRAL_PORTAL_BROWSER_FIXTURE");
         var evidencePath = Environment.GetEnvironmentVariable("CENTRAL_PORTAL_BROWSER_EVIDENCE_DIR");
-        if (string.IsNullOrWhiteSpace(fixturePath) || !File.Exists(fixturePath) || string.IsNullOrWhiteSpace(evidencePath))
+        var pythonPath = Environment.GetEnvironmentVariable("CENTRAL_PLAYWRIGHT_PYTHON");
+        if (string.IsNullOrWhiteSpace(fixturePath) || !File.Exists(fixturePath) ||
+            string.IsNullOrWhiteSpace(evidencePath) || string.IsNullOrWhiteSpace(pythonPath) || !File.Exists(pythonPath))
         {
-            Skip = "SFR-11 browser journey requires an owned authenticated development fixture and evidence directory; no browser acceptance is claimed.";
+            Skip = "SFR-11 browser journey requires an owned authenticated development fixture, evidence directory, and configured Python Playwright runtime; no browser acceptance is claimed.";
         }
     }
 }

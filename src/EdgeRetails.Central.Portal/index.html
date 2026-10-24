@@ -85,6 +85,7 @@
         <li><a href="#backups" class="nav-link" data-view="backups"><span class="nav-icon" aria-hidden="true">B</span><span>Encrypted Backups</span></a></li>
         <li><a href="#support" class="nav-link" data-view="support"><span class="nav-icon" aria-hidden="true">S</span><span>Support Tickets</span></a></li>
         <li><a href="#notifications" class="nav-link" data-view="notifications"><span class="nav-icon" aria-hidden="true">N</span><span>Notifications</span></a></li>
+        <li><a href="#sessions" class="nav-link" data-view="sessions"><span class="nav-icon" aria-hidden="true">X</span><span>Admin Sessions</span></a></li>
         <li><a href="#audit" class="nav-link" data-view="audit"><span class="nav-icon" aria-hidden="true">T</span><span>Central Audit Trail</span></a></li>
         <li><a href="#recovery" class="nav-link" data-view="recovery"><span class="nav-icon" aria-hidden="true">R</span><span>Recovery & Attestation</span></a></li>
       </ul>
@@ -229,12 +230,28 @@
 
       <div id="commercial-view" class="view-container">
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Commercial Licenses & Orders</h2><span class="badge">OPEN / UNAVAILABLE</span></div>
-          <div class="card-body"><p>The current API does not expose a commercial-license collection read. Per-shop base-license details are available in Customer 360. Collection, ordering and license mutation workflows remain OPEN in this portal.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
+          <div class="card-header"><h2 class="card-title">Commercial Licenses & Orders</h2><span class="badge">CATALOG &amp; ORDER COMMANDS</span></div>
+          <div class="card-body"><p>Active server plans and governed order creation are available below. A saved order is not a payment approval or license issue. Review payment evidence in its authorized workflow before issuing a license.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button><p id="commercial-catalog-status" role="status" aria-live="polite" class="workflow-status"></p></div>
+          <section id="commercial-order-panel" class="card" hidden aria-labelledby="commercial-order-title">
+            <div class="card-header"><h3 id="commercial-order-title" class="card-title">Create an Order</h3></div>
+            <form id="commercial-order-form" class="card-body">
+              <div class="form-grid">
+                <div class="form-group"><label class="form-label" for="commercial-shop-id">Shop ID</label><input id="commercial-shop-id" class="form-input" autocomplete="off" required></div>
+                <div class="form-group"><label class="form-label" for="commercial-plan-id">Active plan</label><select id="commercial-plan-id" class="form-input" required><option value="">Load the plan catalog first</option></select></div>
+                <div class="form-group"><label class="form-label" for="commercial-order-type">Order type</label><select id="commercial-order-type" class="form-input" required></select></div>
+                <div id="commercial-base-license-group" class="form-group" hidden><label class="form-label" for="commercial-base-license-id">Existing base license ID</label><input id="commercial-base-license-id" class="form-input" autocomplete="off"></div>
+                <div id="commercial-entitlement-group" class="form-group" hidden><label class="form-label" for="commercial-entitlement-id">Existing add-on entitlement ID (when renewing one)</label><input id="commercial-entitlement-id" class="form-input" autocomplete="off"></div>
+              </div>
+              <p id="commercial-plan-summary" class="form-help">Select a server plan. The server will calculate and persist the price snapshot.</p>
+              <div class="form-group"><label class="form-label" for="commercial-order-reason">Reason</label><input id="commercial-order-reason" class="form-input" required maxlength="500"></div>
+              <button id="commercial-order-submit" type="submit" class="btn btn-primary">Create price snapshot and order</button>
+              <p id="commercial-order-status" role="status" aria-live="polite" class="workflow-status"></p>
+            </form>
+          </section>
           <div class="table-responsive">
             <table class="data-table">
               <thead><tr><th>License ID</th><th>Shop ID</th><th>Plan Profile</th><th>Term Model</th><th>Valid Until</th><th>Status</th><th>Governed Actions</th></tr></thead>
-              <tbody id="commercial-licenses-tbody"><tr><td colspan="7" style="text-align:center; padding:1.5rem;">OPEN — Collection workflow unavailable; no data loaded.</td></tr></tbody>
+              <tbody id="commercial-licenses-tbody"><tr><td colspan="7" style="text-align:center; padding:1.5rem;">No collection request has been made. Per-shop license details are available in Customer 360.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -242,24 +259,33 @@
 
       <div id="licensing-view" class="view-container">
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Licensing & Hardware</h2><span class="badge">OPEN / UNAVAILABLE</span></div>
-          <div class="card-body"><p>No global installation collection read is exposed by the current API. Read a shop's installations in Customer 360 or inspect the hardware review queue on the dashboard. Registration, activation, hardware change and transfer workflows remain OPEN in this portal.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
+          <div class="card-header"><h2 class="card-title">Licensing & Hardware</h2><span class="badge">QUEUES / DECISION ROUTES PARTIAL</span></div>
+          <div class="card-body"><p>Pending activation, hardware review and primary-transfer cases can be inspected when your session has queue access. Hardware and transfer decisions stay unavailable until the canonical versioned routes in the effective040 contract are implemented; the older activation endpoints accept different, incomplete payloads.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Installation Identity</th><th>Hardware Profile</th><th>Certificate Sequence</th><th>Trust Revision</th><th>Actions</th></tr></thead>
-              <tbody id="licensing-activations-tbody"><tr><td colspan="5" style="text-align:center; padding:1.5rem;">OPEN — Collection workflow unavailable; no sample installations.</td></tr></tbody>
+              <thead><tr><th>Case ID</th><th>Summary</th><th>Shop ID</th><th>Status</th><th>Submitted (UTC)</th><th>Action</th></tr></thead>
+              <tbody id="licensing-activations-tbody"><tr><td colspan="6" style="text-align:center; padding:1.5rem;">Choose a review queue to load.</td></tr></tbody>
             </table>
+          </div>
+          <div class="card-body">
+            <p id="licensing-queue-status" role="status" aria-live="polite" style="margin-bottom:0.75rem;">Queue not yet loaded.</p>
+            <button type="button" id="licensing-activation-queue" class="btn btn-secondary btn-sm">Activation Reviews</button>
+            <button type="button" id="licensing-hardware-queue" class="btn btn-secondary btn-sm">Hardware Reviews</button>
+            <button type="button" id="licensing-transfer-queue" class="btn btn-secondary btn-sm">Primary Transfers</button>
+            <button type="button" id="licensing-queue-refresh" class="btn btn-secondary btn-sm">Refresh Current Queue</button>
+            <button type="button" id="licensing-queue-prev" class="btn btn-secondary btn-sm" disabled>Previous Page</button>
+            <button type="button" id="licensing-queue-next" class="btn btn-secondary btn-sm" disabled>Next Page</button>
           </div>
         </div>
       </div>
 
       <div id="approvals-view" class="view-container">
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Dual-Control Approval Queue</h2><span class="badge">READ ONLY</span></div>
-          <div class="card-body"><p>Reads the DUAL_APPROVAL dashboard queue. The queue does not supply proposer identity or a decision payload. OPEN — Step-up, dual-control decisions and actual execution are unavailable here; no action will be submitted.</p></div>
+          <div class="card-header"><h2 class="card-title">Dual-Control Approval Queue</h2><span class="badge">INDEPENDENT REVIEW</span></div>
+          <div class="card-body"><p>Eligible approvers can approve or reject a persisted request. Central checks the saved requester, target, digest, expiry and version against the decision. Approval records independent authorization; the approved business action is submitted separately.</p></div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Entity ID</th><th>Title</th><th>Shop ID</th><th>Status</th><th>Read-Only Review</th></tr></thead>
+              <thead><tr><th>Entity ID</th><th>Title</th><th>Shop ID</th><th>Status</th><th>Review</th></tr></thead>
               <tbody id="approvals-table-tbody"><tr><td colspan="5" style="text-align:center; padding:1.5rem;">Approval queue not yet loaded.</td></tr></tbody>
             </table>
           </div>
@@ -273,13 +299,24 @@
 
       <div id="backups-view" class="view-container">
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Encrypted Backup Repository</h2><span class="badge">OPEN / UNAVAILABLE</span></div>
-          <div class="card-body"><p>The current API has no backup metadata collection read. This portal cannot report stored backups, key custody, ciphertext integrity or successful restoration. Upload, download and recovery workflows remain OPEN.</p></div>
+          <div class="card-header" style="flex-wrap:wrap; gap:0.75rem;">
+            <h2 class="card-title">Encrypted Backup Metadata</h2>
+            <button id="backups-refresh" type="button" class="btn btn-secondary btn-sm">Refresh metadata</button>
+          </div>
+          <div class="card-body">
+            <p id="backups-status" role="status" aria-live="polite" class="workflow-status">Backup metadata has not been loaded.</p>
+            <p class="form-help">This view reports persisted metadata only. The SHA-256 value is recorded ciphertext metadata; it is not a live integrity check. This portal does not provide backup upload, download, or customer restore actions, and this view does not attest key custody or file availability.</p>
+          </div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Backup ID</th><th>Shop ID</th><th>Chunk Count</th><th>Payload Size</th><th>Ciphertext SHA-256</th><th>Custody Status</th></tr></thead>
-              <tbody id="backups-tbody"><tr><td colspan="6" style="text-align:center; padding:1.5rem;">OPEN — Collection workflow unavailable; no backup data loaded.</td></tr></tbody>
+              <caption>Persisted encrypted backup metadata returned by Central</caption>
+              <thead><tr><th scope="col">Backup ID</th><th scope="col">Shop ID</th><th scope="col">Payload Size</th><th scope="col">Recorded Ciphertext SHA-256</th><th scope="col">Created (UTC)</th><th scope="col">Retain Until (UTC)</th><th scope="col">Legal Hold</th><th scope="col">Tombstone</th><th scope="col">Tombstoned At (UTC)</th></tr></thead>
+              <tbody id="backups-tbody"><tr><td colspan="9" style="text-align:center; padding:1.5rem;">Sign in with backup metadata access to load records.</td></tr></tbody>
             </table>
+          </div>
+          <div class="card-body">
+            <p id="backups-page-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <div class="button-row"><button id="backups-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="backups-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div>
           </div>
         </div>
       </div>
@@ -318,6 +355,29 @@
         </section>
       </div>
 
+      <div id="sessions-view" class="view-container">
+        <section class="card">
+          <div class="card-header" style="flex-wrap:wrap; gap:0.75rem;">
+            <h2 class="card-title">Administrator Sessions</h2>
+            <div class="button-row"><button id="sessions-refresh" type="button" class="btn btn-secondary btn-sm">Refresh</button></div>
+          </div>
+          <div class="card-body">
+            <p>Review authenticated administrator sessions. Revoking a session takes effect on the server. Your current session cannot be revoked here.</p>
+            <form id="sessions-filter-form" class="form-grid" role="search">
+              <div class="form-group"><label class="form-label" for="sessions-filter">Administrator username</label><input id="sessions-filter" class="form-input" type="search" maxlength="200" autocomplete="off"></div>
+              <div class="form-group" style="align-self:end"><button type="submit" class="btn btn-secondary">Apply Filter</button></div>
+            </form>
+            <p id="sessions-status" role="status" aria-live="polite" class="workflow-status">Sessions not yet loaded.</p>
+          </div>
+          <div class="table-responsive">
+            <table id="sessions-table" class="data-table">
+              <thead><tr><th>Administrator</th><th>Created (UTC)</th><th>Last Activity (UTC)</th><th>Expires (UTC)</th><th>Absolute Expiry (UTC)</th><th>MFA</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="sessions-table-tbody"><tr><td colspan="8" style="text-align:center; padding:1.5rem;">Sessions not yet loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body"><p id="sessions-page-status" role="status" aria-live="polite" class="workflow-status"></p><div class="button-row"><button id="sessions-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="sessions-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div></div>
+        </section>
+      </div>
       <div id="notifications-view" class="view-container">
         <section class="card">
           <div class="card-header"><h2 class="card-title">Notifications</h2><button id="notifications-refresh" type="button" class="btn btn-secondary btn-sm">Refresh</button></div>
@@ -356,7 +416,52 @@
     </main>
   </div>
 
-  <!-- Queue details are read-only: no fabricated previews or execution controls. -->
+  <dialog id="sessions-revoke-dialog" aria-labelledby="sessions-revoke-title" aria-describedby="sessions-revoke-description">
+    <form method="dialog" class="modal-dialog" id="sessions-revoke-form">
+      <div class="modal-header"><h3 id="sessions-revoke-title" class="modal-title">Revoke administrator session?</h3></div>
+      <div class="card-body"><p id="sessions-revoke-description">This session will lose access to Central immediately. Confirm only if you intend to revoke this other administrator session.</p><p id="sessions-revoke-target" role="status" aria-live="polite"></p><p id="sessions-revoke-status" role="status" aria-live="polite" class="workflow-status"></p></div>
+      <div class="button-row"><button id="sessions-revoke-cancel" type="submit" value="cancel" class="btn btn-secondary">Cancel</button><button id="sessions-revoke-confirm" type="button" class="btn btn-danger" data-session-revoke-confirm disabled>Revoke Session</button></div>
+    </form>
+  </dialog>
+  <dialog id="license-lifecycle-dialog" aria-labelledby="license-lifecycle-title" aria-describedby="license-lifecycle-description">
+    <section class="modal-dialog">
+      <div class="modal-header"><h3 id="license-lifecycle-title" class="modal-title">Review license revocation</h3><button id="license-lifecycle-close" type="button" class="btn-icon" aria-label="Close license revocation review">Close</button></div>
+      <div class="modal-body">
+        <p id="license-lifecycle-description">Central will show the persisted license, shop, current policy and affected installation count before you request a separate administrator approval. Revocation does not send a command to an offline installation immediately.</p>
+        <p id="license-lifecycle-target" role="status" aria-live="polite"></p>
+        <button id="license-lifecycle-preview" type="button" class="btn btn-secondary">Refresh server preview</button>
+        <p id="license-lifecycle-preview-status" role="status" aria-live="polite" class="workflow-status"></p>
+        <section id="license-lifecycle-preview-result" hidden>
+          <h4>Current server preview</h4>
+          <p id="license-lifecycle-consequence"></p>
+          <ul id="license-lifecycle-warnings"></ul>
+          <p id="license-lifecycle-policy"></p>
+        </section>
+        <section id="license-lifecycle-request-section" hidden>
+          <h4>Request independent approval</h4>
+          <label class="form-label" for="license-lifecycle-reason">Reason for requesting approval</label>
+          <textarea id="license-lifecycle-reason" class="form-input" rows="3" maxlength="500" required></textarea>
+          <label class="form-label" for="license-lifecycle-request-totp">Current MFA code</label>
+          <input id="license-lifecycle-request-totp" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <button id="license-lifecycle-request-approval" type="button" class="btn btn-primary">Request separate approval</button>
+          <p id="license-lifecycle-request-status" role="status" aria-live="polite" class="workflow-status"></p>
+        </section>
+        <section id="license-lifecycle-final-section" hidden>
+          <h4>Execute after a different administrator approves</h4>
+          <p id="license-lifecycle-approval-state" role="status" aria-live="polite"></p>
+          <label class="form-label" for="license-lifecycle-approval-id">Persisted approval request ID</label>
+          <input id="license-lifecycle-approval-id" class="form-input" autocomplete="off" required>
+          <label class="form-label" for="license-lifecycle-final-reason">Reason for executing the approved action</label>
+          <textarea id="license-lifecycle-final-reason" class="form-input" rows="3" maxlength="500" required></textarea>
+          <label class="form-label" for="license-lifecycle-final-totp">Fresh MFA code for execution</label>
+          <input id="license-lifecycle-final-totp" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <button id="license-lifecycle-execute" type="button" class="btn btn-danger">Execute approved revocation</button>
+          <p id="license-lifecycle-final-status" role="status" aria-live="polite" class="workflow-status"></p>
+        </section>
+      </div>
+    </section>
+  </dialog>
+  <!-- Queue decisions use their canonical persisted routes and server-validated revisions. -->
   <div id="queue-inspect-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="queue-inspect-title">
     <div class="modal-dialog">
       <div class="modal-header">
@@ -373,6 +478,72 @@
           <dt class="form-label">Reason / Summary</dt><dd id="queue-item-summary" data-queue-detail></dd>
         </dl>
         <p id="queue-item-workflow" data-queue-detail style="margin-top:1rem;"></p>
+        <section id="activation-review-controls" hidden aria-labelledby="activation-review-title" style="margin-top:1rem;">
+          <h4 id="activation-review-title" class="card-title">Record an activation decision</h4>
+          <p id="activation-review-version" class="form-help"></p>
+          <form id="activation-review-form">
+            <div class="form-group">
+              <label class="form-label" for="activation-review-decision">Decision</label>
+              <select id="activation-review-decision" class="form-input" required>
+                <option value="APPROVE">Approve</option>
+                <option value="REJECT">Reject</option>
+                <option value="REQUEST_INFORMATION">Request information</option>
+                <option value="OPEN_HARDWARE_REVIEW">Open hardware review</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="activation-review-reason">Reason code</label>
+              <input id="activation-review-reason" class="form-input" required maxlength="120" autocomplete="off">
+            </div>
+            <p id="activation-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="activation-review-submit" type="submit" class="btn btn-primary">Save decision</button>
+          </form>
+        </section>
+        <section id="sensitive-approval-controls" hidden aria-labelledby="sensitive-approval-title" style="margin-top:1rem;">
+          <h4 id="sensitive-approval-title" class="card-title">Record an independent approval decision</h4>
+          <p id="sensitive-approval-details" class="form-help"></p>
+          <form id="sensitive-approval-form">
+            <div class="form-group">
+              <label class="form-label" for="sensitive-approval-decision">Decision</label>
+              <select id="sensitive-approval-decision" class="form-input" required>
+                <option value="">Choose a decision</option>
+                <option value="APPROVE">Approve request</option>
+                <option value="REJECT">Reject request</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="sensitive-approval-reason">Decision reason</label>
+              <textarea id="sensitive-approval-reason" class="form-input" rows="3" required maxlength="500"></textarea>
+            </div>
+            <p id="sensitive-approval-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="sensitive-approval-submit" type="submit" class="btn btn-primary">Save decision</button>
+          </form>
+        </section>
+        <section id="payment-review-controls" hidden aria-labelledby="payment-review-title" style="margin-top:1rem;">
+          <h4 id="payment-review-title" class="card-title">Review payment evidence</h4>
+          <p id="payment-review-details" class="form-help"></p>
+          <form id="payment-review-form">
+            <div class="form-group">
+              <label class="form-label" for="payment-review-decision">Decision</label>
+              <select id="payment-review-decision" class="form-input" required>
+                <option value="">Choose a decision</option>
+                <option value="APPROVE">Approve evidence</option>
+                <option value="REJECT">Reject evidence</option>
+                <option value="CLARIFICATION">Request clarification</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="payment-review-reason">Reason code</label>
+              <input id="payment-review-reason" class="form-input" required maxlength="120" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="payment-review-note">Internal note (optional)</label>
+              <textarea id="payment-review-note" class="form-input" rows="3" maxlength="1000"></textarea>
+            </div>
+            <p id="payment-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="payment-review-submit" type="submit" class="btn btn-primary">Save payment decision</button>
+          </form>
+        </section>
       </div>
       <div class="modal-footer"><button type="button" id="btn-queue-shop" class="btn btn-secondary" disabled>Open Shop Customer 360</button></div>
     </div>

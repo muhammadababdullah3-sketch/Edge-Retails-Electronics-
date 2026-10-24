@@ -1,4 +1,6 @@
 using System.Text;
+using System.Runtime.InteropServices;
+using System.Reflection;
 using EdgeRetails.Central.Domain.Common;
 using EdgeRetails.Central.Infrastructure.Storage;
 using Xunit;
@@ -204,6 +206,101 @@ public class DiskObjectStorageContainmentTests : IDisposable
     }
 
     [Fact]
+    public async Task SFR17_HardLinkedFile_IsRejectedWithoutTouchingAliasedBytes()
+    {
+        var shopId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var shopDirectory = Path.Combine(_storageDirectory, shopId.ToString("N"));
+        Directory.CreateDirectory(shopDirectory);
+        var outsideFile = Path.Combine(_testDirectory, "outside-hardlink-target.bin");
+        var linkedFile = Path.Combine(shopDirectory, $"{objectId:N}.bin");
+        var bytes = Encoding.UTF8.GetBytes("hard-link alias sentinel");
+        await File.WriteAllBytesAsync(outsideFile, bytes);
+        CreateRequiredHardLink(linkedFile, outsideFile);
+
+        await AssertRejectedByPathOperations(linkedFile);
+        await AssertSaveRejected(shopId, objectId);
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(outsideFile));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(linkedFile));
+    }
+
+    [Theory]
+    [InlineData(FileMode.Create)]
+    [InlineData(FileMode.Truncate)]
+    public async Task SFR17_DestructiveOpenModes_FailClosedBeforeTouchingHardLinkedBytes(FileMode mode)
+    {
+        var shopId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var shopDirectory = Path.Combine(_storageDirectory, shopId.ToString("N"));
+        Directory.CreateDirectory(shopDirectory);
+        var outsideFile = Path.Combine(_testDirectory, "outside-destructive-mode-target.bin");
+        var linkedFile = Path.Combine(shopDirectory, $"{objectId:N}.bin");
+        var bytes = Encoding.UTF8.GetBytes("destructive mode alias sentinel");
+        await File.WriteAllBytesAsync(outsideFile, bytes);
+        CreateRequiredHardLink(linkedFile, outsideFile);
+
+        var factoryType = typeof(DiskObjectStorageProvider).Assembly.GetType(
+            "EdgeRetails.Central.Infrastructure.Storage.AnchoredStorageRootFactory",
+            throwOnError: true)!;
+        var openFactory = factoryType.GetMethod("OpenOrCreate", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
+        using var storageRoot = (IDisposable)openFactory.Invoke(null, new object[] { _storageDirectory })!;
+        var openFile = storageRoot.GetType().GetMethod("OpenFile", BindingFlags.Instance | BindingFlags.Public)!;
+        var exception = Assert.Throws<TargetInvocationException>(() => openFile.Invoke(
+            storageRoot,
+            new object[]
+            {
+                new[] { shopId.ToString("N"), $"{objectId:N}.bin" },
+                mode,
+                FileAccess.Write,
+                FileShare.None,
+                FileOptions.None
+            }));
+
+        var unsupported = Assert.IsType<PlatformNotSupportedException>(exception.InnerException);
+        Assert.Contains("create/truncate", unsupported.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(outsideFile));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(linkedFile));
+    }
+
+    [Fact]
+    public async Task SFR17_DeleteOnClose_FailsClosedBeforeRemovingHardLinkNames()
+    {
+        var shopId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var shopDirectory = Path.Combine(_storageDirectory, shopId.ToString("N"));
+        Directory.CreateDirectory(shopDirectory);
+        var outsideFile = Path.Combine(_testDirectory, "outside-delete-on-close-target.bin");
+        var linkedFile = Path.Combine(shopDirectory, $"{objectId:N}.bin");
+        var bytes = Encoding.UTF8.GetBytes("delete-on-close alias sentinel");
+        await File.WriteAllBytesAsync(outsideFile, bytes);
+        CreateRequiredHardLink(linkedFile, outsideFile);
+
+        var factoryType = typeof(DiskObjectStorageProvider).Assembly.GetType(
+            "EdgeRetails.Central.Infrastructure.Storage.AnchoredStorageRootFactory",
+            throwOnError: true)!;
+        var openFactory = factoryType.GetMethod("OpenOrCreate", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
+        using var storageRoot = (IDisposable)openFactory.Invoke(null, new object[] { _storageDirectory })!;
+        var openFile = storageRoot.GetType().GetMethod("OpenFile", BindingFlags.Instance | BindingFlags.Public)!;
+        var exception = Assert.Throws<TargetInvocationException>(() => openFile.Invoke(
+            storageRoot,
+            new object[]
+            {
+                new[] { shopId.ToString("N"), $"{objectId:N}.bin" },
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                FileOptions.DeleteOnClose
+            }));
+
+        Assert.IsAssignableFrom<NotSupportedException>(exception.InnerException);
+        Assert.True(File.Exists(outsideFile));
+        Assert.True(File.Exists(linkedFile));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(outsideFile));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(linkedFile));
+    }
+
+    [Fact]
     public async Task SFR17_DanglingFileLink_RejectsAllOperationsWithoutCreatingTarget()
     {
         var shopId = Guid.NewGuid();
@@ -250,50 +347,66 @@ public class DiskObjectStorageContainmentTests : IDisposable
     }
 
     [Fact]
-    public async Task SFR17_RootAncestorReplacedByLink_RejectsAllOperations()
+    public async Task SFR17_PinnedRootAncestorCannotRedirectOperationsAfterRename()
     {
         var ownedAncestor = Path.Combine(_testDirectory, "ancestor");
         var nestedRoot = Path.Combine(ownedAncestor, "objects");
-        var provider = new DiskObjectStorageProvider(nestedRoot);
+        using var provider = new DiskObjectStorageProvider(nestedRoot);
         var outsideDirectory = Path.Combine(_testDirectory, "replacement-ancestor");
         var outsideRoot = Path.Combine(outsideDirectory, "objects");
         Directory.CreateDirectory(outsideRoot);
         var outsideFile = Path.Combine(outsideRoot, "sentinel.bin");
         var bytes = Encoding.UTF8.GetBytes("ancestor sentinel");
         await File.WriteAllBytesAsync(outsideFile, bytes);
-        Directory.Delete(nestedRoot);
-        Directory.Delete(ownedAncestor);
-        CreateRequiredDirectoryLink(ownedAncestor, outsideDirectory);
+        var originalFile = Path.Combine(nestedRoot, "sentinel.bin");
+        await File.WriteAllBytesAsync(originalFile, bytes);
 
-        // The ancestor swap is completed before each operation begins.
+        var movedAncestor = Path.Combine(_testDirectory, "moved-ancestor");
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Throws<IOException>(() => Directory.Move(ownedAncestor, movedAncestor));
+        }
+        else
+        {
+            Directory.Move(ownedAncestor, movedAncestor);
+            Directory.CreateSymbolicLink(ownedAncestor, outsideRoot);
+        }
         var storagePath = Path.Combine(nestedRoot, "sentinel.bin");
-        AssertPathRejected(await Assert.ThrowsAsync<CentralDomainException>(() => provider.GetCiphertextAsync(storagePath)));
-        AssertPathRejected(await Assert.ThrowsAsync<CentralDomainException>(() => provider.DeleteCiphertextAsync(storagePath)));
-        AssertPathRejected(await Assert.ThrowsAsync<CentralDomainException>(() => provider.ExistsAsync(storagePath)));
-        using var content = new MemoryStream(Encoding.UTF8.GetBytes("must not be written"));
-        AssertPathRejected(await Assert.ThrowsAsync<CentralDomainException>(() =>
-            provider.SaveCiphertextAsync(Guid.NewGuid(), Guid.NewGuid(), content)));
+        await using var stored = await provider.GetCiphertextAsync(storagePath);
+        using var copy = new MemoryStream();
+        await stored.CopyToAsync(copy);
 
-        Assert.Equal(0L, content.Position);
+        Assert.Equal(bytes, copy.ToArray());
         Assert.Equal(bytes, await File.ReadAllBytesAsync(outsideFile));
         Assert.Single(Directory.GetFileSystemEntries(outsideRoot));
     }
 
     [Fact]
-    public async Task SFR17_StorageRootReplacedByLink_RejectsAllOperations()
+    public async Task SFR17_PinnedStorageRootCannotRedirectOperationsAfterRename()
     {
         var outsideDirectory = Path.Combine(_testDirectory, "replacement-root");
         Directory.CreateDirectory(outsideDirectory);
         var outsideFile = Path.Combine(outsideDirectory, "sentinel.bin");
         var bytes = Encoding.UTF8.GetBytes("replacement sentinel");
         await File.WriteAllBytesAsync(outsideFile, bytes);
-        Directory.Delete(_storageDirectory);
-        CreateRequiredDirectoryLink(_storageDirectory, outsideDirectory);
+        var originalFile = Path.Combine(_storageDirectory, "sentinel.bin");
+        await File.WriteAllBytesAsync(originalFile, bytes);
 
-        // This is a swap completed before invocation, not a claim of concurrent race safety.
-        await AssertRejectedByPathOperations(Path.Combine(_storageDirectory, "sentinel.bin"));
-        await AssertSaveRejected(Guid.NewGuid(), Guid.NewGuid());
+        var movedRoot = Path.Combine(_testDirectory, "moved-root");
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Throws<IOException>(() => Directory.Move(_storageDirectory, movedRoot));
+        }
+        else
+        {
+            Directory.Move(_storageDirectory, movedRoot);
+            Directory.CreateSymbolicLink(_storageDirectory, outsideDirectory);
+        }
+        await using var stored = await _provider.GetCiphertextAsync(originalFile);
+        using var copy = new MemoryStream();
+        await stored.CopyToAsync(copy);
 
+        Assert.Equal(bytes, copy.ToArray());
         Assert.Equal(bytes, await File.ReadAllBytesAsync(outsideFile));
         Assert.Single(Directory.GetFileSystemEntries(outsideDirectory));
     }
@@ -380,8 +493,28 @@ public class DiskObjectStorageContainmentTests : IDisposable
         }
     }
 
+    private static void CreateRequiredHardLink(string linkPath, string targetPath)
+    {
+        var created = OperatingSystem.IsWindows()
+            ? CreateHardLinkWindows(linkPath, targetPath, IntPtr.Zero)
+            : CreateHardLinkUnix(targetPath, linkPath) == 0;
+        if (!created)
+        {
+            throw new IOException($"Required hard-link fixture could not be created (native error {Marshal.GetLastPInvokeError()}).");
+        }
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLinkWindows(string newFileName, string existingFileName, IntPtr securityAttributes);
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int CreateHardLinkUnix(string existingFileName, string newFileName);
+
     public void Dispose()
     {
+        _provider.Dispose();
+
         // Unlink fixtures before recursively deleting only this test's unique owned directory.
         foreach (var linkPath in _fileLinks)
         {

@@ -1,4 +1,6 @@
+using EdgeRetails.Central.Application.Abstractions;
 using EdgeRetails.Central.Application.Services;
+using EdgeRetails.Central.Api.Security;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
 
@@ -9,15 +11,23 @@ namespace EdgeRetails.Central.Api.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly Wave4DashboardAndPortalService _dashboardService;
+    private readonly IAdminAuthService _authService;
 
-    public DashboardController(Wave4DashboardAndPortalService dashboardService)
+    public DashboardController(Wave4DashboardAndPortalService dashboardService, IAdminAuthService authService)
     {
         _dashboardService = dashboardService ?? throw new ArgumentNullException(nameof(dashboardService));
+        _authService = authService ?? throw new ArgumentNullException(nameof(authService));
     }
 
+    [HttpGet]
     [HttpGet("metrics")]
     public async Task<IActionResult> GetMetrics(CancellationToken cancellationToken)
     {
+        if (Request.Query.Count != 0)
+        {
+            return BadRequest(new { code = "INVALID_QUERY", safeMessageKey = "query.invalid" });
+        }
+
         var metrics = await _dashboardService.GetDashboardMetricsAsync(cancellationToken);
         return Ok(metrics);
     }
@@ -57,7 +67,11 @@ public class DashboardController : ControllerBase
             return BadRequest(new { code = "INVALID_QUERY", safeMessageKey = "query.invalid" });
         }
 
-        var page = await _dashboardService.GetDashboardQueuePageAsync(queueType, filter, pageSize, offset, asOfVersion, cancellationToken);
+        var capabilities = await GetValidatedCapabilitiesAsync(cancellationToken);
+        var includeApprovalDetails = capabilities.Contains("sensitive.approve", StringComparer.Ordinal);
+        var includePaymentReviewDetails = capabilities.Contains("payment.review", StringComparer.Ordinal);
+        var page = await _dashboardService.GetDashboardQueuePageAsync(
+            queueType, filter, pageSize, offset, asOfVersion, cancellationToken, includeApprovalDetails, includePaymentReviewDetails);
         if (asOfVersion is not null && asOfVersion != page.ProjectionVersion)
         {
             return Conflict(new { code = "PROJECTION_VERSION_CHANGED", safeMessageKey = "query.projection_changed" });
@@ -70,5 +84,19 @@ public class DashboardController : ControllerBase
             authorizedCount = page.AuthorizedCount,
             projectionRevision = page.ProjectionVersion
         });
+    }
+
+    private async Task<IReadOnlySet<string>> GetValidatedCapabilitiesAsync(CancellationToken cancellationToken)
+    {
+        var credentials = CentralSessionCredentials.Parse(Request);
+        if (!credentials.IsValid)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var session = await _authService.ValidateSessionAsync(credentials.SessionId, cancellationToken);
+        return session is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(session.Capabilities, StringComparer.Ordinal);
     }
 }

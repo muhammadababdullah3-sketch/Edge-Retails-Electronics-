@@ -25,7 +25,7 @@ public class LifecycleController : ControllerBase
         [FromBody] RequestSensitiveApprovalRequest request,
         CancellationToken cancellationToken)
     {
-        var adminId = await GetAdminUserIdAsync(cancellationToken);
+        var (adminId, sessionId) = await GetAdminIdentityAsync(cancellationToken);
         if (adminId == Guid.Empty)
         {
             return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
@@ -37,9 +37,10 @@ public class LifecycleController : ControllerBase
             request.TargetPayloadSha256,
             request.ActionScope,
             adminId,
-            request.StepUpSessionId,
-            TimeSpan.FromMinutes(request.ValidityMinutes > 0 ? request.ValidityMinutes : 120),
-            cancellationToken);
+            sessionId,
+            request.StepUpGrantId,
+            cancellationToken,
+            request.Reason);
 
         return Ok(approval);
     }
@@ -157,17 +158,23 @@ public class LifecycleController : ControllerBase
 
     private async Task<Guid> GetAdminUserIdAsync(CancellationToken cancellationToken)
     {
+        var (adminId, _) = await GetAdminIdentityAsync(cancellationToken);
+        return adminId;
+    }
+
+    private async Task<(Guid AdminUserId, Guid SessionId)> GetAdminIdentityAsync(CancellationToken cancellationToken)
+    {
         var sessionId = ExtractSessionId();
         if (sessionId != Guid.Empty)
         {
             var session = await _authService.ValidateSessionAsync(sessionId, cancellationToken);
             if (session != null)
             {
-                return session.AdminUserId;
+                return (session.AdminUserId, sessionId);
             }
         }
 
-        return Guid.Empty;
+        return (Guid.Empty, Guid.Empty);
     }
 
     private Guid ExtractSessionId()
@@ -183,6 +190,8 @@ public class RequestSensitiveApprovalRequest
     public Guid TargetEntityId { get; set; }
     public string TargetPayloadSha256 { get; set; } = string.Empty;
     public string ActionScope { get; set; } = string.Empty;
-    public Guid StepUpSessionId { get; set; }
-    public int ValidityMinutes { get; set; } = 120;
+    public Guid StepUpGrantId { get; set; }
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.StringLength(500, MinimumLength = 1)]
+    public string Reason { get; set; } = string.Empty;
 }

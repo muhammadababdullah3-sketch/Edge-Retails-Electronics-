@@ -8,16 +8,17 @@ namespace EdgeRetails.Central.UnitTests.Storage;
 public sealed class StorageRecoveryTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"central-storage-recovery-{Guid.NewGuid():N}");
+    private readonly List<DiskObjectStorageProvider> _providers = new();
 
     [Fact]
     public async Task ImmutablePublication_IdenticalRetrySucceeds_ChangedBytesCannotOverwrite()
     {
-        var provider = new DiskObjectStorageProvider(_root);
+        var provider = CreateProvider();
         var shop = Guid.NewGuid();
         var target = Guid.NewGuid();
         var bytes = Encoding.UTF8.GetBytes("original ciphertext");
         var path = await provider.SaveCiphertextAsync(shop, target, new MemoryStream(bytes));
-        var restarted = new DiskObjectStorageProvider(_root);
+        var restarted = CreateProvider();
         Assert.Equal(path, await restarted.SaveCiphertextAsync(shop, target, new MemoryStream(bytes)));
         var denied = await Assert.ThrowsAsync<CentralDomainException>(() => restarted.SaveCiphertextAsync(shop, target, new MemoryStream(Encoding.UTF8.GetBytes("different ciphertext"))));
         Assert.Equal("STORAGE_OBJECT_CONFLICT", denied.Code);
@@ -28,7 +29,7 @@ public sealed class StorageRecoveryTests : IDisposable
     [Fact]
     public async Task InterruptedPublication_DoesNotExposePartialPermanentBytes()
     {
-        var provider = new DiskObjectStorageProvider(_root);
+        var provider = CreateProvider();
         var shop = Guid.NewGuid();
         var target = Guid.NewGuid();
         var failure = await Assert.ThrowsAsync<CentralDomainException>(() => provider.SaveCiphertextAsync(shop, target, new InterruptedSource()));
@@ -42,9 +43,9 @@ public sealed class StorageRecoveryTests : IDisposable
     {
         var shop = Guid.NewGuid();
         var upload = Guid.NewGuid();
-        var first = new DiskObjectStorageProvider(_root);
+        var first = CreateProvider();
         await first.AppendUploadChunkAsync(shop, upload, 0, 0, new byte[] { 1, 2, 3, 99, 99 });
-        var restarted = new DiskObjectStorageProvider(_root);
+        var restarted = CreateProvider();
         await restarted.AppendUploadChunkAsync(shop, upload, 3, 3, new byte[] { 4, 5 });
         await using var stream = await restarted.OpenUploadContentAsync(shop, upload);
         using var bytes = new MemoryStream();
@@ -55,7 +56,7 @@ public sealed class StorageRecoveryTests : IDisposable
     [Fact]
     public async Task PublicationCleanup_RemovesOnlyStaleOwnedNamesAndDefersActiveWriter()
     {
-        var provider = new DiskObjectStorageProvider(_root);
+        var provider = CreateProvider();
         var directory = Path.Combine(_root, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string Name() => Path.Combine(directory, $"{Guid.NewGuid():N}.{Guid.NewGuid():N}.pending");
@@ -86,7 +87,7 @@ public sealed class StorageRecoveryTests : IDisposable
     [Fact]
     public async Task BoundedCleanup_AdvancesPastLockedFirstFileAndEventuallyRevisitsIt()
     {
-        var provider = new DiskObjectStorageProvider(_root);
+        var provider = CreateProvider();
         var directory = Path.Combine(_root, new Guid("00000000-0000-0000-0000-000000000001").ToString("N"));
         Directory.CreateDirectory(directory);
         var first = Path.Combine(directory, "00000000000000000000000000000001.00000000000000000000000000000001.pending");
@@ -115,8 +116,20 @@ public sealed class StorageRecoveryTests : IDisposable
         }
     }
 
+    private DiskObjectStorageProvider CreateProvider()
+    {
+        var provider = new DiskObjectStorageProvider(_root);
+        _providers.Add(provider);
+        return provider;
+    }
+
     public void Dispose()
     {
+        foreach (var provider in _providers)
+        {
+            provider.Dispose();
+        }
+
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);

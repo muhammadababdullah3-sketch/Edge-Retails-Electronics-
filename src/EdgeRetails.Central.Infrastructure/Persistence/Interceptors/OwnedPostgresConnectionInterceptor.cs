@@ -42,11 +42,37 @@ public sealed class OwnedPostgresConnectionInterceptor : DbConnectionInterceptor
         if (isRuntime)
         {
             using var roles = connection.CreateCommand();
-            roles.CommandText = "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='central'), EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='central' AND pg_get_userbyid(c.relowner)=current_user), has_table_privilege(current_user, 'central.audit_records','UPDATE,DELETE,TRUNCATE')";
+            roles.CommandText = """
+                SELECT
+                    EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='central'),
+                    EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='central' AND pg_get_userbyid(c.relowner)=current_user),
+                    has_table_privilege(current_user, 'central.audit_records','UPDATE,DELETE,TRUNCATE'),
+                    EXISTS(
+                        SELECT 1
+                        FROM pg_roles own_role
+                        WHERE own_role.rolname=current_user
+                          AND (own_role.rolsuper OR own_role.rolcreaterole OR own_role.rolcreatedb OR own_role.rolreplication OR own_role.rolbypassrls)
+                    ) OR EXISTS(
+                        WITH RECURSIVE role_closure(roleid) AS (
+                            SELECT oid FROM pg_roles WHERE rolname=current_user
+                            UNION
+                            SELECT membership.roleid
+                            FROM pg_auth_members membership
+                            JOIN role_closure member_role ON membership.member=member_role.roleid
+                        )
+                        SELECT 1
+                        FROM role_closure inherited
+                        WHERE inherited.roleid <> (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                    )
+                """;
             using var rr = roles.ExecuteReader();
             if (!rr.Read() || !rr.GetBoolean(0) || rr.GetBoolean(1) || rr.GetBoolean(2))
             {
                 throw new DatabaseTargetGuardException("RUNTIME_ROLE_NOT_ISOLATED", "Runtime role must not own central tables or mutate audit evidence.");
+            }
+            if (rr.GetBoolean(3))
+            {
+                throw new DatabaseTargetGuardException("RUNTIME_ROLE_PRIVILEGE_ESCALATION", "Runtime role must have no elevated attributes or inherited role memberships.");
             }
         }
 

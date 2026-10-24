@@ -56,9 +56,27 @@ public sealed class CanonicalPaymentReviewCommandsController(
             $"admin:{session.AdminUserId:D}", order.ShopId, meta!.ToLedgerMeta(), payload,
             async _ =>
             {
+                // The ledger acquires the target-resource lock before it invokes this
+                // callback. Refresh rows that were read to determine tenant scope
+                // before that lock, otherwise a competing review can act on a stale
+                // tracked copy after the prior review commits.
+                if (db is not DbContext efContext)
+                {
+                    throw new InvalidOperationException("Canonical payment review requires an EF Core context for locked-row refresh.");
+                }
+                await efContext.Entry(evidence).ReloadAsync(cancellationToken);
+                await efContext.Entry(order).ReloadAsync(cancellationToken);
+                if (evidence.OrderId != order.Id || evidence.ShopId != order.ShopId)
+                {
+                    throw new EdgeRetails.Central.Domain.Common.CentralDomainException("EVIDENCE_ORDER_MISMATCH", "review.evidence_order_mismatch", "The payment proof does not belong to the specified order and shop.");
+                }
                 if (meta.ExpectedVersion != evidence.RowVersion)
                 {
                     throw new EdgeRetails.Central.Domain.Common.CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The payment proof changed before review.");
+                }
+                if (evidence.ReviewStatus != PaymentEvidence.ReviewPending)
+                {
+                    throw new EdgeRetails.Central.Domain.Common.CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The payment proof has already been reviewed.");
                 }
 
                 var now = DateTimeOffset.UtcNow;

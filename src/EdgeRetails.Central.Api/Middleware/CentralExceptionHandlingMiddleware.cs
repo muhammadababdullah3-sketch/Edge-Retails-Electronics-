@@ -26,20 +26,22 @@ public class CentralExceptionHandlingMiddleware
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogError(ex, "Request failed after the response started.");
-                throw;
+                _logger.LogError("Central domain request failed after the response started.");
+                context.Abort();
+                return;
             }
-            _logger.LogWarning(ex, "Central domain exception: {Code} - {Message}", ex.Code, ex.Message);
+            _logger.LogWarning("Central domain request failed with code {Code}.", ex.Code);
             await HandleDomainExceptionAsync(context, ex);
         }
         catch (Exception ex)
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogError(ex, "Unhandled server exception occurred after the response started.");
-                throw;
+                _logger.LogError("Unhandled server exception after the response started ({FailureType}).", ex.GetType().Name);
+                context.Abort();
+                return;
             }
-            _logger.LogError(ex, "Unhandled server exception occurred.");
+            _logger.LogError("Unhandled server exception occurred ({FailureType}).", ex.GetType().Name);
             await HandleGenericExceptionAsync(context, ex);
         }
     }
@@ -50,8 +52,9 @@ public class CentralExceptionHandlingMiddleware
         {
             "INVALID_CREDENTIALS" or "INVALID_MFA_PROOF" or "INVALID_STEPUP_PROOF" => HttpStatusCode.Unauthorized,
             "SESSION_INVALID" or "INVALID_CHALLENGE" or "USER_INACTIVE" or "CALLER_UNAUTHORIZED" or "INTERNAL_AUTH_REQUIRED" => HttpStatusCode.Unauthorized,
-            "SECURITY_POLICY_REQUIRED" or "INDEPENDENT_APPROVAL_UNAVAILABLE" or "DELEGATION_FORBIDDEN" or "FORBIDDEN" or "UNAUTHORIZED_CAPABILITY" or "SELF_ESCALATION_PROHIBITED" or "APPROVAL_REQUIRED" or "INVALID_STEPUP_GRANT" or "CROSS_ORIGIN_PROHIBITED" => HttpStatusCode.Forbidden,
-            "KEY_NOT_FOUND" or "NOT_FOUND" or "SUPPORT_ATTACHMENT_NOT_FOUND" or "OBJECT_NOT_FOUND" or "DOWNLOAD_GRANT_NOT_FOUND" => HttpStatusCode.NotFound,
+            "SECURITY_POLICY_REQUIRED" or "INDEPENDENT_APPROVAL_UNAVAILABLE" or "DELEGATION_FORBIDDEN" or "FORBIDDEN" or "UNAUTHORIZED_CAPABILITY" or "SELF_ESCALATION_PROHIBITED" or "APPROVAL_REQUIRED" or "INVALID_STEPUP_GRANT" or "STEP_UP_REQUIRED" or "CROSS_ORIGIN_PROHIBITED" => HttpStatusCode.Forbidden,
+            "APPROVAL_POLICY_NOT_CONFIGURED" => HttpStatusCode.ServiceUnavailable,
+            "KEY_NOT_FOUND" or "NOT_FOUND" or "SUPPORT_ATTACHMENT_NOT_FOUND" or "OBJECT_NOT_FOUND" or "EVIDENCE_NOT_FOUND" or "DOWNLOAD_GRANT_NOT_FOUND" => HttpStatusCode.NotFound,
             "OPERATION_TYPE_CONFLICT" or "OPERATION_ID_CONFLICT" or "CONCURRENCY_CONFLICT" or "SIGNING_REQUEST_CONFLICT" or "UPLOAD_CHUNK_CONFLICT" or "UPLOAD_OFFSET_CONFLICT" or "STORAGE_OBJECT_CONFLICT" => HttpStatusCode.Conflict,
             _ => HttpStatusCode.BadRequest
         };

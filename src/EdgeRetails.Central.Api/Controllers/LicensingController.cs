@@ -35,15 +35,41 @@ public class LicensingController : ControllerBase
 
     [HttpPost("reconcile")]
     public async Task<IActionResult> Reconcile(
-        [FromBody] ReconcileCommandDto command,
+        [FromBody] CanonicalDirectoryCommand envelope,
         CancellationToken cancellationToken)
     {
+        if (envelope?.Meta is null || envelope.Payload.ValueKind != System.Text.Json.JsonValueKind.Object ||
+            envelope.Meta.OperationType != "installation.reconcile" || envelope.Meta.ClientOperationId == Guid.Empty ||
+            envelope.Meta.FingerprintVersion != 1 || envelope.Meta.ExpectedVersion < 0 ||
+            envelope.Meta.PolicyVersion < 0 || string.IsNullOrWhiteSpace(envelope.Meta.Reason) ||
+            string.IsNullOrWhiteSpace(envelope.Meta.PayloadSha256))
+        {
+            return BadRequest(new { code = "INVALID_RECONCILE_REQUEST", safeMessageKey = "reconcile.request_invalid" });
+        }
+        ReconcileCommandDto? command;
+        try
+        {
+            command = System.Text.Json.JsonSerializer.Deserialize<ReconcileCommandDto>(envelope.Payload.GetRawText(),
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return BadRequest(new { code = "INVALID_RECONCILE_REQUEST", safeMessageKey = "reconcile.request_invalid" });
+        }
+        var validationResults = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        if (command is null || !System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+                command, new System.ComponentModel.DataAnnotations.ValidationContext(command), validationResults, validateAllProperties: true) ||
+            command.InstallationId == Guid.Empty || command.CertificateId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(command.HardwareFingerprintHash) || string.IsNullOrWhiteSpace(command.ApplicationVersion))
+        {
+            return BadRequest(new { code = "INVALID_RECONCILE_REQUEST", safeMessageKey = "reconcile.request_invalid" });
+        }
         if (HttpContext.Items["AuthenticatedInstallation"] is not Installation authenticatedInstallation ||
             command.InstallationId != authenticatedInstallation.Id)
         {
             return Unauthorized(new { code = "INSTALLATION_AUTHORITY_NOT_ACTIVE", safeMessageKey = "auth.installation_required" });
         }
-        var entitlement = await _activationService.ReconcileInstallationAsync(command, cancellationToken);
+        var entitlement = await _activationService.ReconcileCanonicalInstallationAsync(envelope.Meta.ToLedgerMeta(), command, cancellationToken);
         return Ok(entitlement);
     }
 

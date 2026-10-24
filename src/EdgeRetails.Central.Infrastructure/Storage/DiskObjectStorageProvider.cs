@@ -4,9 +4,10 @@ using System.Security.Cryptography;
 
 namespace EdgeRetails.Central.Infrastructure.Storage;
 
-public class DiskObjectStorageProvider : IObjectStorageProvider
+public class DiskObjectStorageProvider : IObjectStorageProvider, IDisposable
 {
     private readonly string _baseStorageDirectory;
+    private readonly IAnchoredStorageRoot _storageRoot;
     private readonly object _cleanupGate = new();
     private string? _cleanupCursor;
 
@@ -19,17 +20,15 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             {
                 throw new CentralDomainException("STORAGE_ROOT_NOT_CONFIGURED", "storage.root_unavailable", "An explicit owned Central object-storage root is required.");
             }
-            _baseStorageDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(
+            var configuredRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(
                 baseStorageDirectory,
                 AppContext.BaseDirectory));
-
-            RejectReparsePointComponents(_baseStorageDirectory);
-            Directory.CreateDirectory(_baseStorageDirectory);
-            RejectReparsePointComponents(_baseStorageDirectory);
+            _storageRoot = AnchoredStorageRootFactory.OpenOrCreate(configuredRoot);
+            _baseStorageDirectory = _storageRoot.AbsoluteRoot;
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -41,32 +40,37 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             throw new CentralDomainException("INVALID_STORAGE_TARGET", "storage.invalid_target", "ShopId and ObjectId are required for object storage.");
         }
 
-        var fullTarget = ResolveStoragePath(Path.Combine(shopId.ToString("N"), $"{objectId:N}.bin"));
-        var pendingPath = ResolveStoragePath(Path.Combine(shopId.ToString("N"), $"{objectId:N}.{Guid.NewGuid():N}.pending"));
+        var targetComponents = new[] { shopId.ToString("N"), $"{objectId:N}.bin" };
+        var pendingComponents = new[] { shopId.ToString("N"), $"{objectId:N}.{Guid.NewGuid():N}.pending" };
+        var fullTarget = ToAbsolutePath(targetComponents);
 
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(fullTarget)!);
-            fullTarget = ResolveStoragePath(fullTarget);
-
-            pendingPath = ResolveStoragePath(pendingPath);
-            await using (var fileStream = new FileStream(pendingPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            _storageRoot.EnsureDirectory(new[] { shopId.ToString("N") });
+            // Validate the current immutable identity before consuming the caller's stream.
+            // In particular, a hard-link alias must fail before a pending upload is written.
+            _storageRoot.FileExists(targetComponents);
+            await using (var fileStream = _storageRoot.OpenFile(pendingComponents, FileMode.CreateNew, FileAccess.Write, FileShare.None, FileOptions.Asynchronous))
             {
                 await content.CopyToAsync(fileStream, cancellationToken);
                 await fileStream.FlushAsync(cancellationToken);
-                fileStream.Flush(flushToDisk: true);
+                _storageRoot.FlushToDisk(fileStream);
             }
-            fullTarget = ResolveStoragePath(fullTarget);
             try
             {
-                File.Move(pendingPath, fullTarget, overwrite: false);
+                _storageRoot.MoveFileNoReplace(pendingComponents, targetComponents);
             }
-            catch (IOException) when (File.Exists(fullTarget))
+            catch (IOException)
             {
+                if (!_storageRoot.FileExists(targetComponents))
+                {
+                    throw;
+                }
+
                 // A retry after file publication but before database commit may find this object.
                 // Only identical ciphertext may reuse its immutable identity.
-                await using var existing = new FileStream(ResolveStoragePath(fullTarget), FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                await using var pending = new FileStream(ResolveStoragePath(pendingPath), FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                await using var existing = _storageRoot.OpenFile(targetComponents, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous);
+                await using var pending = _storageRoot.OpenFile(pendingComponents, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous);
                 var existingDigest = await SHA256.HashDataAsync(existing, cancellationToken);
                 var pendingDigest = await SHA256.HashDataAsync(pending, cancellationToken);
                 if (existing.Length != pending.Length ||
@@ -79,13 +83,13 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
         finally
         {
             try
             {
-                File.Delete(ResolveStoragePath(pendingPath));
+                _storageRoot.DeleteFile(pendingComponents);
             }
             catch (Exception exception) when (IsPathFailure(exception))
             {
@@ -101,11 +105,11 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             throw new CentralDomainException("STORAGE_PATH_REQUIRED", "storage.path_required", "Storage path cannot be empty.");
         }
 
-        var fullPath = ResolveStoragePath(storagePath);
+        var components = ResolveStorageComponents(storagePath);
 
         try
         {
-            Stream fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            Stream fileStream = _storageRoot.OpenFile(components, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous);
             return Task.FromResult(fileStream);
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
@@ -114,7 +118,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -125,11 +129,15 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             return Task.CompletedTask;
         }
 
-        var fullPath = ResolveStoragePath(storagePath);
+        var components = ResolveStorageComponents(storagePath);
 
         try
         {
-            File.Delete(fullPath);
+            _storageRoot.DeleteFile(components);
+        }
+        catch (FileNotFoundException)
+        {
+            // Deleting an already absent object remains idempotent.
         }
         catch (DirectoryNotFoundException)
         {
@@ -137,7 +145,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
 
         return Task.CompletedTask;
@@ -150,8 +158,15 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             return Task.FromResult(false);
         }
 
-        var fullPath = ResolveStoragePath(storagePath);
-        return Task.FromResult(File.Exists(fullPath));
+        var components = ResolveStorageComponents(storagePath);
+        try
+        {
+            return Task.FromResult(_storageRoot.FileExists(components));
+        }
+        catch (Exception exception) when (IsPathFailure(exception))
+        {
+            throw MapStorageFailure(exception);
+        }
     }
 
     public async Task<bool> AppendUploadChunkAsync(
@@ -168,12 +183,11 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             throw new CentralDomainException("INVALID_UPLOAD_CHUNK", "upload.chunk_invalid", "Upload chunk identity, offset, and content are required.");
         }
 
-        var fullPath = ResolveStoragePath(Path.Combine(".uploads", shopId.ToString("N"), $"{uploadId:N}.part"));
+        var components = new[] { ".uploads", shopId.ToString("N"), $"{uploadId:N}.part" };
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-            fullPath = ResolveStoragePath(fullPath);
-            await using var stream = new FileStream(fullPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 81920, useAsync: true);
+            _storageRoot.EnsureDirectory(components[..^1]);
+            await using var stream = _storageRoot.OpenFile(components, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, FileOptions.Asynchronous);
             if (offset < acceptedOffset)
             {
                 if (offset > acceptedOffset - content.LongLength || stream.Length < acceptedOffset)
@@ -213,7 +227,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             stream.Position = acceptedOffset;
             await stream.WriteAsync(content, cancellationToken);
             await stream.FlushAsync(cancellationToken);
-            stream.Flush(flushToDisk: true);
+            _storageRoot.FlushToDisk(stream);
             return false;
         }
         catch (CentralDomainException)
@@ -222,7 +236,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -232,10 +246,10 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         {
             throw new CentralDomainException("INVALID_UPLOAD_TARGET", "upload.target_invalid", "Shop and upload identities are required.");
         }
-        var path = ResolveStoragePath(Path.Combine(".uploads", shopId.ToString("N"), $"{uploadId:N}.part"));
+        var components = new[] { ".uploads", shopId.ToString("N"), $"{uploadId:N}.part" };
         try
         {
-            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            Stream stream = _storageRoot.OpenFile(components, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous);
             return Task.FromResult(stream);
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
@@ -244,7 +258,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -254,10 +268,10 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         {
             throw new CentralDomainException("INVALID_UPLOAD_TARGET", "upload.target_invalid", "Shop, upload, and accepted offset are required.");
         }
-        var path = ResolveStoragePath(Path.Combine(".uploads", shopId.ToString("N"), $"{uploadId:N}.part"));
+        var components = new[] { ".uploads", shopId.ToString("N"), $"{uploadId:N}.part" };
         try
         {
-            if (!File.Exists(path))
+            if (!_storageRoot.FileExists(components))
             {
                 if (acceptedOffset == 0)
                 {
@@ -265,7 +279,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
                 }
                 throw new CentralDomainException("UPLOAD_STORAGE_INCONSISTENT", "upload.storage_inconsistent", "Persisted upload bytes are missing.");
             }
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
+            using var stream = _storageRoot.OpenFile(components, FileMode.Open, FileAccess.Write, FileShare.None);
             if (stream.Length < acceptedOffset)
             {
                 throw new CentralDomainException("UPLOAD_STORAGE_INCONSISTENT", "upload.storage_inconsistent", "Persisted upload bytes are shorter than the accepted offset.");
@@ -273,7 +287,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
             if (stream.Length > acceptedOffset)
             {
                 stream.SetLength(acceptedOffset);
-                stream.Flush(flushToDisk: true);
+                _storageRoot.FlushToDisk(stream);
             }
             return Task.CompletedTask;
         }
@@ -283,7 +297,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -293,24 +307,24 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         {
             return Task.CompletedTask;
         }
-        var path = ResolveStoragePath(Path.Combine(".uploads", shopId.ToString("N"), $"{uploadId:N}.part"));
+        var components = new[] { ".uploads", shopId.ToString("N"), $"{uploadId:N}.part" };
         try
         {
-            File.Delete(path);
-            var directory = Path.GetDirectoryName(path)!;
-            if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
-            {
-                Directory.Delete(directory);
-            }
+            _storageRoot.DeleteFile(components);
+            _storageRoot.DeleteDirectoryIfEmpty(components[..^1]);
             return Task.CompletedTask;
         }
         catch (DirectoryNotFoundException)
         {
             return Task.CompletedTask;
         }
+        catch (FileNotFoundException)
+        {
+            return Task.CompletedTask;
+        }
         catch (Exception exception) when (IsPathFailure(exception))
         {
-            throw StorageOperationFailed();
+            throw MapStorageFailure(exception);
         }
     }
 
@@ -330,48 +344,50 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
     {
         var removed = 0;
         var deferred = 0;
-        var candidates = new List<string>();
-        RejectReparsePointComponents(_baseStorageDirectory);
-        foreach (var directory in Directory.EnumerateDirectories(_baseStorageDirectory))
+        var candidates = new List<string[]>();
+        foreach (var directory in _storageRoot.EnumerateEntries(Array.Empty<string>(), "*"))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!Guid.TryParseExact(Path.GetFileName(directory), "N", out _))
+            if (!directory.IsDirectory || !Guid.TryParseExact(directory.Name, "N", out _))
             {
                 continue;
             }
-            var safeDirectory = ResolveStoragePath(directory);
-            foreach (var path in Directory.EnumerateFiles(safeDirectory, "*.pending"))
+            var directoryComponents = new[] { directory.Name };
+            foreach (var entry in _storageRoot.EnumerateEntries(directoryComponents, "*.pending"))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var parts = Path.GetFileName(path).Split('.');
+                if (entry.IsDirectory)
+                {
+                    continue;
+                }
+                var parts = entry.Name.Split('.');
                 if (parts.Length != 3 || !Guid.TryParseExact(parts[0], "N", out _) || !Guid.TryParseExact(parts[1], "N", out _))
                 {
                     continue;
                 }
-                candidates.Add(ResolveStoragePath(path));
+                candidates.Add(new[] { directory.Name, entry.Name });
             }
         }
-        candidates.Sort(StringComparer.Ordinal);
-        var remaining = candidates.Where(path => _cleanupCursor is null || string.CompareOrdinal(path, _cleanupCursor) > 0).ToArray();
+        candidates.Sort((left, right) => string.CompareOrdinal(ToAbsolutePath(left), ToAbsolutePath(right)));
+        var remaining = candidates.Where(path => _cleanupCursor is null || string.CompareOrdinal(ToAbsolutePath(path), _cleanupCursor) > 0).ToArray();
         if (remaining.Length == 0)
         {
             _cleanupCursor = null;
             remaining = candidates.ToArray();
         }
-        foreach (var path in remaining.Take(maximumFiles))
+        foreach (var components in remaining.Take(maximumFiles))
         {
                 cancellationToken.ThrowIfCancellationRequested();
-                _cleanupCursor = path;
-                var safePath = ResolveStoragePath(path);
-                if (File.GetLastWriteTimeUtc(safePath) >= beforeUtc.UtcDateTime)
-                {
-                    continue;
-                }
+                _cleanupCursor = ToAbsolutePath(components);
                 try
                 {
                     // An active writer's exclusive handle prevents this claim on Windows.
-                    using var claimed = new FileStream(ResolveStoragePath(safePath), FileMode.Open, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
-                    removed++;
+                    using var claimed = _storageRoot.OpenFile(components, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                    if (_storageRoot.GetLastWriteTimeUtc(claimed) < beforeUtc.UtcDateTime)
+                    {
+                        _storageRoot.DeleteOpenFile(claimed);
+                        removed++;
+                    }
                 }
                 catch (IOException)
                 {
@@ -381,7 +397,7 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         return (removed, deferred);
     }
 
-    private string ResolveStoragePath(string storagePath)
+    private IReadOnlyList<string> ResolveStorageComponents(string storagePath)
     {
         try
         {
@@ -401,47 +417,18 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
                 throw StoragePathRejected();
             }
 
-            RejectReparsePointComponents(fullPath);
-            return fullPath;
+            var components = relativePath.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+            if (components.Length == 0 || components.Any(component => component is "." or ".."))
+            {
+                throw StoragePathRejected();
+            }
+            return components;
         }
         catch (Exception exception) when (IsPathFailure(exception))
         {
             throw StoragePathRejected();
-        }
-    }
-
-    private static void RejectReparsePointComponents(string fullPath)
-    {
-        // Walk from the volume root so even a storage-root ancestor cannot redirect an operation.
-        // These checks are not atomic with subsequent IO. Storage components and ancestors
-        // must remain under trusted control during an operation. Hostile concurrent swaps
-        // require OS handle-relative, no-follow IO, not lexical/attribute checks alone.
-        var currentPath = Path.GetPathRoot(fullPath)!;
-        var components = fullPath[currentPath.Length..].Split(
-            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-            StringSplitOptions.RemoveEmptyEntries);
-
-        RejectWindowsPathAliases(fullPath);
-
-        for (var index = 0; index <= components.Length; index++)
-        {
-            try
-            {
-                if ((File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw StoragePathRejected();
-                }
-            }
-            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
-            {
-                // No descendant exists yet. Save validates again after creating directories.
-                return;
-            }
-
-            if (index < components.Length)
-            {
-                currentPath = Path.Combine(currentPath, components[index]);
-            }
         }
     }
 
@@ -471,11 +458,19 @@ public class DiskObjectStorageProvider : IObjectStorageProvider
         }
     }
 
+    private string ToAbsolutePath(IReadOnlyList<string> components) =>
+        components.Aggregate(_baseStorageDirectory, (path, component) => Path.Combine(path, component));
+
+    public void Dispose() => _storageRoot.Dispose();
+
     private static bool IsPathFailure(Exception exception) =>
         exception is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException;
 
     private static CentralDomainException StoragePathRejected() =>
         new("PATH_TRAVERSAL_DETECTED", "storage.path_traversal", "Storage path is not an allowed object location.");
+
+    private static CentralDomainException MapStorageFailure(Exception exception) =>
+        exception is UnsafeStorageEntryException ? StoragePathRejected() : StorageOperationFailed();
 
     private static CentralDomainException StorageOperationFailed() =>
         new("STORAGE_IO_FAILED", "storage.io_failed", "Object storage operation could not be completed.");

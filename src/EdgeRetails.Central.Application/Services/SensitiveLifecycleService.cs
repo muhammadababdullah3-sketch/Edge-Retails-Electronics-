@@ -20,6 +20,7 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
     private readonly ICentralAuditService _auditService;
     private readonly ICanonicalJsonSerializer _serializer;
     private readonly IOperationLedgerService _operationLedger;
+    private readonly SensitiveApprovalPolicy _approvalPolicy;
 
     public SensitiveLifecycleService(
         ICentralDbContext dbContext,
@@ -27,7 +28,8 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
         IStepUpService stepUpService,
         ICentralAuditService auditService,
         IOperationLedgerService? operationLedger = null,
-        ICanonicalJsonSerializer? serializer = null)
+        ICanonicalJsonSerializer? serializer = null,
+        SensitiveApprovalPolicy? approvalPolicy = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _signingEngine = signingEngine ?? throw new ArgumentNullException(nameof(signingEngine));
@@ -35,6 +37,7 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
         _auditService = auditService ?? throw new ArgumentNullException(nameof(auditService));
         _serializer = serializer ?? new CanonicalJsonSerializer();
         _operationLedger = operationLedger ?? new OperationLedgerService(dbContext, _serializer);
+        _approvalPolicy = approvalPolicy ?? SensitiveApprovalPolicy.FromEnvironment();
     }
 
     public async Task<SensitiveApprovalRequest> RequestApprovalAsync(
@@ -43,52 +46,125 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
         string targetPayloadSha256,
         string actionScope,
         Guid requesterAdminId,
-        Guid stepUpSessionId,
-        TimeSpan validity,
-        CancellationToken cancellationToken = default)
+        Guid requesterSessionId,
+        Guid stepUpGrantId,
+        CancellationToken cancellationToken = default,
+        string requestReason = "")
     {
-        await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, targetEntityId.ToString(), cancellationToken);
-
-        var now = DateTimeOffset.UtcNow;
-        var expiresAt = now.Add(validity > TimeSpan.Zero ? validity : TimeSpan.FromHours(2));
-
-        var request = SensitiveApprovalRequest.Request(
-            operationType,
-            targetEntityId,
-            targetPayloadSha256,
-            requesterAdminId,
-            actionScope,
-            stepUpSessionId,
-            now,
-            expiresAt);
-
-        _dbContext.SensitiveApprovalRequests.Add(request);
-        _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
-            request.Id, "approval.requested", nameof(SensitiveApprovalRequest), request.Id.ToString("D"),
-            _serializer.SerializeCanonical(new { request.Id, request.TargetEntityId, request.OperationType }), now));
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _auditService.RecordAuditAsync(
-            "SENSITIVE_APPROVAL_REQUESTED",
-            "ADMIN",
-            requesterAdminId,
-            stepUpSessionId,
-            $"Approval requested for {operationType}",
-            null,
-            null,
-            nameof(SensitiveApprovalRequest),
-            request.Id.ToString(),
-            $"{{\"operationType\":\"{operationType}\",\"targetId\":\"{targetEntityId}\"}}",
-            true,
-            targetPayloadSha256,
-            cancellationToken);
-
-        if (securityTransaction is not null)
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(actionScope);
+        requestReason = requestReason?.Trim() ?? string.Empty;
+        if (requestReason.Length > 500)
         {
-            await securityTransaction.CommitAsync(cancellationToken);
+            throw new CentralDomainException("INVALID_APPROVAL_REASON", "approval.invalid_reason", "Approval request reason must be 500 characters or fewer.");
+        }
+        if (targetEntityId == Guid.Empty || requesterAdminId == Guid.Empty || requesterSessionId == Guid.Empty ||
+            stepUpGrantId == Guid.Empty || string.IsNullOrWhiteSpace(targetPayloadSha256) || targetPayloadSha256.Length != 64)
+        {
+            throw new CentralDomainException("INVALID_APPROVAL_REQUEST", "approval.invalid_request", "Approval request target, payload digest, actor, session and step-up grant are required.");
         }
 
-        return request;
+        var validity = _approvalPolicy.RequestLifetime;
+        if (validity is null || validity <= TimeSpan.Zero)
+        {
+            throw new CentralDomainException(
+                "APPROVAL_POLICY_NOT_CONFIGURED",
+                "approval.policy_not_configured",
+                "Sensitive approval request lifetime is not configured.");
+        }
+
+        // The consumed one-use step-up grant is also the stable retry identity for
+        // this request. If the response is lost after commit, an identical retry
+        // returns the same persisted approval instead of failing because the grant
+        // was already consumed or creating a duplicate approval.
+        var payload = new
+        {
+            operationType,
+            targetEntityId,
+            targetPayloadSha256 = targetPayloadSha256.ToLowerInvariant(),
+            actionScope,
+            requesterAdminId,
+            requesterSessionId,
+            stepUpGrantId,
+            requestReason
+        };
+        var (_, payloadHash) = _serializer.SerializeAndHash(payload);
+        var meta = new CommandMetaDto
+        {
+            ClientOperationId = stepUpGrantId,
+            OperationType = "sensitive.approval.request",
+            FingerprintVersion = 1,
+            PayloadSha256 = payloadHash,
+            ExpectedVersion = 0,
+            PolicyVersion = 0,
+            Reason = string.IsNullOrWhiteSpace(requestReason) ? "Request independent sensitive approval" : requestReason
+        };
+        var targetResource = $"sensitive-approval-requests/step-up/{stepUpGrantId:D}";
+        var priorOperationExists = await _dbContext.CentralOperationRecords.AsNoTracking()
+            .AnyAsync(r => r.ClientOperationId == stepUpGrantId, cancellationToken);
+        if (!priorOperationExists)
+        {
+            var sessionBelongsToRequester = await _dbContext.AdminSessions.AsNoTracking()
+                .AnyAsync(s => s.Id == requesterSessionId && s.AdminUserId == requesterAdminId, cancellationToken);
+            var stepUpGrant = await _dbContext.StepUpGrants.AsNoTracking()
+                .SingleOrDefaultAsync(g => g.Id == stepUpGrantId, cancellationToken);
+            if (!sessionBelongsToRequester || stepUpGrant is null ||
+                !stepUpGrant.IsValid(requesterSessionId, actionScope, targetPayloadSha256, DateTimeOffset.UtcNow))
+            {
+                throw new CentralDomainException("STEP_UP_REQUIRED", "auth.step_up_required", "A current-session step-up grant for this action and payload is required.");
+            }
+        }
+        var (_, result) = await _operationLedger.ExecuteAndCaptureOrReplayAsync<object, SensitiveApprovalRequest>(
+            actorScope: $"admin:{requesterAdminId:D}",
+            shopId: null,
+            meta: meta,
+            payload: payload,
+            executeAsync: async _ =>
+            {
+                if (!await _stepUpService.ValidateAndConsumeStepUpGrantAsync(
+                        requesterSessionId, actionScope, targetPayloadSha256, stepUpGrantId, cancellationToken))
+                {
+                    throw new CentralDomainException("STEP_UP_REQUIRED", "auth.step_up_required", "A current-session step-up grant for this action and payload is required.");
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                DateTimeOffset expiresAt;
+                try { expiresAt = now.Add(validity.Value); }
+                catch (ArgumentOutOfRangeException)
+                {
+                    throw new CentralDomainException("APPROVAL_POLICY_NOT_CONFIGURED", "approval.policy_not_configured", "Sensitive approval request lifetime is outside the supported timestamp range.");
+                }
+
+                var request = SensitiveApprovalRequest.Request(
+                    operationType, targetEntityId, targetPayloadSha256, requesterAdminId,
+                    actionScope, requesterSessionId, now, expiresAt, requestReason);
+                _dbContext.SensitiveApprovalRequests.Add(request);
+                _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
+                    request.Id, "approval.requested", nameof(SensitiveApprovalRequest), request.Id.ToString("D"),
+                    _serializer.SerializeCanonical(new { request.Id, request.TargetEntityId, request.OperationType }), now));
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await _auditService.RecordAuditAsync(
+                    "SENSITIVE_APPROVAL_REQUESTED", "ADMIN", requesterAdminId, requesterSessionId,
+                    string.IsNullOrWhiteSpace(requestReason) ? $"Approval requested for {operationType}" : requestReason, stepUpGrantId, null,
+                    nameof(SensitiveApprovalRequest), request.Id.ToString(),
+                    $"{{\"operationType\":\"{operationType}\",\"targetId\":\"{targetEntityId}\"}}",
+                    true, targetPayloadSha256, cancellationToken);
+                return (request, $"sensitive-approval-requests/{request.Id:D}", request.RowVersion, 1);
+            },
+            recoverResultAsync: async record =>
+            {
+                var requestId = record.ResultReference?.Split('/').LastOrDefault();
+                if (!Guid.TryParse(requestId, out var parsedRequestId))
+                {
+                    throw new CentralDomainException("APPROVAL_RESULT_UNAVAILABLE", "approval.result_unavailable", "The persisted approval request result cannot be recovered.");
+                }
+                return await _dbContext.SensitiveApprovalRequests.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.Id == parsedRequestId, cancellationToken)
+                    ?? throw new CentralDomainException("APPROVAL_RESULT_UNAVAILABLE", "approval.result_unavailable", "The persisted approval request result cannot be recovered.");
+            },
+            targetResource: targetResource,
+            cancellationToken: cancellationToken);
+        return result;
     }
 
     public async Task DecideApprovalAsync(
@@ -193,6 +269,111 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
         {
             await securityTransaction.CommitAsync(cancellationToken);
         }
+    }
+
+    public async Task<OutcomeDto> DecideApprovalCanonicalAsync(
+        Guid requestId,
+        CanonicalSensitiveApprovalDecisionPayload payload,
+        CanonicalDirectoryMeta meta,
+        Guid approverAdminId,
+        Guid? adminSessionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(meta);
+        if (requestId == Guid.Empty || approverAdminId == Guid.Empty ||
+            meta.OperationType != "sensitive.approve" || meta.FingerprintVersion != 1 ||
+            meta.ClientOperationId == Guid.Empty || meta.ExpectedVersion < 1 || meta.PolicyVersion < 0 ||
+            string.IsNullOrEmpty(meta.PayloadSha256) ||
+            meta.PayloadSha256.Length != 64 || meta.PayloadSha256.Any(character =>
+                !(character is >= '0' and <= '9' or >= 'a' and <= 'f')) ||
+            string.IsNullOrWhiteSpace(meta.Reason) ||
+            payload.Decision is not ("APPROVE" or "REJECT"))
+        {
+            throw new CentralDomainException("INVALID_APPROVAL_COMMAND", "approval.invalid_command", "A valid canonical sensitive-approval decision is required.");
+        }
+
+        if (meta.SensitiveApprovalId.HasValue && meta.SensitiveApprovalId.Value != requestId)
+        {
+            throw new CentralDomainException("APPROVAL_METADATA_CONFLICT", "approval.metadata_conflict", "The approval metadata does not match the route target.");
+        }
+
+        await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, requestId.ToString(), cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var outcome = await _operationLedger.ExecuteOrReplayAsync(
+            actorScope: $"admin:{approverAdminId:D}",
+            shopId: null,
+            meta: meta.ToLedgerMeta(),
+            payload: payload,
+            executeAsync: async command =>
+            {
+                var request = await _dbContext.SensitiveApprovalRequests.FindAsync(new object[] { requestId }, cancellationToken)
+                    ?? throw new CentralDomainException("APPROVAL_REQUEST_NOT_FOUND", "approval.not_found", "The approval request does not exist.");
+
+                if (request.RowVersion != meta.ExpectedVersion)
+                {
+                    throw new CentralDomainException("CONCURRENCY_CONFLICT", "approval.version_conflict", "The approval request changed; reload it before deciding.");
+                }
+
+                if (command.TargetActionType != request.OperationType || command.TargetId != request.TargetEntityId ||
+                    !string.Equals(command.TargetPayloadSha256, request.TargetPayloadSha256, StringComparison.OrdinalIgnoreCase) ||
+                    command.RequesterAdminId != request.RequesterAdminId || command.ApproverAdminId != approverAdminId ||
+                    Math.Abs(command.ExpiresAtUtc.UtcTicks - request.ExpiresAtUtc.UtcTicks) > TimeSpan.TicksPerMicrosecond)
+                {
+                    throw new CentralDomainException("APPROVAL_PAYLOAD_MISMATCH", "approval.payload_mismatch", "The submitted approval fields do not match the persisted request and authenticated approver.");
+                }
+
+                if (request.RequesterAdminId == approverAdminId)
+                {
+                    throw new CentralDomainException("SELF_APPROVAL_PROHIBITED", "approval.self_approval_prohibited", "The requester cannot approve or reject their own request.");
+                }
+                if (request.ExpiresAtUtc <= now)
+                {
+                    throw new CentralDomainException("APPROVAL_EXPIRED", "approval.expired", "The approval request has expired.");
+                }
+
+                if (command.Decision == "APPROVE")
+                {
+                    request.Approve(approverAdminId, request.TargetPayloadSha256, now);
+                }
+                else
+                {
+                    request.Reject(approverAdminId, now);
+                }
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
+                    meta.ClientOperationId,
+                    "approval.decided",
+                    nameof(SensitiveApprovalRequest),
+                    request.Id.ToString("D"),
+                    _serializer.SerializeCanonical(new { request.Id, decision = command.Decision, approverAdminId, clientOperationId = meta.ClientOperationId }),
+                    now));
+                await _auditService.RecordAuditAsync(
+                    "SENSITIVE_APPROVAL_DECIDED",
+                    "ADMIN",
+                    approverAdminId,
+                    adminSessionId,
+                    meta.Reason,
+                    meta.ClientOperationId,
+                    meta.ClientOperationId,
+                    nameof(SensitiveApprovalRequest),
+                    request.Id.ToString("D"),
+                    _serializer.SerializeCanonical(new { decision = command.Decision, request.TargetEntityId, request.OperationType }),
+                    true,
+                    meta.PayloadSha256,
+                    cancellationToken);
+
+                return (true, $"sensitive-approvals/{request.Id:D}", request.RowVersion, request.RowVersion);
+            },
+            targetResource: $"sensitive-approvals/{requestId:D}",
+            cancellationToken: cancellationToken);
+
+        if (securityTransaction is not null)
+        {
+            await securityTransaction.CommitAsync(cancellationToken);
+        }
+        return outcome;
     }
 
     private async Task ValidateAndConsumeApprovalAsync(
@@ -312,6 +493,16 @@ public class SensitiveLifecycleService : ISensitiveLifecycleService
                 if (effectiveAtUtc > now)
                 {
                     throw new CentralDomainException("EFFECTIVE_TIME_IN_FUTURE", "license.effective_time_in_future", "Future-dated lifecycle commands are not applied before their effective time.");
+                }
+
+                if (!adminSessionId.HasValue || adminSessionId.Value == Guid.Empty ||
+                    !await _stepUpService.ValidateAndConsumeStepUpGrantAsync(
+                        adminSessionId.Value, operationType, meta.PayloadSha256, cancellationToken: cancellationToken))
+                {
+                    throw new CentralDomainException(
+                        "STEP_UP_REQUIRED",
+                        "auth.step_up_required",
+                        "A fresh current-session step-up grant for this exact lifecycle command is required.");
                 }
 
                 var lifecycleCommand = new LicenseLifecycleCommand

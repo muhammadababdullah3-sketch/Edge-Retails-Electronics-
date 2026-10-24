@@ -32,6 +32,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
     private readonly ICanonicalJsonSerializer _serializer = new CanonicalJsonSerializer();
     private readonly ITotpService _totpService = new TotpService();
     private readonly IPasswordHasher _passwordHasher = new PasswordHasher();
+    private readonly Dictionary<Guid, string> _totpSecretsBySession = new();
     private readonly string? _previousBootstrapChallengeTtl;
 
     public W2CommercialAndLicensingApiIntegrationTests(WebApplicationFactory<Program> factory)
@@ -134,7 +135,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
                 "license.issue", "license.renew", "license.extend", "license.policy", "license.pause",
                 "license.resume", "license.suspend", "license.reinstate", "license.revoke",
                 "addon.renew", "activation.issue", "activation.review",
-                "hardware.review", "primary.transfer", "sensitive.approve", "security.manage"
+                "hardware.review", "primary.transfer", "sensitive.approve", "security.manage", "auth.stepup"
             }).Distinct(StringComparer.Ordinal));
             db.AdminRoles.Add(role);
             db.AdminUsers.Add(user);
@@ -172,8 +173,30 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
 
         client.DefaultRequestHeaders.Add("Cookie", sessionCookie);
         client.DefaultRequestHeaders.Add("Origin", "https://localhost");
+        _totpSecretsBySession[sessionId] = totpSecret;
 
         return (sessionId, userId, client);
+    }
+
+    private async Task<Guid> CreateStepUpGrantAsync(Guid sessionId, HttpClient client, string actionScope, string digest)
+    {
+        // Isolate each action-bound grant from the five-per-minute throttle; the throttle's
+        // own boundary is exercised by its dedicated auth/rate-limit tests.
+        RateLimitingMiddleware.Reset();
+        Assert.True(_totpSecretsBySession.TryGetValue(sessionId, out var secret), "The authenticated development fixture must own the session's TOTP secret.");
+        var response = await client.PostAsJsonAsync("/api/admin/v1/auth/step-up", new StepUpRequestDto
+        {
+            SessionId = sessionId,
+            ActionScope = actionScope,
+            TargetPayloadSha256 = digest,
+            Proof = _totpService.GenerateCode(secret!, DateTimeOffset.UtcNow),
+            ChallengeId = Guid.NewGuid()
+        });
+        var responseContent = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode,
+            $"Step-up request returned {(int)response.StatusCode}: {responseContent}");
+        return Guid.Parse((JsonNode.Parse(responseContent)?["stepUpGrantId"]?.GetValue<string>())
+            ?? throw new InvalidOperationException("Step-up response omitted its grant identifier."));
     }
 
     [Fact]
@@ -182,6 +205,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var (_, userId, adminClient) = await CreateAdminClientAsync(new[] { "order.create" });
         Guid customerId;
         Guid shopId;
+        Guid foreignShopId;
         Guid planId;
         Guid snapshotId;
         using (var db = GetDbContext())
@@ -189,17 +213,19 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             var now = DateTimeOffset.UtcNow;
             var customer = Customer.CreateFromContract("Canonical order test customer", null, now);
             var shop = Shop.RegisterFromContract(customer.Id, "Canonical order test shop", null, now);
+            var foreignShop = Shop.RegisterFromContract(customer.Id, "Canonical order foreign shop fixture", null, now);
             var item = PlanCatalogItem.Create($"CAN-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
                 "Canonical order compatibility fixture", PlanCatalogItem.TargetBaseLicense,
                 PlanCatalogItem.TermLifetime, null, 125m, "USD");
             var snapshot = PricingSnapshot.Create(shop.Id, item, 1, now);
             db.Customers.Add(customer);
-            db.Shops.Add(shop);
+            db.Shops.AddRange(shop, foreignShop);
             db.PlanCatalogItems.Add(item);
             db.PricingSnapshots.Add(snapshot);
             await db.SaveChangesAsync();
             customerId = customer.Id;
             shopId = shop.Id;
+            foreignShopId = foreignShop.Id;
             planId = item.Id;
             snapshotId = snapshot.Id;
         }
@@ -271,6 +297,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             requestedPrimaryCapacity = 1,
             termKind = PlanCatalogItem.TermLifetime,
             purchaseTarget = new { kind = PlanCatalogItem.TargetBaseLicense },
+            totalAmount = 0.01m,
             unexpectedClientAuthority = true
         };
         var invalidRequest = new
@@ -283,12 +310,124 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
                 payloadSha256 = _serializer.SerializeAndHash(invalidPayload).Sha256Hex,
                 expectedVersion = 0,
                 policyVersion = 0,
-                reason = "Unknown payload fields are rejected"
+                reason = "Client-supplied order totals and unknown authority fields are rejected"
             },
             payload = invalidPayload
         };
         var invalidResponse = await adminClient.PostAsJsonAsync("/api/admin/v1/orders", invalidRequest);
         Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+
+        var overCapacityPayload = new
+        {
+            shopId,
+            orderType = "NEW_LICENSE",
+            planId,
+            pricingSnapshotId = snapshotId,
+            requestedPrimaryCapacity = 2,
+            termKind = PlanCatalogItem.TermLifetime,
+            purchaseTarget = new { kind = PlanCatalogItem.TargetBaseLicense }
+        };
+        var overCapacityOperationId = Guid.NewGuid();
+        var overCapacityRequest = new
+        {
+            meta = new
+            {
+                clientOperationId = overCapacityOperationId,
+                operationType = "order.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(overCapacityPayload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "Central V1 commercial authority permits one operating Primary"
+            },
+            payload = overCapacityPayload
+        };
+        var overCapacityResponse = await adminClient.PostAsJsonAsync("/api/admin/v1/orders", overCapacityRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, overCapacityResponse.StatusCode);
+
+        var foreignShopOperationId = Guid.NewGuid();
+        var foreignShopPayload = new
+        {
+            shopId = foreignShopId,
+            orderType = "NEW_LICENSE",
+            planId,
+            pricingSnapshotId = snapshotId,
+            requestedPrimaryCapacity = 1,
+            termKind = PlanCatalogItem.TermLifetime,
+            purchaseTarget = new { kind = PlanCatalogItem.TargetBaseLicense }
+        };
+        var foreignShopRequest = new
+        {
+            meta = new
+            {
+                clientOperationId = foreignShopOperationId,
+                operationType = "order.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(foreignShopPayload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "A pricing snapshot for another shop cannot establish purchase authority"
+            },
+            payload = foreignShopPayload
+        };
+        var foreignShopResponse = await adminClient.PostAsJsonAsync("/api/admin/v1/orders", foreignShopRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, foreignShopResponse.StatusCode);
+
+        var alteredTermOperationId = Guid.NewGuid();
+        var alteredTermPayload = new
+        {
+            shopId,
+            orderType = "NEW_LICENSE",
+            planId,
+            pricingSnapshotId = snapshotId,
+            requestedPrimaryCapacity = 1,
+            termKind = PlanCatalogItem.TermFixed,
+            purchaseTarget = new { kind = PlanCatalogItem.TargetBaseLicense }
+        };
+        var alteredTermRequest = new
+        {
+            meta = new
+            {
+                clientOperationId = alteredTermOperationId,
+                operationType = "order.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(alteredTermPayload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "Client term cannot override the server pricing snapshot"
+            },
+            payload = alteredTermPayload
+        };
+        var alteredTermResponse = await adminClient.PostAsJsonAsync("/api/admin/v1/orders", alteredTermRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, alteredTermResponse.StatusCode);
+
+        var alteredTargetOperationId = Guid.NewGuid();
+        var alteredTargetPayload = new
+        {
+            shopId,
+            orderType = "NEW_LICENSE",
+            planId,
+            pricingSnapshotId = snapshotId,
+            requestedPrimaryCapacity = 1,
+            termKind = PlanCatalogItem.TermLifetime,
+            purchaseTarget = new { kind = PlanCatalogItem.TargetSupport }
+        };
+        var alteredTargetRequest = new
+        {
+            meta = new
+            {
+                clientOperationId = alteredTargetOperationId,
+                operationType = "order.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(alteredTargetPayload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "Client purchase target cannot override the server pricing snapshot"
+            },
+            payload = alteredTargetPayload
+        };
+        var alteredTargetResponse = await adminClient.PostAsJsonAsync("/api/admin/v1/orders", alteredTargetRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, alteredTargetResponse.StatusCode);
 
         using (var db = GetDbContext())
         {
@@ -308,6 +447,12 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             Assert.Equal(payloadSha256, ledgerRecord.PayloadSha256);
             Assert.Contains("pricingSnapshotId", ledgerRecord.CanonicalPayload, StringComparison.Ordinal);
             Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == staleOperationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == foreignShopOperationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == alteredTermOperationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == alteredTargetOperationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == overCapacityOperationId));
+            Assert.False(await db.Orders.AnyAsync(x => x.ShopId == foreignShopId));
+            Assert.Equal(1, await db.Orders.CountAsync(x => x.SnapshotId == snapshotId));
             Assert.True(await db.CentralOutboxMessages.AnyAsync(x => x.Id == operationId));
             Assert.True(await db.CentralAuditRecords.AnyAsync(x => x.Action == "COMMERCIAL_ORDER_CREATED" && x.ResourceId == orderId.ToString("D")));
         }
@@ -730,6 +875,141 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
     }
 
     [Fact]
+    public async Task CONE_T08_ConcurrentCompetingPaymentReviews_CommitOneOutcomeAndOneEffect()
+    {
+        var (_, _, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
+
+        var itemResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/catalog-items", new CreateCatalogItemRequest
+        {
+            Code = $"RACE-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            Name = "Synthetic review race fixture",
+            PurchaseTarget = PlanCatalogItem.TargetBaseLicense,
+            TermKind = PlanCatalogItem.TermFixed,
+            BillingPeriodId = "ANNUAL",
+            UnitPrice = 125m,
+            Currency = "USD"
+        });
+        Assert.Equal(HttpStatusCode.OK, itemResponse.StatusCode);
+        var itemId = Guid.Parse((await ReadJsonAsync(itemResponse))["id"]!.GetValue<string>());
+
+        var customerResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/customers", new CreateCustomerCommand
+        {
+            LegalName = "Synthetic payment race customer",
+            ContactEmail = $"review-race-{Guid.NewGuid():N}@example.invalid",
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, customerResponse.StatusCode);
+        var customerId = Guid.Parse((await ReadJsonAsync(customerResponse))["id"]!.GetValue<string>());
+
+        var shopResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/shops", new RegisterShopCommand
+        {
+            CustomerId = customerId,
+            ShopCode = $"RACE-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            ShopName = "Synthetic payment race shop",
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, shopResponse.StatusCode);
+        var shopId = Guid.Parse((await ReadJsonAsync(shopResponse))["id"]!.GetValue<string>());
+
+        var snapshotResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/pricing-snapshots", new CreatePriceSnapshotCommand
+        {
+            ShopId = shopId,
+            CatalogItemId = itemId,
+            AuthorityVersion = 1,
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, snapshotResponse.StatusCode);
+        var snapshotId = Guid.Parse((await ReadJsonAsync(snapshotResponse))["id"]!.GetValue<string>());
+
+        var orderResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/orders", new CreateOrderCommand
+        {
+            CustomerId = customerId,
+            SnapshotId = snapshotId,
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, orderResponse.StatusCode);
+        var orderId = Guid.Parse((await ReadJsonAsync(orderResponse))["id"]!.GetValue<string>());
+
+        var bytes = Encoding.UTF8.GetBytes("synthetic review race evidence");
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var uploadResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/uploads/sessions", new InitUploadSessionCommand
+        {
+            Purpose = UploadSession.PurposePaymentProof,
+            ShopId = shopId,
+            TargetEntityId = orderId,
+            ExpectedBytes = bytes.Length,
+            ExpectedSha256 = digest,
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, uploadResponse.StatusCode);
+        var uploadSessionId = Guid.Parse((await ReadJsonAsync(uploadResponse))["id"]!.GetValue<string>());
+        using (var chunkRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/commercial/v1/uploads/sessions/{uploadSessionId}/chunks")
+        {
+            Content = new ByteArrayContent(bytes)
+        })
+        {
+            var chunkResponse = await adminClient.SendAsync(chunkRequest);
+            Assert.Equal(HttpStatusCode.OK, chunkResponse.StatusCode);
+        }
+
+        var finalizeResponse = await adminClient.PostAsJsonAsync($"/api/commercial/v1/uploads/sessions/{uploadSessionId}/finalize?orderId={orderId}", new FinalizeUploadSessionCommand
+        {
+            ComputedSha256 = digest,
+            MimeType = "application/pdf",
+            CommandMeta = CreateMeta()
+        });
+        Assert.Equal(HttpStatusCode.OK, finalizeResponse.StatusCode);
+        var evidenceId = Guid.Parse((await ReadJsonAsync(finalizeResponse))["id"]!.GetValue<string>());
+
+        var approveOperationId = Guid.NewGuid();
+        var rejectOperationId = Guid.NewGuid();
+        var approvePayload = new { orderId, proofId = evidenceId, decision = "APPROVE", reasonCode = "RACE_APPROVE", internalNote = "Synthetic competing approval fixture" };
+        var rejectPayload = new { orderId, proofId = evidenceId, decision = "REJECT", reasonCode = "RACE_REJECT", internalNote = "Synthetic competing rejection fixture" };
+        object Request(Guid operationId, object payload) => new
+        {
+            meta = new
+            {
+                clientOperationId = operationId,
+                operationType = "payment.review",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(payload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "Competing human payment review integration fixture"
+            },
+            payload
+        };
+
+        var responseTasks = new[]
+        {
+            adminClient.PostAsJsonAsync($"/api/admin/v1/payments/{evidenceId}/review", Request(approveOperationId, approvePayload)),
+            adminClient.PostAsJsonAsync($"/api/admin/v1/payments/{evidenceId}/review", Request(rejectOperationId, rejectPayload))
+        };
+        var responses = await Task.WhenAll(responseTasks);
+        var winnerIndex = Array.FindIndex(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.True(winnerIndex >= 0, "One concurrent review must commit.");
+        var loserIndex = 1 - winnerIndex;
+        var losingResponseBody = await responses[loserIndex].Content.ReadAsStringAsync();
+        Assert.True(responses[loserIndex].StatusCode == HttpStatusCode.Conflict,
+            $"The competing payment review must report a conflict; got {(int)responses[loserIndex].StatusCode}: {losingResponseBody}");
+        var winnerOperationId = winnerIndex == 0 ? approveOperationId : rejectOperationId;
+        var winnerDecision = winnerIndex == 0 ? "APPROVE" : "REJECT";
+        var winnerOutcome = await ReadJsonAsync(responses[winnerIndex]);
+        Assert.Equal("SUCCEEDED", winnerOutcome["state"]!.GetValue<string>());
+
+        using var db = GetDbContext();
+        var evidence = await db.PaymentEvidences.SingleAsync(x => x.Id == evidenceId);
+        var order = await db.Orders.SingleAsync(x => x.Id == orderId);
+        Assert.Equal(winnerDecision == "APPROVE" ? PaymentEvidence.ReviewApproved : PaymentEvidence.ReviewRejected, evidence.ReviewStatus);
+        Assert.Equal(winnerDecision == "APPROVE" ? Order.StatusPaidApproved : Order.StatusRejected, order.Status);
+        Assert.Equal(1, await db.PaymentReviewRecords.CountAsync(x => x.EvidenceId == evidenceId));
+        Assert.Equal(1, await db.CentralOperationRecords.CountAsync(x => x.ClientOperationId == winnerOperationId));
+        Assert.Equal(0, await db.CentralOperationRecords.CountAsync(x => x.ClientOperationId == (winnerIndex == 0 ? rejectOperationId : approveOperationId)));
+        Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.Id == winnerOperationId));
+        Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.CorrelationId == winnerOperationId.ToString()));
+    }
+
+    [Fact]
     public async Task CONE_T09_CommercialLicense_LifetimeBase_CannotBeRenewed()
     {
         var (_, _, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
@@ -795,7 +1075,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             ApprovedOrderId = orderId,
             ValidFromUtc = now,
             ValidUntilUtc = null, // Invariant: Lifetime must have null ValidUntilUtc
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         });
         Assert.Equal(HttpStatusCode.OK, issueRes.StatusCode);
         var licenseJson = await ReadJsonAsync(issueRes);
@@ -813,6 +1093,373 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         Assert.Equal(HttpStatusCode.BadRequest, renewRes.StatusCode);
         var error = await ReadJsonAsync(renewRes);
         Assert.Equal("LIFETIME_CANNOT_RENEW", error["code"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CONE_T09_PaidSupportAddonRenewalAndExpiry_LeavesLifetimeBaseUnchanged()
+    {
+        var (_, _, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
+        var customerId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/customers", new CreateCustomerCommand
+        {
+            LegalName = "Synthetic Support Addon Customer",
+            ContactEmail = $"support_addon_{Guid.NewGuid():N}@test.invalid",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+        var shopId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/shops", new RegisterShopCommand
+        {
+            CustomerId = customerId,
+            ShopCode = $"SA-{Guid.NewGuid():N}"[..10].ToUpperInvariant(),
+            ShopName = "Synthetic Support Addon Shop",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+
+        async Task<Guid> CreatePaidOrderAsync(CreateCatalogItemRequest itemRequest, Guid? scopedCustomerId = null, Guid? scopedShopId = null)
+        {
+            var itemResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/catalog-items", itemRequest);
+            Assert.Equal(HttpStatusCode.OK, itemResponse.StatusCode);
+            var itemId = Guid.Parse((await ReadJsonAsync(itemResponse))["id"]!.GetValue<string>());
+            var snapshotResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/pricing-snapshots", new CreatePriceSnapshotCommand
+            {
+                ShopId = scopedShopId ?? shopId,
+                CatalogItemId = itemId,
+                AuthorityVersion = 1,
+                CommandMeta = CreateMeta()
+            });
+            Assert.Equal(HttpStatusCode.OK, snapshotResponse.StatusCode);
+            var snapshotId = Guid.Parse((await ReadJsonAsync(snapshotResponse))["id"]!.GetValue<string>());
+            var orderResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/orders", new CreateOrderCommand
+            {
+                CustomerId = scopedCustomerId ?? customerId,
+                SnapshotId = snapshotId,
+                CommandMeta = CreateMeta()
+            });
+            Assert.Equal(HttpStatusCode.OK, orderResponse.StatusCode);
+            var orderId = Guid.Parse((await ReadJsonAsync(orderResponse))["id"]!.GetValue<string>());
+            using var db = GetDbContext();
+            var order = await db.Orders.FindAsync(orderId);
+            Assert.NotNull(order);
+            order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow); // Synthetic fixture for the separate manual payment-review step.
+            await db.SaveChangesAsync();
+            return orderId;
+        }
+
+        var foreignCustomerId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/customers", new CreateCustomerCommand
+        {
+            LegalName = "Synthetic Foreign Addon Customer",
+            ContactEmail = $"foreign_addon_{Guid.NewGuid():N}@test.invalid",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+        var foreignShopId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/shops", new RegisterShopCommand
+        {
+            CustomerId = foreignCustomerId,
+            ShopCode = $"SF-{Guid.NewGuid():N}"[..10].ToUpperInvariant(),
+            ShopName = "Synthetic Foreign Addon Shop",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+
+        var baseOrderId = await CreatePaidOrderAsync(new CreateCatalogItemRequest
+        {
+            Code = $"LB-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            Name = "Synthetic Lifetime Base",
+            PurchaseTarget = PlanCatalogItem.TargetBaseLicense,
+            TermKind = PlanCatalogItem.TermLifetime,
+            UnitPrice = 500m,
+            Currency = "USD"
+        });
+        var issuedAt = DateTimeOffset.UtcNow;
+        var licenseResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", new IssueLicenseCommand
+        {
+            ApprovedOrderId = baseOrderId,
+            ValidFromUtc = issuedAt,
+            CommandMeta = CreateMeta("license.issue")
+        });
+        Assert.Equal(HttpStatusCode.OK, licenseResponse.StatusCode);
+        var licenseJson = await ReadJsonAsync(licenseResponse);
+        var licenseId = Guid.Parse(licenseJson["id"]!.GetValue<string>());
+        var initialAuthorityRevision = licenseJson["authorityRevision"]!.GetValue<int>();
+        Assert.Equal(CommercialLicense.StatusActive, licenseJson["status"]?.GetValue<string>());
+        Assert.Null(licenseJson["validUntilUtc"]);
+
+        var addonOrderId = await CreatePaidOrderAsync(new CreateCatalogItemRequest
+        {
+            Code = $"SUP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            Name = "Synthetic Fixed Term Support",
+            PurchaseTarget = PlanCatalogItem.TargetSupport,
+            TermKind = PlanCatalogItem.TermFixed,
+            BillingPeriodId = "ANNUAL",
+            UnitPrice = 100m,
+            Currency = "USD"
+        });
+        var expiredAddonCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = addonOrderId,
+            NewValidUntilUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        var expiredAddonResponse = await adminClient.PostAsJsonAsync(
+            $"/api/commercial/v1/licenses/{licenseId:D}/addons/renew", expiredAddonCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, expiredAddonResponse.StatusCode);
+        Assert.Equal("INVALID_RENEWAL_DATE", (await ReadJsonAsync(expiredAddonResponse))["code"]?.GetValue<string>());
+
+        var foreignAddonOrderId = await CreatePaidOrderAsync(new CreateCatalogItemRequest
+        {
+            Code = $"FSP-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            Name = "Synthetic Foreign Shop Support",
+            PurchaseTarget = PlanCatalogItem.TargetSupport,
+            TermKind = PlanCatalogItem.TermFixed,
+            BillingPeriodId = "ANNUAL",
+            UnitPrice = 100m,
+            Currency = "USD"
+        }, foreignCustomerId, foreignShopId);
+        var expiresAt = DateTimeOffset.UtcNow.AddSeconds(15);
+        var renewalCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = addonOrderId,
+            NewValidUntilUtc = expiresAt,
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        var initialRenewalResponses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
+            adminClient.PostAsJsonAsync($"/api/commercial/v1/licenses/{licenseId:D}/addons/renew", renewalCommand)));
+        foreach (var initialRenewalResponse in initialRenewalResponses)
+        {
+            Assert.Equal(HttpStatusCode.OK, initialRenewalResponse.StatusCode);
+        }
+        var entitlementJson = await ReadJsonAsync(initialRenewalResponses[0]);
+        var entitlementId = Guid.Parse(entitlementJson["id"]!.GetValue<string>());
+        var duplicateInitialJson = await ReadJsonAsync(initialRenewalResponses[1]);
+        Assert.Equal(entitlementId, Guid.Parse(duplicateInitialJson["id"]!.GetValue<string>()));
+        Assert.Equal(CommercialEntitlement.KindSupport, entitlementJson["kind"]?.GetValue<string>());
+        Assert.Equal(CommercialEntitlement.StatusActive, entitlementJson["status"]?.GetValue<string>());
+        var persistedExpiry = entitlementJson["validUntilUtc"]!.GetValue<DateTimeOffset>();
+        Assert.InRange(Math.Abs((persistedExpiry - expiresAt).Ticks), 0L, 10L); // PostgreSQL stores timestamptz at microsecond precision.
+
+        var secondBaseOrderId = await CreatePaidOrderAsync(new CreateCatalogItemRequest
+        {
+            Code = $"LB2-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+            Name = "Synthetic Second Lifetime Base",
+            PurchaseTarget = PlanCatalogItem.TargetBaseLicense,
+            TermKind = PlanCatalogItem.TermLifetime,
+            UnitPrice = 500m,
+            Currency = "USD"
+        });
+        var secondLicenseResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", new IssueLicenseCommand
+        {
+            ApprovedOrderId = secondBaseOrderId,
+            ValidFromUtc = DateTimeOffset.UtcNow,
+            CommandMeta = CreateMeta("license.issue")
+        });
+        Assert.Equal(HttpStatusCode.OK, secondLicenseResponse.StatusCode);
+        var secondLicenseId = Guid.Parse((await ReadJsonAsync(secondLicenseResponse))["id"]!.GetValue<string>());
+
+        Guid mismatchedTargetOrderId;
+        using (var db = GetDbContext())
+        {
+            var sourceOrder = await db.Orders.FindAsync(addonOrderId);
+            var sourceSnapshot = await db.PricingSnapshots.FindAsync(sourceOrder!.SnapshotId);
+            var mismatchedTargetOrder = Order.CreateFromSnapshot(sourceSnapshot!, customerId, DateTimeOffset.UtcNow,
+                "SUPPORT_RENEWAL", 1, secondLicenseId, entitlementId);
+            mismatchedTargetOrder.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow);
+            db.Orders.Add(mismatchedTargetOrder);
+            await db.SaveChangesAsync();
+            mismatchedTargetOrderId = mismatchedTargetOrder.Id;
+        }
+        var mismatchedTargetCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = mismatchedTargetOrderId,
+            NewValidUntilUtc = expiresAt.AddDays(30),
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        mismatchedTargetCommand.CommandMeta.ExpectedVersion = entitlementJson["rowVersion"]!.GetValue<int>();
+        var mismatchedTargetResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/v1/licenses/{licenseId:D}/addons/{entitlementId:D}/renew",
+            mismatchedTargetCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, mismatchedTargetResponse.StatusCode);
+        Assert.Equal("TARGET_MISMATCH", (await ReadJsonAsync(mismatchedTargetResponse))["code"]?.GetValue<string>());
+
+        var consumedOrderReuseCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = addonOrderId,
+            NewValidUntilUtc = expiresAt.AddDays(30),
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        consumedOrderReuseCommand.CommandMeta.ExpectedVersion = entitlementJson["rowVersion"]!.GetValue<int>();
+        var consumedOrderReuseResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/v1/licenses/{licenseId:D}/addons/{entitlementId:D}/renew",
+            consumedOrderReuseCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, consumedOrderReuseResponse.StatusCode);
+        Assert.Equal("ORDER_ALREADY_FULFILLED", (await ReadJsonAsync(consumedOrderReuseResponse))["code"]?.GetValue<string>());
+
+        // The targeted route must bind both the license and entitlement and reject a stale version.
+        var wrongTargetResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/v1/licenses/{licenseId:D}/addons/{Guid.NewGuid():D}/renew",
+            renewalCommand);
+        Assert.Equal(HttpStatusCode.NotFound, wrongTargetResponse.StatusCode);
+
+        var foreignOrderCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = foreignAddonOrderId,
+            NewValidUntilUtc = expiresAt.AddDays(30),
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        foreignOrderCommand.CommandMeta.ExpectedVersion = entitlementJson["rowVersion"]!.GetValue<int>();
+        var foreignOrderResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/v1/licenses/{licenseId:D}/addons/{entitlementId:D}/renew",
+            foreignOrderCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, foreignOrderResponse.StatusCode);
+        Assert.Equal("TARGET_MISMATCH", (await ReadJsonAsync(foreignOrderResponse))["code"]?.GetValue<string>());
+
+        var staleRenewalCommand = new RenewAddonCommand
+        {
+            ApprovedOrderId = addonOrderId,
+            NewValidUntilUtc = expiresAt.AddDays(30),
+            CommandMeta = CreateMeta("addon.renew")
+        };
+        staleRenewalCommand.CommandMeta.ExpectedVersion = entitlementJson["rowVersion"]!.GetValue<int>() - 1;
+        var staleRenewalResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/v1/licenses/{licenseId:D}/addons/{entitlementId:D}/renew",
+            staleRenewalCommand);
+        Assert.Equal(HttpStatusCode.Conflict, staleRenewalResponse.StatusCode);
+
+        var concurrentReplayResponses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
+            adminClient.PostAsJsonAsync(
+                $"/api/admin/v1/licenses/{licenseId:D}/addons/{entitlementId:D}/renew",
+                renewalCommand)));
+        foreach (var replayResponse in concurrentReplayResponses)
+        {
+            Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+            var replayJson = await ReadJsonAsync(replayResponse);
+            Assert.Equal(entitlementId, Guid.Parse(replayJson["id"]!.GetValue<string>()));
+        }
+
+        using (var db = GetDbContext())
+        {
+            var license = await db.CommercialLicenses.FindAsync(licenseId);
+            var entitlement = await db.CommercialEntitlements.FindAsync(entitlementId);
+            Assert.NotNull(license);
+            Assert.NotNull(entitlement);
+            Assert.Equal(CommercialTerm.Lifetime, license.TermKind);
+            Assert.Null(license.ValidUntilUtc);
+            Assert.Equal(CommercialLicense.StatusActive, license.Status);
+            Assert.Equal(initialAuthorityRevision, license.AuthorityRevision);
+            Assert.Equal(entitlementJson["rowVersion"]!.GetValue<int>(), entitlement.RowVersion);
+            Assert.True(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == renewalCommand.CommandMeta.ClientOperationId));
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.Id == renewalCommand.CommandMeta.ClientOperationId));
+            Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.Action == "COMMERCIAL_ADDON_RENEWED" && x.ResourceId == entitlementId.ToString()));
+        }
+
+        var remaining = expiresAt - DateTimeOffset.UtcNow;
+        if (remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(remaining + TimeSpan.FromMilliseconds(100));
+        }
+        using (var db = GetDbContext())
+        {
+            var entitlement = await db.CommercialEntitlements.FindAsync(entitlementId);
+            var license = await db.CommercialLicenses.FindAsync(licenseId);
+            Assert.NotNull(entitlement);
+            Assert.NotNull(license);
+            entitlement.CheckExpiration(DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync();
+            Assert.Equal(CommercialEntitlement.StatusExpired, entitlement.Status);
+            Assert.Equal(CommercialTerm.Lifetime, license.TermKind);
+            Assert.Null(license.ValidUntilUtc);
+            Assert.Equal(CommercialLicense.StatusActive, license.Status);
+            Assert.Equal(initialAuthorityRevision, license.AuthorityRevision);
+        }
+
+        var delayedReplayResponse = await adminClient.PostAsJsonAsync(
+            $"/api/commercial/v1/licenses/{licenseId:D}/addons/renew", renewalCommand);
+        Assert.Equal(HttpStatusCode.OK, delayedReplayResponse.StatusCode);
+        var delayedReplay = await ReadJsonAsync(delayedReplayResponse);
+        Assert.Equal(entitlementId, Guid.Parse(delayedReplay["id"]!.GetValue<string>()));
+        Assert.Equal(CommercialEntitlement.StatusExpired, delayedReplay["status"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CONE_T09_OrdersRemainBoundToSelectedImmutableCatalogPricingRevision()
+    {
+        var (_, _, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
+        var customerId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/customers", new CreateCustomerCommand
+        {
+            LegalName = "Synthetic Catalog Revision Customer",
+            ContactEmail = $"catalog_revision_{Guid.NewGuid():N}@test.invalid",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+        var shopId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/shops", new RegisterShopCommand
+        {
+            CustomerId = customerId,
+            ShopCode = $"CR-{Guid.NewGuid():N}"[..10].ToUpperInvariant(),
+            ShopName = "Synthetic Catalog Revision Shop",
+            CommandMeta = CreateMeta()
+        }))) ["id"]!.GetValue<string>());
+
+        async Task<(Guid CatalogItemId, Guid SnapshotId)> CreateCatalogRevisionAsync(string revision, decimal unitPrice, int authorityVersion)
+        {
+            var itemResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/catalog-items", new CreateCatalogItemRequest
+            {
+                Code = $"CR-{revision}-{Guid.NewGuid():N}"[..12].ToUpperInvariant(),
+                Name = $"Synthetic Lifetime Plan {revision}",
+                PurchaseTarget = PlanCatalogItem.TargetBaseLicense,
+                TermKind = PlanCatalogItem.TermLifetime,
+                UnitPrice = unitPrice,
+                Currency = "USD"
+            });
+            Assert.Equal(HttpStatusCode.OK, itemResponse.StatusCode);
+            var catalogItemId = Guid.Parse((await ReadJsonAsync(itemResponse))["id"]!.GetValue<string>());
+            var snapshotResponse = await adminClient.PostAsJsonAsync("/api/commercial/v1/pricing-snapshots", new CreatePriceSnapshotCommand
+            {
+                ShopId = shopId,
+                CatalogItemId = catalogItemId,
+                AuthorityVersion = authorityVersion,
+                CommandMeta = CreateMeta()
+            });
+            Assert.Equal(HttpStatusCode.OK, snapshotResponse.StatusCode);
+            var snapshotId = Guid.Parse((await ReadJsonAsync(snapshotResponse))["id"]!.GetValue<string>());
+            return (catalogItemId, snapshotId);
+        }
+
+        var revisionOne = await CreateCatalogRevisionAsync("V1", 100m, 1);
+        var revisionTwo = await CreateCatalogRevisionAsync("V2", 275m, 2);
+
+        async Task<Guid> CreateOrderFromSnapshotAsync(Guid snapshotId)
+        {
+            var response = await adminClient.PostAsJsonAsync("/api/commercial/v1/orders", new CreateOrderCommand
+            {
+                CustomerId = customerId,
+                SnapshotId = snapshotId,
+                CommandMeta = CreateMeta()
+            });
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return Guid.Parse((await ReadJsonAsync(response))["id"]!.GetValue<string>());
+        }
+
+        // Deliberately create the V1 order after V2 exists: the server must honor the referenced immutable snapshot.
+        var oldRevisionOrderId = await CreateOrderFromSnapshotAsync(revisionOne.SnapshotId);
+        var newRevisionOrderId = await CreateOrderFromSnapshotAsync(revisionTwo.SnapshotId);
+        using var db = GetDbContext();
+        var snapshotOne = await db.PricingSnapshots.SingleAsync(x => x.Id == revisionOne.SnapshotId);
+        var snapshotTwo = await db.PricingSnapshots.SingleAsync(x => x.Id == revisionTwo.SnapshotId);
+        var oldRevisionOrder = await db.Orders.SingleAsync(x => x.Id == oldRevisionOrderId);
+        var newRevisionOrder = await db.Orders.SingleAsync(x => x.Id == newRevisionOrderId);
+
+        Assert.Equal(revisionOne.CatalogItemId, snapshotOne.CatalogItemId);
+        Assert.Equal(1, snapshotOne.AuthorityVersion);
+        Assert.Equal(100m, snapshotOne.UnitPrice);
+        Assert.Equal(PlanCatalogItem.TermLifetime, snapshotOne.TermKind);
+        Assert.Equal(revisionTwo.CatalogItemId, snapshotTwo.CatalogItemId);
+        Assert.Equal(2, snapshotTwo.AuthorityVersion);
+        Assert.Equal(275m, snapshotTwo.UnitPrice);
+        Assert.NotEqual(snapshotOne.ServerGeneratedDigest, snapshotTwo.ServerGeneratedDigest);
+
+        Assert.Equal(snapshotOne.Id, oldRevisionOrder.SnapshotId);
+        Assert.Equal(snapshotOne.CatalogItemId, oldRevisionOrder.PlanId);
+        Assert.Equal(100m, oldRevisionOrder.TotalAmount);
+        Assert.Equal(Order.StatusPendingPayment, oldRevisionOrder.Status);
+        Assert.Equal(snapshotTwo.Id, newRevisionOrder.SnapshotId);
+        Assert.Equal(snapshotTwo.CatalogItemId, newRevisionOrder.PlanId);
+        Assert.Equal(275m, newRevisionOrder.TotalAmount);
+        Assert.Equal(Order.StatusPendingPayment, newRevisionOrder.Status);
+        Assert.NotEqual(oldRevisionOrder.Id, newRevisionOrder.Id);
     }
 
     [Fact]
@@ -867,6 +1514,25 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         });
         var orderId = Guid.Parse((await ReadJsonAsync(orderRes))["id"]!.GetValue<string>());
 
+        var issueCommand = new IssueLicenseCommand
+        {
+            ApprovedOrderId = orderId,
+            ValidFromUtc = DateTimeOffset.UtcNow,
+            ValidUntilUtc = DateTimeOffset.UtcNow.AddDays(365),
+            CommandMeta = CreateMeta("license.issue")
+        };
+
+        // Manual issuance must reject an order until its payment has been reviewed and approved.
+        var unpaidIssueRes = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", issueCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, unpaidIssueRes.StatusCode);
+        var unpaidIssueError = await ReadJsonAsync(unpaidIssueRes);
+        Assert.Equal("ORDER_NOT_APPROVED", unpaidIssueError["code"]?.GetValue<string>());
+        using (var db = GetDbContext())
+        {
+            Assert.False(await db.CommercialLicenses.AnyAsync(x => x.InitialOrderId == orderId));
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.Id == issueCommand.CommandMeta.ClientOperationId));
+        }
+
         using (var db = GetDbContext())
         {
             var dbOrder = await db.Orders.FindAsync(orderId);
@@ -875,23 +1541,42 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         }
 
         // Issue Fixed Term License
-        var now = DateTimeOffset.UtcNow;
-        var initialValidUntil = now.AddDays(365);
-        var issueRes = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", new IssueLicenseCommand
-        {
-            ApprovedOrderId = orderId,
-            ValidFromUtc = now,
-            ValidUntilUtc = initialValidUntil,
-            CommandMeta = CreateMeta()
-        });
+        issueCommand.ValidFromUtc = DateTimeOffset.UtcNow;
+        issueCommand.ValidUntilUtc = issueCommand.ValidFromUtc.AddDays(365);
+        issueCommand.CommandMeta = CreateMeta("license.issue");
+        var issueRes = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", issueCommand);
         Assert.Equal(HttpStatusCode.OK, issueRes.StatusCode);
         var licenseJson = await ReadJsonAsync(issueRes);
         var licenseId = Guid.Parse(licenseJson["id"]!.GetValue<string>());
         Assert.Equal(1, licenseJson["authorityRevision"]?.GetValue<int>());
         Assert.NotNull(licenseJson["validUntilUtc"]);
 
+        // Exact retries replay the original result; a new operation cannot fulfill the order twice.
+        var replayRes = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", issueCommand);
+        Assert.Equal(HttpStatusCode.OK, replayRes.StatusCode);
+        Assert.Equal(licenseId, Guid.Parse((await ReadJsonAsync(replayRes))["id"]!.GetValue<string>()));
+
+        var duplicateIssueCommand = new IssueLicenseCommand
+        {
+            ApprovedOrderId = orderId,
+            ValidFromUtc = issueCommand.ValidFromUtc,
+            ValidUntilUtc = issueCommand.ValidUntilUtc,
+            CommandMeta = CreateMeta("license.issue")
+        };
+        var duplicateIssueRes = await adminClient.PostAsJsonAsync("/api/commercial/v1/licenses/issue", duplicateIssueCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, duplicateIssueRes.StatusCode);
+        var duplicateIssueError = await ReadJsonAsync(duplicateIssueRes);
+        Assert.Equal("ORDER_ALREADY_FULFILLED", duplicateIssueError["code"]?.GetValue<string>());
+        using (var db = GetDbContext())
+        {
+            Assert.Equal(1, await db.CommercialLicenses.CountAsync(x => x.InitialOrderId == orderId));
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x =>
+                x.EventType == "commercial.license_issued" && x.AggregateId == licenseId.ToString()));
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.Id == duplicateIssueCommand.CommandMeta.ClientOperationId));
+        }
+
         // Renew Fixed Term License
-        var renewedValidUntil = initialValidUntil.AddDays(365);
+        var renewedValidUntil = issueCommand.ValidUntilUtc!.Value.AddDays(365);
 
         // Negative: Renewal without approved paid order fails closed (ORDER_REQUIRED)
         var unapprovedRenewRes = await adminClient.PostAsJsonAsync($"/api/commercial/v1/licenses/{licenseId}/renew", new RenewLicenseCommand
@@ -1004,7 +1689,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             ApprovedOrderId = orderId,
             ValidFromUtc = DateTimeOffset.UtcNow,
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         })))["id"]!.GetValue<string>());
 
         // 1. Register Installation with RSA-4096 Public Key
@@ -1049,7 +1734,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
     [Fact]
     public async Task CONE_T11_Activation_ChallengeResponseRedemption_AndMonotonicCertificate()
     {
-        var (_, _, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
+        var (_, adminId, adminClient) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
 
         // Setup shop, lifetime license, installation
         var custId = Guid.Parse((await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/commercial/v1/customers", new CreateCustomerCommand
@@ -1103,13 +1788,75 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             ApprovedOrderId = orderId,
             ValidFromUtc = DateTimeOffset.UtcNow,
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         })))["id"]!.GetValue<string>());
+
+        var unpaidTokenOperationId = Guid.NewGuid();
+        using (var eligibilityDb = GetDbContext())
+        {
+            var tokenCountBefore = await eligibilityDb.ActivationTokens.CountAsync(x => x.LicenseId == licenseId);
+            await eligibilityDb.Database.ExecuteSqlInterpolatedAsync($"UPDATE central.orders SET \"Status\" = {Order.StatusPendingPayment} WHERE \"Id\" = {orderId}");
+            try
+            {
+                using var unpaidTokenResponse = await adminClient.PostAsJsonAsync("/api/activation/v1/tokens", new IssueActivationTokenCommand
+                {
+                    ShopId = shopId,
+                    LicenseId = licenseId,
+                    FirstRedemptionTtlSeconds = 60,
+                    CommandMeta = new CommandMetaDto
+                    {
+                        ClientOperationId = unpaidTokenOperationId,
+                        OperationType = "ACTIVATION_TOKEN_ISSUE",
+                        PayloadSha256 = new string('0', 64),
+                        Reason = "Synthetic unpaid-order activation denial"
+                    }
+                });
+                Assert.Equal(HttpStatusCode.BadRequest, unpaidTokenResponse.StatusCode);
+                Assert.Equal("COMMERCIAL_ELIGIBILITY_REQUIRED", (await ReadJsonAsync(unpaidTokenResponse))["code"]?.GetValue<string>());
+                Assert.Equal(tokenCountBefore, await eligibilityDb.ActivationTokens.CountAsync(x => x.LicenseId == licenseId));
+                Assert.False(await eligibilityDb.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == unpaidTokenOperationId));
+                Assert.False(await eligibilityDb.CentralOutboxMessages.AnyAsync(x => x.Id == unpaidTokenOperationId));
+            }
+            finally
+            {
+                await eligibilityDb.Database.ExecuteSqlInterpolatedAsync($"UPDATE central.orders SET \"Status\" = {Order.StatusPaidApproved} WHERE \"Id\" = {orderId}");
+            }
+        }
 
         using var clientRsa = RSA.Create(2048);
         var pubPem = clientRsa.ExportSubjectPublicKeyInfoPem();
 
         var installId = Guid.NewGuid();
+
+        using (var expiringIssueResponse = await adminClient.PostAsJsonAsync("/api/activation/v1/tokens", new IssueActivationTokenCommand
+        {
+            ShopId = shopId,
+            LicenseId = licenseId,
+            FirstRedemptionTtlSeconds = 1,
+            CommandMeta = CreateMeta()
+        }))
+        {
+            Assert.Equal(HttpStatusCode.OK, expiringIssueResponse.StatusCode);
+            var expiringToken = await ReadJsonAsync(expiringIssueResponse);
+            var expiringTokenId = Guid.Parse(expiringToken["tokenId"]!.GetValue<string>());
+            var expiringTokenSecret = expiringToken["tokenSecret"]!.GetValue<string>();
+            var expiringTokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(expiringTokenSecret.Trim())));
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            var expiredNonce = Guid.NewGuid();
+            using var expiredChallengeResponse = await _client.PostAsJsonAsync("/api/licensing/v1/bootstrap/challenge", new BootstrapChallengeRequestDto
+            {
+                ShopId = shopId,
+                InstallationId = Guid.NewGuid(),
+                InstallationPublicKey = pubPem,
+                ActivationTokenHash = expiringTokenHash,
+                RequestNonce = expiredNonce
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, expiredChallengeResponse.StatusCode);
+            Assert.Equal("BOOTSTRAP_NOT_ELIGIBLE", (await ReadJsonAsync(expiredChallengeResponse))["code"]?.GetValue<string>());
+            using var expiredDb = GetDbContext();
+            Assert.True((await expiredDb.ActivationTokens.FindAsync(expiringTokenId))!.FirstRedemptionExpiresAtUtc <= DateTimeOffset.UtcNow);
+            Assert.False(await expiredDb.BootstrapChallenges.AnyAsync(x => x.RequestNonce == expiredNonce));
+        }
 
         using var activationIssueResponse = await adminClient.PostAsJsonAsync("/api/activation/v1/tokens", new IssueActivationTokenCommand
         {
@@ -1127,6 +1874,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         // Bootstrap uses only the contract-defined challenge, proof-of-possession, and activation routes.
         var activationTokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(tokenSecret.Trim())));
         var requestNonce = Guid.NewGuid();
+
         var challengeRequest = new BootstrapChallengeRequestDto
         {
             InstallationId = installId,
@@ -1168,10 +1916,6 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var challengeNonce = challengeJson["challengeNonce"]!.GetValue<string>();
         Assert.NotEmpty(challengeNonce);
 
-        var replayedChallenge = await _client.PostAsJsonAsync("/api/licensing/v1/bootstrap/challenge", challengeRequest);
-        Assert.Equal(HttpStatusCode.BadRequest, replayedChallenge.StatusCode);
-        Assert.Equal("BOOTSTRAP_REQUEST_REPLAYED", (await ReadJsonAsync(replayedChallenge))["code"]?.GetValue<string>());
-
         var registrationPayload = new InstallRegistrationPayloadDto
         {
             ShopId = shopId,
@@ -1187,42 +1931,45 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             SignalQuality = "STRONG",
             ApplicationVersion = "0.0.0-dev-fixture"
         };
-        var unsignedRegistrationPayload = new
+
+        CommandMetaDto SignRegistrationPayload(InstallRegistrationPayloadDto payload, string reason)
         {
-            registrationPayload.ShopId,
-            registrationPayload.LicenseId,
-            registrationPayload.InstallationId,
-            registrationPayload.InstallationPublicKey,
-            registrationPayload.InstallationPublicKeyFingerprint,
-            registrationPayload.BootstrapChallengeId,
-            registrationPayload.DeviceIdentityVersion,
-            registrationPayload.DeviceIdentityHash,
-            registrationPayload.HardwareFingerprintVersion,
-            registrationPayload.HardwareFingerprintHash,
-            registrationPayload.SignalQuality,
-            registrationPayload.ApplicationVersion
-        };
-        var registrationDigest = _serializer.SerializeAndHash(unsignedRegistrationPayload).Sha256Hex;
-        var registrationEnvelope = _serializer.SerializeCanonical(new
-        {
-            profile = "CENTRAL_INSTALLATION_BOOTSTRAP_V1",
-            purpose = "installation.register",
-            httpMethod = "POST",
-            httpPath = "/api/licensing/v1/primary/register",
-            challengeId,
-            challengeNonce,
-            requestNonce,
-            activationTokenHash,
-            payloadDigest = registrationDigest
-        });
-        registrationPayload.ProofOfPossession = Convert.ToHexString(clientRsa.SignData(Encoding.UTF8.GetBytes(registrationEnvelope), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)).ToLowerInvariant();
-        var registrationMeta = new CommandMetaDto
-        {
-            ClientOperationId = Guid.NewGuid(),
-            OperationType = "installation.register",
-            PayloadSha256 = _serializer.SerializeAndHash(registrationPayload).Sha256Hex,
-            Reason = "Synthetic development bootstrap registration"
-        };
+            var unsignedPayload = new
+            {
+                payload.ShopId,
+                payload.LicenseId,
+                payload.InstallationId,
+                payload.InstallationPublicKey,
+                payload.InstallationPublicKeyFingerprint,
+                payload.BootstrapChallengeId,
+                payload.DeviceIdentityVersion,
+                payload.DeviceIdentityHash,
+                payload.HardwareFingerprintVersion,
+                payload.HardwareFingerprintHash,
+                payload.SignalQuality,
+                payload.ApplicationVersion
+            };
+            var payloadDigest = _serializer.SerializeAndHash(unsignedPayload).Sha256Hex;
+            var envelope = _serializer.SerializeCanonical(new
+            {
+                profile = "CENTRAL_INSTALLATION_BOOTSTRAP_V1",
+                purpose = "installation.register",
+                httpMethod = "POST",
+                httpPath = "/api/licensing/v1/primary/register",
+                challengeId,
+                challengeNonce,
+                requestNonce,
+                activationTokenHash,
+                payloadDigest
+            });
+            payload.ProofOfPossession = Convert.ToHexString(clientRsa.SignData(Encoding.UTF8.GetBytes(envelope), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)).ToLowerInvariant();
+            var meta = CreateMeta("installation.register");
+            meta.PayloadSha256 = _serializer.SerializeAndHash(payload).Sha256Hex;
+            meta.Reason = reason;
+            return meta;
+        }
+
+        var registrationMeta = SignRegistrationPayload(registrationPayload, "Synthetic development bootstrap registration");
 
         // A different submitted public key cannot replace the key pinned by this challenge.
         var trustedPublicKey = registrationPayload.InstallationPublicKey;
@@ -1251,6 +1998,39 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         registrationPayload.InstallationPublicKey = trustedPublicKey;
         registrationPayload.InstallationPublicKeyFingerprint = trustedFingerprint;
 
+        var wrongInstallationId = Guid.NewGuid();
+        var wrongInstallationPayload = JsonSerializer.Deserialize<InstallRegistrationPayloadDto>(JsonSerializer.Serialize(registrationPayload))!;
+        wrongInstallationPayload.InstallationId = wrongInstallationId;
+        var wrongInstallationMeta = SignRegistrationPayload(wrongInstallationPayload, "Synthetic wrong-installation identity denial");
+        using (var wrongInstallationResponse = await _client.PostAsJsonAsync("/api/licensing/v1/primary/register", new InstallRegistrationRequestDto
+        {
+            Meta = wrongInstallationMeta,
+            Payload = wrongInstallationPayload
+        }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, wrongInstallationResponse.StatusCode);
+            Assert.Equal("BOOTSTRAP_BINDING_MISMATCH", (await ReadJsonAsync(wrongInstallationResponse))["code"]?.GetValue<string>());
+            using var db = GetDbContext();
+            Assert.False(await db.Installations.AnyAsync(x => x.Id == wrongInstallationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == wrongInstallationMeta.ClientOperationId));
+        }
+
+        var foreignShopRegistrationPayload = JsonSerializer.Deserialize<InstallRegistrationPayloadDto>(JsonSerializer.Serialize(registrationPayload))!;
+        foreignShopRegistrationPayload.ShopId = Guid.NewGuid();
+        var foreignShopRegistrationMeta = SignRegistrationPayload(foreignShopRegistrationPayload, "Synthetic cross-shop bootstrap registration denial");
+        using (var foreignShopRegistrationResponse = await _client.PostAsJsonAsync("/api/licensing/v1/primary/register", new InstallRegistrationRequestDto
+        {
+            Meta = foreignShopRegistrationMeta,
+            Payload = foreignShopRegistrationPayload
+        }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, foreignShopRegistrationResponse.StatusCode);
+            Assert.Equal("BOOTSTRAP_BINDING_MISMATCH", (await ReadJsonAsync(foreignShopRegistrationResponse))["code"]?.GetValue<string>());
+            using var db = GetDbContext();
+            Assert.False(await db.Installations.AnyAsync(x => x.Id == installId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == foreignShopRegistrationMeta.ClientOperationId));
+        }
+
         var registrationRes = await _client.PostAsJsonAsync("/api/licensing/v1/primary/register", new InstallRegistrationRequestDto
         {
             Meta = registrationMeta,
@@ -1266,6 +2046,11 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             registeredInstallation = await db.Installations.FindAsync(installId)
                 ?? throw new InvalidOperationException("Registered installation fixture was not persisted.");
             Assert.Equal(Installation.StatusRegistered, registeredInstallation.Status);
+            Assert.Equal(registrationPayload.DeviceIdentityVersion, registeredInstallation.DeviceIdentityVersion);
+            Assert.Equal(registrationPayload.DeviceIdentityHash, registeredInstallation.DeviceIdentityHash);
+            Assert.Equal(registrationPayload.HardwareFingerprintVersion, registeredInstallation.HardwareFingerprintVersion);
+            Assert.Equal(registrationPayload.HardwareFingerprintHash, registeredInstallation.HardwareFingerprintHash);
+            Assert.NotEqual(registeredInstallation.DeviceIdentityHash, registeredInstallation.HardwareFingerprintHash);
         }
         var unauthorizedReconcile = await _client.PostAsJsonAsync("/api/licensing/v1/reconcile", new ReconcileCommandDto
         {
@@ -1332,6 +2117,22 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             Assert.Equal(ActivationRedemption.StatusPending, (await db.ActivationRedemptions.FindAsync(redemptionId))!.Status);
         }
 
+        var consumedTokenNonce = Guid.NewGuid();
+        using (var consumedTokenChallenge = await _client.PostAsJsonAsync("/api/licensing/v1/bootstrap/challenge", new BootstrapChallengeRequestDto
+        {
+            ShopId = shopId,
+            InstallationId = Guid.NewGuid(),
+            InstallationPublicKey = pubPem,
+            ActivationTokenHash = activationTokenHash,
+            RequestNonce = consumedTokenNonce
+        }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, consumedTokenChallenge.StatusCode);
+            Assert.Equal("BOOTSTRAP_NOT_ELIGIBLE", (await ReadJsonAsync(consumedTokenChallenge))["code"]?.GetValue<string>());
+            using var db = GetDbContext();
+            Assert.False(await db.BootstrapChallenges.AnyAsync(x => x.RequestNonce == consumedTokenNonce));
+        }
+
         using (var unsignedStatusRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/licensing/v1/activation/{redemptionId:D}/status"))
         using (var unsignedStatusResponse = await _client.SendAsync(unsignedStatusRequest))
         {
@@ -1370,6 +2171,56 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             Assert.Equal("SUCCEEDED", (await ReadJsonAsync(approvedStatusResponse))["state"]?.GetValue<string>());
         }
 
+        // Certificate issuance must fail closed until a persisted signed policy exists.
+        using (var missingPolicyResponse = await adminClient.PostAsJsonAsync("/api/activation/v1/certificates/issue", new IssueCertificateRequest
+        {
+            InstallationId = installId
+        }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, missingPolicyResponse.StatusCode);
+            Assert.Equal("POLICY_CONFIGURATION_REQUIRED", (await ReadJsonAsync(missingPolicyResponse))["code"]?.GetValue<string>());
+        }
+
+        // Labelled synthetic configuration fixture: certificate dates must follow this signed policy.
+        var policyPayload = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = 5_400,
+            offlineGraceSeconds = 86_400,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid(),
+            approvedByAdminId = adminId,
+            approvedAtUtc = DateTimeOffset.UtcNow
+        };
+        var policyMeta = new CanonicalDirectoryMeta
+        {
+            ClientOperationId = Guid.NewGuid(),
+            OperationType = "license.policy",
+            FingerprintVersion = 1,
+            PayloadSha256 = _serializer.SerializeAndHash(policyPayload).Sha256Hex,
+            ExpectedVersion = 0,
+            PolicyVersion = 1,
+            Reason = "Synthetic explicit signed policy for certificate issuance integration test"
+        };
+        using (var policyResponse = await adminClient.PostAsJsonAsync($"/api/admin/v1/licenses/{licenseId:D}/policy", new { meta = policyMeta, payload = policyPayload }))
+        {
+            Assert.True(policyResponse.StatusCode == HttpStatusCode.OK, $"Expected signed policy configuration, got {(int)policyResponse.StatusCode}: {await policyResponse.Content.ReadAsStringAsync()}");
+        }
+
+        var activeAddonExpiry = DateTimeOffset.UtcNow.AddDays(30);
+        var expiredAddonExpiry = DateTimeOffset.UtcNow.AddDays(-1);
+        using (var db = GetDbContext())
+        {
+            db.CommercialEntitlements.Add(CommercialEntitlement.Create(licenseId, CommercialEntitlement.KindSupport, activeAddonExpiry, orderId));
+            // A status that has not yet been swept must still not leak an expired entitlement into a new signed claim.
+            db.CommercialEntitlements.Add(CommercialEntitlement.Create(licenseId, CommercialEntitlement.KindPremiumUpgrade, expiredAddonExpiry, orderId));
+            await db.SaveChangesAsync();
+        }
+
         // 5. Issue License Certificate via ProtectedSigningEngine
         var certRes1 = await adminClient.PostAsJsonAsync("/api/activation/v1/certificates/issue", new IssueCertificateRequest
         {
@@ -1381,12 +2232,59 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         Assert.Equal(LicenseCertificate.StatusActive, cert1Json["status"]?.GetValue<string>());
         var sig1 = (cert1Json["rs256Signature"] ?? cert1Json["rS256Signature"] ?? cert1Json["RS256Signature"])?.GetValue<string>();
         Assert.False(string.IsNullOrWhiteSpace(sig1));
+        var signedClaimsText = cert1Json["signedEnvelopeJson"]!.GetValue<string>();
+        using (var signedClaims = JsonDocument.Parse(signedClaimsText))
+        {
+            var claimRoot = signedClaims.RootElement;
+            Assert.Equal(CommercialTerm.Lifetime, claimRoot.GetProperty("termKind").GetString());
+            Assert.Equal(JsonValueKind.Null, claimRoot.GetProperty("baseValidUntilUtc").ValueKind);
+            Assert.Equal(registeredInstallation.PublicKeyFingerprintSha256, claimRoot.GetProperty("installationPublicKeyFingerprint").GetString());
+            var addonClaims = claimRoot.GetProperty("addonEntitlements").EnumerateArray().ToArray();
+            var supportClaim = Assert.Single(addonClaims);
+            Assert.Equal(CommercialEntitlement.KindSupport, supportClaim.GetProperty("addonKind").GetString());
+            Assert.InRange(Math.Abs((activeAddonExpiry - supportClaim.GetProperty("validUntilUtc").GetDateTimeOffset()).Ticks), 0, 10);
+        }
 
+        string cert1SignedEnvelope;
+        string cert1StoredSignature;
+        string cert1Digest;
+        string cert1Serial;
+        DateTimeOffset cert1IssuedAt;
+        DateTimeOffset cert1ValidFrom;
+        DateTimeOffset cert1LeaseExpires;
+        DateTimeOffset cert1OfflineGrace;
+        int cert1StoredLineage;
+        int cert1StoredRowVersion;
         using (var db = GetDbContext())
         {
             var dbCert = await db.LicenseCertificates.FindAsync(cert1Id);
             Assert.NotNull(dbCert);
             Assert.NotEmpty(dbCert.RS256Signature);
+            var signingRequest = await db.CentralSigningRequests.SingleAsync(x => x.PayloadSha256 == dbCert.DigestSha256);
+            Assert.Equal("SIGNED", signingRequest.Status);
+            Assert.Equal(signingRequest.Signature, dbCert.RS256Signature);
+            using var signerScope = _factory.Services.CreateScope();
+            var signerClient = signerScope.ServiceProvider.GetRequiredService<IProtectedSignerClient>();
+            var trustSet = await signerClient.GetTrustSetAsync();
+            var trustedKey = Assert.Single(trustSet.Keys, x => x.KeyId == signingRequest.KeyId &&
+                x.KeyVersion == signingRequest.KeyVersion && x.Purpose == SigningPurpose.License && x.Status == "ACTIVE");
+            using var verifier = RSA.Create();
+            verifier.ImportFromPem(trustedKey.PublicKey);
+            Assert.True(verifier.VerifyData(
+                Encoding.UTF8.GetBytes(dbCert.SignedEnvelopeJson),
+                Convert.FromBase64String(dbCert.RS256Signature),
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1));
+            cert1SignedEnvelope = dbCert.SignedEnvelopeJson;
+            cert1StoredSignature = dbCert.RS256Signature;
+            cert1Digest = dbCert.DigestSha256;
+            cert1Serial = dbCert.CertificateSerial;
+            cert1IssuedAt = dbCert.IssuedAtUtc;
+            cert1ValidFrom = dbCert.ValidFromUtc;
+            cert1LeaseExpires = dbCert.LeaseExpiresUtc;
+            cert1OfflineGrace = dbCert.OfflineGraceUntilUtc;
+            cert1StoredLineage = dbCert.LineageRevision;
+            cert1StoredRowVersion = dbCert.RowVersion;
         }
 
         // Verify Monotonic Time Bounds: ValidFromUtc <= LeaseExpiresUtc <= OfflineGraceUntilUtc
@@ -1395,6 +2293,8 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var offlineGraceUntilUtc = cert1Json["offlineGraceUntilUtc"]!.GetValue<DateTimeOffset>();
         Assert.True(validFromUtc <= leaseExpiresUtc, "validFromUtc <= leaseExpiresUtc");
         Assert.True(leaseExpiresUtc <= offlineGraceUntilUtc, "leaseExpiresUtc <= offlineGraceUntilUtc");
+        Assert.InRange(Math.Abs((leaseExpiresUtc - validFromUtc).TotalSeconds - policyPayload.leaseDurationSeconds), 0, 1);
+        Assert.InRange(Math.Abs((offlineGraceUntilUtc - leaseExpiresUtc).TotalSeconds - policyPayload.offlineGraceSeconds), 0, 1);
 
         // 6. Issue a second certificate for the same installation -> Proves strictly 1 active certificate
         var certRes2 = await adminClient.PostAsJsonAsync("/api/activation/v1/certificates/issue", new IssueCertificateRequest
@@ -1409,13 +2309,23 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             var oldCert = await db.LicenseCertificates.FindAsync(cert1Id);
             Assert.Equal(LicenseCertificate.StatusSuperseded, oldCert!.Status);
+            Assert.Equal(cert1SignedEnvelope, oldCert.SignedEnvelopeJson);
+            Assert.Equal(cert1StoredSignature, oldCert.RS256Signature);
+            Assert.Equal(cert1Digest, oldCert.DigestSha256);
+            Assert.Equal(cert1Serial, oldCert.CertificateSerial);
+            Assert.Equal(cert1IssuedAt, oldCert.IssuedAtUtc);
+            Assert.Equal(cert1ValidFrom, oldCert.ValidFromUtc);
+            Assert.Equal(cert1LeaseExpires, oldCert.LeaseExpiresUtc);
+            Assert.Equal(cert1OfflineGrace, oldCert.OfflineGraceUntilUtc);
+            Assert.Equal(cert1StoredLineage, oldCert.LineageRevision);
+            Assert.Equal(cert1StoredRowVersion + 1, oldCert.RowVersion);
         }
     }
 
     [Fact]
     public async Task CONE_T12_HardwareDiscrepancy_AndPrimaryTransfer_DualControl()
     {
-        var (_, admin1Id, adminClient1) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
+        var (admin1SessionId, admin1Id, adminClient1) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
         var (_, admin2Id, adminClient2) = await CreateAdminClientAsync(new[] { AdminCapabilities.LicensingManage, AdminCapabilities.LicensingRead });
 
         // Setup shop and license
@@ -1470,38 +2380,122 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             ApprovedOrderId = orderId,
             ValidFromUtc = DateTimeOffset.UtcNow,
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         })))["id"]!.GetValue<string>());
+
+        // Labelled synthetic policy fixture makes certificate dates explicit before the verified transfer.
+        var transferPolicyPayload = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = 5_400,
+            offlineGraceSeconds = 86_400,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid(),
+            approvedByAdminId = admin1Id,
+            approvedAtUtc = DateTimeOffset.UtcNow
+        };
+        var transferPolicyMeta = CreateMeta("license.policy");
+        transferPolicyMeta.PayloadSha256 = _serializer.SerializeAndHash(transferPolicyPayload).Sha256Hex;
+        transferPolicyMeta.ExpectedVersion = 0;
+        transferPolicyMeta.PolicyVersion = 1;
+        transferPolicyMeta.Reason = "Synthetic explicit policy for T12 transfer certificate proof";
+        using (var policyResponse = await adminClient1.PostAsJsonAsync($"/api/admin/v1/licenses/{licenseId:D}/policy", new
+        {
+            meta = transferPolicyMeta,
+            payload = transferPolicyPayload
+        }))
+        {
+            Assert.True(policyResponse.StatusCode == HttpStatusCode.OK,
+                $"Expected explicit signed policy for T12, got {(int)policyResponse.StatusCode}: {await policyResponse.Content.ReadAsStringAsync()}");
+        }
 
         // Register Primary Source Installation
         using var rsaSource = RSA.Create(2048);
         var sourceInstallId = await AddPersistedInstallationFixtureAsync(
             shopId, licenseId, rsaSource.ExportSubjectPublicKeyInfoPem(), "HW-SOURCE-OLD-FP", "OLD-POS");
+        using (var db = GetDbContext())
+        {
+            var sourceInstallation = await db.Installations.FindAsync(sourceInstallId);
+            sourceInstallation!.Approve(DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync();
+        }
+
+        var sourceCertificateResponse = await adminClient1.PostAsJsonAsync("/api/activation/v1/certificates/issue", new IssueCertificateRequest
+        {
+            InstallationId = sourceInstallId
+        });
+        Assert.Equal(HttpStatusCode.OK, sourceCertificateResponse.StatusCode);
+        var sourceCertificateJson = await ReadJsonAsync(sourceCertificateResponse);
+        var sourceCertificateId = Guid.Parse(sourceCertificateJson["id"]!.GetValue<string>());
+        Assert.Equal(LicenseCertificate.StatusActive, sourceCertificateJson["status"]?.GetValue<string>());
 
         // Journey 1: Hardware Discrepancy Reporting & Decision
-        var reportRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/hardware-reviews", new ReportHardwareDiscrepancyRequest
+        var reportRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/hardware-reviews", new
         {
-            ShopId = shopId,
+            // The caller-supplied shop is deliberately forged. The service must use the persisted installation scope.
+            ShopId = Guid.NewGuid(),
             InstallationId = sourceInstallId,
             ReportedFingerprint = "HW-SOURCE-NEW-FP",
-            StoredFingerprint = "HW-SOURCE-OLD-FP",
+            // A forged stored fingerprint must be ignored; it comes from the persisted installation.
+            StoredFingerprint = "HW-CLIENT-FORGED-STORED-FP",
             Reason = "Upgraded motherboard"
         });
         Assert.Equal(HttpStatusCode.OK, reportRes.StatusCode);
         var reviewJson = await ReadJsonAsync(reportRes);
         var reviewId = Guid.Parse(reviewJson["id"]!.GetValue<string>());
+        Assert.Equal(shopId, Guid.Parse(reviewJson["shopId"]!.GetValue<string>()));
+        Assert.Equal("HW-SOURCE-OLD-FP", reviewJson["storedMachineFingerprint"]?.GetValue<string>());
 
-        var decideRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/hardware-reviews/{reviewId}/decide", new DecideHardwareReviewCommand
+        var missingOperationIdMeta = CreateMeta("hardware.review");
+        missingOperationIdMeta.ClientOperationId = Guid.Empty;
+        var missingOperationIdRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/hardware-reviews/{reviewId}/decide", new DecideHardwareReviewCommand
         {
             Approve = true,
-            CommandMeta = CreateMeta()
+            CommandMeta = missingOperationIdMeta
         });
+        Assert.Equal(HttpStatusCode.BadRequest, missingOperationIdRes.StatusCode);
+        using (var db = GetDbContext())
+        {
+            var unchanged = await db.HardwareReviews.FindAsync(reviewId);
+            Assert.Equal(HardwareReview.StatusPending, unchanged!.Status);
+            Assert.Equal(1, unchanged.RowVersion);
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.EventType == "activation.hardware_review_decided" && x.AggregateId == reviewId.ToString()));
+            Assert.False(await db.CentralAuditRecords.AnyAsync(x => x.Action == "HARDWARE_REVIEW_DECIDED" && x.ResourceId == reviewId.ToString()));
+        }
+
+        var hardwareDecision = new DecideHardwareReviewCommand
+        {
+            Approve = true,
+            CommandMeta = CreateMeta("hardware.review")
+        };
+        hardwareDecision.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(hardwareDecision).Sha256Hex;
+        var decideRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/hardware-reviews/{reviewId}/decide", hardwareDecision);
         Assert.Equal(HttpStatusCode.OK, decideRes.StatusCode);
+        var replayRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/hardware-reviews/{reviewId}/decide", hardwareDecision);
+        Assert.Equal(HttpStatusCode.OK, replayRes.StatusCode);
+
+        var staleCommandMeta = CreateMeta("hardware.review");
+        staleCommandMeta.ExpectedVersion = 1;
+        var staleHardwareDecision = new DecideHardwareReviewCommand
+        {
+            Approve = false,
+            CommandMeta = staleCommandMeta
+        };
+        staleCommandMeta.PayloadSha256 = _serializer.SerializeAndHash(staleHardwareDecision).Sha256Hex;
+        var staleRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/hardware-reviews/{reviewId}/decide", staleHardwareDecision);
+        Assert.Equal(HttpStatusCode.Conflict, staleRes.StatusCode);
 
         using (var db = GetDbContext())
         {
             var r = await db.HardwareReviews.FindAsync(reviewId);
             Assert.Equal(HardwareReview.StatusApproved, r!.Status);
+            Assert.Equal(2, r.RowVersion);
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.hardware_review_decided" && x.AggregateId == reviewId.ToString()));
+            Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.Action == "HARDWARE_REVIEW_DECIDED" && x.ResourceId == reviewId.ToString()));
         }
 
         // Journey 2: Primary Transfer Dual-Control Governance
@@ -1510,24 +2504,62 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var targetInstallId = await AddPersistedInstallationFixtureAsync(
             shopId, licenseId, rsaTarget.ExportSubjectPublicKeyInfoPem(), "HW-TARGET-NEW-PRIMARY", "NEW-POS");
 
-        // Admin 1 initiates primary transfer
-        var initTransferRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/primary-transfers", new InitiatePrimaryTransferCommand
+        // An empty operation identity must not create a transfer.
+        var emptyInitiateMeta = CreateMeta("primary.transfer");
+        emptyInitiateMeta.ClientOperationId = Guid.Empty;
+        int initiationOutboxBefore;
+        int initiationAuditBefore;
+        using (var db = GetDbContext())
+        {
+            initiationOutboxBefore = await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.primary_transfer_initiated");
+            initiationAuditBefore = await db.CentralAuditRecords.CountAsync(x => x.Action == "PRIMARY_TRANSFER_INITIATED");
+        }
+        var emptyInitiateRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/primary-transfers", new InitiatePrimaryTransferCommand
         {
             ShopId = shopId,
             SourceInstallationId = sourceInstallId,
             TargetInstallationId = targetInstallId,
             TransferReason = "Hardware replacement transfer",
-            CommandMeta = CreateMeta()
+            CommandMeta = emptyInitiateMeta
         });
+        Assert.Equal(HttpStatusCode.BadRequest, emptyInitiateRes.StatusCode);
+        using (var db = GetDbContext())
+        {
+            Assert.False(await db.PrimaryTransfers.AnyAsync(x => x.SourceInstallationId == sourceInstallId && x.TargetInstallationId == targetInstallId));
+            Assert.Equal(initiationOutboxBefore, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.primary_transfer_initiated"));
+            Assert.Equal(initiationAuditBefore, await db.CentralAuditRecords.CountAsync(x => x.Action == "PRIMARY_TRANSFER_INITIATED"));
+        }
+
+        // Admin 1 initiates primary transfer; retrying the exact command must return the same persisted transfer.
+        var initiateTransferCommand = new InitiatePrimaryTransferCommand
+        {
+            ShopId = shopId,
+            SourceInstallationId = sourceInstallId,
+            TargetInstallationId = targetInstallId,
+            TransferReason = "Hardware replacement transfer",
+            CommandMeta = CreateMeta("primary.transfer")
+        };
+        initiateTransferCommand.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(initiateTransferCommand).Sha256Hex;
+        var initTransferRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/primary-transfers", initiateTransferCommand);
         Assert.Equal(HttpStatusCode.OK, initTransferRes.StatusCode);
         var transferJson = await ReadJsonAsync(initTransferRes);
         var transferId = Guid.Parse(transferJson["id"]!.GetValue<string>());
+        var initiateReplayRes = await adminClient1.PostAsJsonAsync("/api/activation/v1/primary-transfers", initiateTransferCommand);
+        Assert.Equal(HttpStatusCode.OK, initiateReplayRes.StatusCode);
+        var replayTransferJson = await ReadJsonAsync(initiateReplayRes);
+        Assert.Equal(transferId, Guid.Parse(replayTransferJson["id"]!.GetValue<string>()));
+        using (var db = GetDbContext())
+        {
+            Assert.Equal(1, await db.PrimaryTransfers.CountAsync(x => x.SourceInstallationId == sourceInstallId && x.TargetInstallationId == targetInstallId));
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.primary_transfer_initiated" && x.AggregateId == transferId.ToString()));
+            Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.Action == "PRIMARY_TRANSFER_INITIATED" && x.ResourceId == transferId.ToString()));
+        }
 
         // Invariant: Self-approval is strictly prohibited (Admin 1 cannot approve own transfer)
         var selfApproveRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", new ApprovePrimaryTransferCommand
         {
             SensitiveApprovalId = Guid.NewGuid(),
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("primary.transfer")
         });
         Assert.Equal(HttpStatusCode.BadRequest, selfApproveRes.StatusCode);
         var selfError = await ReadJsonAsync(selfApproveRes);
@@ -1537,21 +2569,22 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var nonexistentApproveRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", new ApprovePrimaryTransferCommand
         {
             SensitiveApprovalId = Guid.NewGuid(),
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("primary.transfer")
         });
         Assert.Equal(HttpStatusCode.BadRequest, nonexistentApproveRes.StatusCode);
         var nonexistentError = await ReadJsonAsync(nonexistentApproveRes);
         Assert.Equal("APPROVAL_NOT_FOUND", nonexistentError["code"]?.GetValue<string>());
 
         // Request sensitive approval for primary transfer (Admin 1 requests, Admin 2 approves)
+        var transferDigest = new string('t', 64);
+        var transferStepUpGrantId = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "primary.transfer", transferDigest);
         var reqTransferApprovalRes = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
         {
             OperationType = "PRIMARY_TRANSFER",
             TargetEntityId = transferId,
-            TargetPayloadSha256 = new string('t', 64),
+            TargetPayloadSha256 = transferDigest,
             ActionScope = "primary.transfer",
-            StepUpSessionId = Guid.NewGuid(),
-            ValidityMinutes = 60
+            StepUpGrantId = transferStepUpGrantId
         });
         Assert.Equal(HttpStatusCode.OK, reqTransferApprovalRes.StatusCode);
         var transferApprovalJson = await ReadJsonAsync(reqTransferApprovalRes);
@@ -1560,30 +2593,142 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var decideTransferApprovalRes = await adminClient2.PostAsJsonAsync($"/api/lifecycle/v1/sensitive-approvals/{transferApprovalId}/decide", new DecideSensitiveApprovalCommand
         {
             Decision = "APPROVE",
-            TargetPayloadSha256 = new string('t', 64),
+            TargetPayloadSha256 = transferDigest,
             CommandMeta = CreateMeta()
         });
         Assert.Equal(HttpStatusCode.OK, decideTransferApprovalRes.StatusCode);
 
-        // Independent Admin 2 approves transfer with valid sensitive approval
-        var admin2ApproveRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", new ApprovePrimaryTransferCommand
+        // A missing operation identity must not consume approval or create a transfer effect.
+        var emptyTransferOperationMeta = CreateMeta("primary.transfer");
+        emptyTransferOperationMeta.ClientOperationId = Guid.Empty;
+        var emptyTransferOperationRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", new ApprovePrimaryTransferCommand
         {
             SensitiveApprovalId = transferApprovalId,
-            CommandMeta = CreateMeta()
+            CommandMeta = emptyTransferOperationMeta
         });
-        Assert.Equal(HttpStatusCode.OK, admin2ApproveRes.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, emptyTransferOperationRes.StatusCode);
+        using (var db = GetDbContext())
+        {
+            var unchangedTransfer = await db.PrimaryTransfers.FindAsync(transferId);
+            var unchangedApproval = await db.SensitiveApprovalRequests.FindAsync(transferApprovalId);
+            Assert.Equal(PrimaryTransfer.StatusPendingApproval, unchangedTransfer!.Status);
+            Assert.Equal(1, unchangedTransfer.RowVersion);
+            Assert.Equal(SensitiveApprovalRequest.StatusApproved, unchangedApproval!.Status);
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.EventType == "activation.primary_transfer_approved" && x.AggregateId == transferId.ToString()));
+            Assert.False(await db.CentralAuditRecords.AnyAsync(x => x.Action == "PRIMARY_TRANSFER_APPROVED" && x.ResourceId == transferId.ToString()));
+        }
 
-        // Complete Transfer
-        var completeRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/complete", new { });
+        // Independent Admin 2 approves transfer with valid sensitive approval.
+        var transferApprovalCommand = new ApprovePrimaryTransferCommand
+        {
+            SensitiveApprovalId = transferApprovalId,
+            CommandMeta = CreateMeta("primary.transfer")
+        };
+        transferApprovalCommand.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(transferApprovalCommand).Sha256Hex;
+        var admin2ApproveRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", transferApprovalCommand);
+        Assert.Equal(HttpStatusCode.OK, admin2ApproveRes.StatusCode);
+        var approveReplayRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", transferApprovalCommand);
+        Assert.Equal(HttpStatusCode.OK, approveReplayRes.StatusCode);
+
+        var staleTransferMeta = CreateMeta("primary.transfer");
+        staleTransferMeta.ExpectedVersion = 1;
+        var staleTransferCommand = new ApprovePrimaryTransferCommand
+        {
+            SensitiveApprovalId = transferApprovalId,
+            CommandMeta = staleTransferMeta
+        };
+        staleTransferMeta.PayloadSha256 = _serializer.SerializeAndHash(staleTransferCommand).Sha256Hex;
+        var staleTransferRes = await adminClient2.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/approve", staleTransferCommand);
+        Assert.Equal(HttpStatusCode.Conflict, staleTransferRes.StatusCode);
+
+        using (var db = GetDbContext())
+        {
+            var approvedTransfer = await db.PrimaryTransfers.FindAsync(transferId);
+            var consumedApproval = await db.SensitiveApprovalRequests.FindAsync(transferApprovalId);
+            Assert.Equal(PrimaryTransfer.StatusApproved, approvedTransfer!.Status);
+            Assert.Equal(2, approvedTransfer.RowVersion);
+            Assert.Equal(SensitiveApprovalRequest.StatusConsumed, consumedApproval!.Status);
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.primary_transfer_approved" && x.AggregateId == transferId.ToString()));
+            Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.Action == "PRIMARY_TRANSFER_APPROVED" && x.ResourceId == transferId.ToString()));
+        }
+
+        // Completion cannot reach a direct-write fallback without a client operation identity.
+        var emptyCompletionCommand = new CompletePrimaryTransferCommand
+        {
+            CommandMeta = CreateMeta("primary.transfer")
+        };
+        emptyCompletionCommand.CommandMeta.ClientOperationId = Guid.Empty;
+        emptyCompletionCommand.CommandMeta.ExpectedVersion = 2;
+        emptyCompletionCommand.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(emptyCompletionCommand).Sha256Hex;
+        var emptyCompletionRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/complete", emptyCompletionCommand);
+        Assert.Equal(HttpStatusCode.BadRequest, emptyCompletionRes.StatusCode);
+        using (var db = GetDbContext())
+        {
+            var unchangedTransfer = await db.PrimaryTransfers.FindAsync(transferId);
+            Assert.Equal(PrimaryTransfer.StatusApproved, unchangedTransfer!.Status);
+            Assert.Equal(2, unchangedTransfer.RowVersion);
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.EventType == "activation.primary_transfer_completed" && x.AggregateId == transferId.ToString()));
+            Assert.False(await db.CentralAuditRecords.AnyAsync(x => x.Action == "PRIMARY_TRANSFER_COMPLETED" && x.ResourceId == transferId.ToString()));
+        }
+
+        // Completion is an idempotent, versioned Central command with one audit/outbox outcome.
+        var completeCommand = new CompletePrimaryTransferCommand
+        {
+            CommandMeta = CreateMeta("primary.transfer")
+        };
+        completeCommand.CommandMeta.ExpectedVersion = 2;
+        completeCommand.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(completeCommand).Sha256Hex;
+        var completeRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/complete", completeCommand);
         Assert.Equal(HttpStatusCode.OK, completeRes.StatusCode);
+        var completeReplayRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/complete", completeCommand);
+        Assert.Equal(HttpStatusCode.OK, completeReplayRes.StatusCode);
+
+        var staleCompleteCommand = new CompletePrimaryTransferCommand
+        {
+            CommandMeta = CreateMeta("primary.transfer")
+        };
+        staleCompleteCommand.CommandMeta.ExpectedVersion = 2;
+        staleCompleteCommand.CommandMeta.PayloadSha256 = _serializer.SerializeAndHash(staleCompleteCommand).Sha256Hex;
+        var staleCompleteRes = await adminClient1.PostAsJsonAsync($"/api/activation/v1/primary-transfers/{transferId}/complete", staleCompleteCommand);
+        Assert.Equal(HttpStatusCode.Conflict, staleCompleteRes.StatusCode);
 
         // Verify Invariants: Source is REPLACED, Target is in DB (Single primary capacity enforced)
         using (var db = GetDbContext())
         {
             var src = await db.Installations.FindAsync(sourceInstallId);
             var tgt = await db.Installations.FindAsync(targetInstallId);
+            var completedTransfer = await db.PrimaryTransfers.FindAsync(transferId);
+            var revokedSourceCertificate = await db.LicenseCertificates.FindAsync(sourceCertificateId);
             Assert.Equal(Installation.StatusReplaced, src!.Status);
             Assert.NotNull(tgt);
+            Assert.Equal(PrimaryTransfer.StatusCompleted, completedTransfer!.Status);
+            Assert.Equal(LicenseCertificate.StatusRevoked, revokedSourceCertificate!.Status);
+            Assert.Equal(3, completedTransfer.RowVersion);
+            Assert.Equal(1, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "activation.primary_transfer_completed" && x.AggregateId == transferId.ToString()));
+            Assert.Equal(1, await db.CentralAuditRecords.CountAsync(x => x.Action == "PRIMARY_TRANSFER_COMPLETED" && x.ResourceId == transferId.ToString()));
+        }
+
+        // A distinct certificate is issued to the verified new Primary using its fresh installation identity.
+        using (var newCertificateResponse = await adminClient1.PostAsJsonAsync("/api/activation/v1/certificates/issue", new IssueCertificateRequest
+        {
+            InstallationId = targetInstallId
+        }))
+        {
+            Assert.Equal(HttpStatusCode.OK, newCertificateResponse.StatusCode);
+            var newCertificate = await ReadJsonAsync(newCertificateResponse);
+            Assert.Equal(LicenseCertificate.StatusActive, newCertificate["status"]?.GetValue<string>());
+            Assert.NotEqual(sourceCertificateId, Guid.Parse(newCertificate["id"]!.GetValue<string>()));
+        }
+
+        using (var db = GetDbContext())
+        {
+            var targetCertificates = await db.LicenseCertificates
+                .Where(c => c.InstallationId == targetInstallId && c.Status == LicenseCertificate.StatusActive)
+                .ToListAsync();
+            var targetCertificate = Assert.Single(targetCertificates);
+            Assert.Equal(targetInstallId, targetCertificate.InstallationId);
+            Assert.Equal(licenseId, targetCertificate.LicenseId);
+            Assert.Equal(shopId, targetCertificate.ShopId);
         }
     }
 
@@ -1645,23 +2790,64 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             ApprovedOrderId = orderId,
             ValidFromUtc = DateTimeOffset.UtcNow,
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         })))["id"]!.GetValue<string>());
 
         // Journey 1: Sensitive Approval Dual-Control
         var targetPayloadSha256 = new string('e', 64);
-        var reqApprovalRes = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
+        var initialApprovalGrant = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "license.revoke", targetPayloadSha256);
+        int approvalCountBeforeMissingGrant;
+        int approvalOutboxCountBeforeMissingGrant;
+        using (var db = GetDbContext())
+        {
+            approvalCountBeforeMissingGrant = await db.SensitiveApprovalRequests.CountAsync();
+            approvalOutboxCountBeforeMissingGrant = await db.CentralOutboxMessages.CountAsync(x => x.EventType == "approval.requested");
+        }
+        var missingGrantResponse = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
         {
             OperationType = "LICENSE_REVOKE",
             TargetEntityId = licenseId,
             TargetPayloadSha256 = targetPayloadSha256,
             ActionScope = "license.revoke",
-            StepUpSessionId = Guid.NewGuid(),
-            ValidityMinutes = 60
+            StepUpGrantId = Guid.NewGuid()
+        });
+        Assert.Equal(HttpStatusCode.Forbidden, missingGrantResponse.StatusCode);
+        Assert.Equal("STEP_UP_REQUIRED", (await ReadJsonAsync(missingGrantResponse))["code"]?.GetValue<string>());
+        using (var db = GetDbContext())
+        {
+            Assert.Equal(approvalCountBeforeMissingGrant, await db.SensitiveApprovalRequests.CountAsync());
+            Assert.Equal(approvalOutboxCountBeforeMissingGrant, await db.CentralOutboxMessages.CountAsync(x => x.EventType == "approval.requested"));
+        }
+        var reqApprovalRes = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new
+        {
+            operationType = "LICENSE_REVOKE",
+            targetEntityId = licenseId,
+            targetPayloadSha256,
+            actionScope = "license.revoke",
+            stepUpGrantId = initialApprovalGrant,
+            stepUpSessionId = Guid.NewGuid(),
+            validityMinutes = 1
         });
         Assert.Equal(HttpStatusCode.OK, reqApprovalRes.StatusCode);
         var approvalJson = await ReadJsonAsync(reqApprovalRes);
         var approvalId = Guid.Parse(approvalJson["id"]!.GetValue<string>());
+        using (var db = GetDbContext())
+        {
+            var persisted = await db.SensitiveApprovalRequests.FindAsync(approvalId);
+            Assert.Equal(admin1SessionId, persisted!.StepUpSessionId);
+            Assert.Equal(TimeSpan.FromSeconds(3600), persisted.ExpiresAtUtc - persisted.RequestedAtUtc);
+        }
+
+        var replayedStepUp = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new
+        {
+            operationType = "LICENSE_REVOKE",
+            targetEntityId = licenseId,
+            targetPayloadSha256,
+            actionScope = "license.revoke",
+            stepUpGrantId = initialApprovalGrant
+        });
+        Assert.Equal(HttpStatusCode.Forbidden, replayedStepUp.StatusCode);
+        Assert.Equal("STEP_UP_REQUIRED", (await ReadJsonAsync(replayedStepUp))["code"]?.GetValue<string>());
 
         // Self-approval rejection
         var selfApproveRes = await adminClient1.PostAsJsonAsync($"/api/lifecycle/v1/sensitive-approvals/{approvalId}/decide", new DecideSensitiveApprovalCommand
@@ -1685,14 +2871,16 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
 
         async Task<Guid> RequestAndApproveAsync(string opType)
         {
+            var digest = new string('0', 64);
+            var scope = opType.ToLowerInvariant();
+            var stepUpGrant = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, scope, digest);
             var reqRes = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
             {
                 OperationType = opType,
                 TargetEntityId = licenseId,
-                TargetPayloadSha256 = new string('0', 64),
-                ActionScope = opType.ToLowerInvariant(),
-                StepUpSessionId = Guid.NewGuid(),
-                ValidityMinutes = 60
+                TargetPayloadSha256 = digest,
+                ActionScope = scope,
+                StepUpGrantId = stepUpGrant
             });
             var json = await ReadJsonAsync(reqRes);
             var id = Guid.Parse(json["id"]!.GetValue<string>());
@@ -1784,14 +2972,14 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var canonicalEffectiveAt = DateTimeOffset.UtcNow.AddSeconds(-1);
         var canonicalPayload = new { licenseId, effectiveAtUtc = canonicalEffectiveAt, capabilityPolicyId };
         var canonicalPayloadHash = _serializer.SerializeAndHash(canonicalPayload).Sha256Hex;
+        var canonicalStepUpGrant = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "license.pause", canonicalPayloadHash);
         var canonicalApprovalResponse = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
         {
             OperationType = "LICENSE_PAUSE",
             TargetEntityId = licenseId,
             TargetPayloadSha256 = canonicalPayloadHash,
             ActionScope = "license.pause",
-            StepUpSessionId = admin1SessionId,
-            ValidityMinutes = 60
+            StepUpGrantId = canonicalStepUpGrant
         });
         Assert.Equal(HttpStatusCode.OK, canonicalApprovalResponse.StatusCode);
         var canonicalApprovalId = Guid.Parse((await ReadJsonAsync(canonicalApprovalResponse))["id"]!.GetValue<string>());
@@ -1885,14 +3073,14 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var resumeEffectiveAt = DateTimeOffset.UtcNow.AddSeconds(-1);
         var resumePayload = new { licenseId, effectiveAtUtc = resumeEffectiveAt, capabilityPolicyId };
         var resumePayloadHash = _serializer.SerializeAndHash(resumePayload).Sha256Hex;
+        var resumeStepUpGrant = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "license.resume", resumePayloadHash);
         var resumeApprovalResponse = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
         {
             OperationType = "LICENSE_RESUME",
             TargetEntityId = licenseId,
             TargetPayloadSha256 = resumePayloadHash,
             ActionScope = "license.resume",
-            StepUpSessionId = admin1SessionId,
-            ValidityMinutes = 60
+            StepUpGrantId = resumeStepUpGrant
         });
         var resumeApprovalId = Guid.Parse((await ReadJsonAsync(resumeApprovalResponse))["id"]!.GetValue<string>());
         var resumeDecisionResponse = await adminClient2.PostAsJsonAsync($"/api/lifecycle/v1/sensitive-approvals/{resumeApprovalId}/decide", new DecideSensitiveApprovalCommand
@@ -1935,14 +3123,14 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             var payload = new { licenseId, effectiveAtUtc = effectiveAt, capabilityPolicyId };
             var digest = _serializer.SerializeAndHash(payload).Sha256Hex;
             var approvalType = operationType.Replace('.', '_').ToUpperInvariant();
+            var stepUpGrant = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, operationType, digest);
             var approvalResponse = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new RequestSensitiveApprovalRequest
             {
                 OperationType = approvalType,
                 TargetEntityId = licenseId,
                 TargetPayloadSha256 = digest,
                 ActionScope = operationType,
-                StepUpSessionId = admin1SessionId,
-                ValidityMinutes = 60
+                StepUpGrantId = stepUpGrant
             });
             Assert.Equal(HttpStatusCode.OK, approvalResponse.StatusCode);
             var approvalId = Guid.Parse((await ReadJsonAsync(approvalResponse))["id"]!.GetValue<string>());
@@ -2067,7 +3255,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         {
             ApprovedOrderId = orderId,
             ValidFromUtc = DateTimeOffset.UtcNow,
-            CommandMeta = CreateMeta()
+            CommandMeta = CreateMeta("license.issue")
         })))["id"]!.GetValue<string>());
 
         // Journey 1: Rejects offline grace period less than 24 hours (86400 seconds)
@@ -2254,6 +3442,11 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         var order = Order.CreateFromSnapshot(snapshot, customer.Id, now);
         order.ApprovePayment(Guid.NewGuid(), Guid.NewGuid(), now);
         var license = CommercialLicense.Issue(order, now, null, now);
+        var capabilityPolicyId = Guid.NewGuid();
+        var enforcementPolicy = ShopEnforcementPolicy.Create(
+            shop.Id, license.Id, 1, ShopEnforcementPolicy.FullStop, null, Guid.NewGuid(),
+            86400, 86400, 300, capabilityPolicyId, "{}", "synthetic-development-signature",
+            "synthetic-development-key", Guid.NewGuid(), now);
         using (var db = GetDbContext())
         {
             db.Customers.Add(customer);
@@ -2262,6 +3455,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             db.PricingSnapshots.Add(snapshot);
             db.Orders.Add(order);
             db.CommercialLicenses.Add(license);
+            db.ShopEnforcementPolicies.Add(enforcementPolicy);
             await db.SaveChangesAsync();
         }
 
@@ -2282,6 +3476,8 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
         Assert.Equal(shop.Id.ToString("D"), item["shopId"]!.GetValue<string>());
         Assert.Equal(license.Status, item["status"]!.GetValue<string>());
         Assert.Equal(license.AuthorityRevision, item["authorityRevision"]!.GetValue<int>());
+        Assert.Equal(capabilityPolicyId.ToString("D"), item["capabilityPolicyId"]!.GetValue<string>());
+        Assert.Equal(1, item["policyVersion"]!.GetValue<int>());
         Assert.Null(item["contactEmail"]);
         Assert.DoesNotContain("example.invalid", responseBody, StringComparison.Ordinal);
 

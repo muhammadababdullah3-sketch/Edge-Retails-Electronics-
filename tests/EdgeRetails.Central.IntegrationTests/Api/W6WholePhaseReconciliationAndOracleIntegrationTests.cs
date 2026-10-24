@@ -91,6 +91,26 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
         return publicKey;
     }
 
+    private object ReconcileEnvelope(ReconcileCommandDto payload, Guid? operationId = null, int? expectedVersionOverride = null)
+    {
+        var expectedVersion = expectedVersionOverride;
+        if (!expectedVersion.HasValue)
+        {
+            using var db = GetDbContext();
+            expectedVersion = db.Installations.AsNoTracking().Where(x => x.Id == payload.InstallationId).Select(x => x.RowVersion).Single();
+        }
+        return new
+        {
+            meta = new CommandMetaDto
+            {
+                ClientOperationId = operationId ?? Guid.NewGuid(), OperationType = "installation.reconcile", FingerprintVersion = 1,
+                PayloadSha256 = _serializer.SerializeAndHash(payload).Sha256Hex, ExpectedVersion = expectedVersion.Value, PolicyVersion = 1,
+                Reason = "Synthetic installation reconciliation fixture"
+            },
+            payload
+        };
+    }
+
     private void AddInstallationProof(HttpRequestMessage request, Guid installationId, Guid shopId, Guid licenseId, string publicKeyPem)
     {
         Environment.SetEnvironmentVariable("CENTRAL_INSTALLATION_PROOF_WINDOW_SECONDS", "120"); // labelled synthetic integration fixture
@@ -119,6 +139,51 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
         request.Headers.Add("X-Installation-Timestamp", timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture));
         request.Headers.Add("X-Installation-Nonce", nonce.ToString("D"));
         request.Headers.Add("X-Installation-Signature", Convert.ToBase64String(signature));
+    }
+
+    private async Task AddSignedPolicyFixtureAsync(Guid shopId, Guid licenseId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var policyPayload = new
+        {
+            shopId,
+            licenseId,
+            policyVersion = 1,
+            enforcementMode = ShopEnforcementPolicy.FullStop,
+            extensionEndUtc = (DateTimeOffset?)null,
+            afterExtensionPolicyId = Guid.NewGuid(),
+            leaseDurationSeconds = 5_400,
+            offlineGraceSeconds = 86_400,
+            rollbackToleranceSeconds = 300,
+            capabilityPolicyId = Guid.NewGuid()
+        };
+        var (canonicalJson, digest) = _serializer.SerializeAndHash(policyPayload);
+        using var scope = _factory.Services.CreateScope();
+        var signer = scope.ServiceProvider.GetRequiredService<IProtectedSignerClient>();
+        var key = await signer.EnsureActiveKeyAsync(EdgeRetails.Central.Domain.Signing.SigningPurpose.License);
+        var signingRequest = new SigningRequestDto
+        {
+            SigningRequestId = Guid.NewGuid(),
+            IssuanceRequestId = licenseId,
+            PayloadSha256 = digest,
+            AuthorityRevision = 1,
+            KeyId = key.KeyId,
+            KeyVersion = key.KeyVersion,
+            Purpose = EdgeRetails.Central.Domain.Signing.SigningPurpose.License,
+            CanonicalPayload = canonicalJson
+        };
+        var authority = scope.ServiceProvider.GetRequiredService<IProtectedSigningEngine>();
+        await authority.AuthorizeTestRequestAsync(signingRequest);
+        var signed = await signer.SignAsync(signingRequest);
+
+        using var db = GetDbContext();
+        db.ShopEnforcementPolicies.Add(ShopEnforcementPolicy.Create(
+            shopId, licenseId, 1, ShopEnforcementPolicy.FullStop, null,
+            policyPayload.afterExtensionPolicyId, policyPayload.leaseDurationSeconds,
+            policyPayload.offlineGraceSeconds, policyPayload.rollbackToleranceSeconds,
+            policyPayload.capabilityPolicyId, canonicalJson, signed.Signature, key.KeyId,
+            Guid.NewGuid(), now));
+        await db.SaveChangesAsync();
     }
 
     [Fact]
@@ -193,6 +258,8 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             await db.SaveChangesAsync();
         }
 
+        await AddSignedPolicyFixtureAsync(shopId, licenseId);
+
         // Reconcile and verify signed entitlement envelope claims
         var reconcileCommand = new ReconcileCommandDto
         {
@@ -204,7 +271,7 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileCommand) };
+        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(reconcileCommand)) };
         AddInstallationProof(reconcileRequest, installationId, shopId, licenseId, pubKeyPem);
         var response = await _client.SendAsync(reconcileRequest);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -546,6 +613,8 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             await db.SaveChangesAsync();
         }
 
+        await AddSignedPolicyFixtureAsync(shopId, licenseId);
+
         // Initial Reconcile
         var reconcileCmd = new ReconcileCommandDto
         {
@@ -557,7 +626,8 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileCmd) };
+        var reconcileEnvelope = ReconcileEnvelope(reconcileCmd);
+        using var reconcileRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(reconcileEnvelope) };
         AddInstallationProof(reconcileRequest, installationId, shopId, licenseId, pubKeyPem);
         var response1 = await _client.SendAsync(reconcileRequest);
         Assert.Equal(HttpStatusCode.OK, response1.StatusCode);
@@ -569,10 +639,10 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
         // Proof must cover canonical request-body bytes as well as identity, route, and method.
         using var alteredBodyRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile")
         {
-            Content = System.Net.Http.Json.JsonContent.Create(reconcileCmd)
+            Content = System.Net.Http.Json.JsonContent.Create(reconcileEnvelope)
         };
         AddInstallationProof(alteredBodyRequest, installationId, shopId, licenseId, pubKeyPem);
-        alteredBodyRequest.Content = System.Net.Http.Json.JsonContent.Create(new ReconcileCommandDto
+        alteredBodyRequest.Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(new ReconcileCommandDto
         {
             InstallationId = installationId,
             CertificateId = certificateId,
@@ -580,7 +650,7 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             HardwareFingerprintHash = hardwareFingerprint,
             ApplicationVersion = "tampered-after-signing",
             LastVerifiedVendorTimeUtc = now
-        });
+        }));
         using var alteredBodyResponse = await _client.SendAsync(alteredBodyRequest);
         Assert.Equal(HttpStatusCode.Unauthorized, alteredBodyResponse.StatusCode);
 
@@ -595,7 +665,7 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             LastVerifiedVendorTimeUtc = now
         };
 
-        using var tamperedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(tamperedCmd) };
+        using var tamperedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/licensing/v1/reconcile") { Content = System.Net.Http.Json.JsonContent.Create(ReconcileEnvelope(tamperedCmd)) };
         AddInstallationProof(tamperedRequest, installationId, shopId, licenseId, pubKeyPem);
         var responseTampered = await _client.SendAsync(tamperedRequest);
         Assert.Equal(HttpStatusCode.BadRequest, responseTampered.StatusCode);
@@ -611,7 +681,7 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
             LastVerifiedVendorTimeUtc = now
         };
 
-        var responseUnregistered = await _client.PostAsJsonAsync("/api/licensing/v1/reconcile", unregisteredCmd);
+        var responseUnregistered = await _client.PostAsJsonAsync("/api/licensing/v1/reconcile", ReconcileEnvelope(unregisteredCmd, expectedVersionOverride: 1));
         Assert.Equal(HttpStatusCode.Unauthorized, responseUnregistered.StatusCode);
     }
 

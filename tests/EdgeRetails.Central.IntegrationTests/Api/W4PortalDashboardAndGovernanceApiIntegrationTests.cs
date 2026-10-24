@@ -4,12 +4,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using EdgeRetails.Central.Api.Middleware;
+using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Domain.Audit;
 using EdgeRetails.Central.Domain.Commercial;
 using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Domain.Licensing;
 using EdgeRetails.Central.Domain.Support;
+using EdgeRetails.Central.Domain.Storage;
 using EdgeRetails.Central.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -252,7 +254,7 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
     public async Task CONE_T21_Authoritative_Metrics_And_Customer360_EndToEnd()
     {
         RateLimitingMiddleware.Reset();
-        var (_, dashboardSession) = await CreateTestAdminAndSessionAsync("dashboard_admin", new[] { AdminCapabilities.AdminManage, "dashboard.view", "queues.view" });
+        var (_, dashboardSession) = await CreateTestAdminAndSessionAsync("dashboard_admin", new[] { AdminCapabilities.AdminManage, "dashboard.view", "queues.view", "payment.review" });
         using var client = CreateSessionClient(dashboardSession.Id);
         var now = DateTimeOffset.UtcNow;
         var customerId = Guid.NewGuid();
@@ -261,6 +263,18 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
         var fixedTermLicenseId = Guid.NewGuid();
         var queueMarker = $"Queue page {Guid.NewGuid():N}";
         var queueTicketIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var paymentProofId = Guid.NewGuid();
+        var paymentProofOrderId = Guid.Empty;
+        var paymentProofBytes = Encoding.UTF8.GetBytes("SYNTHETIC_ENCRYPTED_PAYMENT_PROOF_FIXTURE_V1");
+        var paymentProofDigest = Convert.ToHexStringLower(SHA256.HashData(paymentProofBytes));
+        var paymentProofStoragePath = $"fixture/{Guid.NewGuid():N}.bin";
+        var paymentStorageRoot = Environment.GetEnvironmentVariable("CENTRAL_PAYMENT_STORAGE_ROOT");
+        Assert.False(string.IsNullOrWhiteSpace(paymentStorageRoot), "The owned payment-storage fixture root must be configured.");
+        var paymentProofFile = Path.GetFullPath(Path.Combine(paymentStorageRoot!, paymentProofStoragePath.Replace('/', Path.DirectorySeparatorChar)));
+        var paymentRootFullPath = Path.GetFullPath(paymentStorageRoot!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        Assert.StartsWith(paymentRootFullPath + Path.DirectorySeparatorChar, paymentProofFile, StringComparison.OrdinalIgnoreCase);
+        Directory.CreateDirectory(Path.GetDirectoryName(paymentProofFile)!);
+        await File.WriteAllBytesAsync(paymentProofFile, paymentProofBytes);
 
         using (var db = GetDbContext())
         {
@@ -276,8 +290,19 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
             db.PricingSnapshots.Add(snapshotLifetime);
 
             var orderLifetime = Order.CreateFromSnapshot(snapshotLifetime, customerId, now);
+            paymentProofOrderId = orderLifetime.Id;
             typeof(Order).GetProperty("Status")!.SetValue(orderLifetime, Order.StatusPaidApproved);
             db.Orders.Add(orderLifetime);
+
+            var proofSession = UploadSession.Create(UploadSession.PurposePaymentProof, shopId, Guid.NewGuid(), orderLifetime.Id,
+                paymentProofBytes.Length, paymentProofDigest, paymentProofStoragePath, now.AddHours(1), now,
+                "application/octet-stream", Guid.NewGuid());
+            proofSession.AppendChunk(paymentProofBytes.Length);
+            proofSession.FinalizeUpload(paymentProofDigest);
+            var paymentProof = PaymentEvidence.CreateFromSession(proofSession, orderLifetime.Id, "application/octet-stream", now);
+            typeof(PaymentEvidence).GetProperty("Id")!.SetValue(paymentProof, paymentProofId);
+            db.UploadSessions.Add(proofSession);
+            db.PaymentEvidences.Add(paymentProof);
 
             var lifetimeLicense = CommercialLicense.Issue(orderLifetime, now, null, now);
             typeof(CommercialLicense).GetProperty("Id")!.SetValue(lifetimeLicense, lifetimeLicenseId);
@@ -320,6 +345,12 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
         Assert.True(metrics["expiringAddonsCount"]?.GetValue<int>() >= 1);
         Assert.True(metrics["expiringFixedTermBasesCount"]?.GetValue<int>() >= 1);
 
+        using var contractDashboardResponse = await client.GetAsync("/api/admin/v1/dashboard");
+        Assert.Equal(HttpStatusCode.OK, contractDashboardResponse.StatusCode);
+        var contractDashboard = await ReadJsonAsync(contractDashboardResponse);
+        Assert.True(JsonNode.DeepEquals(metrics, contractDashboard));
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/admin/v1/dashboard?unsupported=1")).StatusCode);
+
         // Query Customer 360 for this shop
         var customer360Response = await client.GetAsync($"/api/admin/v1/dashboard/customer360/{shopId}");
         Assert.Equal(HttpStatusCode.OK, customer360Response.StatusCode);
@@ -353,6 +384,29 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/admin/v1/queues/SUPPORT_INBOX?page=1")).StatusCode);
         using var deniedQueueClient = await CreateSessionClientAsync(new[] { "dashboard.view" });
         Assert.Equal(HttpStatusCode.Forbidden, (await deniedQueueClient.GetAsync("/api/admin/v1/queues/SUPPORT_INBOX")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await deniedQueueClient.GetAsync("/api/admin/v1/dashboard")).StatusCode);
+
+        using var queueOnlyClient = await CreateSessionClientAsync(new[] { "queues.view" });
+        Assert.Equal(HttpStatusCode.OK, (await queueOnlyClient.GetAsync("/api/admin/v1/queues/SUPPORT_INBOX")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await queueOnlyClient.GetAsync("/api/admin/v1/dashboard")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await queueOnlyClient.GetAsync($"/api/admin/v1/dashboard/customer360/{shopId}")).StatusCode);
+
+        // Payment reviewers receive the persisted order relationship and proof revision needed
+        // to submit the canonical payment.review command; read-only capabilities do not get it.
+        using var paymentQueueResponse = await client.GetAsync("/api/admin/v1/queues/PAYMENT_REVIEW?pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, paymentQueueResponse.StatusCode);
+        var paymentQueue = await ReadJsonAsync(paymentQueueResponse);
+        var proofQueueItem = paymentQueue["items"]!.AsArray().Single(x => x!["entityId"]!.GetValue<string>() == paymentProofId.ToString("D"));
+        Assert.Equal(paymentProofOrderId.ToString("D"), proofQueueItem!["orderId"]!.GetValue<string>());
+        Assert.Equal(1, proofQueueItem["resourceVersion"]!.GetValue<int>());
+        using var paymentQueueViewer = await CreateSessionClientAsync(new[] { "queues.view" });
+        using var viewerPaymentQueueResponse = await paymentQueueViewer.GetAsync("/api/admin/v1/queues/PAYMENT_REVIEW?pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, viewerPaymentQueueResponse.StatusCode);
+        var viewerPaymentQueue = await ReadJsonAsync(viewerPaymentQueueResponse);
+        var viewerProof = viewerPaymentQueue["items"]!.AsArray().Single(x => x!["entityId"]!.GetValue<string>() == paymentProofId.ToString("D"));
+        Assert.Null(viewerProof!["orderId"]);
+        Assert.Null(viewerProof["resourceVersion"]);
     }
 
     [Fact]
@@ -541,6 +595,300 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
             Assert.NotNull(unmaskAudit);
             Assert.Equal("Court-ordered compliance investigation audit reference #994", unmaskAudit.Reason);
             Assert.Equal(deciderUser.Id.ToString(), unmaskAudit.ActorId);
+        }
+    }
+
+    [Fact]
+    public async Task CanonicalSensitiveApproval_Decide_BindsPersistedRequestAndReturnsReplayableOutcome()
+    {
+        RateLimitingMiddleware.Reset();
+        var approvalCapabilities = new[] { "sensitive.approve" };
+        var (requester, _) = await CreateTestAdminAndSessionAsync("canonical_approval_requester", approvalCapabilities);
+        var (approver, approverSession) = await CreateTestAdminAndSessionAsync("canonical_approval_approver", approvalCapabilities);
+        var (_, noCapabilitySession) = await CreateTestAdminAndSessionAsync("canonical_approval_denied", Array.Empty<string>());
+        var requestId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var targetDigest = new string('a', 64);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
+        using (var db = GetDbContext())
+        {
+            var approval = SensitiveApprovalRequest.Request(
+                "COMMERCIAL_POLICY_CHANGE", targetId, targetDigest, requester.Id, "policy.change",
+                Guid.NewGuid(), DateTimeOffset.UtcNow, expiresAt);
+            typeof(SensitiveApprovalRequest).GetProperty("Id")!.SetValue(approval, requestId);
+            db.SensitiveApprovalRequests.Add(approval);
+            await db.SaveChangesAsync();
+        }
+
+        var serializer = new CanonicalJsonSerializer();
+        var payload = new CanonicalSensitiveApprovalDecisionPayload
+        {
+            TargetActionType = "COMMERCIAL_POLICY_CHANGE",
+            TargetId = targetId,
+            TargetPayloadSha256 = targetDigest,
+            RequesterAdminId = requester.Id,
+            ApproverAdminId = approver.Id,
+            ExpiresAtUtc = expiresAt,
+            Decision = "APPROVE"
+        };
+        var operationId = Guid.NewGuid();
+        HttpRequestMessage CreateDecisionRequest(Guid sessionId, CanonicalSensitiveApprovalDecisionPayload submitted, Guid clientOperationId) =>
+            new(HttpMethod.Post, $"/api/admin/v1/sensitive-approvals/{requestId:D}/decide")
+            {
+                Content = JsonContent.Create(new
+                {
+                    meta = new
+                    {
+                        clientOperationId,
+                        operationType = "sensitive.approve",
+                        fingerprintVersion = 1,
+                        payloadSha256 = serializer.SerializeAndHash(submitted).Sha256Hex,
+                        expectedVersion = 1,
+                        policyVersion = 0,
+                        reason = "synthetic independent approval fixture",
+                        sensitiveApprovalId = requestId
+                    },
+                    payload = submitted
+                })
+            };
+
+        using (var denied = CreateDecisionRequest(noCapabilitySession.Id, payload, Guid.NewGuid()))
+        {
+            denied.Headers.Add("X-Session-Id", noCapabilitySession.Id.ToString());
+            denied.Headers.Add("Origin", "https://localhost");
+            var deniedResponse = await _client.SendAsync(denied);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
+        }
+
+        using (var db = GetDbContext())
+        {
+            Assert.Equal(SensitiveApprovalRequest.StatusPending,
+                (await db.SensitiveApprovalRequests.SingleAsync(item => item.Id == requestId)).Status);
+        }
+
+        var forgedPayload = new CanonicalSensitiveApprovalDecisionPayload
+        {
+            TargetActionType = payload.TargetActionType,
+            TargetId = payload.TargetId,
+            TargetPayloadSha256 = payload.TargetPayloadSha256,
+            RequesterAdminId = Guid.NewGuid(),
+            ApproverAdminId = approver.Id,
+            ExpiresAtUtc = expiresAt,
+            Decision = "APPROVE"
+        };
+        using (var forged = CreateDecisionRequest(approverSession.Id, forgedPayload, Guid.NewGuid()))
+        {
+            forged.Headers.Add("X-Session-Id", approverSession.Id.ToString());
+            forged.Headers.Add("Origin", "https://localhost");
+            var forgedResponse = await _client.SendAsync(forged);
+            Assert.Equal(HttpStatusCode.BadRequest, forgedResponse.StatusCode);
+        }
+
+        using var accepted = CreateDecisionRequest(approverSession.Id, payload, operationId);
+        accepted.Headers.Add("X-Session-Id", approverSession.Id.ToString());
+        accepted.Headers.Add("Origin", "https://localhost");
+        var acceptedResponse = await _client.SendAsync(accepted);
+        Assert.True(acceptedResponse.StatusCode == HttpStatusCode.OK,
+            $"Expected canonical decision success; received {(int)acceptedResponse.StatusCode}: {await acceptedResponse.Content.ReadAsStringAsync()}");
+        var outcome = await ReadJsonAsync(acceptedResponse);
+        Assert.Equal("sensitive.approve", outcome["operationType"]?.GetValue<string>());
+        Assert.Equal("SUCCEEDED", outcome["state"]?.GetValue<string>());
+        Assert.Equal(operationId, outcome["clientOperationId"]?.GetValue<Guid>());
+
+        using var replay = CreateDecisionRequest(approverSession.Id, payload, operationId);
+        replay.Headers.Add("X-Session-Id", approverSession.Id.ToString());
+        replay.Headers.Add("Origin", "https://localhost");
+        var replayResponse = await _client.SendAsync(replay);
+        Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+        var replayOutcome = await ReadJsonAsync(replayResponse);
+        Assert.Equal(outcome["outcomeId"]?.GetValue<Guid>(), replayOutcome["outcomeId"]?.GetValue<Guid>());
+
+        var stalePayload = new CanonicalSensitiveApprovalDecisionPayload
+        {
+            TargetActionType = payload.TargetActionType,
+            TargetId = payload.TargetId,
+            TargetPayloadSha256 = payload.TargetPayloadSha256,
+            RequesterAdminId = payload.RequesterAdminId,
+            ApproverAdminId = payload.ApproverAdminId,
+            ExpiresAtUtc = payload.ExpiresAtUtc,
+            Decision = "REJECT"
+        };
+        using var stale = CreateDecisionRequest(approverSession.Id, stalePayload, Guid.NewGuid());
+        stale.Headers.Add("X-Session-Id", approverSession.Id.ToString());
+        stale.Headers.Add("Origin", "https://localhost");
+        var staleResponse = await _client.SendAsync(stale);
+        Assert.Equal(HttpStatusCode.Conflict, staleResponse.StatusCode);
+
+        using (var db = GetDbContext())
+        {
+            var persisted = await db.SensitiveApprovalRequests.SingleAsync(item => item.Id == requestId);
+            Assert.Equal(SensitiveApprovalRequest.StatusApproved, persisted.Status);
+            Assert.Equal(approver.Id, persisted.ApproverAdminId);
+            Assert.Equal(2, persisted.RowVersion);
+        }
+    }
+
+    [Fact]
+    public async Task SensitiveApprovalQueue_ExposesDecisionEnvelopeOnlyToApprovers_AndSupportsPersistedDecision()
+    {
+        RateLimitingMiddleware.Reset();
+        var requesterCapabilities = new[] { "queues.view", "sensitive.approve" };
+        var approverCapabilities = new[] { "queues.view", "sensitive.approve" };
+        var viewerCapabilities = new[] { "queues.view" };
+        var (requester, _) = await CreateTestAdminAndSessionAsync("approval_queue_requester", requesterCapabilities);
+        var (approver, approverSession) = await CreateTestAdminAndSessionAsync("approval_queue_approver", approverCapabilities);
+        var (_, viewerSession) = await CreateTestAdminAndSessionAsync("approval_queue_viewer", viewerCapabilities);
+        var requestId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var targetDigest = new string('b', 64);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(20);
+
+        using (var db = GetDbContext())
+        {
+            var request = SensitiveApprovalRequest.Request(
+                "COMMERCIAL_POLICY_CHANGE", targetId, targetDigest, requester.Id, "policy.change",
+                Guid.NewGuid(), DateTimeOffset.UtcNow, expiresAt);
+            typeof(SensitiveApprovalRequest).GetProperty("Id")!.SetValue(request, requestId);
+            db.SensitiveApprovalRequests.Add(request);
+            await db.SaveChangesAsync();
+        }
+
+        using var viewer = CreateSessionClient(viewerSession.Id);
+        var viewerResponse = await viewer.GetAsync("/api/admin/v1/queues/DUAL_APPROVAL?pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, viewerResponse.StatusCode);
+        var viewerPage = await ReadJsonAsync(viewerResponse);
+        var redacted = viewerPage["items"]!.AsArray().Single(item => item!["entityId"]!.GetValue<Guid>() == requestId)!;
+        Assert.Null(redacted["approvalRequesterAdminId"]);
+        Assert.Null(redacted["approvalTargetActionType"]);
+        Assert.Null(redacted["approvalTargetId"]);
+        Assert.Null(redacted["approvalTargetPayloadSha256"]);
+        Assert.Null(redacted["approvalExpiresAtUtc"]);
+
+        using var approverClient = CreateSessionClient(approverSession.Id);
+        var approverResponse = await approverClient.GetAsync("/api/admin/v1/queues/DUAL_APPROVAL?pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, approverResponse.StatusCode);
+        var approverPage = await ReadJsonAsync(approverResponse);
+        var item = approverPage["items"]!.AsArray().Single(value => value!["entityId"]!.GetValue<Guid>() == requestId)!;
+        Assert.Equal(requester.Id, item["approvalRequesterAdminId"]!.GetValue<Guid>());
+        Assert.Equal("COMMERCIAL_POLICY_CHANGE", item["approvalTargetActionType"]!.GetValue<string>());
+        Assert.Equal(targetId, item["approvalTargetId"]!.GetValue<Guid>());
+        Assert.Equal(targetDigest, item["approvalTargetPayloadSha256"]!.GetValue<string>());
+        Assert.True(Math.Abs((expiresAt - item["approvalExpiresAtUtc"]!.GetValue<DateTimeOffset>()).Ticks) <= TimeSpan.TicksPerMicrosecond);
+        Assert.Equal(1, item["resourceVersion"]!.GetValue<int>());
+
+        var payload = new CanonicalSensitiveApprovalDecisionPayload
+        {
+            TargetActionType = item["approvalTargetActionType"]!.GetValue<string>(),
+            TargetId = item["approvalTargetId"]!.GetValue<Guid>(),
+            TargetPayloadSha256 = item["approvalTargetPayloadSha256"]!.GetValue<string>(),
+            RequesterAdminId = item["approvalRequesterAdminId"]!.GetValue<Guid>(),
+            ApproverAdminId = approver.Id,
+            ExpiresAtUtc = item["approvalExpiresAtUtc"]!.GetValue<DateTimeOffset>(),
+            Decision = "APPROVE"
+        };
+        var serializer = new CanonicalJsonSerializer();
+        var operationId = Guid.NewGuid();
+        using var decision = new HttpRequestMessage(HttpMethod.Post, $"/api/admin/v1/sensitive-approvals/{requestId:D}/decide")
+        {
+            Content = JsonContent.Create(new
+            {
+                meta = new
+                {
+                    clientOperationId = operationId,
+                    operationType = "sensitive.approve",
+                    fingerprintVersion = 1,
+                    payloadSha256 = serializer.SerializeAndHash(payload).Sha256Hex,
+                    expectedVersion = item["resourceVersion"]!.GetValue<int>(),
+                    policyVersion = 0,
+                    reason = "Synthetic independent approval queue test",
+                    sensitiveApprovalId = requestId
+                },
+                payload
+            })
+        };
+        decision.Headers.Add("Origin", "https://localhost");
+        var decisionResponse = await approverClient.SendAsync(decision);
+        Assert.Equal(HttpStatusCode.OK, decisionResponse.StatusCode);
+        var outcome = await ReadJsonAsync(decisionResponse);
+        Assert.Equal("SUCCEEDED", outcome["state"]?.GetValue<string>());
+        Assert.Equal(operationId, outcome["clientOperationId"]?.GetValue<Guid>());
+
+        using (var db = GetDbContext())
+        {
+            var persisted = await db.SensitiveApprovalRequests.SingleAsync(value => value.Id == requestId);
+            Assert.Equal(SensitiveApprovalRequest.StatusApproved, persisted.Status);
+            Assert.Equal(approver.Id, persisted.ApproverAdminId);
+            Assert.Equal(2, persisted.RowVersion);
+            Assert.True(await db.CentralOperationRecords.AnyAsync(value => value.ClientOperationId == operationId));
+            Assert.True(await db.CentralOutboxMessages.AnyAsync(value => value.Id == operationId && value.EventType == "approval.decided"));
+            Assert.True(await db.CentralAuditRecords.AnyAsync(value => value.ResourceId == requestId.ToString("D") && value.Action == "SENSITIVE_APPROVAL_DECIDED"));
+        }
+    }
+
+    [Fact]
+    public async Task CanonicalSensitiveApproval_Decide_RejectsWithPersistedOutcome()
+    {
+        RateLimitingMiddleware.Reset();
+        var capabilities = new[] { "sensitive.approve" };
+        var (requester, _) = await CreateTestAdminAndSessionAsync("canonical_reject_requester", capabilities);
+        var (approver, approverSession) = await CreateTestAdminAndSessionAsync("canonical_reject_approver", capabilities);
+        var requestId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var targetDigest = new string('b', 64);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
+        using (var db = GetDbContext())
+        {
+            var approval = SensitiveApprovalRequest.Request(
+                "COMMERCIAL_POLICY_CHANGE", targetId, targetDigest, requester.Id, "policy.change",
+                Guid.NewGuid(), DateTimeOffset.UtcNow, expiresAt);
+            typeof(SensitiveApprovalRequest).GetProperty("Id")!.SetValue(approval, requestId);
+            db.SensitiveApprovalRequests.Add(approval);
+            await db.SaveChangesAsync();
+        }
+
+        var serializer = new CanonicalJsonSerializer();
+        var payload = new CanonicalSensitiveApprovalDecisionPayload
+        {
+            TargetActionType = "COMMERCIAL_POLICY_CHANGE",
+            TargetId = targetId,
+            TargetPayloadSha256 = targetDigest,
+            RequesterAdminId = requester.Id,
+            ApproverAdminId = approver.Id,
+            ExpiresAtUtc = expiresAt,
+            Decision = "REJECT"
+        };
+        var clientOperationId = Guid.NewGuid();
+        using var decision = new HttpRequestMessage(HttpMethod.Post, $"/api/admin/v1/sensitive-approvals/{requestId:D}/decide")
+        {
+            Content = JsonContent.Create(new
+            {
+                meta = new
+                {
+                    clientOperationId,
+                    operationType = "sensitive.approve",
+                    fingerprintVersion = 1,
+                    payloadSha256 = serializer.SerializeAndHash(payload).Sha256Hex,
+                    expectedVersion = 1,
+                    policyVersion = 0,
+                    reason = "synthetic rejection fixture"
+                },
+                payload
+            })
+        };
+        decision.Headers.Add("X-Session-Id", approverSession.Id.ToString());
+        decision.Headers.Add("Origin", "https://localhost");
+        var response = await _client.SendAsync(decision);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var outcome = await ReadJsonAsync(response);
+        Assert.Equal("sensitive.approve", outcome["operationType"]?.GetValue<string>());
+        Assert.Equal("SUCCEEDED", outcome["state"]?.GetValue<string>());
+
+        using (var db = GetDbContext())
+        {
+            var persisted = await db.SensitiveApprovalRequests.SingleAsync(item => item.Id == requestId);
+            Assert.Equal(SensitiveApprovalRequest.StatusRejected, persisted.Status);
+            Assert.Equal(approver.Id, persisted.ApproverAdminId);
+            Assert.Equal(2, persisted.RowVersion);
         }
     }
 }

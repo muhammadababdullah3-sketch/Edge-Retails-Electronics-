@@ -52,7 +52,31 @@ public sealed class DirectoryController(ICentralDbContext db) : ControllerBase
             })
             .SingleOrDefaultAsync(ct);
         if (row is null) { return NotFound(new { code = "LICENSE_NOT_FOUND" }); }
-        return Ok(Page(new[] { row }, null, row.ResourceVersion, 1));
+        var policy = await db.ShopEnforcementPolicies.AsNoTracking()
+            .Where(x => x.ShopId == row.ShopId && x.LicenseId == row.Id)
+            .OrderByDescending(x => x.PolicyVersion)
+            .ThenByDescending(x => x.CreatedAtUtc)
+            .Select(x => new { x.CapabilityPolicyId, x.PolicyVersion })
+            .FirstOrDefaultAsync(ct);
+        return Ok(Page(new[]
+        {
+            new
+            {
+                row.Id,
+                row.ShopId,
+                row.CustomerId,
+                row.InitialOrderId,
+                row.TermKind,
+                row.ValidFromUtc,
+                row.ValidUntilUtc,
+                row.Status,
+                row.AuthorityRevision,
+                row.PrimaryCapacity,
+                row.ResourceVersion,
+                CapabilityPolicyId = policy?.CapabilityPolicyId,
+                PolicyVersion = policy?.PolicyVersion
+            }
+        }, null, row.ResourceVersion, 1));
     }
 
     [HttpGet("search")]

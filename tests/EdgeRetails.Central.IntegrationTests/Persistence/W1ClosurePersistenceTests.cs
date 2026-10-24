@@ -83,6 +83,24 @@ public sealed class W1ClosurePersistenceTests
         }
     }
     [Fact]
+    public async Task RuntimeRole_ConnectionAttestation_RejectsInheritedOrElevatedPrivilege()
+    {
+        await using var db = Open();
+        var expectPrivilegeDenial = string.Equals(
+            Environment.GetEnvironmentVariable("CENTRAL_TEST_EXPECT_PRIVILEGED_ROLE_REJECTION"),
+            "1",
+            StringComparison.Ordinal);
+        if (expectPrivilegeDenial)
+        {
+            var error = await Assert.ThrowsAsync<DatabaseTargetGuardException>(() => db.Database.OpenConnectionAsync());
+            Assert.Equal("RUNTIME_ROLE_PRIVILEGE_ESCALATION", error.ViolationCode);
+            return;
+        }
+
+        await db.Database.OpenConnectionAsync();
+        Assert.True(db.Database.GetDbConnection().State == System.Data.ConnectionState.Open);
+    }
+    [Fact]
     public async Task Ledger_PostWriteFailure_RollsBackDomainOutcomeAuditOutbox_InFreshContext()
     {
         var userId = Guid.Empty; var operation = Guid.NewGuid(); var message = Guid.NewGuid();

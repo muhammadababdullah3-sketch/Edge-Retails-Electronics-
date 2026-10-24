@@ -8,22 +8,24 @@ namespace EdgeRetails.Central.Application.Services;
 
 public class StepUpService : IStepUpService
 {
-    private static readonly TimeSpan StepUpLifetime = TimeSpan.FromMinutes(5);
-
     private readonly ICentralDbContext _dbContext;
     private readonly ITotpService _totpService;
+    private readonly AdminAuthenticationPolicy _policy;
 
     public StepUpService(
         ICentralDbContext dbContext,
-        ITotpService totpService)
+        ITotpService totpService,
+        AdminAuthenticationPolicy policy)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _totpService = totpService ?? throw new ArgumentNullException(nameof(totpService));
+        _policy = policy ?? throw new ArgumentNullException(nameof(policy));
     }
 
     public async Task<StepUpGrantDto> VerifyAndGrantStepUpAsync(StepUpRequestDto request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        _policy.EnsureConfigured();
         var now = DateTimeOffset.UtcNow;
 
         var session = await _dbContext.AdminSessions
@@ -61,7 +63,7 @@ public class StepUpService : IStepUpService
             targetPayloadSha256: request.TargetPayloadSha256,
             challengeId: request.ChallengeId,
             createdAtUtc: now,
-            validity: StepUpLifetime);
+            validity: _policy.StepUpGrantLifetime!.Value);
 
         _dbContext.StepUpGrants.Add(grant);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -82,6 +84,11 @@ public class StepUpService : IStepUpService
         string targetPayloadSha256,
         CancellationToken cancellationToken = default)
     {
+        if (!_policy.IsConfigured)
+        {
+            return false;
+        }
+
         var now = DateTimeOffset.UtcNow;
 
         var grant = await _dbContext.StepUpGrants
@@ -106,6 +113,11 @@ public class StepUpService : IStepUpService
         Guid? grantId = null,
         CancellationToken cancellationToken = default)
     {
+        if (!_policy.IsConfigured)
+        {
+            return false;
+        }
+
         var now = DateTimeOffset.UtcNow;
 
         await using var transaction = await SecurityTransaction.BeginAsync(_dbContext, "central-admin-authority", cancellationToken);

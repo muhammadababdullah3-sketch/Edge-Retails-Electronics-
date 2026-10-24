@@ -598,6 +598,7 @@ public class CentralDbContext : DbContext, ICentralDbContext
             b.Property(e => e.TargetPayloadSha256).HasMaxLength(64).IsRequired();
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
             b.Property(e => e.ActionScope).HasMaxLength(64).IsRequired();
+            b.Property(e => e.RequestReason).HasMaxLength(500).IsRequired();
             b.Property(e => e.RowVersion).IsConcurrencyToken();
 
             b.HasIndex(e => new { e.TargetEntityId, e.OperationType });

@@ -22,8 +22,9 @@ public class AdminAuthUnitTests : IDisposable
             .Options;
 
         _dbContext = new CentralDbContext(options);
-        _authService = new AdminAuthService(_dbContext, _passwordHasher, _totpService);
-        _stepUpService = new StepUpService(_dbContext, _totpService);
+        var policy = AdminAuthenticationPolicy.FromValues("300", "900", "28800", "300");
+        _authService = new AdminAuthService(_dbContext, _passwordHasher, _totpService, policy);
+        _stepUpService = new StepUpService(_dbContext, _totpService, policy);
     }
 
     [Fact]
@@ -46,12 +47,49 @@ public class AdminAuthUnitTests : IDisposable
             PasswordOrProviderAssertion = "AdminPass#123"
         };
 
+        var beforeChallenge = DateTimeOffset.UtcNow;
         var challenge = await _authService.StartLoginAsync(request);
+        var afterChallenge = DateTimeOffset.UtcNow;
 
         Assert.NotNull(challenge);
         Assert.Equal("MFA_CHALLENGE", challenge.Kind);
         Assert.False(challenge.BusinessAuthority);
         Assert.NotEqual(Guid.Empty, challenge.ChallengeId);
+        Assert.InRange(challenge.ExpiresAtUtc, beforeChallenge.AddMinutes(5), afterChallenge.AddMinutes(5));
+    }
+
+    [Fact]
+    public async Task StartLogin_MissingOrInvalidLifetimeConfiguration_FailsClosedBeforePersistence()
+    {
+        var policy = AdminAuthenticationPolicy.FromValues("300", "0", "28800", "invalid");
+        Assert.False(policy.IsConfigured);
+
+        var service = new AdminAuthService(_dbContext, _passwordHasher, _totpService, policy);
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            service.StartLoginAsync(new LoginRequestDto
+            {
+                Username = "no-admin-needed-before-policy-check",
+                PasswordOrProviderAssertion = "synthetic"
+            }));
+
+        Assert.Equal("AUTH_POLICY_NOT_CONFIGURED", exception.Code);
+        Assert.Empty(await _dbContext.LoginChallenges.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AuthenticationPolicy_UsesOnlyExplicitPositiveIntegerSeconds()
+    {
+        var valid = AdminAuthenticationPolicy.FromValues("300", "900", "28800", "300");
+        Assert.True(valid.IsConfigured);
+        Assert.Equal(TimeSpan.FromMinutes(5), valid.LoginChallengeLifetime);
+        Assert.Equal(TimeSpan.FromMinutes(15), valid.SessionIdleTimeout);
+        Assert.Equal(TimeSpan.FromHours(8), valid.SessionAbsoluteLifetime);
+        Assert.Equal(TimeSpan.FromMinutes(5), valid.StepUpGrantLifetime);
+
+        Assert.False(AdminAuthenticationPolicy.FromValues("", "900", "28800", "300").IsConfigured);
+        Assert.False(AdminAuthenticationPolicy.FromValues("300", "-1", "28800", "300").IsConfigured);
+        Assert.False(AdminAuthenticationPolicy.FromValues("300", "900", "28800", "0").IsConfigured);
+        Assert.False(AdminAuthenticationPolicy.FromValues("300.0", "900", "28800", "300").IsConfigured);
     }
 
     [Fact]
@@ -103,6 +141,7 @@ public class AdminAuthUnitTests : IDisposable
         await _dbContext.SaveChangesAsync();
 
         var validCode = _totpService.GenerateCode(totpSecret, now);
+        var beforeSession = DateTimeOffset.UtcNow;
         var mfaRequest = new MfaRequestDto
         {
             LoginChallengeId = challenge.Id,
@@ -110,11 +149,98 @@ public class AdminAuthUnitTests : IDisposable
         };
 
         var session = await _authService.CompleteMfaAsync(mfaRequest);
+        var afterSession = DateTimeOffset.UtcNow;
 
         Assert.NotNull(session);
         Assert.Equal("AUTHENTICATED", session.Kind);
         Assert.True(session.MfaSatisfied);
         Assert.Contains(AdminCapabilities.AdminManage, session.Capabilities);
+        Assert.InRange(session.ExpiresAtUtc, beforeSession.AddMinutes(15), afterSession.AddMinutes(15));
+        Assert.InRange(session.AbsoluteExpiresAtUtc, beforeSession.AddHours(8), afterSession.AddHours(8));
+    }
+
+    [Fact]
+    public async Task CompleteMfa_WrongProof_RecordsFailureAndDoesNotCreateSession()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var totpSecret = _totpService.GenerateSecret();
+        var user = AdminUser.Create(
+            "admin_wrong_mfa",
+            _passwordHasher.HashPassword("Pass#123"),
+            "salt",
+            totpSecret,
+            true,
+            now);
+        var challenge = LoginChallenge.Create(user.Id, now, TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(user);
+        _dbContext.LoginChallenges.Add(challenge);
+        await _dbContext.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _authService.CompleteMfaAsync(new MfaRequestDto
+            {
+                LoginChallengeId = challenge.Id,
+                Proof = "ABCDEF"
+            }));
+
+        Assert.Equal("INVALID_MFA_PROOF", exception.Code);
+        Assert.Equal(1, (await _dbContext.LoginChallenges.SingleAsync()).FailedAttempts);
+        Assert.Empty(await _dbContext.AdminSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CompleteMfa_ExpiredChallenge_IsRejectedWithoutCreatingSession()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = AdminUser.Create(
+            "admin_expired_mfa",
+            _passwordHasher.HashPassword("Pass#123"),
+            "salt",
+            _totpService.GenerateSecret(),
+            true,
+            now);
+        var challenge = LoginChallenge.Create(user.Id, now.AddMinutes(-6), TimeSpan.FromMinutes(5));
+        _dbContext.AdminUsers.Add(user);
+        _dbContext.LoginChallenges.Add(challenge);
+        await _dbContext.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _authService.CompleteMfaAsync(new MfaRequestDto
+            {
+                LoginChallengeId = challenge.Id,
+                Proof = "000000"
+            }));
+
+        Assert.Equal("INVALID_CHALLENGE", exception.Code);
+        Assert.Empty(await _dbContext.AdminSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CompleteMfa_ConsumedChallengeReplay_IsRejectedWithoutCreatingSession()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = AdminUser.Create(
+            "admin_replayed_mfa",
+            _passwordHasher.HashPassword("Pass#123"),
+            "salt",
+            _totpService.GenerateSecret(),
+            true,
+            now);
+        var challenge = LoginChallenge.Create(user.Id, now, TimeSpan.FromMinutes(5));
+        challenge.Consume(now);
+        _dbContext.AdminUsers.Add(user);
+        _dbContext.LoginChallenges.Add(challenge);
+        await _dbContext.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _authService.CompleteMfaAsync(new MfaRequestDto
+            {
+                LoginChallengeId = challenge.Id,
+                Proof = "000000"
+            }));
+
+        Assert.Equal("INVALID_CHALLENGE", exception.Code);
+        Assert.Empty(await _dbContext.AdminSessions.ToListAsync());
     }
 
     [Fact]
@@ -176,6 +302,7 @@ public class AdminAuthUnitTests : IDisposable
         const string actionScope = "admin.user.disable";
         const string payloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
+        var beforeGrant = DateTimeOffset.UtcNow;
         var grantDto = await _stepUpService.VerifyAndGrantStepUpAsync(new StepUpRequestDto
         {
             SessionId = session.Id,
@@ -184,9 +311,11 @@ public class AdminAuthUnitTests : IDisposable
             Proof = proof,
             ChallengeId = Guid.NewGuid()
         });
+        var afterGrant = DateTimeOffset.UtcNow;
 
         Assert.NotNull(grantDto);
         Assert.Equal(session.Id, grantDto.SessionId);
+        Assert.InRange(grantDto.ExpiresAtUtc, beforeGrant.AddMinutes(5), afterGrant.AddMinutes(5));
 
         // Validation succeeds for matching scope and hash
         var isValid = await _stepUpService.ValidateStepUpGrantAsync(session.Id, actionScope, payloadHash);

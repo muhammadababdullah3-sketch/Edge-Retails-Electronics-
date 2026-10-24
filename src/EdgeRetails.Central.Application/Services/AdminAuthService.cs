@@ -9,27 +9,27 @@ namespace EdgeRetails.Central.Application.Services;
 
 public class AdminAuthService : IAdminAuthService
 {
-    private static readonly TimeSpan ChallengeLifetime = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(15);
-    private static readonly TimeSpan AbsoluteLifetime = TimeSpan.FromHours(8);
-
     private readonly ICentralDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ITotpService _totpService;
+    private readonly AdminAuthenticationPolicy _policy;
 
     public AdminAuthService(
         ICentralDbContext dbContext,
         IPasswordHasher passwordHasher,
-        ITotpService totpService)
+        ITotpService totpService,
+        AdminAuthenticationPolicy policy)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _totpService = totpService ?? throw new ArgumentNullException(nameof(totpService));
+        _policy = policy ?? throw new ArgumentNullException(nameof(policy));
     }
 
     public async Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        _policy.EnsureConfigured();
         var now = DateTimeOffset.UtcNow;
 
         var user = await _dbContext.AdminUsers
@@ -52,7 +52,7 @@ public class AdminAuthService : IAdminAuthService
                 "Invalid username or password.");
         }
 
-        var challenge = LoginChallenge.Create(user.Id, now, ChallengeLifetime);
+        var challenge = LoginChallenge.Create(user.Id, now, _policy.LoginChallengeLifetime!.Value);
         _dbContext.LoginChallenges.Add(challenge);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -66,6 +66,7 @@ public class AdminAuthService : IAdminAuthService
     public async Task<AdminSessionDto> CompleteMfaAsync(MfaRequestDto request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        _policy.EnsureConfigured();
         var now = DateTimeOffset.UtcNow;
 
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, "central-admin-authority", cancellationToken);
@@ -139,8 +140,8 @@ public class AdminAuthService : IAdminAuthService
             adminUserId: user.Id,
             tokenHash: tokenHash,
             createdAtUtc: now,
-            idleTimeout: IdleTimeout,
-            absoluteLifetime: AbsoluteLifetime,
+            idleTimeout: _policy.SessionIdleTimeout!.Value,
+            absoluteLifetime: _policy.SessionAbsoluteLifetime!.Value,
             mfaSatisfied: true,
             securityRevision: user.SecurityRevision,
             capabilities: capabilities);
@@ -165,6 +166,11 @@ public class AdminAuthService : IAdminAuthService
 
     public async Task<AdminSessionDto?> ValidateSessionAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
+        if (!_policy.IsConfigured)
+        {
+            return null;
+        }
+
         await using var transaction = await SecurityTransaction.BeginAsync(_dbContext, "central-admin-authority", cancellationToken);
         var now = DateTimeOffset.UtcNow;
 
@@ -187,7 +193,7 @@ public class AdminAuthService : IAdminAuthService
             return null;
         }
 
-        session.Touch(now, IdleTimeout);
+        session.Touch(now, _policy.SessionIdleTimeout!.Value);
         await _dbContext.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {

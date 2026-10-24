@@ -165,6 +165,87 @@
       },
       "required": []
     },
+    "BackupMetadataQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,4}|100000)$"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "asOfVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": []
+    },
+    "BackupMetadataItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "shopId": { "type": "string", "format": "uuid" },
+        "contentLength": { "type": "integer", "minimum": 1 },
+        "ciphertextSha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "createdAtUtc": { "type": "string", "format": "date-time" },
+        "retentionUntilUtc": { "type": ["string", "null"], "format": "date-time" },
+        "isUnderLegalHold": { "type": "boolean" },
+        "isTombstoned": { "type": "boolean" },
+        "tombstonedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "resourceVersion": { "type": "integer", "minimum": 1 }
+      },
+      "required": [
+        "id", "shopId", "contentLength", "ciphertextSha256", "createdAtUtc",
+        "retentionUntilUtc", "isUnderLegalHold", "isTombstoned", "tombstonedAtUtc", "resourceVersion"
+      ]
+    },
+    "BackupMetadataPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/BackupMetadataItem" } },
+        "nextCursor": { "type": ["string", "null"] },
+        "asOfVersion": { "type": "integer", "minimum": 0 },
+        "authorizedCount": { "type": "integer", "minimum": 0 },
+        "projectionRevision": { "type": "integer", "minimum": 0 },
+        "isTruncated": { "type": "boolean" }
+      },
+      "required": ["items", "nextCursor", "asOfVersion", "authorizedCount", "projectionRevision", "isTruncated"]
+    },
+    "DashboardMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activeShopsCount": { "type": "integer", "minimum": 0 },
+        "lifetimeBaseCount": { "type": "integer", "minimum": 0 },
+        "fixedTermBaseCount": { "type": "integer", "minimum": 0 },
+        "expiringAddonsCount": { "type": "integer", "minimum": 0 },
+        "expiringFixedTermBasesCount": { "type": "integer", "minimum": 0 },
+        "pendingOrdersCount": { "type": "integer", "minimum": 0 },
+        "pendingEvidenceReviewsCount": { "type": "integer", "minimum": 0 },
+        "pendingHardwareReviewsCount": { "type": "integer", "minimum": 0 },
+        "pendingApprovalsCount": { "type": "integer", "minimum": 0 },
+        "openSupportTicketsCount": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "activeShopsCount",
+        "lifetimeBaseCount",
+        "fixedTermBaseCount",
+        "expiringAddonsCount",
+        "expiringFixedTermBasesCount",
+        "pendingOrdersCount",
+        "pendingEvidenceReviewsCount",
+        "pendingHardwareReviewsCount",
+        "pendingApprovalsCount",
+        "openSupportTicketsCount"
+      ]
+    },
     "Page": {
       "type": "object",
       "additionalProperties": false,

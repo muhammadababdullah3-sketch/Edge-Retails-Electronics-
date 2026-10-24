@@ -12,14 +12,23 @@ public interface ISensitiveLifecycleService
         string targetPayloadSha256,
         string actionScope,
         Guid requesterAdminId,
-        Guid stepUpSessionId,
-        TimeSpan validity,
-        CancellationToken cancellationToken = default);
+        Guid requesterSessionId,
+        Guid stepUpGrantId,
+        CancellationToken cancellationToken = default,
+        string requestReason = "");
 
     Task DecideApprovalAsync(
         Guid requestId,
         DecideSensitiveApprovalCommand command,
         Guid approverAdminId,
+        CancellationToken cancellationToken = default);
+
+    Task<OutcomeDto> DecideApprovalCanonicalAsync(
+        Guid requestId,
+        CanonicalSensitiveApprovalDecisionPayload payload,
+        CanonicalDirectoryMeta meta,
+        Guid approverAdminId,
+        Guid? adminSessionId,
         CancellationToken cancellationToken = default);
 
     Task PauseLicenseAsync(Guid licenseId, LicenseLifecycleCommand command, Guid adminId, CancellationToken cancellationToken = default);

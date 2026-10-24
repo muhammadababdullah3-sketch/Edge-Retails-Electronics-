@@ -298,6 +298,58 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
         Assert.Equal("INVALID_QUEUE_TYPE", ex.Code);
     }
 
+    [Fact]
+    public async Task CONE_T21_HardwareReviewQueue_ExposesPersistedResourceVersion()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var shop = Shop.Create(Guid.NewGuid(), "HW_QUEUE_VERSION", "Hardware Queue Version", now);
+        var installationId = Guid.NewGuid();
+        var review = HardwareReview.Create(
+            shop.Id,
+            installationId,
+            "reported-fingerprint-v2",
+            "stored-fingerprint-v1",
+            "hardware discrepancy",
+            now);
+        _dbContext.Shops.Add(shop);
+        _dbContext.HardwareReviews.Add(review);
+        await _dbContext.SaveChangesAsync();
+
+        var queue = await _service.GetDashboardQueueAsync("HARDWARE_REVIEW");
+
+        var item = Assert.Single(queue);
+        Assert.Equal(review.Id, item.EntityId);
+        Assert.Equal(shop.Id, item.ShopId);
+        Assert.Equal(review.RowVersion, item.ResourceVersion);
+    }
+
+    [Fact]
+    public async Task CONE_T21_PrimaryTransferQueue_ShowsActiveCasesAndPersistedVersionOnly()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var shop = Shop.Create(Guid.NewGuid(), "TRANSFER_QUEUE", "Transfer Queue", now);
+        var initiator = Guid.NewGuid();
+        var pending = PrimaryTransfer.Initiate(shop.Id, Guid.NewGuid(), Guid.NewGuid(), "pending transfer", initiator, now);
+        var approved = PrimaryTransfer.Initiate(shop.Id, Guid.NewGuid(), Guid.NewGuid(), "approved transfer", initiator, now.AddMinutes(1));
+        approved.Approve(Guid.NewGuid(), Guid.NewGuid());
+        var completed = PrimaryTransfer.Initiate(shop.Id, Guid.NewGuid(), Guid.NewGuid(), "completed transfer", initiator, now.AddMinutes(2));
+        completed.Approve(Guid.NewGuid(), Guid.NewGuid());
+        completed.Complete(now.AddMinutes(3));
+        var rejected = PrimaryTransfer.Initiate(shop.Id, Guid.NewGuid(), Guid.NewGuid(), "rejected transfer", initiator, now.AddMinutes(4));
+        rejected.Reject(Guid.NewGuid());
+        _dbContext.Shops.Add(shop);
+        _dbContext.PrimaryTransfers.AddRange(pending, approved, completed, rejected);
+        await _dbContext.SaveChangesAsync();
+
+        var queue = await _service.GetDashboardQueueAsync("PRIMARY_TRANSFER");
+
+        Assert.Equal(2, queue.Count);
+        Assert.Contains(queue, item => item.EntityId == pending.Id && item.Status == PrimaryTransfer.StatusPendingApproval && item.ResourceVersion == pending.RowVersion);
+        Assert.Contains(queue, item => item.EntityId == approved.Id && item.Status == PrimaryTransfer.StatusApproved && item.ResourceVersion == approved.RowVersion);
+        Assert.DoesNotContain(queue, item => item.EntityId == completed.Id || item.EntityId == rejected.Id);
+        Assert.All(queue, item => Assert.Equal(shop.Id, item.ShopId));
+    }
+
     // ==========================================
     // CONE-T22: Action Consequence Preview
     // ==========================================
@@ -379,6 +431,48 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
         {
             Environment.SetEnvironmentVariable("CENTRAL_DUAL_APPROVAL_ACTIONS", previousApprovalMatrix);
         }
+    }
+
+    [Fact]
+    public async Task CONE_T22_ActionPreview_RejectsUnsupportedActionAndMissingPersistedIdentity()
+    {
+        var unsupported = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _service.PreviewActionAsync(new ActionPreviewRequestDto
+            {
+                ActionType = "UNSUPPORTED_ACTION",
+                ShopId = Guid.NewGuid(),
+                TargetEntityId = Guid.NewGuid()
+            }));
+        Assert.Equal("UNSUPPORTED_ACTION", unsupported.Code);
+
+        var missingTarget = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _service.PreviewActionAsync(new ActionPreviewRequestDto
+            {
+                ActionType = "REVOKE_LICENSE",
+                ShopId = Guid.NewGuid(),
+                TargetEntityId = Guid.Empty
+            }));
+        Assert.Equal("INVALID_PREVIEW_TARGET", missingTarget.Code);
+    }
+
+    [Fact]
+    public async Task CONE_T22_ActionPreview_RejectsLicenseTargetOutsideRequestedShop()
+    {
+        var owningShop = Shop.Create(Guid.NewGuid(), "OWNER_PREVIEW", "Owner preview", DateTimeOffset.UtcNow);
+        var otherShop = Shop.Create(Guid.NewGuid(), "OTHER_PREVIEW", "Other preview", DateTimeOffset.UtcNow);
+        _dbContext.Shops.AddRange(owningShop, otherShop);
+        var license = SeedPreviewLicense(owningShop);
+        await _dbContext.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<CentralDomainException>(() =>
+            _service.PreviewActionAsync(new ActionPreviewRequestDto
+            {
+                ActionType = "REVOKE_LICENSE",
+                ShopId = otherShop.Id,
+                TargetEntityId = license.Id
+            }));
+
+        Assert.Equal("TARGET_SHOP_MISMATCH", exception.Code);
     }
 
     private CommercialLicense SeedPreviewLicense(Shop shop)

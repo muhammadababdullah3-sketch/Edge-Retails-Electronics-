@@ -32,6 +32,7 @@ public class Customer360Dto
     public string Status { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
     public CommercialLicenseSummaryDto? CommercialLicense { get; set; }
+    public List<CommercialLicenseSummaryDto> CommercialLicenses { get; set; } = new();
     public List<CommercialEntitlementSummaryDto> Addons { get; set; } = new();
     public List<InstallationSummaryDto> Installations { get; set; } = new();
     public List<OrderSummaryDto> RecentOrders { get; set; } = new();
@@ -55,6 +56,7 @@ public class CommercialEntitlementSummaryDto
     public string Kind { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTimeOffset? ValidUntilUtc { get; set; }
+    public int RowVersion { get; set; }
     public bool IsActive => string.Equals(Status, "ACTIVE", StringComparison.OrdinalIgnoreCase);
     public bool IsExpiringSoon { get; set; }
 }
@@ -75,6 +77,10 @@ public class OrderSummaryDto
     public string PurchaseTarget { get; set; } = string.Empty;
     public string TermKind { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public int RowVersion { get; set; }
+    public Guid? BaseLicenseId { get; set; }
+    public Guid? ExistingEntitlementId { get; set; }
+    public Guid? IssuedLicenseId { get; set; }
     public decimal TotalAmount { get; set; }
     public string Currency { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
@@ -100,11 +106,19 @@ public class QueueItemDto
     public Guid EntityId { get; set; }
     public string QueueType { get; set; } = string.Empty;
     public Guid ShopId { get; set; }
+    public Guid? OrderId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
     public string? ReasonOrSummary { get; set; }
     public bool RequiresDualApproval { get; set; }
+    public int? ResourceVersion { get; set; }
+    public int? ValidationSnapshotVersion { get; set; }
+    public Guid? ApprovalRequesterAdminId { get; set; }
+    public string? ApprovalTargetActionType { get; set; }
+    public Guid? ApprovalTargetId { get; set; }
+    public string? ApprovalTargetPayloadSha256 { get; set; }
+    public DateTimeOffset? ApprovalExpiresAtUtc { get; set; }
 }
 
 public class ActionPreviewRequestDto

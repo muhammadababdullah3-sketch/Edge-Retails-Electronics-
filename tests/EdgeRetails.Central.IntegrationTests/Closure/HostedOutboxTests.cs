@@ -91,10 +91,10 @@ public sealed class HostedOutboxTests
         return sessionId;
     }
 
-    private static async Task WaitFor(Func<CentralDbContext, Task<bool>> predicate)
+    private static async Task WaitFor(Func<CentralDbContext, Task<bool>> predicate, TimeSpan? timeout = null)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        while (!timeout.IsCancellationRequested)
+        using var cancellation = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(15));
+        while (!cancellation.IsCancellationRequested)
         {
             await using var db = Open();
             if (await predicate(db))
@@ -102,7 +102,7 @@ public sealed class HostedOutboxTests
                 return;
             }
 
-            await Task.Delay(50, timeout.Token);
+            await Task.Delay(50, cancellation.Token);
         }
         throw new TimeoutException("Expected durable worker effect was not observed.");
     }
@@ -225,8 +225,13 @@ public sealed class HostedOutboxTests
         var good = await Seed();
         await using var host = new Host(poison);
         using var client = host.CreateClient();
-        await WaitFor(db => db.CentralOutboxMessages.AnyAsync(m => m.Id == poison && m.Status == OutboxStatus.DEAD_LETTER));
-        await WaitFor(db => db.AdminNotifications.AnyAsync(n => n.Id == good));
+        // This host shares the test database with other integration classes. A backlog of
+        // legitimate earlier outbox work can delay these two rows without indicating that
+        // poison retries block the later notification. Keep the assertions unchanged and
+        // allow the bounded worker to drain that backlog before declaring a failure.
+        var backlogBound = TimeSpan.FromSeconds(60);
+        await WaitFor(db => db.CentralOutboxMessages.AnyAsync(m => m.Id == poison && m.Status == OutboxStatus.DEAD_LETTER), backlogBound);
+        await WaitFor(db => db.AdminNotifications.AnyAsync(n => n.Id == good), backlogBound);
         await using var verify = Open();
         var failed = await verify.CentralOutboxMessages.SingleAsync(m => m.Id == poison);
         Assert.Equal(2, failed.RetryCount);

@@ -11,6 +11,7 @@ using EdgeRetails.Central.Domain.Licensing;
 using EdgeRetails.Central.Domain.Storage;
 using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Domain.Support;
+using EdgeRetails.Central.Domain.Operations;
 using EdgeRetails.Central.Application.Abstractions;
 using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Infrastructure.Persistence;
@@ -30,7 +31,10 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
 
     public W3StorageAndSupportApiIntegrationTests(WebApplicationFactory<Program> factory)
     {
-        Environment.SetEnvironmentVariable("CENTRAL_OBJECT_STORAGE_ROOT", Path.Combine(AppContext.BaseDirectory, "test-artifacts", "central-object-store"));
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CENTRAL_OBJECT_STORAGE_ROOT")))
+        {
+            Environment.SetEnvironmentVariable("CENTRAL_OBJECT_STORAGE_ROOT", Path.Combine(AppContext.BaseDirectory, "test-artifacts", "central-object-store"));
+        }
         _factory = factory;
         _client = factory.CreateDefaultClient();
         _client.BaseAddress = new Uri("https://localhost");
@@ -97,7 +101,10 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         return JsonNode.Parse(content) ?? throw new InvalidOperationException("Failed to parse JSON response: " + content);
     }
 
-    private async Task<HttpClient> CreateSupportAdminClientAsync(bool includeSupportView = true)
+    private async Task<HttpClient> CreateSupportAdminClientAsync(
+        bool includeSupportView = true,
+        bool includeSupportCreate = true,
+        bool includeSupportReply = true)
     {
         const string password = "AdminPassword#123";
         var username = $"support_admin_{Guid.NewGuid():N}";
@@ -107,9 +114,10 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         using (var db = GetDbContext())
         {
             var user = AdminUser.Create(username, hasher.HashPassword(password), "salt", secret, true, DateTimeOffset.UtcNow);
-            var capabilities = includeSupportView
-                ? new[] { "support.create", "support.reply", "support.view" }
-                : new[] { "support.create", "support.reply" };
+            var capabilities = new List<string>();
+            if (includeSupportCreate) { capabilities.Add("support.create"); }
+            if (includeSupportReply) { capabilities.Add("support.reply"); }
+            if (includeSupportView) { capabilities.Add("support.view"); }
             var role = AdminRole.Create($"support_role_{Guid.NewGuid():N}", "Support", capabilities);
             db.AdminUsers.Add(user);
             db.AdminRoles.Add(role);
@@ -482,6 +490,13 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
     {
         RateLimitingMiddleware.Reset();
         var adminClient = await CreateSupportAdminClientAsync();
+        var forgedRequesterId = Guid.NewGuid();
+        var forgedAuthorId = Guid.NewGuid();
+        var forgedShopId = Guid.NewGuid();
+        adminClient.DefaultRequestHeaders.Add("X-Requester-Principal-Id", forgedRequesterId.ToString("D"));
+        adminClient.DefaultRequestHeaders.Add("X-Author-Id", forgedAuthorId.ToString("D"));
+        adminClient.DefaultRequestHeaders.Add("X-Admin-Role", "OWNER");
+        adminClient.DefaultRequestHeaders.Add("X-Shop-Id", forgedShopId.ToString("D"));
         using var database = GetDbContext();
         var shopId = Guid.NewGuid();
 
@@ -502,7 +517,8 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
 
         // 1. Create Ticket
         var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/support/v1/tickets");
-        createRequest.Headers.Add("X-Client-Operation-Id", Guid.NewGuid().ToString());
+        var createOperationId = Guid.NewGuid();
+        createRequest.Headers.Add("X-Client-Operation-Id", createOperationId.ToString());
         createRequest.Content = JsonContent.Create(new TicketDto
         {
             ShopId = shopId,
@@ -598,15 +614,44 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         {
             var ticket = await db.SupportTickets.FirstOrDefaultAsync(t => t.Id == ticketId);
             Assert.NotNull(ticket);
+            Assert.Equal(shopId, ticket.ShopId);
+            Assert.NotEqual(forgedShopId, ticket.ShopId);
+            Assert.NotEqual(forgedRequesterId, ticket.RequesterPrincipalId);
+            Assert.True(await db.AdminUsers.AnyAsync(x => x.Id == ticket.RequesterPrincipalId));
             Assert.Contains(attachmentId.ToString("D"), ticket.AttachmentObjectIdsJson);
             Assert.Equal(SupportTicket.StatusInProgress, ticket.Status);
             Assert.Contains(ticket.RequesterPrincipalId.ToString("D"), ticket.RepliesJson);
             using var events = JsonDocument.Parse(ticket.RepliesJson);
             Assert.Equal(2, events.RootElement.GetArrayLength());
             Assert.Equal(SupportReplyDto.KindMessage, events.RootElement[0].GetProperty("Kind").GetString());
+            Assert.Equal(ticket.RequesterPrincipalId.ToString("D"), events.RootElement[0].GetProperty("Author").GetString());
+            Assert.NotEqual(forgedAuthorId.ToString("D"), events.RootElement[0].GetProperty("Author").GetString());
             Assert.Equal(SupportReplyDto.KindStatusChanged, events.RootElement[1].GetProperty("Kind").GetString());
             Assert.NotEqual(Guid.Empty, Guid.Parse(events.RootElement[1].GetProperty("Author").GetString()!));
+            Assert.Equal(3, await db.CentralOutboxMessages.CountAsync(x => x.Id == createOperationId || x.Id == replyOperationId || x.AggregateId == ticketId.ToString("D")));
+            Assert.Equal(3, await db.CentralAuditRecords.CountAsync(x => x.ResourceId == ticketId.ToString("D")));
         }
+
+        // Recreate the API host and use the persisted session cookie to prove the ticket, reply and
+        // status history are reconstructed from durable Central storage rather than host memory.
+        using var restartedFactory = _factory.WithWebHostBuilder(_ => { });
+        using var restartedClient = restartedFactory.CreateDefaultClient();
+        restartedClient.BaseAddress = new Uri("https://localhost");
+        restartedClient.DefaultRequestHeaders.Add("Cookie", adminClient.DefaultRequestHeaders.GetValues("Cookie").Single());
+        restartedClient.DefaultRequestHeaders.Add("Origin", "https://localhost");
+        using var restartedViewResponse = await restartedClient.GetAsync("/api/admin/v1/support/tickets?cursor=0&pageSize=10");
+        Assert.Equal(HttpStatusCode.OK, restartedViewResponse.StatusCode);
+        var restartedView = await ReadJsonAsync(restartedViewResponse);
+        var persistedTicket = restartedView["items"]!.AsArray().SingleOrDefault(item =>
+            item!["id"]!.GetValue<string>() == ticketId.ToString("D"));
+        Assert.NotNull(persistedTicket);
+        Assert.Equal("Backup sync inquiry", persistedTicket!["subject"]!.GetValue<string>());
+        Assert.Equal(SupportTicket.StatusInProgress, persistedTicket["status"]!.GetValue<string>());
+        using var restartedHistory = JsonDocument.Parse(persistedTicket["repliesJson"]!.GetValue<string>());
+        Assert.Equal(2, restartedHistory.RootElement.GetArrayLength());
+        Assert.Equal("We checked your network configuration and observed transient upstream packet drop.",
+            restartedHistory.RootElement[0].GetProperty("Text").GetString());
+        Assert.Equal(SupportReplyDto.KindStatusChanged, restartedHistory.RootElement[1].GetProperty("Kind").GetString());
     }
 
     [Fact]
@@ -755,6 +800,107 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         Assert.Equal(SupportReplyDto.KindAssignmentChanged, events.RootElement[2].GetProperty("Kind").GetString());
         Assert.Equal(4, await readDb.CentralOutboxMessages.CountAsync(x => operationIds.Contains(x.Id)));
         Assert.Equal(4, await readDb.CentralAuditRecords.CountAsync(x => x.ResourceId == ticketId.ToString("D")));
+    }
+
+    [Fact]
+    public async Task CONE_T18_SupportCreateAndReply_RequireTheirExactPersistedCapabilities()
+    {
+        RateLimitingMiddleware.Reset();
+        var shop = Shop.Create(Guid.NewGuid(), $"SC_{Guid.NewGuid():N}"[..10], "Support capability shop", DateTimeOffset.UtcNow);
+        await using (var seed = GetDbContext())
+        {
+            seed.Shops.Add(shop);
+            await seed.SaveChangesAsync();
+        }
+
+        var subject = $"Support create capability {Guid.NewGuid():N}";
+        var deniedCreatePayload = new
+        {
+            shopId = shop.Id,
+            subject,
+            summary = "A caller without support.create must not persist a ticket.",
+            attachmentObjectIds = Array.Empty<Guid>(),
+            redactionProfileVersion = 1
+        };
+        var deniedCreateOperationId = Guid.NewGuid();
+        var deniedCreateClient = await CreateSupportAdminClientAsync(includeSupportCreate: false);
+        using (var deniedCreate = await deniedCreateClient.PostAsJsonAsync("/api/admin/v1/support/tickets", new
+        {
+            meta = new
+            {
+                clientOperationId = deniedCreateOperationId,
+                operationType = "support.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(deniedCreatePayload).Sha256Hex,
+                expectedVersion = 0,
+                policyVersion = 0,
+                reason = "Denied support.create capability fixture"
+            },
+            payload = deniedCreatePayload
+        }))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, deniedCreate.StatusCode);
+        }
+
+        var creator = await CreateSupportAdminClientAsync();
+        var createdPayload = new
+        {
+            shopId = shop.Id,
+            subject,
+            summary = "A capable administrator creates the persisted support ticket.",
+            attachmentObjectIds = Array.Empty<Guid>(),
+            redactionProfileVersion = 1
+        };
+        var createOperationId = Guid.NewGuid();
+        using var createdResponse = await creator.PostAsJsonAsync("/api/admin/v1/support/tickets", new
+        {
+            meta = new
+            {
+                clientOperationId = createOperationId,
+                operationType = "support.create",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(createdPayload).Sha256Hex,
+                expectedVersion = 0,
+                policyVersion = 0,
+                reason = "Authorized support.create fixture"
+            },
+            payload = createdPayload
+        });
+        Assert.Equal(HttpStatusCode.OK, createdResponse.StatusCode);
+        var createdOutcome = await ReadJsonAsync(createdResponse);
+        var ticketId = Guid.Parse(createdOutcome["resultReference"]!.GetValue<string>()["support/tickets/".Length..]);
+
+        var replyText = "This reply must be denied without support.reply.";
+        var replyPayload = new { ticketId, action = "REPLY", replyText };
+        var deniedReplyOperationId = Guid.NewGuid();
+        var noReplyClient = await CreateSupportAdminClientAsync(includeSupportReply: false);
+        using (var deniedReply = await noReplyClient.PostAsJsonAsync($"/api/admin/v1/support/tickets/{ticketId:D}/commands", new
+        {
+            meta = new
+            {
+                clientOperationId = deniedReplyOperationId,
+                operationType = "support.reply",
+                fingerprintVersion = 1,
+                payloadSha256 = _serializer.SerializeAndHash(replyPayload).Sha256Hex,
+                expectedVersion = 1,
+                policyVersion = 0,
+                reason = "Denied support.reply capability fixture"
+            },
+            payload = replyPayload
+        }))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, deniedReply.StatusCode);
+        }
+
+        await using var verify = GetDbContext();
+        var persisted = await verify.SupportTickets.AsNoTracking().SingleAsync(x => x.Id == ticketId);
+        Assert.Equal(1, persisted.RowVersion);
+        Assert.Equal("[]", persisted.RepliesJson);
+        Assert.False(await verify.SupportTickets.AnyAsync(x => x.Subject == subject && x.Id != ticketId));
+        Assert.True(await verify.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == createOperationId && x.State == OperationState.SUCCEEDED));
+        Assert.False(await verify.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == deniedCreateOperationId || x.ClientOperationId == deniedReplyOperationId));
+        Assert.False(await verify.CentralOutboxMessages.AnyAsync(x => x.Id == deniedCreateOperationId || x.Id == deniedReplyOperationId));
+        Assert.Equal(1, await verify.CentralAuditRecords.CountAsync(x => x.Action == "SUPPORT_TICKET_CREATED" && x.ResourceId == ticketId.ToString("D")));
     }
 
     [Fact]

@@ -440,6 +440,8 @@ public class ActivationService : IActivationService
         var shop = await _dbContext.Shops.FindAsync(new object[] { command.ShopId }, cancellationToken)
             ?? throw new CentralDomainException("SHOP_NOT_FOUND", "token.shop_not_found", $"Shop {command.ShopId} does not exist.");
 
+        await EnsureActivationTokenIssuanceEligibilityAsync(license.Id, shop.Id, cancellationToken);
+
         if (command.CommandMeta is not null && command.CommandMeta.ClientOperationId != Guid.Empty)
         {
             var actorScope = $"admin:{adminId}";
@@ -452,6 +454,8 @@ public class ActivationService : IActivationService
                 payload: command,
                 executeAsync: async cmd =>
                 {
+                    await EnsureActivationTokenIssuanceEligibilityAsync(license.Id, shop.Id, cancellationToken);
+
                     byte[] secretBytes = RandomNumberGenerator.GetBytes(32);
                     string tokenSecret = Convert.ToHexString(secretBytes).ToLowerInvariant();
 
@@ -524,6 +528,7 @@ public class ActivationService : IActivationService
         }
 
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, command.LicenseId.ToString(), cancellationToken);
+        await EnsureActivationTokenIssuanceEligibilityAsync(license.Id, shop.Id, cancellationToken);
 
         // Generate unguessable 256-bit token secret
         byte[] secretBytesDirect = RandomNumberGenerator.GetBytes(32);
@@ -757,6 +762,38 @@ public class ActivationService : IActivationService
             throw new CentralDomainException("ACTIVATION_POLICY_NOT_CONFIGURED", "activation.policy_not_configured", $"Explicit {key} configuration is required.");
         }
         return value;
+    }
+
+    private async Task EnsureActivationTokenIssuanceEligibilityAsync(
+        Guid licenseId,
+        Guid requestedShopId,
+        CancellationToken cancellationToken)
+    {
+        var license = await _dbContext.CommercialLicenses.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
+            ?? throw new CentralDomainException("LICENSE_NOT_FOUND", "token.license_not_found", "Activation license does not exist.");
+        var shop = await _dbContext.Shops.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == requestedShopId, cancellationToken)
+            ?? throw new CentralDomainException("SHOP_NOT_FOUND", "token.shop_not_found", "Activation shop does not exist.");
+        if (license.ShopId != shop.Id || license.CustomerId != shop.CustomerId)
+        {
+            throw new CentralDomainException("SHOP_MISMATCH", "token.shop_mismatch", "Activation shop does not match the persisted license owner.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (license.Status != CommercialLicense.StatusActive || license.ValidFromUtc > now ||
+            (license.ValidUntilUtc.HasValue && license.ValidUntilUtc.Value <= now))
+        {
+            throw new CentralDomainException("LICENSE_NOT_ELIGIBLE", "token.license_not_eligible", "Activation requires an active commercially valid license.");
+        }
+
+        var paidOrder = await _dbContext.Orders.AsNoTracking().SingleOrDefaultAsync(
+            x => x.Id == license.InitialOrderId && x.ShopId == license.ShopId && x.CustomerId == license.CustomerId,
+            cancellationToken);
+        if (paidOrder is null || paidOrder.Status != Order.StatusPaidApproved)
+        {
+            throw new CentralDomainException("COMMERCIAL_ELIGIBILITY_REQUIRED", "token.commercial_eligibility_required", "Activation issuance requires a license bound to an approved paid order.");
+        }
     }
 
     private static int ReadRequiredIntConfiguration(string key, int minimum)
@@ -1408,7 +1445,15 @@ public class ActivationService : IActivationService
         Guid adminId,
         CancellationToken cancellationToken = default)
     {
-        await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, installationId.ToString(), cancellationToken);
+        var installationIdentity = await _dbContext.Installations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken)
+            ?? throw new CentralDomainException("INSTALLATION_NOT_FOUND", "cert.install_not_found", $"Installation {installationId} does not exist.");
+
+        // Lifecycle mutations serialize on the license ID while installation changes serialize on
+        // the installation ID. Acquire both in a stable order so revocation or replacement cannot
+        // race certificate signing and persistence.
+        var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, installationIdentity.LicenseId.ToString(), cancellationToken);
+        await SecurityTransaction.BeginAsync(_dbContext, installationId.ToString(), cancellationToken);
 
         var installation = await _dbContext.Installations.FindAsync(new object[] { installationId }, cancellationToken)
             ?? throw new CentralDomainException("INSTALLATION_NOT_FOUND", "cert.install_not_found", $"Installation {installationId} does not exist.");
@@ -1420,6 +1465,19 @@ public class ActivationService : IActivationService
 
         var license = await _dbContext.CommercialLicenses.FindAsync(new object[] { installation.LicenseId }, cancellationToken)
             ?? throw new CentralDomainException("LICENSE_NOT_FOUND", "cert.license_not_found", $"License {installation.LicenseId} does not exist.");
+
+        if (license.Status != CommercialLicense.StatusActive)
+        {
+            throw new CentralDomainException("LICENSE_NOT_ACTIVE", "cert.license_not_active", "An active commercial license is required to issue a certificate.");
+        }
+
+        var eligibilityTimeUtc = DateTimeOffset.UtcNow;
+        if (license.ValidFromUtc > eligibilityTimeUtc || (license.ValidUntilUtc.HasValue && license.ValidUntilUtc.Value <= eligibilityTimeUtc))
+        {
+            throw new CentralDomainException("LICENSE_NOT_ELIGIBLE", "cert.license_not_eligible", "A commercially valid license is required to issue a certificate.");
+        }
+
+        var policy = await GetVerifiedLicensePolicyAsync(installation.ShopId, license.Id, cancellationToken);
 
         // Invariant: Strictly at most one active certificate per installation
         var existingCerts = await _dbContext.LicenseCertificates
@@ -1435,8 +1493,14 @@ public class ActivationService : IActivationService
 
         var now = DateTimeOffset.UtcNow;
         var validFrom = now;
-        var leaseExpires = now.AddDays(1); // 24 hours
-        var offlineGraceUntil = leaseExpires.AddDays(7); // minimum >= 24 hours
+        var secondsAvailable = (DateTimeOffset.MaxValue - now).TotalSeconds;
+        if (policy.LeaseDurationSeconds > secondsAvailable ||
+            policy.OfflineGraceSeconds > secondsAvailable - policy.LeaseDurationSeconds)
+        {
+            throw new CentralDomainException("POLICY_INVALID", "policy.invalid", "The persisted lease and grace durations exceed the supported timestamp range.");
+        }
+        var leaseExpires = now.AddSeconds(policy.LeaseDurationSeconds);
+        var offlineGraceUntil = leaseExpires.AddSeconds(policy.OfflineGraceSeconds);
 
         var certSerial = $"CERT-{installation.ShopId.ToString("N")[..8].ToUpperInvariant()}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
 
@@ -1447,7 +1511,8 @@ public class ActivationService : IActivationService
         string purpose = activeKey.Purpose;
 
         var activeAddons = await _dbContext.CommercialEntitlements
-            .Where(a => a.LicenseId == license.Id && a.Status == CommercialEntitlement.StatusActive)
+            .Where(a => a.LicenseId == license.Id && a.Status == CommercialEntitlement.StatusActive &&
+                (!a.ValidUntilUtc.HasValue || a.ValidUntilUtc.Value > now))
             .OrderBy(a => a.Kind)
             .Select(a => new
             {
@@ -1455,6 +1520,17 @@ public class ActivationService : IActivationService
                 validUntilUtc = a.ValidUntilUtc
             })
             .ToListAsync(cancellationToken);
+
+        // Capture the exact persisted authority represented by the payload before the signer call.
+        // EF-tracked entities can be updated in the same scope while signing is awaited, so comparing
+        // against the mutable entity afterward would not detect every authority change.
+        var licenseAuthorityRevisionForSigning = license.AuthorityRevision;
+        var licenseTermForSigning = license.TermKind;
+        var licenseValidUntilForSigning = license.ValidUntilUtc;
+        var installationRowVersionForSigning = installation.RowVersion;
+        var installationShopIdForSigning = installation.ShopId;
+        var installationLicenseIdForSigning = installation.LicenseId;
+        var installationPublicKeyFingerprintForSigning = installation.PublicKeyFingerprintSha256;
 
         var certPayload = new
         {
@@ -1478,7 +1554,8 @@ public class ActivationService : IActivationService
 
         // CAS check against concurrent revocation, renewal, or transfer
         var currentLicense = await _dbContext.CommercialLicenses.AsNoTracking().FirstOrDefaultAsync(l => l.Id == license.Id, cancellationToken);
-        if (currentLicense == null || currentLicense.Status != CommercialLicense.StatusActive || currentLicense.AuthorityRevision != license.AuthorityRevision)
+        if (currentLicense == null || currentLicense.Status != CommercialLicense.StatusActive || currentLicense.AuthorityRevision != licenseAuthorityRevisionForSigning ||
+            currentLicense.TermKind != licenseTermForSigning || currentLicense.ValidUntilUtc != licenseValidUntilForSigning)
         {
             throw new CentralDomainException("CONCURRENT_MODIFICATION", "cert.concurrent_modification", "License was modified or revoked during certificate issuance.");
         }
@@ -1495,7 +1572,7 @@ public class ActivationService : IActivationService
             purpose,
             keyId,
             keyVersion,
-            license.AuthorityRevision,
+            licenseAuthorityRevisionForSigning,
             digestSha256,
             canonicalJson,
             now);
@@ -1514,6 +1591,32 @@ public class ActivationService : IActivationService
             Purpose = purpose,
             CanonicalPayload = canonicalJson
         }, cancellationToken);
+
+        // Signing may be backed by another process or hardware device. Recheck the same persisted
+        // authority after that call so a stale signature is never stored as a usable certificate.
+        var authorityCheckTimeUtc = DateTimeOffset.UtcNow;
+        var signedLicense = await _dbContext.CommercialLicenses.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == license.Id, cancellationToken);
+        if (signedLicense == null || signedLicense.Status != CommercialLicense.StatusActive ||
+            signedLicense.AuthorityRevision != licenseAuthorityRevisionForSigning ||
+            signedLicense.TermKind != licenseTermForSigning || signedLicense.ValidUntilUtc != licenseValidUntilForSigning ||
+            signedLicense.ValidFromUtc > authorityCheckTimeUtc ||
+            (signedLicense.ValidUntilUtc.HasValue && signedLicense.ValidUntilUtc.Value <= authorityCheckTimeUtc))
+        {
+            throw new CentralDomainException("CONCURRENT_MODIFICATION", "cert.concurrent_modification", "License authority changed or expired while certificate signing was in progress.");
+        }
+
+        var signedInstallation = await _dbContext.Installations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == installation.Id, cancellationToken);
+        if (signedInstallation == null || signedInstallation.Status != Installation.StatusActive ||
+            signedInstallation.RowVersion != installationRowVersionForSigning ||
+            signedInstallation.LicenseId != installationLicenseIdForSigning || signedInstallation.ShopId != installationShopIdForSigning ||
+            signedInstallation.PublicKeyFingerprintSha256 != installationPublicKeyFingerprintForSigning)
+        {
+            throw new CentralDomainException("CONCURRENT_MODIFICATION", "cert.concurrent_modification", "Installation authority changed while certificate signing was in progress.");
+        }
+
+        signingRequest.CompleteSigning(signingResponse.Signature, DateTimeOffset.UtcNow);
 
         var cert = LicenseCertificate.Create(
             installation.Id,
@@ -1556,21 +1659,25 @@ public class ActivationService : IActivationService
     }
 
     public async Task<HardwareReview> ReportHardwareDiscrepancyAsync(
-        Guid shopId,
         Guid installationId,
         string reportedFingerprint,
-        string storedFingerprint,
         string reason,
         CancellationToken cancellationToken = default)
     {
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, installationId.ToString(), cancellationToken);
 
+        var installation = await _dbContext.Installations.FindAsync(new object[] { installationId }, cancellationToken)
+            ?? throw new CentralDomainException("INSTALLATION_NOT_FOUND", "hw.installation_not_found", $"Installation {installationId} does not exist.");
+
         var now = DateTimeOffset.UtcNow;
+        var persistedFingerprint = string.IsNullOrWhiteSpace(installation.HardwareFingerprintHash)
+            ? installation.MachineFingerprint
+            : installation.HardwareFingerprintHash;
         var review = HardwareReview.Create(
-            shopId,
+            installation.ShopId,
             installationId,
             reportedFingerprint,
-            storedFingerprint,
+            persistedFingerprint,
             reason,
             now);
 
@@ -1594,82 +1701,67 @@ public class ActivationService : IActivationService
         Guid adminId,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(command);
+        var meta = command.CommandMeta;
+        if (reviewId == Guid.Empty || adminId == Guid.Empty || meta is null ||
+            meta.ClientOperationId == Guid.Empty || meta.OperationType != "hardware.review" ||
+            meta.FingerprintVersion != 1 || meta.ExpectedVersion < 1 || meta.PolicyVersion < 0 ||
+            string.IsNullOrWhiteSpace(meta.Reason) || string.IsNullOrWhiteSpace(meta.PayloadSha256))
+        {
+            throw new CentralDomainException("INVALID_HARDWARE_REVIEW_COMMAND", "hw.command_invalid", "Hardware review command identity or metadata is invalid.");
+        }
+
         var review = await _dbContext.HardwareReviews.FindAsync(new object[] { reviewId }, cancellationToken)
             ?? throw new CentralDomainException("HARDWARE_REVIEW_NOT_FOUND", "hw.not_found", $"Review {reviewId} does not exist.");
 
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, reviewId.ToString(), cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
+        var actorScope = $"admin:{adminId:D}";
+        var targetResource = $"hardware_reviews/{reviewId:D}";
 
-        if (command.CommandMeta is not null && command.CommandMeta.ClientOperationId != Guid.Empty)
-        {
-            var actorScope = $"admin:{adminId}";
-            var targetResource = $"hardware_reviews/{reviewId}";
-
-            await _operationLedger.ExecuteOrReplayAsync(
-                actorScope: actorScope,
-                shopId: review.ShopId,
-                meta: command.CommandMeta,
-                payload: command,
-                executeAsync: async cmd =>
-                {
-                    review.Decide(cmd.Approve, adminId, now);
-                    await _dbContext.SaveChangesAsync(cancellationToken);
-
-                    _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
-                        command.CommandMeta.ClientOperationId,
-                        "activation.hardware_review_decided",
-                        nameof(HardwareReview),
-                        review.Id.ToString(),
-                        _serializer.SerializeCanonical(new { review.Id, cmd.Approve, review.InstallationId, clientOperationId = command.CommandMeta.ClientOperationId }),
-                        now));
-
-                    await _auditService.RecordAuditAsync(
-                        "HARDWARE_REVIEW_DECIDED",
-                        "ADMIN",
-                        adminId,
-                        null,
-                        cmd.CommandMeta?.Reason ?? $"Hardware review decided: approve={cmd.Approve}",
-                        command.CommandMeta.ClientOperationId,
-                        command.CommandMeta.ClientOperationId,
-                        nameof(HardwareReview),
-                        review.Id.ToString(),
-                        $"{{\"approve\":{cmd.Approve},\"installationId\":\"{review.InstallationId}\"}}",
-                        true,
-                        command.CommandMeta.PayloadSha256,
-                        cancellationToken);
-
-                    return (true, $"hardware_reviews/{review.Id}", 1, 1);
-                },
-                targetResource: targetResource,
-                cancellationToken: cancellationToken);
-
-            if (securityTransaction is not null)
+        await _operationLedger.ExecuteOrReplayAsync(
+            actorScope: actorScope,
+            shopId: review.ShopId,
+            meta: meta,
+            payload: command,
+            executeAsync: async cmd =>
             {
-                await securityTransaction.CommitAsync(cancellationToken);
-            }
+                if (meta.ExpectedVersion != review.RowVersion)
+                {
+                    throw new CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The hardware review changed before the decision was applied.");
+                }
 
-            return;
-        }
+                review.Decide(cmd.Approve, adminId, now);
+                await _dbContext.SaveChangesAsync(cancellationToken);
 
-        review.Decide(command.Approve, adminId, now);
+                _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
+                    meta.ClientOperationId,
+                    "activation.hardware_review_decided",
+                    nameof(HardwareReview),
+                    review.Id.ToString(),
+                    _serializer.SerializeCanonical(new { review.Id, cmd.Approve, review.InstallationId, clientOperationId = meta.ClientOperationId }),
+                    now));
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+                await _auditService.RecordAuditAsync(
+                    "HARDWARE_REVIEW_DECIDED",
+                    "ADMIN",
+                    adminId,
+                    null,
+                    meta.Reason,
+                    meta.ClientOperationId,
+                    meta.ClientOperationId,
+                    nameof(HardwareReview),
+                    review.Id.ToString(),
+                    $"{{\"approve\":{cmd.Approve},\"installationId\":\"{review.InstallationId}\"}}",
+                    true,
+                    meta.PayloadSha256,
+                    cancellationToken);
 
-        await _auditService.RecordAuditAsync(
-            "HARDWARE_REVIEW_DECIDED",
-            "ADMIN",
-            adminId,
-            null,
-            command.CommandMeta?.Reason ?? $"Hardware review decided: approve={command.Approve}",
-            null,
-            command.CommandMeta?.ClientOperationId,
-            nameof(HardwareReview),
-            review.Id.ToString(),
-            $"{{\"approve\":{command.Approve},\"installationId\":\"{review.InstallationId}\"}}",
-            true,
-            null,
-            cancellationToken);
+                return (true, targetResource, review.RowVersion, 1);
+            },
+            targetResource: targetResource,
+            cancellationToken: cancellationToken);
 
         if (securityTransaction is not null)
         {
@@ -1682,6 +1774,16 @@ public class ActivationService : IActivationService
         Guid adminId,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(command);
+        var meta = command.CommandMeta;
+        if (adminId == Guid.Empty || command.ShopId == Guid.Empty || command.SourceInstallationId == Guid.Empty ||
+            command.TargetInstallationId == Guid.Empty || meta is null || meta.ClientOperationId == Guid.Empty ||
+            meta.OperationType != "primary.transfer" || meta.FingerprintVersion != 1 || meta.ExpectedVersion < 0 ||
+            meta.PolicyVersion < 0 || string.IsNullOrWhiteSpace(meta.PayloadSha256) || string.IsNullOrWhiteSpace(meta.Reason))
+        {
+            throw new CentralDomainException("INVALID_PRIMARY_TRANSFER_COMMAND", "transfer.command_invalid", "Primary transfer request identity or metadata is invalid.");
+        }
+
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, command.ShopId.ToString(), cancellationToken);
 
         var source = await _dbContext.Installations.FindAsync(new object[] { command.SourceInstallationId }, cancellationToken)
@@ -1697,7 +1799,6 @@ public class ActivationService : IActivationService
 
         var now = DateTimeOffset.UtcNow;
 
-        if (command.CommandMeta is not null && command.CommandMeta.ClientOperationId != Guid.Empty)
         {
             var actorScope = $"admin:{adminId}";
             var targetResource = $"shops/{command.ShopId}/transfers";
@@ -1705,7 +1806,7 @@ public class ActivationService : IActivationService
             var (_, transferRecord) = await _operationLedger.ExecuteAndCaptureOrReplayAsync(
                 actorScope: actorScope,
                 shopId: command.ShopId,
-                meta: command.CommandMeta,
+                meta: meta,
                 payload: command,
                 executeAsync: async cmd =>
                 {
@@ -1721,11 +1822,11 @@ public class ActivationService : IActivationService
                     await _dbContext.SaveChangesAsync(cancellationToken);
 
                     _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
-                        command.CommandMeta.ClientOperationId,
+                        meta.ClientOperationId,
                         "activation.primary_transfer_initiated",
                         nameof(PrimaryTransfer),
                         tr.Id.ToString(),
-                        _serializer.SerializeCanonical(new { tr.Id, tr.ShopId, tr.SourceInstallationId, tr.TargetInstallationId, clientOperationId = command.CommandMeta.ClientOperationId }),
+                        _serializer.SerializeCanonical(new { tr.Id, tr.ShopId, tr.SourceInstallationId, tr.TargetInstallationId, clientOperationId = meta.ClientOperationId }),
                         now));
 
                     await _auditService.RecordAuditAsync(
@@ -1733,14 +1834,14 @@ public class ActivationService : IActivationService
                         "ADMIN",
                         adminId,
                         null,
-                        cmd.CommandMeta?.Reason ?? "Primary transfer initiated",
-                        command.CommandMeta.ClientOperationId,
-                        command.CommandMeta.ClientOperationId,
+                        meta.Reason,
+                        meta.ClientOperationId,
+                        meta.ClientOperationId,
                         nameof(PrimaryTransfer),
                         tr.Id.ToString(),
                         $"{{\"source\":\"{source.Id}\",\"target\":\"{target.Id}\"}}",
                         true,
-                        command.CommandMeta.PayloadSha256,
+                        meta.PayloadSha256,
                         cancellationToken);
 
                     return (tr, $"transfers/{tr.Id}", 1, 1);
@@ -1761,39 +1862,6 @@ public class ActivationService : IActivationService
 
             return transferRecord;
         }
-
-        var transfer = PrimaryTransfer.Initiate(
-            command.ShopId,
-            source.Id,
-            target.Id,
-            command.TransferReason,
-            adminId,
-            now);
-
-        _dbContext.PrimaryTransfers.Add(transfer);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _auditService.RecordAuditAsync(
-            "PRIMARY_TRANSFER_INITIATED",
-            "ADMIN",
-            adminId,
-            null,
-            command.CommandMeta?.Reason ?? "Primary transfer initiated",
-            null,
-            command.CommandMeta?.ClientOperationId,
-            nameof(PrimaryTransfer),
-            transfer.Id.ToString(),
-            $"{{\"source\":\"{source.Id}\",\"target\":\"{target.Id}\"}}",
-            true,
-            null,
-            cancellationToken);
-
-        if (securityTransaction is not null)
-        {
-            await securityTransaction.CommitAsync(cancellationToken);
-        }
-
-        return transfer;
     }
 
     public Task ApprovePrimaryTransferAsync(
@@ -1812,6 +1880,15 @@ public class ActivationService : IActivationService
         ApprovePrimaryTransferCommand? command,
         CancellationToken cancellationToken = default)
     {
+        var meta = command?.CommandMeta;
+        if (command is not null && (transferId == Guid.Empty || approverAdminId == Guid.Empty || meta is null ||
+            meta.ClientOperationId == Guid.Empty || meta.OperationType != "primary.transfer" || meta.FingerprintVersion != 1 ||
+            meta.ExpectedVersion < 1 || meta.PolicyVersion < 0 || string.IsNullOrWhiteSpace(meta.PayloadSha256) ||
+            string.IsNullOrWhiteSpace(meta.Reason) || sensitiveApprovalId == Guid.Empty || command.SensitiveApprovalId != sensitiveApprovalId))
+        {
+            throw new CentralDomainException("INVALID_PRIMARY_TRANSFER_COMMAND", "transfer.command_invalid", "Primary transfer approval command identity or metadata is invalid.");
+        }
+
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, transferId.ToString(), cancellationToken);
 
         var transfer = await _dbContext.PrimaryTransfers.FindAsync(new object[] { transferId }, cancellationToken)
@@ -1837,11 +1914,6 @@ public class ActivationService : IActivationService
                 ?? throw new CentralDomainException("APPROVAL_REQUIRED", "transfer.approval_required", "Primary transfer approval requires an approved sensitive approval request.");
         }
 
-        if (sensitiveApproval.Status != SensitiveApprovalRequest.StatusApproved)
-        {
-            throw new CentralDomainException("APPROVAL_NOT_APPROVED", "transfer.approval_not_approved", $"Approval request is in status {sensitiveApproval.Status}; must be APPROVED.");
-        }
-
         if (!string.Equals(sensitiveApproval.OperationType, "PRIMARY_TRANSFER", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(sensitiveApproval.OperationType, "primary.transfer", StringComparison.OrdinalIgnoreCase))
         {
@@ -1864,12 +1936,8 @@ public class ActivationService : IActivationService
         }
 
         var now = DateTimeOffset.UtcNow;
-        if (sensitiveApproval.ExpiresAtUtc <= now)
-        {
-            throw new CentralDomainException("APPROVAL_EXPIRED", "transfer.approval_expired", "Approval request has expired.");
-        }
 
-        if (command?.CommandMeta is not null && command.CommandMeta.ClientOperationId != Guid.Empty)
+        if (command is not null && meta is not null)
         {
             var actorScope = $"admin:{approverAdminId}";
             var targetResource = $"transfers/{transferId}/approve";
@@ -1881,16 +1949,29 @@ public class ActivationService : IActivationService
                 payload: command,
                 executeAsync: async cmd =>
                 {
+                    if (meta.ExpectedVersion != transfer.RowVersion)
+                    {
+                        throw new CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The primary transfer changed before approval was applied.");
+                    }
+                    if (sensitiveApproval.Status != SensitiveApprovalRequest.StatusApproved)
+                    {
+                        throw new CentralDomainException("APPROVAL_NOT_APPROVED", "transfer.approval_not_approved", $"Approval request is in status {sensitiveApproval.Status}; must be APPROVED.");
+                    }
+                    if (sensitiveApproval.ExpiresAtUtc <= now)
+                    {
+                        throw new CentralDomainException("APPROVAL_EXPIRED", "transfer.approval_expired", "Approval request has expired.");
+                    }
+
                     sensitiveApproval.Consume(now);
                     transfer.Approve(approverAdminId, sensitiveApproval.Id);
                     await _dbContext.SaveChangesAsync(cancellationToken);
 
                     _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
-                        command.CommandMeta.ClientOperationId,
+                        meta.ClientOperationId,
                         "activation.primary_transfer_approved",
                         nameof(PrimaryTransfer),
                         transfer.Id.ToString(),
-                        _serializer.SerializeCanonical(new { transfer.Id, transfer.ShopId, approverAdminId, sensitiveApprovalId = sensitiveApproval.Id, clientOperationId = command.CommandMeta.ClientOperationId }),
+                        _serializer.SerializeCanonical(new { transfer.Id, transfer.ShopId, approverAdminId, sensitiveApprovalId = sensitiveApproval.Id, clientOperationId = meta.ClientOperationId }),
                         now));
 
                     await _auditService.RecordAuditAsync(
@@ -1898,17 +1979,17 @@ public class ActivationService : IActivationService
                         "ADMIN",
                         approverAdminId,
                         null,
-                        cmd.CommandMeta?.Reason ?? "Primary transfer approved with consumed dual approval",
-                        command.CommandMeta.ClientOperationId,
-                        command.CommandMeta.ClientOperationId,
+                        meta.Reason,
+                        meta.ClientOperationId,
+                        meta.ClientOperationId,
                         nameof(PrimaryTransfer),
                         transfer.Id.ToString(),
                         $"{{\"transferId\":\"{transfer.Id}\",\"sensitiveApprovalId\":\"{sensitiveApproval.Id}\"}}",
                         true,
-                        command.CommandMeta.PayloadSha256,
+                        meta.PayloadSha256,
                         cancellationToken);
 
-                    return (true, $"transfers/{transfer.Id}", 1, 1);
+                    return (true, $"transfers/{transfer.Id}", transfer.RowVersion, 1);
                 },
                 targetResource: targetResource,
                 cancellationToken: cancellationToken);
@@ -1950,84 +2031,103 @@ public class ActivationService : IActivationService
     public async Task CompletePrimaryTransferAsync(
         Guid transferId,
         Guid adminId,
+        CompletePrimaryTransferCommand command,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(command);
+        var meta = command.CommandMeta;
+        if (adminId == Guid.Empty || meta is null || meta.ClientOperationId == Guid.Empty ||
+            meta.OperationType != "primary.transfer" || meta.FingerprintVersion != 1 || meta.ExpectedVersion < 1 ||
+            meta.PolicyVersion < 0 || string.IsNullOrWhiteSpace(meta.PayloadSha256) || string.IsNullOrWhiteSpace(meta.Reason))
+        {
+            throw new CentralDomainException("INVALID_PRIMARY_TRANSFER_COMMAND", "transfer.command_invalid", "Primary transfer completion requires valid operation metadata.");
+        }
+
         await using var securityTransaction = await SecurityTransaction.BeginAsync(_dbContext, transferId.ToString(), cancellationToken);
 
         var transfer = await _dbContext.PrimaryTransfers.FindAsync(new object[] { transferId }, cancellationToken)
             ?? throw new CentralDomainException("TRANSFER_NOT_FOUND", "transfer.not_found", $"Transfer {transferId} does not exist.");
 
-        if (transfer.Status != PrimaryTransfer.StatusApproved)
-        {
-            throw new CentralDomainException("TRANSFER_NOT_APPROVED", "transfer.not_approved", $"Transfer must be in APPROVED status; current status: {transfer.Status}");
-        }
+        var outcome = await _operationLedger.ExecuteOrReplayAsync(
+            actorScope: $"admin:{adminId}",
+            shopId: transfer.ShopId,
+            meta: meta,
+            payload: command,
+            executeAsync: async _ =>
+            {
+                if (meta.ExpectedVersion != transfer.RowVersion)
+                {
+                    throw new CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The primary transfer changed before completion was applied.");
+                }
+                if (transfer.Status != PrimaryTransfer.StatusApproved)
+                {
+                    throw new CentralDomainException("TRANSFER_NOT_APPROVED", "transfer.not_approved", $"Transfer must be in APPROVED status; current status: {transfer.Status}");
+                }
 
-        var source = await _dbContext.Installations.FindAsync(new object[] { transfer.SourceInstallationId }, cancellationToken)
-            ?? throw new CentralDomainException("SOURCE_NOT_FOUND", "transfer.source_not_found", "Source installation not found.");
+                var source = await _dbContext.Installations.FindAsync(new object[] { transfer.SourceInstallationId }, cancellationToken)
+                    ?? throw new CentralDomainException("SOURCE_NOT_FOUND", "transfer.source_not_found", "Source installation not found.");
+                var target = await _dbContext.Installations.FindAsync(new object[] { transfer.TargetInstallationId }, cancellationToken)
+                    ?? throw new CentralDomainException("TARGET_NOT_FOUND", "transfer.target_not_found", "Target installation not found.");
 
-        var target = await _dbContext.Installations.FindAsync(new object[] { transfer.TargetInstallationId }, cancellationToken)
-            ?? throw new CentralDomainException("TARGET_NOT_FOUND", "transfer.target_not_found", "Target installation not found.");
+                if (source.ShopId != transfer.ShopId || target.ShopId != transfer.ShopId)
+                {
+                    throw new CentralDomainException("SHOP_MISMATCH", "transfer.shop_mismatch", "Source and target installations must belong to the transfer shop.");
+                }
+                if (source.LicenseId != target.LicenseId)
+                {
+                    throw new CentralDomainException("LICENSE_MISMATCH", "transfer.license_mismatch", "Source and target installations must be bound to the same license.");
+                }
 
-        if (source.ShopId != target.ShopId)
-        {
-            throw new CentralDomainException("SHOP_MISMATCH", "transfer.shop_mismatch", "Source and target installations must belong to the same shop.");
-        }
+                var now = DateTimeOffset.UtcNow;
+                var sourceCerts = await _dbContext.LicenseCertificates
+                    .Where(c => c.InstallationId == source.Id && c.Status == LicenseCertificate.StatusActive)
+                    .ToListAsync(cancellationToken);
+                foreach (var cert in sourceCerts)
+                {
+                    cert.Revoke();
+                }
 
-        if (source.LicenseId != target.LicenseId)
-        {
-            throw new CentralDomainException("LICENSE_MISMATCH", "transfer.license_mismatch", "Source and target installations must be bound to the same license.");
-        }
+                source.Replace();
+                var otherActiveInstalls = await _dbContext.Installations
+                    .Where(i => i.ShopId == source.ShopId && i.Id != target.Id && i.Status == Installation.StatusActive)
+                    .ToListAsync(cancellationToken);
+                foreach (var other in otherActiveInstalls)
+                {
+                    other.Replace();
+                }
+                if (target.Status != Installation.StatusActive)
+                {
+                    target.Approve(now);
+                }
+                transfer.Complete(now);
 
-        var now = DateTimeOffset.UtcNow;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
+                    meta.ClientOperationId,
+                    "activation.primary_transfer_completed",
+                    nameof(PrimaryTransfer),
+                    transfer.Id.ToString(),
+                    _serializer.SerializeCanonical(new { transfer.Id, transfer.ShopId, sourceInstallationId = source.Id, targetInstallationId = target.Id, clientOperationId = meta.ClientOperationId }),
+                    now));
+                await _auditService.RecordAuditAsync(
+                    "PRIMARY_TRANSFER_COMPLETED",
+                    "ADMIN",
+                    adminId,
+                    null,
+                    meta.Reason,
+                    meta.ClientOperationId,
+                    meta.ClientOperationId,
+                    nameof(PrimaryTransfer),
+                    transfer.Id.ToString(),
+                    _serializer.SerializeCanonical(new { sourceDeactivated = source.Id, targetActive = target.Id }),
+                    true,
+                    meta.PayloadSha256,
+                    cancellationToken);
 
-        // Revoke active certificates of source installation
-        var sourceCerts = await _dbContext.LicenseCertificates
-            .Where(c => c.InstallationId == source.Id && c.Status == LicenseCertificate.StatusActive)
-            .ToListAsync(cancellationToken);
-
-        foreach (var cert in sourceCerts)
-        {
-            cert.Revoke();
-        }
-
-        // Deactivate source installation
-        source.Replace();
-
-        // Enforce at most one active primary installation per shop
-        var otherActiveInstalls = await _dbContext.Installations
-            .Where(i => i.ShopId == source.ShopId && i.Id != target.Id && i.Status == Installation.StatusActive)
-            .ToListAsync(cancellationToken);
-
-        foreach (var other in otherActiveInstalls)
-        {
-            other.Replace();
-        }
-
-        // Activate target installation
-        if (target.Status != Installation.StatusActive)
-        {
-            target.Approve(now);
-        }
-
-        // Complete transfer
-        transfer.Complete(now);
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _auditService.RecordAuditAsync(
-            "PRIMARY_TRANSFER_COMPLETED",
-            "ADMIN",
-            adminId,
-            null,
-            "Primary transfer completed; source deactivated, target activated",
-            null,
-            null,
-            nameof(PrimaryTransfer),
-            transfer.Id.ToString(),
-            $"{{\"sourceDeactivated\":\"{source.Id}\",\"targetActive\":\"{target.Id}\"}}",
-            true,
-            null,
-            cancellationToken);
+                return (true, $"transfers/{transfer.Id}", transfer.RowVersion, 1);
+            },
+            targetResource: $"transfers/{transferId}/complete",
+            cancellationToken: cancellationToken);
 
         if (securityTransaction is not null)
         {
@@ -2035,9 +2135,69 @@ public class ActivationService : IActivationService
         }
     }
 
-    public async Task<SignedEntitlementDto> ReconcileInstallationAsync(
+    public Task<SignedEntitlementDto> ReconcileInstallationAsync(
         ReconcileCommandDto command,
         CancellationToken cancellationToken = default)
+        => ReconcileInstallationCoreAsync(command, null, cancellationToken);
+
+    public async Task<SignedEntitlementDto> ReconcileCanonicalInstallationAsync(
+        CommandMetaDto meta,
+        ReconcileCommandDto command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(meta);
+        ArgumentNullException.ThrowIfNull(command);
+        if (meta.OperationType != "installation.reconcile" || meta.ClientOperationId == Guid.Empty ||
+            meta.FingerprintVersion != 1 || meta.ExpectedVersion < 0 || meta.PolicyVersion < 0 ||
+            string.IsNullOrWhiteSpace(meta.Reason))
+        {
+            throw new CentralDomainException("INVALID_OPERATION_META", "operation.invalid_meta", "Invalid reconcile operation metadata.");
+        }
+
+        var installation = await _dbContext.Installations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == command.InstallationId, cancellationToken)
+            ?? throw new CentralDomainException("INSTALLATION_NOT_FOUND", "reconcile.installation_not_found", "Installation does not exist.");
+        var target = $"installations/{installation.Id:D}/reconcile";
+        var (_, entitlement) = await _operationLedger.ExecuteAndCaptureOrReplayAsync<ReconcileCommandDto, SignedEntitlementDto>(
+            $"installation:{installation.Id:D}", installation.ShopId, meta, command,
+            async payload =>
+            {
+                var current = await _dbContext.Installations.SingleAsync(x => x.Id == payload.InstallationId, cancellationToken);
+                if (current.RowVersion != meta.ExpectedVersion)
+                {
+                    throw new CentralDomainException("CONCURRENCY_CONFLICT", "operation.version_conflict", "Installation version changed; refresh and retry.");
+                }
+                var result = await ReconcileInstallationCoreAsync(payload, meta.ClientOperationId, cancellationToken);
+                return (result, $"signingRequests/{meta.ClientOperationId:D}", current.RowVersion, result.Payload.AuthorityRevision);
+            },
+            recoverResultAsync: async record =>
+            {
+                if (!Guid.TryParse(record.ResultReference?.Split('/').LastOrDefault(), out var requestId))
+                {
+                    throw new CentralDomainException("RECONCILE_RESULT_UNAVAILABLE", "reconcile.result_unavailable", "Saved reconcile result is unavailable.");
+                }
+                var request = await _dbContext.CentralSigningRequests.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.Id == requestId && x.Purpose == SigningPurpose.License && x.Status == "SIGNED", cancellationToken)
+                    ?? throw new CentralDomainException("RECONCILE_RESULT_UNAVAILABLE", "reconcile.result_unavailable", "Saved signed reconcile result is unavailable.");
+                var payload = System.Text.Json.JsonSerializer.Deserialize<EntitlementPayloadDto>(request.CanonicalPayload)
+                    ?? throw new CentralDomainException("RECONCILE_RESULT_UNAVAILABLE", "reconcile.result_unavailable", "Saved reconcile payload is invalid.");
+                var trustSet = await _signingEngine.GetTrustSetAsync(cancellationToken);
+                return new SignedEntitlementDto
+                {
+                    EnvelopeVersion = 1, CanonicalizationProfileId = "CANONICAL_JSON_V1", AlgorithmProfileId = "RS256",
+                    Payload = payload, PayloadSha256 = request.PayloadSha256, Signature = request.Signature,
+                    TrustSetVersion = trustSet.TrustSetVersion
+                };
+            },
+            targetResource: target,
+            cancellationToken: cancellationToken);
+        return entitlement;
+    }
+
+    private async Task<SignedEntitlementDto> ReconcileInstallationCoreAsync(
+        ReconcileCommandDto command,
+        Guid? stableSigningRequestId,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
@@ -2073,18 +2233,19 @@ public class ActivationService : IActivationService
         }
 
         // Certificate verification
+        if (command.CertificateId == Guid.Empty)
+        {
+            throw new CentralDomainException("CERTIFICATE_NOT_FOUND", "reconcile.cert_not_found", "The certificate does not belong to this installation.");
+        }
+
         var certificate = await _dbContext.LicenseCertificates
             .FirstOrDefaultAsync(c => c.Id == command.CertificateId && c.InstallationId == installation.Id, cancellationToken);
-
-        if (certificate == null)
+        if (certificate is null)
         {
-            certificate = await _dbContext.LicenseCertificates
-                .FirstOrDefaultAsync(c => c.InstallationId == installation.Id && c.Status == LicenseCertificate.StatusActive, cancellationToken);
-
-            if (certificate == null)
-            {
-                throw new CentralDomainException("CERTIFICATE_NOT_FOUND", "reconcile.cert_not_found", $"Certificate {command.CertificateId} does not exist.");
-            }
+            // Never substitute a different active certificate when the caller supplied an
+            // unknown or another installation's certificate ID. The certificate identity
+            // is part of the installation proof, especially across primary transfer.
+            throw new CentralDomainException("CERTIFICATE_NOT_FOUND", "reconcile.cert_not_found", "The certificate does not belong to this installation.");
         }
 
         if (certificate.Status == LicenseCertificate.StatusRevoked)
@@ -2092,26 +2253,22 @@ public class ActivationService : IActivationService
             throw new CentralDomainException("CERTIFICATE_REVOKED", "reconcile.cert_revoked", "License certificate has been revoked.");
         }
 
-        // Fetch or create policy
-        var policy = await _dbContext.ShopEnforcementPolicies
-            .Where(p => p.ShopId == installation.ShopId && p.LicenseId == license.Id)
-            .OrderByDescending(p => p.PolicyVersion)
-            .FirstOrDefaultAsync(cancellationToken);
+        var policy = await GetVerifiedLicensePolicyAsync(installation.ShopId, license.Id, cancellationToken);
 
         var policyDto = new PolicyDto
         {
             ShopId = installation.ShopId,
             LicenseId = license.Id,
-            PolicyVersion = policy?.PolicyVersion ?? 1,
-            EnforcementMode = policy?.EnforcementMode ?? ShopEnforcementPolicy.FullStop,
-            ExtensionEndUtc = policy?.ExtensionEndUtc,
-            AfterExtensionPolicyId = policy?.AfterExtensionPolicyId ?? Guid.Empty,
-            LeaseDurationSeconds = policy?.LeaseDurationSeconds ?? 86400,
-            OfflineGraceSeconds = Math.Max(policy?.OfflineGraceSeconds ?? 86400, 86400),
-            RollbackToleranceSeconds = policy?.RollbackToleranceSeconds ?? 300,
-            CapabilityPolicyId = policy?.CapabilityPolicyId ?? Guid.Empty,
-            ApprovedByAdminId = policy?.ApprovedByAdminId ?? Guid.Empty,
-            ApprovedAtUtc = policy?.CreatedAtUtc ?? certificate.IssuedAtUtc
+            PolicyVersion = policy.PolicyVersion,
+            EnforcementMode = policy.EnforcementMode,
+            ExtensionEndUtc = policy.ExtensionEndUtc,
+            AfterExtensionPolicyId = policy.AfterExtensionPolicyId,
+            LeaseDurationSeconds = policy.LeaseDurationSeconds,
+            OfflineGraceSeconds = policy.OfflineGraceSeconds,
+            RollbackToleranceSeconds = policy.RollbackToleranceSeconds,
+            CapabilityPolicyId = policy.CapabilityPolicyId,
+            ApprovedByAdminId = policy.ApprovedByAdminId,
+            ApprovedAtUtc = policy.CreatedAtUtc
         };
 
         var commercialTermDto = new CommercialTermDto
@@ -2138,6 +2295,12 @@ public class ActivationService : IActivationService
 
         var now = DateTimeOffset.UtcNow;
         var validFrom = certificate.ValidFromUtc;
+        var secondsAvailable = (DateTimeOffset.MaxValue - now).TotalSeconds;
+        if (policy.LeaseDurationSeconds > secondsAvailable ||
+            policy.OfflineGraceSeconds > secondsAvailable - policy.LeaseDurationSeconds)
+        {
+            throw new CentralDomainException("POLICY_INVALID", "policy.invalid", "The persisted lease and grace durations exceed the supported timestamp range.");
+        }
         var leaseExpires = now.AddSeconds(policyDto.LeaseDurationSeconds);
         var offlineGraceUntil = leaseExpires.AddSeconds(policyDto.OfflineGraceSeconds);
 
@@ -2167,7 +2330,7 @@ public class ActivationService : IActivationService
 
         var (canonicalJson, digestSha256) = _serializer.SerializeAndHash(payload);
 
-        var signingRequestId = Guid.NewGuid();
+        var signingRequestId = stableSigningRequestId ?? Guid.NewGuid();
         var signingRequest = CentralSigningRequest.Create(
             signingRequestId,
             installation.Id,
@@ -2193,6 +2356,7 @@ public class ActivationService : IActivationService
             Purpose = SigningPurpose.License,
             CanonicalPayload = canonicalJson
         }, cancellationToken);
+        signingRequest.CompleteSigning(signingResponse.Signature, DateTimeOffset.UtcNow);
 
         var signedEntitlement = new SignedEntitlementDto
         {
@@ -2243,5 +2407,57 @@ public class ActivationService : IActivationService
         }
 
         return signedEntitlement;
+    }
+
+    private async Task<ShopEnforcementPolicy> GetVerifiedLicensePolicyAsync(
+        Guid shopId,
+        Guid licenseId,
+        CancellationToken cancellationToken)
+    {
+        var policy = await _dbContext.ShopEnforcementPolicies
+            .Where(x => x.ShopId == shopId && x.LicenseId == licenseId)
+            .OrderByDescending(x => x.PolicyVersion)
+            .ThenByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new CentralDomainException("POLICY_CONFIGURATION_REQUIRED", "policy.configuration_required", "A persisted signed license policy is required before certificate issuance or reconciliation.");
+
+        if (policy.PolicyVersion < 1 || policy.ApprovedByAdminId == Guid.Empty ||
+            policy.AfterExtensionPolicyId == Guid.Empty || policy.CapabilityPolicyId == Guid.Empty ||
+            policy.LeaseDurationSeconds < 1 || policy.OfflineGraceSeconds < 86400 ||
+            policy.RollbackToleranceSeconds < 0 || string.IsNullOrWhiteSpace(policy.KeyId) ||
+            policy.EnforcementMode is not (ShopEnforcementPolicy.FullStop or ShopEnforcementPolicy.ConfigurableExtension) ||
+            (policy.EnforcementMode == ShopEnforcementPolicy.ConfigurableExtension && !policy.ExtensionEndUtc.HasValue) ||
+            (policy.EnforcementMode == ShopEnforcementPolicy.FullStop && policy.ExtensionEndUtc.HasValue))
+        {
+            throw new CentralDomainException("POLICY_INVALID", "policy.invalid", "The persisted license policy is incomplete or invalid.");
+        }
+
+        var policyEnvelope = new
+        {
+            shopId = policy.ShopId,
+            licenseId = policy.LicenseId,
+            policyVersion = policy.PolicyVersion,
+            enforcementMode = policy.EnforcementMode,
+            extensionEndUtc = policy.ExtensionEndUtc,
+            afterExtensionPolicyId = policy.AfterExtensionPolicyId,
+            leaseDurationSeconds = policy.LeaseDurationSeconds,
+            offlineGraceSeconds = policy.OfflineGraceSeconds,
+            rollbackToleranceSeconds = policy.RollbackToleranceSeconds,
+            capabilityPolicyId = policy.CapabilityPolicyId
+        };
+        var (canonicalPolicyJson, _) = _serializer.SerializeAndHash(policyEnvelope);
+        var policyTrust = await _signingEngine.GetTrustSetAsync(cancellationToken);
+        var policyKey = policyTrust.Keys.SingleOrDefault(x => x.KeyId == policy.KeyId);
+        if (!string.Equals(canonicalPolicyJson, policy.SignedPolicyEnvelopeJson, StringComparison.Ordinal) ||
+            policyKey is null || policyKey.Purpose != SigningPurpose.License ||
+            policyKey.AlgorithmProfileId != "RS256" ||
+            policyKey.Status is not ("ACTIVE" or "VERIFY_ONLY") ||
+            policyTrust.RevokedKeyIds.Contains(policy.KeyId, StringComparer.Ordinal) ||
+            !_signingEngine.VerifySignature(policyKey.PublicKey, policy.SignedPolicyEnvelopeJson, policy.RS256Signature))
+        {
+            throw new CentralDomainException("POLICY_SIGNATURE_INVALID", "policy.signature_invalid", "The persisted license policy failed integrity or trusted signer verification.");
+        }
+
+        return policy;
     }
 }

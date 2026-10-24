@@ -68,6 +68,14 @@ public class PrimaryTransfer : Entity
         {
             throw new CentralDomainException("NOT_PENDING", "transfer.not_pending", $"Cannot approve transfer in status: {Status}");
         }
+        if (approverAdminId == Guid.Empty)
+        {
+            throw new CentralDomainException("INVALID_ADMIN_ID", "transfer.invalid_admin_id", "Approving Admin ID is required.");
+        }
+        if (sensitiveApprovalId == Guid.Empty)
+        {
+            throw new CentralDomainException("APPROVAL_REQUIRED", "transfer.approval_required", "A consumed sensitive approval is required.");
+        }
         if (approverAdminId == InitiatedByAdminId)
         {
             throw new CentralDomainException("SELF_APPROVAL_PROHIBITED", "transfer.self_approval_prohibited", "Approver must be distinct from initiator.");
@@ -93,6 +101,15 @@ public class PrimaryTransfer : Entity
 
     public void Reject(Guid adminId)
     {
+        if (Status != StatusPendingApproval)
+        {
+            throw new CentralDomainException("NOT_PENDING", "transfer.not_pending", $"Cannot reject transfer in status: {Status}");
+        }
+        if (adminId == Guid.Empty)
+        {
+            throw new CentralDomainException("INVALID_ADMIN_ID", "transfer.invalid_admin_id", "Rejecting Admin ID is required.");
+        }
+
         Status = StatusRejected;
         RowVersion++;
     }

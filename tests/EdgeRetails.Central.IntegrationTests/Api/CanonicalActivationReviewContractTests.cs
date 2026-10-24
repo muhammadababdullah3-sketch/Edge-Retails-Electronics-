@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using EdgeRetails.Central.Application.Abstractions;
+using EdgeRetails.Central.Api.Middleware;
 using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Application.Services;
@@ -32,6 +33,7 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
     [Fact]
     public async Task CanonicalActivationReview_UsesPersistedScopeAndReplaysAtomicOutcome()
     {
+        RateLimitingMiddleware.Reset();
         var (requestId, shopId) = await CreatePendingRequestAsync();
         var (_, adminId, allowed) = await CreateAdminAsync("activation.review");
         var (_, _, denied) = await CreateAdminAsync("license.view");
@@ -80,6 +82,7 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
     [Fact]
     public async Task CanonicalActivationReview_EnforcesRequestIdentityVersionAndDistinctNonApprovalStates()
     {
+        RateLimitingMiddleware.Reset();
         var (_, _, admin) = await CreateAdminAsync("activation.review");
         var (staleId, _) = await CreatePendingRequestAsync();
         var stalePayload = new CanonicalActivationDecisionDto(staleId, "REJECT", "NOT_ELIGIBLE", 1);
@@ -122,6 +125,7 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
     [Fact]
     public async Task CanonicalActivationReview_RejectsAlteredDigestAndRoutePayloadIdentity()
     {
+        RateLimitingMiddleware.Reset();
         var (requestId, _) = await CreatePendingRequestAsync();
         var (_, _, admin) = await CreateAdminAsync("activation.review");
         var payload = new CanonicalActivationDecisionDto(requestId, "REJECT", "INVALID", 1);
@@ -144,6 +148,32 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
         var mismatchMeta = CreateMeta(mismatchPayload, 1);
         var mismatch = await admin.PostAsJsonAsync($"/api/admin/v1/activations/{requestId:D}/review", new { meta = mismatchMeta, payload = mismatchPayload });
         Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
+    }
+
+    [Fact]
+    public async Task CanonicalActivationReviewQueue_ReturnsPersistedTargetAndVersionsWithoutSnapshotSecrets()
+    {
+        RateLimitingMiddleware.Reset();
+        var (requestId, shopId) = await CreatePendingRequestAsync();
+        var (_, _, queueReader) = await CreateAdminAsync("activation.review");
+        var denied = await queueReader.GetAsync("/api/admin/v1/queues/ACTIVATION_REVIEW?pageSize=1");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+        var (_, _, authorized) = await CreateAdminAsync("activation.review", "queues.view");
+        using var response = await authorized.GetAsync($"/api/admin/v1/queues/ACTIVATION_REVIEW?pageSize=1&filter={Uri.EscapeDataString(requestId.ToString("D"))}");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected a successful activation queue, got {(int)response.StatusCode}: {responseBody}");
+        var json = JsonNode.Parse(responseBody)!;
+        var item = Assert.Single(json["items"]!.AsArray());
+        Assert.Equal(requestId.ToString("D"), item!["entityId"]?.GetValue<string>());
+        Assert.Equal(shopId.ToString("D"), item["shopId"]?.GetValue<string>());
+        Assert.Equal("ACTIVATION_REVIEW", item["queueType"]?.GetValue<string>());
+        Assert.Equal(1, item["resourceVersion"]?.GetValue<int>());
+        Assert.Equal(1, item["validationSnapshotVersion"]?.GetValue<int>());
+        var responseText = json.ToJsonString();
+        Assert.DoesNotContain("validationSnapshotJson", responseText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("clientSignatureHex", responseText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("challengeNonce", responseText, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<(Guid RequestId, Guid ShopId)> CreatePendingRequestAsync()
@@ -201,7 +231,7 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
         return (redemption.Id, shop.Id);
     }
 
-    private async Task<(Guid SessionId, Guid AdminId, HttpClient Client)> CreateAdminAsync(string capability)
+    private async Task<(Guid SessionId, Guid AdminId, HttpClient Client)> CreateAdminAsync(params string[] capabilities)
     {
         var username = $"activation_review_{Guid.NewGuid():N}";
         const string password = "DevelopmentPassword#123";
@@ -211,7 +241,7 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
         using (var db = OpenDb())
         {
             var admin = AdminUser.Create(username, _hasher.HashPassword(password), "salt", totpSecret, true, now);
-            var role = AdminRole.Create($"Activation review {Guid.NewGuid():N}", "Synthetic activation review role", [capability]);
+            var role = AdminRole.Create($"Activation review {Guid.NewGuid():N}", "Synthetic activation review role", capabilities);
             db.AdminUsers.Add(admin);
             db.AdminRoles.Add(role);
             db.AdminUserRoles.Add(new AdminUserRole(admin.Id, role.Id, now));

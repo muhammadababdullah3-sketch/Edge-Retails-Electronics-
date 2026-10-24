@@ -5,6 +5,8 @@ using EdgeRetails.Central.Application.Abstractions;
 using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Domain.Outbox;
+using EdgeRetails.Central.Domain.Licensing;
+using EdgeRetails.Central.Domain.Storage;
 using EdgeRetails.Central.Domain.Support;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +29,69 @@ public sealed class CanonicalSupportCommandsController(
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
+
+    [HttpPost("~/api/licensing/v1/support/bundles")]
+    public async Task<IActionResult> CreateInstallationBundle([FromBody] JsonElement envelope, CancellationToken cancellationToken)
+    {
+        if (HttpContext.Items["AuthenticatedInstallation"] is not Installation authenticated || authenticated.Id == Guid.Empty)
+        { return Unauthorized(new { code = "INSTALLATION_AUTHORITY_NOT_ACTIVE", safeMessageKey = "auth.installation_required" }); }
+        if (!ReadEnvelope(envelope, "support.bundle", out var meta, out var payload) || !HasExactUniqueProperties(payload, TicketFields))
+        { return BadRequest(new { code = "INVALID_SUPPORT_ENVELOPE", safeMessageKey = "support.invalid_envelope" }); }
+
+        TicketDto? command;
+        try { command = JsonSerializer.Deserialize<TicketDto>(payload.GetRawText(), WebJson); }
+        catch (JsonException) { return BadRequest(new { code = "INVALID_SUPPORT_PAYLOAD", safeMessageKey = "support.invalid_payload" }); }
+        if (command is null || command.ShopId == Guid.Empty || string.IsNullOrWhiteSpace(command.Subject) ||
+            string.IsNullOrWhiteSpace(command.Summary) || command.RedactionProfileVersion < 1 ||
+            command.AttachmentObjectIds is null || command.AttachmentObjectIds.Any(x => x == Guid.Empty))
+        { return BadRequest(new { code = "INVALID_SUPPORT_PAYLOAD", safeMessageKey = "support.invalid_payload" }); }
+        if (meta!.ExpectedVersion != 0)
+        { return Conflict(new { code = "CONCURRENCY_CONFLICT", safeMessageKey = "operation.concurrency_conflict" }); }
+
+        // The proof filter authenticates the installation and consumes its nonce. Reload its
+        // persisted state before applying any ticket mutation; the submitted shop ID is only
+        // checked against that server-owned identity and is never used as authority.
+        var installation = await db.Installations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == authenticated.Id, cancellationToken);
+        if (installation is null || installation.Status != Installation.StatusActive)
+        { return Unauthorized(new { code = "INSTALLATION_AUTHORITY_NOT_ACTIVE", safeMessageKey = "auth.installation_required" }); }
+        if (command.ShopId != installation.ShopId)
+        { return new ObjectResult(new { code = "FORBIDDEN", safeMessageKey = "support.shop_scope_denied" }) { StatusCode = StatusCodes.Status403Forbidden }; }
+
+        var outcome = await ledger.ExecuteOrReplayAsync<JsonElement, Guid>(
+            $"installation:{installation.Id:D}", installation.ShopId, meta.ToLedgerMeta(), payload,
+            async _ =>
+            {
+                var shopExists = await db.Shops.AsNoTracking().AnyAsync(x => x.Id == installation.ShopId, cancellationToken);
+                if (!shopExists)
+                { throw new EdgeRetails.Central.Domain.Common.CentralDomainException("SHOP_NOT_FOUND", "support.shop_not_found", "The installation's shop does not exist."); }
+
+                var attachmentIds = command.AttachmentObjectIds;
+                if (attachmentIds.Count > 20 || attachmentIds.Distinct().Count() != attachmentIds.Count)
+                { throw new EdgeRetails.Central.Domain.Common.CentralDomainException("SUPPORT_ATTACHMENTS_INVALID", "support.attachments_invalid", "Ticket attachments must be unique and limited to 20 objects."); }
+                if (attachmentIds.Count > 0)
+                {
+                    var records = await db.EncryptedObjects.AsNoTracking().Where(x => attachmentIds.Contains(x.Id)).ToListAsync(cancellationToken);
+                    if (records.Count != attachmentIds.Count || records.Any(x => x.ShopId != installation.ShopId || x.IsTombstoned || x.Purpose != EncryptedObjectRecord.PurposeSupportAttachment))
+                    { throw new EdgeRetails.Central.Domain.Common.CentralDomainException("FORBIDDEN", "support.attachment_access_denied", "Every attachment must be active support ciphertext owned by this shop."); }
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                var ticket = SupportTicket.Create(Guid.NewGuid(), installation.ShopId, installation.Id, command.Subject,
+                    command.Summary, attachmentIds, command.RedactionProfileVersion, now);
+                db.SupportTickets.Add(ticket);
+                db.CentralOutboxMessages.Add(CentralOutboxMessage.Create(meta.ClientOperationId, "support.ticket_created",
+                    nameof(SupportTicket), ticket.Id.ToString("D"),
+                    serializer.SerializeCanonical(new { ticket.Id, ticket.ShopId, clientOperationId = meta.ClientOperationId }), now));
+                await db.SaveChangesAsync(cancellationToken);
+                await audit.RecordAuditAsync("SUPPORT_TICKET_CREATED", $"installation:{installation.Id:D}", null, null,
+                    meta.Reason, meta.ClientOperationId, meta.ClientOperationId, nameof(SupportTicket), ticket.Id.ToString("D"),
+                    serializer.SerializeCanonical(new { ticket.Id, ticket.ShopId, ticket.RequesterPrincipalId, ticket.AttachmentObjectIdsJson }), true,
+                    meta.PayloadSha256, cancellationToken);
+                return (ticket.Id, $"support/tickets/{ticket.Id:D}", ticket.RowVersion, 1);
+            }, targetResource: $"support-shop:{installation.ShopId:D}", cancellationToken: cancellationToken);
+        return new JsonResult(outcome, WebJson);
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] JsonElement envelope, CancellationToken cancellationToken)
