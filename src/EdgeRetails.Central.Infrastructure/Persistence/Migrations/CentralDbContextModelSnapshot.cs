@@ -808,9 +808,6 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset?>("DecidedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -818,15 +815,18 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RedeemedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("ReviewedByAdminId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("RowVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("RedeemedAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1408,6 +1408,11 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RequestReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<DateTimeOffset>("RequestedAtUtc")
                         .HasColumnType("timestamp with time zone");
