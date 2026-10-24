@@ -2584,6 +2584,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             TargetEntityId = transferId,
             TargetPayloadSha256 = transferDigest,
             ActionScope = "primary.transfer",
+            Reason = "Synthetic test approval for primary transfer.",
             StepUpGrantId = transferStepUpGrantId
         });
         Assert.Equal(HttpStatusCode.OK, reqTransferApprovalRes.StatusCode);
@@ -2809,6 +2810,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             TargetEntityId = licenseId,
             TargetPayloadSha256 = targetPayloadSha256,
             ActionScope = "license.revoke",
+            Reason = "Synthetic test request used to verify missing step-up denial.",
             StepUpGrantId = Guid.NewGuid()
         });
         Assert.Equal(HttpStatusCode.Forbidden, missingGrantResponse.StatusCode);
@@ -2824,6 +2826,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             targetEntityId = licenseId,
             targetPayloadSha256,
             actionScope = "license.revoke",
+            reason = "Synthetic test approval request for license revocation.",
             stepUpGrantId = initialApprovalGrant,
             stepUpSessionId = Guid.NewGuid(),
             validityMinutes = 1
@@ -2838,16 +2841,26 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             Assert.Equal(TimeSpan.FromSeconds(3600), persisted.ExpiresAtUtc - persisted.RequestedAtUtc);
         }
 
-        var replayedStepUp = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new
+        int approvalCountBeforeChangedIntentReplay;
+        using (var db = GetDbContext())
+        {
+            approvalCountBeforeChangedIntentReplay = await db.SensitiveApprovalRequests.CountAsync();
+        }
+        var changedIntentReplay = await adminClient1.PostAsJsonAsync("/api/lifecycle/v1/sensitive-approvals", new
         {
             operationType = "LICENSE_REVOKE",
             targetEntityId = licenseId,
             targetPayloadSha256,
             actionScope = "license.revoke",
+            reason = "Synthetic replay request verifies the one-use grant denial.",
             stepUpGrantId = initialApprovalGrant
         });
-        Assert.Equal(HttpStatusCode.Forbidden, replayedStepUp.StatusCode);
-        Assert.Equal("STEP_UP_REQUIRED", (await ReadJsonAsync(replayedStepUp))["code"]?.GetValue<string>());
+        Assert.Equal(HttpStatusCode.Conflict, changedIntentReplay.StatusCode);
+        Assert.Equal("OPERATION_ID_CONFLICT", (await ReadJsonAsync(changedIntentReplay))["code"]?.GetValue<string>());
+        using (var db = GetDbContext())
+        {
+            Assert.Equal(approvalCountBeforeChangedIntentReplay, await db.SensitiveApprovalRequests.CountAsync());
+        }
 
         // Self-approval rejection
         var selfApproveRes = await adminClient1.PostAsJsonAsync($"/api/lifecycle/v1/sensitive-approvals/{approvalId}/decide", new DecideSensitiveApprovalCommand
@@ -2880,6 +2893,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
                 TargetEntityId = licenseId,
                 TargetPayloadSha256 = digest,
                 ActionScope = scope,
+                Reason = $"Synthetic test approval for {opType}.",
                 StepUpGrantId = stepUpGrant
             });
             var json = await ReadJsonAsync(reqRes);
@@ -2979,6 +2993,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             TargetEntityId = licenseId,
             TargetPayloadSha256 = canonicalPayloadHash,
             ActionScope = "license.pause",
+            Reason = "Synthetic test approval for license pause.",
             StepUpGrantId = canonicalStepUpGrant
         });
         Assert.Equal(HttpStatusCode.OK, canonicalApprovalResponse.StatusCode);
@@ -3028,6 +3043,11 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             },
             payload = tamperedEffectivePayload
         };
+        _ = await CreateStepUpGrantAsync(
+            admin1SessionId,
+            adminClient1,
+            "license.pause",
+            _serializer.SerializeAndHash(tamperedEffectivePayload).Sha256Hex);
         var tamperedResponse = await adminClient1.PostAsJsonAsync($"/api/admin/v1/licenses/{licenseId}/pause", tamperedRequest);
         Assert.Equal(HttpStatusCode.BadRequest, tamperedResponse.StatusCode);
         Assert.Equal("APPROVAL_PAYLOAD_MISMATCH", (await ReadJsonAsync(tamperedResponse))["code"]?.GetValue<string>());
@@ -3038,6 +3058,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == canonicalOperationId));
         }
 
+        _ = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "license.pause", canonicalPayloadHash);
         var canonicalResponse = await adminClient1.PostAsJsonAsync($"/api/admin/v1/licenses/{licenseId}/pause", canonicalRequest);
         Assert.Equal(HttpStatusCode.OK, canonicalResponse.StatusCode);
         var canonicalOutcome = await ReadJsonAsync(canonicalResponse);
@@ -3080,6 +3101,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             TargetEntityId = licenseId,
             TargetPayloadSha256 = resumePayloadHash,
             ActionScope = "license.resume",
+            Reason = "Synthetic test approval for license resume.",
             StepUpGrantId = resumeStepUpGrant
         });
         var resumeApprovalId = Guid.Parse((await ReadJsonAsync(resumeApprovalResponse))["id"]!.GetValue<string>());
@@ -3110,6 +3132,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             },
             payload = resumePayload
         };
+        _ = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, "license.resume", resumePayloadHash);
         var resumeResponse = await adminClient1.PostAsJsonAsync($"/api/admin/v1/licenses/{licenseId}/resume", resumeRequest);
         Assert.Equal(HttpStatusCode.OK, resumeResponse.StatusCode);
         using (var db = GetDbContext())
@@ -3130,6 +3153,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
                 TargetEntityId = licenseId,
                 TargetPayloadSha256 = digest,
                 ActionScope = operationType,
+                Reason = $"Synthetic test approval for {operationType}.",
                 StepUpGrantId = stepUpGrant
             });
             Assert.Equal(HttpStatusCode.OK, approvalResponse.StatusCode);
@@ -3146,6 +3170,7 @@ public class W2CommercialAndLicensingApiIntegrationTests : IClassFixture<WebAppl
             {
                 expectedVersion = (await db.CommercialLicenses.FindAsync(licenseId))!.RowVersion;
             }
+            _ = await CreateStepUpGrantAsync(admin1SessionId, adminClient1, operationType, digest);
             var request = new
             {
                 meta = new
