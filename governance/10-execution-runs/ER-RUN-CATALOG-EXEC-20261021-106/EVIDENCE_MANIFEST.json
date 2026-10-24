@@ -1,0 +1,151 @@
+{
+  "run_id": "ER-RUN-CATALOG-EXEC-20261021-106",
+  "delivery_root": "C:\\Users\\muham\\OneDrive\\Desktop\\Point of Sale\\governance\\10-execution-runs\\ER-RUN-CATALOG-EXEC-20261021-106",
+  "timestamp_utc": "2026-10-21T12:00:00Z",
+  "artifacts": {
+    "AUTHOR_REVIEW_SUPPORT_STATEMENT.md": {
+      "size_bytes": 349,
+      "sha256": "1efd26c987a031298c6f0f7228462756016b0c35eb230d8869b11671fd75bc68"
+    },
+    "BASELINE_PROOF.json": {
+      "size_bytes": 332,
+      "sha256": "6c4fb8f153a8cc4e547e9bdfd10b2f3e7c3d8928bb3db78fdfe87b77dd4d0faf"
+    },
+    "CAPACITY_OBSERVATION.json": {
+      "size_bytes": 755,
+      "sha256": "238f253e63b82a3a82f84dadb2de75a9f6ddadea60dd101a09528333b896f2aa"
+    },
+    "CROSSWALK.json": {
+      "size_bytes": 10941,
+      "sha256": "4acd455de75bac4b8c95f779d4287cfde7dc4e9521fe6ca6639c9f2822454323"
+    },
+    "DELIVERY_INDEX.json": {
+      "size_bytes": 1510,
+      "sha256": "1c6a829eacc904bad22be4825d2329dd901a5067b67b9933028abc42135294bd"
+    },
+    "DISTINCT_ROOT_REVIEW_HANDOFF.md": {
+      "size_bytes": 391,
+      "sha256": "150b3ca30f2ed36567a8bc5d14e5a3782d5ab92666362971b2de00f4835283b7"
+    },
+    "FINAL_REPORT.md": {
+      "size_bytes": 1065,
+      "sha256": "b0e328c311b57160f0b20e313786cae9d4d340e2cbf8aa47b477877615da5c2c"
+    },
+    "PARALLEL_PLAN.json": {
+      "size_bytes": 4722,
+      "sha256": "49e8b0b228a60e0574bff6066165598d020aa1b65ce02075dd4b8657b6d9a012"
+    },
+    "PLAN_VALIDATION.json": {
+      "size_bytes": 444,
+      "sha256": "4bdfa8d2253671a76b9e81b6f69409407d5c57d25a11dd7e12c3bb99e9438ba1"
+    },
+    "RECEIPT.json": {
+      "size_bytes": 1423,
+      "sha256": "ad8de226d1c17c1500b8ccb3a51909c700492051a7934f529f35017491b6cca0"
+    },
+    "STAGE1_CONFIRMED_CATALOG_AUDIT_FINDINGS_AND_CAUSAL_DIAGNOSIS.md": {
+      "size_bytes": 2604,
+      "sha256": "37f9382b5476fc0e0eaeca817121195eeb2acb67a11b9e78d4dfed848e7f8e91"
+    },
+    "STAGE2_TAXONOMY_V3_CANONICAL_INVENTORY_AND_BOUNDARIES.md": {
+      "size_bytes": 1132,
+      "sha256": "6bdaab468e341de17af51d36276945506b3d3212823e812b58718371ab378606"
+    },
+    "STAGE3_VERIFIED_FOUNDATION_LOCK_AND_CUSTODY.md": {
+      "size_bytes": 650,
+      "sha256": "92912edfd36ff639a0caecd240a4c94bb4d111820beec70535d69922866976c3"
+    },
+    "STAGE4_EXACT_CRITERIA_AND_CONTRACT_DECISION.md": {
+      "size_bytes": 907,
+      "sha256": "08045e637c2472e052d12ef6ddc1a4556bb0d08dfa6ad2152c3287afe31407e3"
+    },
+    "STAGE5_ORIGINAL_TASK_CROSSWALK.md": {
+      "size_bytes": 328,
+      "sha256": "70d90f629e3a0c0fdd2367ae0fcef55d0223389c4d51750aa311c54be49651a9"
+    },
+    "STAGE6_IMPLEMENTATION_AND_EVIDENCE.md": {
+      "size_bytes": 1969,
+      "sha256": "3ee00436a037ed24842702041475f79a873a703f2c1dbf961ba082d53c87d9c8"
+    },
+    "STAGE7_WHOLE_WAVE_EVALUATION.md": {
+      "size_bytes": 999,
+      "sha256": "e9ab50edf2a4a8d2fcc279d0819bda83e0858e9608d465e0f877deef0aea4666"
+    },
+    "STAGE8_FINAL_DEPOSITION_AND_RECEIPT.md": {
+      "size_bytes": 338,
+      "sha256": "29f8e506d6aaf363486e660873767a186d9ed65e1a1d61ba76446bcd5e624139"
+    },
+    "Verify-DeliveryReadback.ps1": {
+      "size_bytes": 1583,
+      "sha256": "95c903684dae78d2870726403ab82d6ba7763a182fac00a5ca923aac831eab9e"
+    },
+    "Verify-DeliveryReadback.py": {
+      "size_bytes": 1141,
+      "sha256": "39dd4c1db2c739e4a6e16631395d644ff0d36643fa1aa32b65b5868d7b282174"
+    },
+    "build.log": {
+      "size_bytes": 2018,
+      "sha256": "1c7a65812c20af2939196d180edd083ddf69134a2ed028a0867051bbcf9bddef"
+    },
+    "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.json": {
+      "size_bytes": 1796,
+      "sha256": "ce178ded7b3d6e584b0886e7a1c3577d4425967e9ee227c1659e917be51225b7"
+    },
+    "export/CANDIDATE_DRIFT_AND_PROVENANCE_AUDIT.md": {
+      "size_bytes": 394,
+      "sha256": "1506e9464e5523b553d6d7936ebb47ab7b6dae55c7ec402638f8357b5f72a3a0"
+    },
+    "export/CANDIDATE_FILE_INVENTORY.json": {
+      "size_bytes": 193783,
+      "sha256": "b671b730f91310763ce43c15adc01e8c60932aa5bd2bd6e78f5894c84bd754a4"
+    },
+    "export/RECONSTRUCTION_INSTRUCTIONS.md": {
+      "size_bytes": 1040,
+      "sha256": "d2cf1524bfc63c910d23da6206ffc504d9b24df1491bc1112ed91b8337120135"
+    },
+    "export/Verify-CandidateExport.ps1": {
+      "size_bytes": 2307,
+      "sha256": "13fa28daf83bd59a2f4d42d3841261407bf048de72ee388b09809b3462f989ce"
+    },
+    "export/candidate_source_bundle.zip": {
+      "size_bytes": 4471617,
+      "sha256": "f9f39fd9fa8afbb7c70cc85d3e72d60fad16c9d7152b5ca7e9f6b9d5538c1a79"
+    },
+    "export/candidate_tracked.patch": {
+      "size_bytes": 21361583,
+      "sha256": "ccf51c2479954da7aaf9c5a6999dfbde2180082d0571ccfef2b8659daed56712"
+    },
+    "export/candidate_untracked.zip": {
+      "size_bytes": 25390,
+      "sha256": "dda1ada90cfd30f69b8f697b3442a321670ba21a1476d9cd6bae164de5e18fb7"
+    },
+    "test-results/build.log": {
+      "size_bytes": 2018,
+      "sha256": "1c7a65812c20af2939196d180edd083ddf69134a2ed028a0867051bbcf9bddef"
+    },
+    "test-results/catalog_v3_desktop_editor_tests.trx": {
+      "size_bytes": 14226,
+      "sha256": "6c6f2e8f14a75eeb0ba5875e12a5008df0b19a5751a0a586a9e3709fa6530007"
+    },
+    "test-results/catalog_v3_unit_tests.trx": {
+      "size_bytes": 2079118,
+      "sha256": "0bfc143942fbd0af81d41f1971db5fdfdfd17e9f4cc4fd21328f4c849d789332"
+    },
+    "workers/lane-a-units-policy-investigator.md": {
+      "size_bytes": 2346,
+      "sha256": "533ddef4a383eafac8e0c91bcfc657fb54563bb64ded4cb06d82f5df4a62be78"
+    },
+    "workers/lane-b-taxonomy-bootstrap-investigator.md": {
+      "size_bytes": 3066,
+      "sha256": "144605c5364641dfd0c1157f1743c881ccd3daa789491cd650a9a289173e8748"
+    },
+    "workers/lane-c-desktop-api-search-reviewer.md": {
+      "size_bytes": 2495,
+      "sha256": "366ca85b6f7954911bdd260197e7c0104d3ffc7199fc285e40cb890fbbf7308c"
+    },
+    "workers/pos-coordinator.md": {
+      "size_bytes": 823,
+      "sha256": "3fa4692f3b0d4d2a64551347b6d2593b0fad9e091f7ce0e5c451e8e688c1fe47"
+    }
+  }
+}

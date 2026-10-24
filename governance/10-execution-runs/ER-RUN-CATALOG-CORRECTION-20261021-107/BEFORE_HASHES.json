@@ -1,0 +1,14 @@
+﻿{
+  "run_id": "ER-RUN-CATALOG-CORRECTION-20261021-107",
+  "observed_utc": "2026-10-21T12:51:35Z",
+  "head": "ea305c76ac9efeb6c109e182d54c3d7a942a05ff",
+  "paths": [
+    {"path":"src/EdgeRetails.Infrastructure/Persistence/Configurations/CatalogConfigurations.cs","status":"present","length":7939,"sha256":"0e76fc659f7f0c9841db81ff16fd41df75ab433ce9c9dd946135cddf24c9dd9d"},
+    {"path":"src/EdgeRetails.Infrastructure/Persistence/Migrations/20261021120000_Phase11CatalogCanonicalIntegration.cs","status":"present","length":2276,"sha256":"d1b492eeeb763478f4bc877747cdd26a6e8744adf07af5e7334532821c55408c"},
+    {"path":"src/EdgeRetails.Infrastructure/Persistence/Migrations/20261021120000_Phase11CatalogCanonicalIntegration.Designer.cs","status":"present","length":312904,"sha256":"7f1394c7e60b9a4ca3fb104c9a1120bb059ba00e0dfe20b09b9dda047a2ded17"},
+    {"path":"src/EdgeRetails.Infrastructure/Persistence/Migrations/EdgeRetailsDbContextModelSnapshot.cs","status":"present","length":312766,"sha256":"80698706b9bcad6d882f96ec2276b12a07fbe8e23bb6dfac4f5ae4cc44d6597e"},
+    {"path":"src/EdgeRetails.Infrastructure/Services/TaxonomyV3Importer.cs","status":"present","length":36035,"sha256":"80a711b86d72f9e0836bff6899840840abc6ddff70fc516dfcd2a97bff0a09bc"},
+    {"path":"tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs","status":"present","length":12396,"sha256":"d7b0e996bb0725b80668ce27595bd70a0eaf8082f1eb89c468def28d9449a201"},
+    {"path":"src/EdgeRetails.Application/Features/Catalog/TaxonomyV3ImporterContracts.cs","status":"present","length":5085,"sha256":"395013dbb1aeb1b6560acfe3059736e233e82e9a8483bf331a77e1cfe68144e7"}
+  ]
+}

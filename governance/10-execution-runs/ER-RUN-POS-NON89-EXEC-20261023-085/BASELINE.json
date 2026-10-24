@@ -1,0 +1,61 @@
+{
+  "run_id": "ER-RUN-POS-NON89-EXEC-20261023-085",
+  "predecessor_run_id": "ER-RUN-POS-NON89-EXEC-20261021-084",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-001 / OWNER-UPDATE-20261019-007 / OWNER-UPDATE-20261020-023",
+  "timestamp_utc": "2026-10-23T12:00:00Z",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "database_custody": {
+    "operational_postgres_port": 5432,
+    "operational_server_port": 7150,
+    "custody_status": "FAIL_CLOSED_PROTECTED",
+    "port_5432_state": "ISOLATED_UNTOUCHED_PID_5564",
+    "port_7150_state": "ISOLATED_UNTOUCHED_PID_3432",
+    "dedicated_disposable_postgres_port": 55437,
+    "dedicated_disposable_server_port": 7155,
+    "disposable_port_status": "INACTIVE_UNBOUND",
+    "server_side_ledger_guarantees": "VERIFIED_VIA_IN_MEMORY_AND_DESKTOP_DOMAINS"
+  },
+  "parallel_execution": {
+    "capacity_limit": 4,
+    "capacity_scope": "all_actors",
+    "coordinator_slots": 1,
+    "other_active_slots": 0,
+    "available_worker_slots": 3,
+    "requested_parallelism": 2,
+    "actors": {
+      "integrator": {
+        "id": "pos-source-integrator",
+        "runtime_id": "actor-pos-integrator-085",
+        "role": "POS source code integrator (LF01 retail return refund restrictions and LF13 customer directory per-project balance non-netting)"
+      },
+      "test_coordinator": {
+        "id": "test-coordinator",
+        "runtime_id": "actor-test-coordinator-085",
+        "role": "Test creation, execution, and raw TRX collection"
+      },
+      "reviewer": {
+        "id": "reviewer",
+        "runtime_id": "actor-reviewer-085",
+        "role": "Read-only architectural, policy, and regression review"
+      }
+    }
+  },
+  "canonical_findings_status": {
+    "LF01": "CLOSED_AND_VERIFIED",
+    "LF02": "CLOSED_AND_VERIFIED",
+    "LF03": "CLOSED_AND_VERIFIED",
+    "LF04": "CLOSED_AND_VERIFIED",
+    "LF05": "CLOSED_AND_VERIFIED",
+    "LF06": "CLOSED_AND_VERIFIED",
+    "LF07": "CLOSED_AND_VERIFIED",
+    "LF08": "CLOSED_AND_VERIFIED",
+    "LF09": "CLOSED_AND_VERIFIED",
+    "LF10": "CLOSED_AND_VERIFIED",
+    "LF11": "CLOSED_AND_VERIFIED",
+    "LF12": "CLOSED_AND_VERIFIED",
+    "LF13": "CLOSED_AND_VERIFIED",
+    "LF14": "CLOSED_AND_VERIFIED",
+    "LF15": "CLOSED_AND_VERIFIED",
+    "THAKA-AUD-04": "CLOSED_AND_VERIFIED"
+  }
+}

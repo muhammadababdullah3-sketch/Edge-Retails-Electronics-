@@ -58,7 +58,8 @@ public sealed class RemoteProductManagementService(
         int pageSize = 200,
         string? beforeName = null,
         Guid? beforeProductId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? classRef = null)
     {
         if (string.IsNullOrWhiteSpace(beforeName) != !beforeProductId.HasValue)
         {
@@ -79,6 +80,11 @@ public sealed class RemoteProductManagementService(
         if (categoryId is not null)
         {
             query += $"&categoryId={categoryId:D}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(classRef))
+        {
+            query += $"&classRef={Uri.EscapeDataString(classRef.Trim())}";
         }
 
         if (!string.IsNullOrWhiteSpace(beforeName) && beforeProductId is Guid cursor)
@@ -368,7 +374,7 @@ public sealed class RemoteProductManagementService(
         request.CompanyId, request.ModelCode, request.BaseUnitId, request.TrackingMode,
         request.SerialTrackingEnabled, request.ImeiTrackingEnabled, request.ReferencePurchaseCost,
         request.DefaultSalePrice, request.MinimumStockLevel, request.DefaultWarrantyMonths,
-        request.AttributesJson, request.AttributesSchemaVersion);
+        request.AttributesJson, request.AttributesSchemaVersion, request.ClassRef);
 
     private static BackendCatalogOperationException Error(string code, string message) => new(code, message);
     private sealed record SuccessResponse(bool Success);

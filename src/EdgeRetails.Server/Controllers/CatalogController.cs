@@ -25,6 +25,7 @@ public sealed class CatalogController : ControllerBase
     private readonly ConfigureProductUnitsHandler _configureUnitsHandler;
     private readonly SetProductUnitBarcodeHandler _setBarcodeHandler;
     private readonly SaveProductAggregateHandler _saveProductAggregateHandler;
+    private readonly EdgeRetails.Application.Features.Setup.CatalogReferenceUpgradeHandler _catalogReferenceUpgradeHandler;
 
     public CatalogController(
         IProductManagementReadService productReads,
@@ -41,7 +42,8 @@ public sealed class CatalogController : ControllerBase
         SetSupplierProductActiveHandler setSupplierProductActiveHandler,
         ConfigureProductUnitsHandler configureUnitsHandler,
         SetProductUnitBarcodeHandler setBarcodeHandler,
-        SaveProductAggregateHandler saveProductAggregateHandler)
+        SaveProductAggregateHandler saveProductAggregateHandler,
+        EdgeRetails.Application.Features.Setup.CatalogReferenceUpgradeHandler catalogReferenceUpgradeHandler)
     {
         _productReads = productReads;
         _createProductHandler = createProductHandler;
@@ -58,6 +60,7 @@ public sealed class CatalogController : ControllerBase
         _configureUnitsHandler = configureUnitsHandler;
         _setBarcodeHandler = setBarcodeHandler;
         _saveProductAggregateHandler = saveProductAggregateHandler;
+        _catalogReferenceUpgradeHandler = catalogReferenceUpgradeHandler;
     }
 
     [HttpGet("search")]
@@ -92,6 +95,31 @@ public sealed class CatalogController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Explicit one-time upgrade for an existing completed shop. Not invoked at server startup.
+    /// Categories are not seeded until the owner approves a shop-owned symbol/name mapping.
+    /// </summary>
+    [HttpPost("upgrade/fixed-units")]
+    public async Task<IActionResult> UpgradeExistingShopFixedUnits(CancellationToken cancellationToken)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        var actor = HttpContext.Items.TryGetValue("CurrentUserId", out var value) && value is Guid userId
+            ? userId
+            : Guid.Empty;
+        var result = await _catalogReferenceUpgradeHandler.HandleAsync(actor, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return Conflict(new { code = result.Error!.Code, message = result.Error.Message });
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpGet("products")]
     public async Task<IActionResult> GetProducts(
         [FromQuery] string? search,
@@ -100,6 +128,7 @@ public sealed class CatalogController : ControllerBase
         [FromQuery] int pageSize = 100,
         [FromQuery] string? beforeName = null,
         [FromQuery] Guid? beforeProductId = null,
+        [FromQuery] string? classRef = null,
         CancellationToken cancellationToken = default)
     {
         var denied = this.RequirePermission(PermissionKeys.InventoryManage);
@@ -120,7 +149,8 @@ public sealed class CatalogController : ControllerBase
             BeforeName: beforeName,
             BeforeProductId: beforeProductId,
             CategoryId: categoryId,
-            IsActive: isActive);
+            IsActive: isActive,
+            ClassRef: string.IsNullOrWhiteSpace(classRef) ? null : classRef.Trim());
 
         var products = await _productReads.GetProductsPageAsync(query, cancellationToken);
         return Ok(products);
@@ -184,6 +214,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] CreateProductCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _createProductHandler.HandleAsync(sanitized, cancellationToken);
@@ -195,6 +231,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SaveProductAggregateCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _saveProductAggregateHandler.HandleAsync(sanitized, cancellationToken);
@@ -207,6 +249,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] UpdateProductCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null
             ? command with { ProductId = id, ActorId = actor.UserId }
@@ -222,6 +270,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SetCatalogReferenceActiveRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var result = await _setSupplierProductActiveHandler.HandleAsync(
             new SetSupplierProductActiveCommand(
@@ -240,6 +294,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] DeactivateProductRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var actorId = actor?.UserId ?? request.ActorId ?? Guid.Empty;
         var command = new DeactivateProductCommand(actorId, id, request.ExpectedVersion);
@@ -253,6 +313,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] ReactivateProductRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var actorId = actor?.UserId ?? request.ActorId ?? Guid.Empty;
         var command = new ReactivateProductCommand(actorId, id, request.ExpectedVersion);
@@ -280,6 +346,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SaveCompanyCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _saveCompanyHandler.HandleAsync(sanitized, cancellationToken);
@@ -292,6 +364,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SetCatalogReferenceActiveRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var result = await _setCompanyActiveHandler.HandleAsync(
             new SetCompanyActiveCommand(actor?.UserId ?? Guid.Empty, id, request.IsActive),
@@ -319,6 +397,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SaveCategoryCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _saveCategoryHandler.HandleAsync(sanitized, cancellationToken);
@@ -331,6 +415,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SetCatalogReferenceActiveRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var result = await _setCategoryActiveHandler.HandleAsync(
             new SetCategoryActiveCommand(actor?.UserId ?? Guid.Empty, id, request.IsActive),
@@ -358,6 +448,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SaveUnitCommand command,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _saveUnitHandler.HandleAsync(sanitized, cancellationToken);
@@ -370,6 +466,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SetCatalogReferenceActiveRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var result = await _setUnitActiveHandler.HandleAsync(
             new SetUnitActiveCommand(actor?.UserId ?? Guid.Empty, id, request.IsActive),
@@ -383,6 +485,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] IReadOnlyList<ProductUnitInput> units,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var command = new ConfigureProductUnitsCommand(id, units, actor?.UserId ?? Guid.Empty);
         var result = await _configureUnitsHandler.HandleAsync(command, cancellationToken);
@@ -395,6 +503,12 @@ public sealed class CatalogController : ControllerBase
         [FromBody] SetBarcodeRequest request,
         CancellationToken cancellationToken)
     {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
         var actor = HttpContext.GetActorContext();
         var command = new SetProductUnitBarcodeCommand(unitId, request.Barcode, actor?.UserId ?? Guid.Empty);
         var result = await _setBarcodeHandler.HandleAsync(command, cancellationToken);

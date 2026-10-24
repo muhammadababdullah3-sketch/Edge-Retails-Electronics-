@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "status": "COMPLETED",
+  "plan_id": "CATALOG-EXEC-20261021-106",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-007 / ER-RUN-CATALOG-PROMPT-20261021-104",
+  "phase_wave": "Phase 11 Bounded Catalog Correction Batch (CAT-AUDIT-01..08)",
+  "workspace": "C:/Users/muham/OneDrive/Desktop/Point of Sale",
+  "baseline_proof": "governance/10-execution-runs/ER-RUN-CATALOG-AUDIT-20261021-103/FINDINGS.json",
+  "capacity_limit": 4,
+  "capacity_scope": "all_actors",
+  "coordinator_slots": 1,
+  "other_active_slots": 0,
+  "capacity_proof": "governance/10-execution-runs/ER-RUN-CATALOG-PROMPT-20261021-104/READBACK.json",
+  "requested_parallelism": 3,
+  "integrator_id": "pos-coordinator",
+  "integrator_runtime_id": "point-of-sale-5a",
+  "integrator_write_paths": [
+    "src/EdgeRetails.Application/Features/Setup/FirstSetupBootstrapHandler.cs",
+    "src/EdgeRetails.Application/Features/Catalog/ProductUnitHandlers.cs",
+    "src/EdgeRetails.Application/Features/Catalog/ProductManagementHandlers.cs",
+    "src/EdgeRetails.Application/Features/Catalog/TaxonomyV3Store.cs",
+    "src/EdgeRetails.Domain/Catalog/CatalogModels.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Configurations/CatalogConfigurations.cs",
+    "src/EdgeRetails.Infrastructure/Services/TaxonomyV3Importer.cs",
+    "src/EdgeRetails.Infrastructure/Services/ProductManagementReadService.cs",
+    "src/EdgeRetails.Desktop/ViewModels/ProductManagementViewModel.cs",
+    "src/EdgeRetails.Desktop/ViewModels/ProductEditViewModel.cs",
+    "tests/EdgeRetails.UnitTests/CatalogV3UnitAndTaxonomyTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs"
+  ],
+  "test_coordinator_id": "pos-coordinator",
+  "resource_owners": {},
+  "workers": [
+    {
+      "id": "lane-a-units-policy-investigator",
+      "runtime_id": "acd405deade488aa0",
+      "role": "Analyze physical dimensions, Gate D conversion rules, packaging factors, and unit validation rules for CAT-AUDIT-02 and CAT-AUDIT-01",
+      "status": "COMPLETED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "exclusion_reason": null,
+      "original_task_ids": [
+        "CAT-AUDIT-01",
+        "CAT-AUDIT-02"
+      ],
+      "read_only": true,
+      "read_paths": [
+        "src/EdgeRetails.Domain/Catalog/CatalogModels.cs",
+        "src/EdgeRetails.Application/Features/Catalog/TaxonomyV3Store.cs",
+        "src/EdgeRetails.Application/Features/Catalog/ProductUnitHandlers.cs",
+        "src/EdgeRetails.Application/Features/Catalog/ProductManagementHandlers.cs"
+      ],
+      "write_paths": [],
+      "resources": [],
+      "can_run_tests": false,
+      "depends_on": [],
+      "proof_paths": []
+    },
+    {
+      "id": "lane-b-taxonomy-bootstrap-investigator",
+      "runtime_id": "adb3b1fc9c2c7ae39",
+      "role": "Analyze transactional bootstrap preload, dry-run no-write invariants, and target-state diff calculations for CAT-AUDIT-01, CAT-AUDIT-05, CAT-AUDIT-06, CAT-AUDIT-08",
+      "status": "COMPLETED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "exclusion_reason": null,
+      "original_task_ids": [
+        "CAT-AUDIT-01",
+        "CAT-AUDIT-05",
+        "CAT-AUDIT-06",
+        "CAT-AUDIT-08"
+      ],
+      "read_only": true,
+      "read_paths": [
+        "src/EdgeRetails.Application/Features/Setup/FirstSetupBootstrapHandler.cs",
+        "src/EdgeRetails.Infrastructure/Services/TaxonomyV3Importer.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs"
+      ],
+      "write_paths": [],
+      "resources": [],
+      "can_run_tests": false,
+      "depends_on": [],
+      "proof_paths": []
+    },
+    {
+      "id": "lane-c-desktop-api-search-reviewer",
+      "runtime_id": "a1183e562ad623a65",
+      "role": "Audit taxonomy tree navigation, structured leaf vs department filtering, and Urdu/English alias resolution for CAT-AUDIT-03, CAT-AUDIT-04, CAT-AUDIT-07",
+      "status": "COMPLETED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "exclusion_reason": null,
+      "original_task_ids": [
+        "CAT-AUDIT-03",
+        "CAT-AUDIT-04",
+        "CAT-AUDIT-07"
+      ],
+      "read_only": true,
+      "read_paths": [
+        "src/EdgeRetails.Infrastructure/Services/ProductManagementReadService.cs",
+        "src/EdgeRetails.Desktop/ViewModels/ProductManagementViewModel.cs",
+        "src/EdgeRetails.Desktop/ViewModels/ProductEditViewModel.cs"
+      ],
+      "write_paths": [],
+      "resources": [],
+      "can_run_tests": false,
+      "depends_on": [],
+      "proof_paths": []
+    }
+  ]
+}

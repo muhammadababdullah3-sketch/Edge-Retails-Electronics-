@@ -1261,6 +1261,7 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
     public Dictionary<Guid, ProductUnit> ProductUnits { get; } = new();
     public Dictionary<Guid, Company> Companies { get; } = new();
     public Dictionary<Guid, Category> Categories { get; } = new();
+    public Dictionary<Guid, Unit> Units { get; } = new();
     private long _skuSequence;
 
     public Task<string> AllocateNextSkuAsync(CancellationToken cancellationToken)
@@ -1329,13 +1330,13 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
         Task.FromResult(false);
 
     public Task<Unit?> GetUnitAsync(Guid unitId, CancellationToken cancellationToken) =>
-        Task.FromResult<Unit?>(new Unit { Id = unitId, Name = "Piece", Symbol = "pc", IsActive = true });
+        Task.FromResult<Unit?>(Units.TryGetValue(unitId, out var u) ? u : new Unit { Id = unitId, Name = "Piece", Symbol = "pc", IsActive = true });
 
     public Task<Unit?> GetUnitForUpdateAsync(Guid unitId, CancellationToken cancellationToken) =>
         GetUnitAsync(unitId, cancellationToken);
 
     public Task<IReadOnlyList<Unit>> GetUnitsAsync(bool includeInactive, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<Unit>>([]);
+        Task.FromResult<IReadOnlyList<Unit>>(Units.Values.Where(u => includeInactive || u.IsActive).ToList());
 
     public Task<bool> IsUnitInUseByActiveCatalogAsync(Guid unitId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
@@ -1360,7 +1361,7 @@ internal sealed class FakeCatalogRepository : ICatalogRepository
 
     public void AddCompany(Company company) => Companies[company.Id] = company;
     public void AddCategory(Category category) => Categories[category.Id] = category;
-    public void AddUnit(Unit unit) { }
+    public void AddUnit(Unit unit) => Units[unit.Id] = unit;
     public void AddProduct(Product product) => Products[product.Id] = product;
     public void AddProductUnit(ProductUnit productUnit) => ProductUnits[productUnit.Id] = productUnit;
     public void AddBarcode(ProductUnitBarcode barcode) { }

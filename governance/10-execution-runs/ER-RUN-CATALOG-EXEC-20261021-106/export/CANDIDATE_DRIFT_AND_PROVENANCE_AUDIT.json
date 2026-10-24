@@ -1,0 +1,28 @@
+{
+  "run_id": "ER-RUN-CATALOG-EXEC-20261021-106",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "timestamp_utc": "2026-10-21T12:00:00Z",
+  "catalog_batch_modified_files": [
+    "src/EdgeRetails.Application/Features/Catalog/ProductManagementHandlers.cs",
+    "src/EdgeRetails.Application/Features/Catalog/ProductManagementQueries.cs",
+    "src/EdgeRetails.Application/Features/Catalog/ProductUnitHandlers.cs",
+    "src/EdgeRetails.Application/Features/Setup/FirstSetupBootstrapHandler.cs",
+    "src/EdgeRetails.Desktop/Services/BackendProductManagementService.cs",
+    "src/EdgeRetails.Desktop/Services/RemoteProductManagementService.cs",
+    "src/EdgeRetails.Desktop/ViewModels/ProductEditViewModel.cs",
+    "src/EdgeRetails.Desktop/ViewModels/ProductManagementViewModel.cs",
+    "src/EdgeRetails.Domain/Catalog/CatalogModels.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Configurations/CatalogConfigurations.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Migrations/EdgeRetailsDbContextModelSnapshot.cs",
+    "src/EdgeRetails.Infrastructure/Services/ProductManagementReadService.cs",
+    "src/EdgeRetails.Infrastructure/Services/TaxonomyV3Importer.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs",
+    "tests/EdgeRetails.UnitTests/StockAdjustmentHandlerBehavioralTests.cs"
+  ],
+  "catalog_batch_new_files": [
+    "src/EdgeRetails.Application/Features/Catalog/ProductUnitValidator.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261021120000_Phase11CatalogCanonicalIntegration.Designer.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261021120000_Phase11CatalogCanonicalIntegration.cs",
+    "tests/EdgeRetails.UnitTests/CatalogV3UnitAndTaxonomyTests.cs"
+  ]
+}

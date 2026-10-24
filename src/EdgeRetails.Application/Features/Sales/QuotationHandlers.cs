@@ -61,16 +61,27 @@ public sealed class CreateQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesCreate,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result<Guid>.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result<Guid>.Failure(
+                    "auth.actor_required",
+                    "Actor id is required.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesCreate,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (command.Items.Count == 0)
@@ -250,16 +261,27 @@ public sealed class UpdateQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesCreate,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result.Failure(
+                    "auth.actor_required",
+                    "Actor id is required.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesCreate,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (command.Items.Count == 0)
@@ -453,16 +475,27 @@ public sealed class IssueQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesCreate,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result.Failure(
+                    "auth.actor_required",
+                    "Actor id is required.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesCreate,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             var quotation = await _quotations.GetQuotationForUpdateAsync(
@@ -529,16 +562,27 @@ public sealed class CancelQuotationHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesCreate,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result.Failure(
+                    "auth.actor_required",
+                    "Actor id is required.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesCreate,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             var quotation = await _quotations.GetQuotationForUpdateAsync(

@@ -25,4 +25,10 @@
     <NoWarn>$(NoWarn);IDE0161</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Exposes CapturePersistentStateFingerprintAsync so the integration suite can prove the
+         dry-run no-write oracle is non-vacuous (it must detect an actual mutation). -->
+    <InternalsVisibleTo Include="EdgeRetails.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

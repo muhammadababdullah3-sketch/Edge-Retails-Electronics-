@@ -404,7 +404,7 @@ public sealed class Phase3DesktopCutoverTests
         public Task<IReadOnlyList<BackendProductManagementItem>> GetProductsPageAsync(
             string? search, bool? isActive, Guid? categoryId, int pageSize = 200,
             string? beforeName = null, Guid? beforeProductId = null,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default, string? classRef = null) => throw new NotSupportedException();
 
         public Task<BackendProductManagementItem?> GetProductAsync(Guid productId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProductManagementItem?> GetProductBySkuAsync(string sku, CancellationToken cancellationToken = default) => throw new NotSupportedException();

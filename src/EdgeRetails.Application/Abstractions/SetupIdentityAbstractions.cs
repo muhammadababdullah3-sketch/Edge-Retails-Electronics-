@@ -20,6 +20,9 @@ public interface ISetupRepository
 {
     Task<InstallationState?> GetInstallationStateForUpdateAsync(
         CancellationToken cancellationToken);
+    Task<bool> HasCatalogReferenceUpgradeAsync(
+        Guid installationId,
+        CancellationToken cancellationToken);
 
     Task<bool> AnyUsersAsync(CancellationToken cancellationToken);
 

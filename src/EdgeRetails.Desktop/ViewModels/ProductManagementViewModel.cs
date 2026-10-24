@@ -68,6 +68,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         MoreProductsCommand = new RelayCommand(() => _ = LoadMoreProductsAsync());
         CloseDetailCommand = new RelayCommand(CloseProductDetail);
         FilterBySelectedTaxonomyCommand = new RelayCommand(FilterBySelectedTaxonomy, () => HasSelectedTaxonomyNode);
+        ClearTaxonomyFilterCommand = new RelayCommand(ClearTaxonomyFilter, () => HasActiveTaxonomyFilter);
 
         InitializeTaxonomyTree();
         _ = RefreshAsync();
@@ -107,6 +108,36 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         ? $"REDIRECT NOTICE: Class {_selectedTaxonomyNode.Code} is deprecated. Active canonical target: {_selectedTaxonomyNode.RedirectTargetCode}"
         : null;
 
+    private TaxonomyTreeNodeViewModel? _activeTaxonomyFilterNode;
+    public TaxonomyTreeNodeViewModel? ActiveTaxonomyFilterNode
+    {
+        get => _activeTaxonomyFilterNode;
+        private set
+        {
+            if (SetProperty(ref _activeTaxonomyFilterNode, value))
+            {
+                OnPropertyChanged(nameof(HasActiveTaxonomyFilter));
+                OnPropertyChanged(nameof(ActiveTaxonomyFilterDisplay));
+                (ClearTaxonomyFilterCommand as RelayCommand)?.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool HasActiveTaxonomyFilter => _activeTaxonomyFilterNode is not null;
+
+    public string? ActiveTaxonomyFilterDisplay => _activeTaxonomyFilterNode is not null
+        ? $"{_activeTaxonomyFilterNode.Level}: {_activeTaxonomyFilterNode.Code} — {_activeTaxonomyFilterNode.Name}"
+        : null;
+
+    public ICommand ClearTaxonomyFilterCommand { get; }
+
+    public void ClearTaxonomyFilter()
+    {
+        ActiveTaxonomyFilterNode = null;
+        SearchText = string.Empty;
+        ApplyFilters();
+    }
+
     private int _selectedTabIndex;
     public int SelectedTabIndex
     {
@@ -120,11 +151,14 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
     {
         if (_selectedTaxonomyNode is not null)
         {
+            ActiveTaxonomyFilterNode = _selectedTaxonomyNode;
             var targetCode = !string.IsNullOrWhiteSpace(_selectedTaxonomyNode.RedirectTargetCode)
                 ? _selectedTaxonomyNode.RedirectTargetCode
                 : _selectedTaxonomyNode.Code;
 
-            SearchText = targetCode;
+            // The explicit taxonomy selection now travels as ClassRef query state; do not
+            // overload free text with a class code (which could accidentally widen results).
+            SearchText = string.Empty;
             SelectedTabIndex = 0;
             ApplyFilters();
         }
@@ -490,41 +524,135 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             _ => products
         };
 
-        if (!string.IsNullOrWhiteSpace(SearchText))
-        {
-            var term = SearchText.Trim();
-            var matchingTaxonomyCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var matchingClassNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var taxonomyNode = ActiveTaxonomyFilterNode;
+        var term = SearchText?.Trim() ?? string.Empty;
 
-            var cls = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
+        if (taxonomyNode is null && !string.IsNullOrWhiteSpace(term))
+        {
+            var matchingClass = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
                 string.Equals(c.ClassRef, term, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(c.CanonicalClassRef, term, StringComparison.OrdinalIgnoreCase));
 
-            if (cls is not null)
+            if (matchingClass is not null)
             {
-                matchingClassNames.Add(cls.ClassName);
-                var dept = TaxonomyV3Store.Departments.FirstOrDefault(d => string.Equals(d.Code, cls.DepartmentCode, StringComparison.OrdinalIgnoreCase));
-                if (dept is not null)
+                taxonomyNode = new TaxonomyTreeNodeViewModel(
+                    matchingClass.ClassRef,
+                    matchingClass.ClassName,
+                    "Class",
+                    isSellable: !matchingClass.IsNavigationOnly,
+                    isDeprecated: matchingClass.IsRedirect,
+                    redirectTargetCode: matchingClass.CanonicalClassRef);
+            }
+            else
+            {
+                var matchingDept = TaxonomyV3Store.Departments.FirstOrDefault(d =>
+                    string.Equals(d.Code, term, StringComparison.OrdinalIgnoreCase));
+                if (matchingDept is not null)
                 {
-                    matchingTaxonomyCategories.Add(dept.Name);
+                    taxonomyNode = new TaxonomyTreeNodeViewModel(
+                        matchingDept.Code,
+                        matchingDept.Name,
+                        "Department");
+                }
+                else
+                {
+                    var matchingDiv = TaxonomyV3Store.Divisions.FirstOrDefault(d =>
+                        string.Equals(d.Code, term, StringComparison.OrdinalIgnoreCase));
+                    if (matchingDiv is not null)
+                    {
+                        taxonomyNode = new TaxonomyTreeNodeViewModel(
+                            matchingDiv.Code,
+                            matchingDiv.Name,
+                            "Division");
+                    }
                 }
             }
+        }
 
-            var deptByCode = TaxonomyV3Store.Departments.FirstOrDefault(d => string.Equals(d.Code, term, StringComparison.OrdinalIgnoreCase));
-            if (deptByCode is not null)
+        if (taxonomyNode is not null)
+        {
+            var targetCode = !string.IsNullOrWhiteSpace(taxonomyNode.RedirectTargetCode)
+                ? taxonomyNode.RedirectTargetCode
+                : taxonomyNode.Code;
+
+            if (string.Equals(taxonomyNode.Level, "Class", StringComparison.OrdinalIgnoreCase))
             {
-                matchingTaxonomyCategories.Add(deptByCode.Name);
-            }
+                var canonicalClass = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
+                    string.Equals(c.ClassRef, targetCode, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.CanonicalClassRef, targetCode, StringComparison.OrdinalIgnoreCase));
 
+                var canonicalRef = canonicalClass?.CanonicalClassRef ?? canonicalClass?.ClassRef ?? targetCode;
+
+                var matchingClassRefs = TaxonomyV3Store.ProductClasses
+                    .Where(c => string.Equals(c.CanonicalClassRef, canonicalRef, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(c.ClassRef, canonicalRef, StringComparison.OrdinalIgnoreCase))
+                    .Select(c => c.ClassRef)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                matchingClassRefs.Add(canonicalRef);
+
+                var matchingClassNames = TaxonomyV3Store.ProductClasses
+                    .Where(c => matchingClassRefs.Contains(c.ClassRef))
+                    .Select(c => c.ClassName)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var alias in TaxonomyV3Store.SearchAliases.Where(a =>
+                    string.Equals(a.TargetScope, "CLASS", StringComparison.OrdinalIgnoreCase) &&
+                    matchingClassRefs.Contains(a.TargetRef)))
+                {
+                    matchingClassNames.Add(alias.Keyword);
+                }
+
+                // A selected taxonomy leaf means exact authoritative assignment. Legacy unmapped
+                // products stay visible in broad/unmapped flows but are not guessed into this class.
+                products = products.Where(x =>
+                    !string.IsNullOrWhiteSpace(x.ClassRef) && matchingClassRefs.Contains(x.ClassRef));
+            }
+            else if (string.Equals(taxonomyNode.Level, "Department", StringComparison.OrdinalIgnoreCase))
+            {
+                var deptClasses = TaxonomyV3Store.ProductClasses
+                    .Where(c => string.Equals(c.DepartmentCode, targetCode, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var descendantRefs = deptClasses.Select(c => c.ClassRef)
+                    .Concat(deptClasses.Select(c => c.CanonicalClassRef))
+                    .Where(r => !string.IsNullOrEmpty(r))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var dept = TaxonomyV3Store.Departments.FirstOrDefault(d => string.Equals(d.Code, targetCode, StringComparison.OrdinalIgnoreCase));
+
+                products = products.Where(x =>
+                    (!string.IsNullOrWhiteSpace(x.ClassRef) && descendantRefs.Contains(x.ClassRef)) ||
+                    (string.IsNullOrWhiteSpace(x.ClassRef) && dept != null && string.Equals(x.Category, dept.Name, StringComparison.OrdinalIgnoreCase)));
+            }
+            else if (string.Equals(taxonomyNode.Level, "Division", StringComparison.OrdinalIgnoreCase))
+            {
+                var depts = TaxonomyV3Store.Departments
+                    .Where(d => string.Equals(d.DivisionCode, targetCode, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var deptCodes = depts.Select(d => d.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var deptNames = depts.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var divClasses = TaxonomyV3Store.ProductClasses
+                    .Where(c => deptCodes.Contains(c.DepartmentCode))
+                    .ToList();
+                var divRefs = divClasses.Select(c => c.ClassRef)
+                    .Concat(divClasses.Select(c => c.CanonicalClassRef))
+                    .Where(r => !string.IsNullOrEmpty(r))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                products = products.Where(x =>
+                    (!string.IsNullOrWhiteSpace(x.ClassRef) && divRefs.Contains(x.ClassRef)) ||
+                    (string.IsNullOrWhiteSpace(x.ClassRef) && deptNames.Contains(x.Category)));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(term))
+        {
             products = products.Where(x =>
                 x.Sku.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 x.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 (x.Brand?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (x.Model?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 x.Category.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                matchingTaxonomyCategories.Contains(x.Category) ||
-                matchingClassNames.Any(cn => x.Name.Contains(cn, StringComparison.OrdinalIgnoreCase) || (x.AttributesJson?.Contains(cn, StringComparison.OrdinalIgnoreCase) ?? false)) ||
-                (x.AttributesJson?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+                (x.ClassRef?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
         FilteredProducts.Clear();
@@ -600,6 +728,7 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
 
         var categoryId = _snapshot?.Categories
             .FirstOrDefault(x => string.Equals(x.Name, SelectedCategory, StringComparison.OrdinalIgnoreCase))?.Id;
+        var classRef = GetActiveClassFilter();
         var isActive = SelectedStatus switch
         {
             "Active" => true,
@@ -612,7 +741,13 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
             isActive,
             categoryId,
             ProductPageSize,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            classRef: classRef);
+
+        if (classRef is not null && rows.Any(x => !string.Equals(x.ClassRef, classRef, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("catalog.class_filter_contract_violation: server returned a product outside the selected ClassRef.");
+        }
 
         if (cancellationToken.IsCancellationRequested || generation != Volatile.Read(ref _productPageSearchVersion))
         {
@@ -642,12 +777,17 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
         try
         {
             var categoryId = _snapshot?.Categories.FirstOrDefault(x => x.Name == SelectedCategory)?.Id;
+            var classRef = GetActiveClassFilter();
             var isActive = SelectedStatus switch { "Active" => true, "Inactive" => false, _ => (bool?)null };
             var rows = await _catalogService.GetProductsPageAsync(SearchText, isActive, categoryId, ProductPageSize,
-                _nextProductName, cursor, _productPageSearchCts?.Token ?? default);
+                _nextProductName, cursor, _productPageSearchCts?.Token ?? default, classRef);
             if (generation != Volatile.Read(ref _productPageSearchVersion) || cursor != _nextProductId)
             {
                 return;
+            }
+            if (classRef is not null && rows.Any(x => !string.Equals(x.ClassRef, classRef, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("catalog.class_filter_contract_violation: server returned a product outside the selected ClassRef.");
             }
             foreach (var product in rows)
             {
@@ -669,6 +809,21 @@ public sealed class ProductManagementViewModel : ViewModelBase, IDisposable
                 _toastService.Show(DesktopErrorPresentation.ForException(ex, "Catalog page could not be loaded."), ToastTone.Danger);
             }
         }
+    }
+
+    private string? GetActiveClassFilter()
+    {
+        var node = ActiveTaxonomyFilterNode;
+        if (node is null || !string.Equals(node.Level, "Class", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var selectedRef = !string.IsNullOrWhiteSpace(node.RedirectTargetCode) ? node.RedirectTargetCode : node.Code;
+        var selectedClass = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
+            string.Equals(c.ClassRef, selectedRef, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(c.CanonicalClassRef, selectedRef, StringComparison.OrdinalIgnoreCase));
+        return selectedClass?.CanonicalClassRef ?? selectedClass?.ClassRef ?? selectedRef;
     }
 
     private void NotifyState()

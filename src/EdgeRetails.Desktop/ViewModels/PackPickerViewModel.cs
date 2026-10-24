@@ -250,3 +250,4 @@ public sealed class PackPickerViewModel : ViewModelBase
         _dialogService?.Close();
     }
 }
+

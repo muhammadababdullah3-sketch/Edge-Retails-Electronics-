@@ -6,7 +6,6 @@ namespace EdgeRetails.Application.Features.Catalog;
 
 /// <summary>
 /// Explicit collision, upsert, and delete policies for Catalog V3 taxonomy and operational entities.
-/// Fulfills P11-IMP-040 explicit policy specification.
 /// </summary>
 public static class TaxonomyCollisionPolicy
 {
@@ -34,17 +33,39 @@ public sealed record TaxonomyDryRunResult(
     IReadOnlyDictionary<string, string> CollisionUpsertDeletePolicy,
     IReadOnlyDictionary<string, int> ExistingOperationalRowsSurvey,
     IReadOnlyDictionary<string, int> ExistingTaxonomyRowsSurvey,
-    IReadOnlyDictionary<string, bool> SafetyInvariantsEvaluated,
+    IReadOnlyDictionary<string, bool?> SafetyInvariantsEvaluated,
     IReadOnlyDictionary<string, int> PlannedTaxonomyOperations,
     int PlannedDeletes,
     bool OccupiedSymbolsPreserved,
     string TestedOccupiedSymbol,
     bool ZeroDestructiveOperations,
     bool NoWriteVerified,
+    bool LsnUnchangedDiagnostic,
+    string TargetFingerprint,
     IReadOnlyList<string> InvariantViolations,
     bool IsSafeToApply,
     string ManifestSha256,
-    string Verdict);
+    string Verdict,
+    /// <summary>
+    /// True only when the session actually held a READ ONLY transaction for the measured window
+    /// (observed via <c>SHOW transaction_read_only</c>), not merely because the code requested it.
+    /// </summary>
+    bool ReadOnlyTransactionVerified = false,
+    /// <summary>
+    /// Authoritative no-write oracle: the deterministic digest of schema surface, foreign keys,
+    /// sequence positions and full row contents was byte-identical before and after the measured
+    /// call. Cluster-wide WAL/LSN equality is diagnostic only and never substitutes for this.
+    /// </summary>
+    bool PersistentStateUnchanged = false);
+
+/// <summary>
+/// Pre-execution verdicts reported when the preview is unsafe or incomplete.
+/// </summary>
+public static class TaxonomyDryRunVerdict
+{
+    public const string SafeForIdempotentSeed = "SAFE_FOR_IDEMPOTENT_SEED";
+    public const string UnsafeOrIncompletePrerequisites = "UNSAFE_OR_INCOMPLETE_PREREQUISITES";
+}
 
 /// <summary>
 /// Execution result from applying the catalog seed via the application importer.
@@ -67,29 +88,23 @@ public sealed record TaxonomySeedResult(
     string? ErrorMessage = null);
 
 /// <summary>
-/// Execution options for seeding, supporting upgrade, interruption, and simulation testing.
+/// Execution options for seeding, supporting upgrade and interruption tests.
 /// </summary>
 public sealed record TaxonomySeedOptions(
     IReadOnlyList<ProductClass>? ExtraClasses = null,
     IReadOnlyList<ClassRedirect>? ExtraRedirects = null,
     bool SimulateInterruption = false,
-    bool SimulateFailure = false);
+    bool SimulateFailure = false,
+    string? ExpectedTargetFingerprint = null);
 
 /// <summary>
 /// Application service contract for Catalog V3 seeding and dry-run execution.
-/// Satisfies P11-IMP-040 and P11-IMP-041.
 /// </summary>
 public interface ITaxonomyV3Importer
 {
-    /// <summary>
-    /// Executes an application-level dry-run plan calculation against the database without mutating any state.
-    /// Verifies zero writes, explicit collision policy, occupied symbol preservation, and preview projection.
-    /// </summary>
+    /// <summary>Calculates a read-only preview against an already migrated schema.</summary>
     Task<TaxonomyDryRunResult> ExecuteDryRunAsync(string runId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Applies taxonomy seed data idempotently under an advisory transaction lock.
-    /// Guarantees preview/apply parity, atomic rollback on error, and operational data preservation.
-    /// </summary>
+    /// <summary>Applies taxonomy seed data idempotently under an advisory transaction lock.</summary>
     Task<TaxonomySeedResult> ApplySeedAsync(TaxonomySeedOptions? options = null, CancellationToken cancellationToken = default);
 }

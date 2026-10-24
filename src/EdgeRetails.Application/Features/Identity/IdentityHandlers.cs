@@ -293,6 +293,15 @@ public interface IApplicationPermissionAuthorizer
         CancellationToken cancellationToken);
 }
 
+public sealed class AllowAllPermissionAuthorizer : IApplicationPermissionAuthorizer
+{
+    public static readonly AllowAllPermissionAuthorizer Instance = new();
+    public Task<Result> AuthorizeAsync(
+        Guid actorId,
+        string permissionKey,
+        CancellationToken cancellationToken) => Task.FromResult(Result.Success());
+}
+
 public sealed class ApplicationPermissionAuthorizer
     : IApplicationPermissionAuthorizer
 {

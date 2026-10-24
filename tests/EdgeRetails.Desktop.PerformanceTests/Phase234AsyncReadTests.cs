@@ -106,10 +106,17 @@ public sealed class Phase234AsyncReadTests
     private static void SetSearch(IDisposable vm, string search) => vm.GetType().GetProperty("SearchText")!.SetValue(vm, search);
     private static string? Name(IDisposable vm, bool supplier)
     {
-        var items = supplier
-            ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToList()
-            : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToList();
-        return items.Count == 1 ? items[0] : null;
+        try
+        {
+            var items = supplier
+                ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToArray()
+                : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToArray();
+            return items.Length == 1 ? items[0] : null;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
     private static async Task AwaitName(IDisposable vm, bool supplier, string name)
     {

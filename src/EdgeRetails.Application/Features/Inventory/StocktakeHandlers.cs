@@ -186,16 +186,27 @@ public sealed class CreateStocktakeHandler
 
         return await _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.InventoryManage,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result<Guid>.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result<Guid>.Failure(
+                    "auth.actor_required",
+                    "Actor id is required.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.InventoryManage,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (command.ClientOperationId != Guid.Empty && _outcomeLedger is not null)

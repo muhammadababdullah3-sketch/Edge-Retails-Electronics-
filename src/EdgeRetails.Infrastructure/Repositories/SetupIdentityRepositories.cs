@@ -20,15 +20,29 @@ public sealed class SetupRepository : ISetupRepository
         CancellationToken cancellationToken)
     {
         var tracked = _db.InstallationStates.Local.SingleOrDefault();
-        return tracked is not null
-            ? Task.FromResult<InstallationState?>(tracked)
-            : _db.InstallationStates
-                .FromSqlRaw(
-                    "SELECT * FROM system.installation_state WHERE singleton_key = 'PRIMARY' FOR UPDATE")
-                .SingleOrDefaultAsync(cancellationToken);
+        if (tracked is not null && _db.Entry(tracked).State == EntityState.Added)
+        {
+            return Task.FromResult<InstallationState?>(tracked);
+        }
+
+        // Execute the locking query even when the singleton is already tracked. Returning
+        // the local instance directly would skip PostgreSQL's row lock and let two upgrades race.
+        return _db.InstallationStates
+            .FromSqlRaw(
+                "SELECT * FROM system.installation_state WHERE singleton_key = 'PRIMARY' FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
     }
     public Task<bool> AnyUsersAsync(CancellationToken cancellationToken) =>
         _db.Users.AnyAsync(cancellationToken);
+
+    public Task<bool> HasCatalogReferenceUpgradeAsync(
+        Guid installationId,
+        CancellationToken cancellationToken) =>
+        _db.BusinessAuditEvents.AsNoTracking().AnyAsync(
+            x => x.EntityType == "CATALOG_REFERENCE_UPGRADE" &&
+                 x.Action == "FIXED_UNITS_SEEDED" &&
+                 x.EntityId == installationId,
+            cancellationToken);
 
     public Task<ShopProfile?> GetShopProfileAsync(CancellationToken cancellationToken) =>
         _db.ShopProfiles.AsNoTracking()

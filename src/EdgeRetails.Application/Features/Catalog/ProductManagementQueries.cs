@@ -59,7 +59,8 @@ public sealed record ProductManagementRowDto(
     Guid? CompanyId = null,
     string? Company = null,
     string? CompanyCode = null,
-    string? ModelCode = null)
+    string? ModelCode = null,
+    string? ClassRef = null)
 {
     public decimal? CostPrice => ReferencePurchaseCost;
     public decimal UnitPrice => DefaultSalePrice;
@@ -72,7 +73,8 @@ public sealed record ProductManagementPageQuery(
     string? BeforeName = null,
     Guid? BeforeProductId = null,
     Guid? CategoryId = null,
-    bool? IsActive = null);
+    bool? IsActive = null,
+    string? ClassRef = null);
 
 public sealed record CatalogSearchItemDto(
     Guid ProductId,

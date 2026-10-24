@@ -17,6 +17,9 @@ public sealed class Unit : Entity
     public string Name { get; set; } = string.Empty;
     public string Symbol { get; set; } = string.Empty;
     public int DisplayDecimalPlaces { get; set; }
+    public PhysicalDimension Dimension { get; set; } = PhysicalDimension.Count;
+    public decimal FactorToReference { get; set; } = 1.0m;
+    public string ConversionKind { get; set; } = "FIXED";
     public bool IsActive { get; set; } = true;
 }
 
@@ -46,6 +49,7 @@ public sealed class Product : Entity
     public Guid BaseUnitId { get; set; }
     public Guid? CategoryId { get; set; }
     public Guid? CompanyId { get; set; }
+    public string? ClassRef { get; set; }
     public TrackingMode TrackingMode { get; set; } = TrackingMode.Quantity;
     public bool SerialTrackingEnabled { get; set; }
     public bool ImeiTrackingEnabled { get; set; }

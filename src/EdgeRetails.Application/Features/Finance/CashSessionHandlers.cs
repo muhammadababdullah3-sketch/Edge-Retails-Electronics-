@@ -39,23 +39,27 @@ public sealed class OpenCashSessionHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null)
+            if (_authorizer is null)
             {
-                if (command.ActorId == Guid.Empty)
-                {
-                    return Result<Guid>.Failure(
-                        "auth.actor_required",
-                        "Actor id is required to open a cash session.");
-                }
+                return Result<Guid>.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
 
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesPosUse,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result<Guid>.Failure(
+                    "auth.actor_required",
+                    "Actor id is required to open a cash session.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesPosUse,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (command.OpeningCash < 0)
@@ -441,23 +445,27 @@ public sealed class CloseCashSessionHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null)
+            if (_authorizer is null)
             {
-                if (command.ActorId == Guid.Empty)
-                {
-                    return Result<CashClosingResult>.Failure(
-                        "auth.actor_required",
-                        "Actor id is required to close a cash session.");
-                }
+                return Result<CashClosingResult>.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
 
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.SalesPosUse,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result<CashClosingResult>.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result<CashClosingResult>.Failure(
+                    "auth.actor_required",
+                    "Actor id is required to close a cash session.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.SalesPosUse,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result<CashClosingResult>.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (command.SessionId == Guid.Empty)

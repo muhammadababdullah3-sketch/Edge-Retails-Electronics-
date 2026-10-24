@@ -52,16 +52,24 @@ public sealed class ConfigureProductUnitsHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            // Fail closed. A missing authorizer or an absent actor must deny, never proceed:
+            // allowing either to bypass means a caller can mutate catalog units with no permission
+            // check at all. This matches the non-nullable, unconditional pattern used by the other
+            // catalog mutation handlers.
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.InventoryManage,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result.Failure(
+                    "catalog.authorization_unavailable",
+                    "Catalog unit changes are unavailable because authorization is not configured.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.InventoryManage,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             if (_resourceLock is not null)
@@ -97,68 +105,17 @@ public sealed class ConfigureProductUnitsHandler
                     "A unit can only appear once for a product.");
             }
 
-            var baseInput = command.Units.SingleOrDefault(x => x.UnitId == product.BaseUnitId);
-            if (baseInput is null || QuantityMath.RoundFactor(baseInput.FactorToBaseUnit) != 1m)
+            var unitLookup = new Dictionary<Guid, Unit>();
+            foreach (var id in command.Units.Select(u => u.UnitId).Append(product.BaseUnitId).Distinct())
             {
-                return Result.Failure(
-                    "catalog.base_unit_required",
-                    "Base unit must exist with conversion factor 1.");
+                var u = await _catalog.GetUnitAsync(id, ct);
+                if (u != null) unitLookup[id] = u;
             }
 
-            if (command.Units.Count(x => x.CanPurchase && x.IsDefaultPurchaseUnit) > 1)
+            var validation = ProductUnitValidator.ValidateUnitInputs(product.TrackingMode, product.BaseUnitId, command.Units, unitLookup);
+            if (validation is not null)
             {
-                return Result.Failure(
-                    "catalog.multiple_default_purchase_units",
-                    "Only one default purchase unit is allowed.");
-            }
-
-            if (command.Units.Count(x => x.CanSell && x.IsDefaultSaleUnit) > 1)
-            {
-                return Result.Failure(
-                    "catalog.multiple_default_sale_units",
-                    "Only one default sale unit is allowed.");
-            }
-
-            if (command.Units.Any(x => x.IsDefaultPurchaseUnit && !x.CanPurchase) ||
-                command.Units.Any(x => x.IsDefaultSaleUnit && !x.CanSell))
-            {
-                return Result.Failure(
-                    "catalog.invalid_default_unit",
-                    "A default unit must be enabled for the corresponding operation.");
-            }
-
-            foreach (var input in command.Units)
-            {
-                if (input.FactorToBaseUnit <= 0)
-                {
-                    return Result.Failure(
-                        "catalog.conversion_factor_positive",
-                        "Conversion factor must be greater than zero.");
-                }
-
-                if (product.TrackingMode == TrackingMode.Container &&
-                    !QuantityMath.IsWhole(input.FactorToBaseUnit))
-                {
-                    return Result.Failure(
-                        "catalog.container_conversion_whole",
-                        "Container conversion factor must be an exact whole integer count.");
-                }
-
-                if (product.TrackingMode == TrackingMode.Serialized &&
-                    !QuantityMath.IsWhole(input.FactorToBaseUnit))
-                {
-                    return Result.Failure(
-                        "catalog.serialized_conversion_whole",
-                        "Serialized product unit factors must resolve to whole units.");
-                }
-
-                var unit = await _catalog.GetUnitAsync(input.UnitId, ct);
-                if (unit is null || !unit.IsActive)
-                {
-                    return Result.Failure(
-                        "catalog.unit_unavailable",
-                        "One of the selected units is unavailable.");
-                }
+                return Result.Failure(validation.Code, validation.Message);
             }
 
             var existing = await _catalog.GetProductUnitsAsync(product.Id, ct);
@@ -247,16 +204,23 @@ public sealed class SetProductUnitBarcodeHandler
     {
         return _transactions.ExecuteAsync(async ct =>
         {
-            if (_authorizer is not null && command.ActorId != Guid.Empty)
+            // Fail closed, for the same reason as ConfigureProductUnitsHandler: a null authorizer or
+            // an empty actor previously skipped the check entirely and let the barcode be written
+            // with no permission evaluation.
+            if (_authorizer is null)
             {
-                var auth = await _authorizer.AuthorizeAsync(
-                    command.ActorId,
-                    PermissionKeys.InventoryManage,
-                    ct);
-                if (!auth.IsSuccess)
-                {
-                    return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
-                }
+                return Result<Guid>.Failure(
+                    "catalog.authorization_unavailable",
+                    "Barcode changes are unavailable because authorization is not configured.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.InventoryManage,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result<Guid>.Failure(auth.Error!.Code, auth.Error.Message);
             }
 
             var productUnit = await _catalog.GetProductUnitAsync(command.ProductUnitId, ct);

@@ -1591,7 +1591,82 @@ public sealed class Phase11Wave3DesktopCutoverTests
             IsActive: true,
             Version: 1,
             ProductUnits: [],
+            SupplierProducts: [],
+            ClassRef: "A01-01");
+
+        var differentProductUnitSameClass = new BackendProductManagementItem(
+            ProductId: Guid.NewGuid(),
+            Sku: "NC-A01-SECOND-SAME-CLASS",
+            Name: "Wire with same category and class",
+            Brand: "Other",
+            Model: null,
+            CategoryId: categoryA01Id,
+            Category: "Building Wires & Power Cables",
+            BaseUnitId: Guid.NewGuid(),
+            BaseUnit: "m",
+            TrackingMode: TrackingMode.Length,
+            SerialTrackingEnabled: false,
+            ImeiTrackingEnabled: false,
+            ReferencePurchaseCost: 110m,
+            DefaultSalePrice: 160m,
+            MinimumStockLevel: 0m,
+            DefaultWarrantyMonths: 0,
+            AttributesJson: "{}",
+            AttributesSchemaVersion: 1,
+            IsActive: true,
+            Version: 1,
+            ProductUnits: [],
+            SupplierProducts: [],
+            ClassRef: "A01-01");
+
+        var sameNameUnassigned = new BackendProductManagementItem(
+            ProductId: Guid.NewGuid(),
+            Sku: "LEGACY-UNMAPPED-WIRE",
+            Name: "Single Core Building Wire (legacy)",
+            Brand: "Legacy",
+            Model: null,
+            CategoryId: categoryA01Id,
+            Category: "Building Wires & Power Cables",
+            BaseUnitId: Guid.NewGuid(),
+            BaseUnit: "m",
+            TrackingMode: TrackingMode.Length,
+            SerialTrackingEnabled: false,
+            ImeiTrackingEnabled: false,
+            ReferencePurchaseCost: 90m,
+            DefaultSalePrice: 140m,
+            MinimumStockLevel: 0m,
+            DefaultWarrantyMonths: 0,
+            AttributesJson: "{\"legacy\":\"A01-01\"}",
+            AttributesSchemaVersion: 1,
+            IsActive: true,
+            Version: 1,
+            ProductUnits: [],
             SupplierProducts: []);
+
+        var siblingClass = new BackendProductManagementItem(
+            ProductId: Guid.NewGuid(),
+            Sku: "SIBLING-WIRE-02",
+            Name: "Twin-core building cable",
+            Brand: null,
+            Model: null,
+            CategoryId: categoryA01Id,
+            Category: "Building Wires & Power Cables",
+            BaseUnitId: Guid.NewGuid(),
+            BaseUnit: "m",
+            TrackingMode: TrackingMode.Length,
+            SerialTrackingEnabled: false,
+            ImeiTrackingEnabled: false,
+            ReferencePurchaseCost: 80m,
+            DefaultSalePrice: 130m,
+            MinimumStockLevel: 0m,
+            DefaultWarrantyMonths: 0,
+            AttributesJson: "{}",
+            AttributesSchemaVersion: 1,
+            IsActive: true,
+            Version: 1,
+            ProductUnits: [],
+            SupplierProducts: [],
+            ClassRef: "A01-02");
 
         var prodB = new BackendProductManagementItem(
             ProductId: Guid.NewGuid(),
@@ -1615,7 +1690,8 @@ public sealed class Phase11Wave3DesktopCutoverTests
             IsActive: true,
             Version: 1,
             ProductUnits: [],
-            SupplierProducts: []);
+            SupplierProducts: [],
+            ClassRef: "B01-01");
 
         var prodD = new BackendProductManagementItem(
             ProductId: Guid.NewGuid(),
@@ -1642,7 +1718,7 @@ public sealed class Phase11Wave3DesktopCutoverTests
             SupplierProducts: []);
 
         var snapshot = new BackendProductManagementSnapshot(
-            [prodA, prodB, prodD],
+            [prodA, differentProductUnitSameClass, sameNameUnassigned, siblingClass, prodB, prodD],
             [
                 new BackendCatalogCategory(categoryA01Id, "Building Wires & Power Cables", "A01", true),
                 new BackendCatalogCategory(categoryB01Id, "Lamps & Light Sources", "B01", true),
@@ -1665,8 +1741,18 @@ public sealed class Phase11Wave3DesktopCutoverTests
         var totalClasses = vm.TaxonomyTree.Sum(d => d.Children.Sum(dept => dept.Children.Count));
         Assert.Equal(732, totalClasses);
 
-        // Initial catalog shows all 3 products
-        Assert.Equal(3, vm.FilteredProducts.Count);
+        // Initial catalog shows all five test products.
+        Assert.Equal(6, vm.FilteredProducts.Count);
+
+        var exactClassNode = vm.TaxonomyTree
+            .SelectMany(d => d.Children)
+            .SelectMany(dept => dept.Children)
+            .Single(c => c.Code == "A01-01");
+        vm.SelectedTaxonomyNode = exactClassNode;
+        vm.FilterBySelectedTaxonomy();
+        Assert.Equal(new[] { "NC-A01-SECOND-SAME-CLASS", "NC-A01-WIRE" }, vm.FilteredProducts.Select(x => x.Sku).OrderBy(x => x, StringComparer.Ordinal));
+        vm.ClearTaxonomyFilter();
+        Assert.Equal(6, vm.FilteredProducts.Count);
 
         // Find deprecated class redirect node (B01-03 redirects to B01-01)
         var deprecatedNode = vm.TaxonomyTree
@@ -1689,12 +1775,12 @@ public sealed class Phase11Wave3DesktopCutoverTests
 
         // FilterBySelectedTaxonomy actively filters catalog rows under canonical redirect semantics
         vm.FilterBySelectedTaxonomyCommand.Execute(null);
-        Assert.Equal(deprecatedNode.RedirectTargetCode, vm.SearchText);
+        Assert.Equal(string.Empty, vm.SearchText);
         Assert.Equal(0, vm.SelectedTabIndex); // Switched to catalog tab
 
-        // Filtered products actively narrowed to matching products, excluding unrelated products
-        Assert.NotEmpty(vm.FilteredProducts);
-        Assert.True(vm.FilteredProducts.Count < 3);
+        // Redirect filtering returns only the canonically assigned lamp; the sibling-category
+        // lamp and unassigned legacy row whose text mentions the old class stay excluded.
+        Assert.Equal(new[] { "PH-B01-BULB" }, vm.FilteredProducts.Select(x => x.Sku));
 
         // Render actual ProductManagementView in STA
         OnSta(() =>
@@ -1990,7 +2076,7 @@ public sealed class Phase11Wave3DesktopCutoverTests
 
         public Task<BackendProductManagementSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
-        public Task<IReadOnlyList<BackendProductManagementItem>> GetProductsPageAsync(string? search, bool? isActive, Guid? categoryId, int pageSize = 200, string? beforeName = null, Guid? beforeProductId = null, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<BackendProductManagementItem>> GetProductsPageAsync(string? search, bool? isActive, Guid? categoryId, int pageSize = 200, string? beforeName = null, Guid? beforeProductId = null, CancellationToken cancellationToken = default, string? classRef = null) =>
             Task.FromResult<IReadOnlyList<BackendProductManagementItem>>([]);
         public Task<BackendProductManagementItem?> GetProductAsync(Guid productId, CancellationToken cancellationToken = default) =>
             Task.FromResult<BackendProductManagementItem?>(null);

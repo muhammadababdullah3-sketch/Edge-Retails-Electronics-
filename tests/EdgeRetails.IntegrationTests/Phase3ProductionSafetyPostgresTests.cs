@@ -495,14 +495,17 @@ public sealed class Phase3ProductionSafetyPostgresTests
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
 
-        // 1. Verify that all 27 migrations are applied to the live PostgreSQL 18 database
+        // 1. Verify that all 30 migrations are applied to the live PostgreSQL 18 database
         var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToList();
-        Assert.Equal(27, appliedMigrations.Count);
+        Assert.Equal(30, appliedMigrations.Count);
 
         // Verify the Phase 11 and Phase 12 migrations are applied in sequence
-        Assert.Equal("20261012050955_Phase11PhysicalPackContainerSubLedger", appliedMigrations[^3]);
-        Assert.Equal("20261012144915_Phase11DurablePostingPeriodLockAndAudit", appliedMigrations[^2]);
-        Assert.Equal("20261015103137_Phase12OperationOutcomeResponsePayload", appliedMigrations[^1]);
+        Assert.Contains("20261012050955_Phase11PhysicalPackContainerSubLedger", appliedMigrations);
+        Assert.Contains("20261012144915_Phase11DurablePostingPeriodLockAndAudit", appliedMigrations);
+        Assert.Contains("20261015103137_Phase12OperationOutcomeResponsePayload", appliedMigrations);
+        Assert.Contains("20261021120000_Phase11CatalogCanonicalIntegration", appliedMigrations);
+        Assert.Contains("20261021160049_Phase11ThakaCreditRefundTable", appliedMigrations);
+        Assert.Equal("20261021160100_Phase11CatalogV3RelationalIntegrity", appliedMigrations[^1]);
 
         // 2. Real EF Core Model Differ / Snapshot check
         bool hasPendingChanges = db.Database.HasPendingModelChanges();
@@ -549,7 +552,7 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.True(Directory.Exists(migrationsDir), $"Migrations directory missing: {migrationsDir}");
 
         var migrationFiles = Directory.GetFiles(migrationsDir, "*.cs");
-        Assert.Equal(53, migrationFiles.Length); // 24 historical + 2 Phase 11 + 1 Phase 12 classes, 22 historical + 2 Phase 11 + 1 Phase 12 designers, 1 snapshot
+        Assert.Equal(59, migrationFiles.Length); // 27 historical + 2 Phase 11 + 1 Phase 12 classes, 25 historical + 2 Phase 11 + 1 Phase 12 designers, 1 snapshot
 
         // Verify known historical migration hashes
         var knownHistoricalHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -597,7 +600,13 @@ public sealed class Phase3ProductionSafetyPostgresTests
             ["20261006083906_Phase7Pass5WarrantySourceAuthority.cs"] = "27894C760915668AEA74F3E85F81DC397F38EEE826A189FFA42832E409EC4CB8",
             ["20261006083906_Phase7Pass5WarrantySourceAuthority.Designer.cs"] = "BEF26856317DDAFC71CEDBD784002D29B51B67F79EF6A664DEA7AE31FAF77E3B",
             ["20261007063406_Phase7Pass5ExactWarrantyMultiSourceAuthority.cs"] = "147FD3941A316075EF5BBCAA1A4613EE43690CE608F431906910E7EA90E3ACE3",
-            ["20261007063406_Phase7Pass5ExactWarrantyMultiSourceAuthority.Designer.cs"] = "9BE433147FBBA8D3514908EB4B16274B7727674B86FAF3D67BA0E97F0F33F1B1"
+            ["20261007063406_Phase7Pass5ExactWarrantyMultiSourceAuthority.Designer.cs"] = "9BE433147FBBA8D3514908EB4B16274B7727674B86FAF3D67BA0E97F0F33F1B1",
+            ["20261021120000_Phase11CatalogCanonicalIntegration.cs"] = "D1B492EEEB763478F4BC877747CDD26A6E8744ADF07AF5E7334532821C55408C",
+            ["20261021120000_Phase11CatalogCanonicalIntegration.Designer.cs"] = "F5881D3637951DE20C2EC68BAA3E97A97AB2D6FF1634904C3A9EC7B677A44337",
+            ["20261021160049_Phase11ThakaCreditRefundTable.cs"] = "B47C4EE4CFBF3A7CB84DD2C78EC05B6359D8D2AAAB185879858943F889A9202F",
+            ["20261021160049_Phase11ThakaCreditRefundTable.Designer.cs"] = "9933A1BA2E2AD454E8E61E1C5A5466971A452B3C795BEFAFF2A01D05992919E7",
+            ["20261021160100_Phase11CatalogV3RelationalIntegrity.cs"] = "963FE2C96343F93C7901E8D9A8825CD7F4A05A82752F69AB91299CB245BD926C",
+            ["20261021160100_Phase11CatalogV3RelationalIntegrity.Designer.cs"] = "66050A1E51F13CDB2BB445F3E6E3B8B614595A145D11D35D910E5F90DDCCFF58"
         };
 
         using var sha = System.Security.Cryptography.SHA256.Create();
@@ -621,6 +630,16 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.True(new FileInfo(p11Pack).Length > 0);
         Assert.True(new FileInfo(p11Posting).Length > 0);
         Assert.True(new FileInfo(p12Payload).Length > 0);
+
+        var p11Catalog = Path.Combine(migrationsDir, "20261021120000_Phase11CatalogCanonicalIntegration.cs");
+        var p11Thaka = Path.Combine(migrationsDir, "20261021160049_Phase11ThakaCreditRefundTable.cs");
+        var p11V3 = Path.Combine(migrationsDir, "20261021160100_Phase11CatalogV3RelationalIntegrity.cs");
+        Assert.True(File.Exists(p11Catalog));
+        Assert.True(File.Exists(p11Thaka));
+        Assert.True(File.Exists(p11V3));
+        Assert.True(new FileInfo(p11Catalog).Length > 0);
+        Assert.True(new FileInfo(p11Thaka).Length > 0);
+        Assert.True(new FileInfo(p11V3).Length > 0);
     }
 }
 

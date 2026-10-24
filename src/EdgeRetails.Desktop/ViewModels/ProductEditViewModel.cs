@@ -238,6 +238,7 @@ public sealed class ProductEditViewModel : ViewModelBase
         _brand = product?.Brand ?? string.Empty;
         _model = product?.Model ?? string.Empty;
         _modelCode = product?.ModelCode ?? string.Empty;
+        _classRef = product?.ClassRef ?? string.Empty;
         _selectedCompany = product?.CompanyId is Guid companyId
             ? snapshot.Companies.FirstOrDefault(x => x.Id == companyId)
             : null;
@@ -404,6 +405,13 @@ public sealed class ProductEditViewModel : ViewModelBase
                 AutoSuggestSkuIfApplicable();
             }
         }
+    }
+
+    private string _classRef = string.Empty;
+    public string ClassRef
+    {
+        get => _classRef;
+        set => SetProperty(ref _classRef, value);
     }
 
     private bool _isSkuManuallyEdited;
@@ -904,7 +912,8 @@ public sealed class ProductEditViewModel : ViewModelBase
             string.IsNullOrWhiteSpace(AttributesJson) ? null : AttributesJson,
             attributesSchemaVersion,
             SelectedCompany?.Id,
-            string.IsNullOrWhiteSpace(ModelCode) ? null : ModelCode);
+            string.IsNullOrWhiteSpace(ModelCode) ? null : ModelCode,
+            string.IsNullOrWhiteSpace(ClassRef) ? null : ClassRef);
 
         IsSaving = true;
         try

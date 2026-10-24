@@ -3,6 +3,7 @@ using System;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -208,6 +209,11 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("category_id");
 
+                    b.Property<string>("ClassRef")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("class_ref");
+
                     b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid")
                         .HasColumnName("company_id");
@@ -282,6 +288,9 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BaseUnitId")
                         .HasDatabaseName("ix_products_base_unit_id");
+
+                    b.HasIndex("ClassRef")
+                        .HasDatabaseName("ix_products_class_ref");
 
                     b.HasIndex("CompanyId")
                         .HasDatabaseName("ix_products_company_id");
@@ -484,11 +493,32 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("ConversionKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("FIXED")
+                        .HasColumnName("conversion_kind");
+
+                    b.Property<string>("Dimension")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("dimension");
+
                     b.Property<int>("DisplayDecimalPlaces")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("display_decimal_places");
+
+                    b.Property<decimal>("FactorToReference")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 9)
+                        .HasColumnType("numeric(18,9)")
+                        .HasDefaultValue(1.0m)
+                        .HasColumnName("factor_to_reference");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
@@ -4436,6 +4466,65 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.ToTable("terminals", "system");
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Thaka.ThakaCreditRefund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_operation_id");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("RefundNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("refund_number");
+
+                    b.Property<DateTimeOffset>("RefundedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("refunded_at");
+
+                    b.Property<Guid>("RefundedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("refunded_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_credit_refunds");
+
+                    b.HasIndex("ClientOperationId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_credit_refunds_client_operation_id");
+
+                    b.HasIndex("RefundNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_credit_refunds_refund_number");
+
+                    b.HasIndex("ProjectId", "RefundedAt")
+                        .HasDatabaseName("ix_credit_refunds_project_id_refunded_at");
+
+                    b.ToTable("credit_refunds", "thaka", t =>
+                        {
+                            t.HasCheckConstraint("ck_thaka_credit_refund_amount_positive", "amount > 0");
+                        });
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Thaka.ThakaMaterialIssue", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6608,6 +6697,16 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_return_item_units_return_items_sale_return_item_id");
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Thaka.ThakaCreditRefund", b =>
+                {
+                    b.HasOne("EdgeRetails.Domain.Thaka.ThakaProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_credit_refunds_projects_project_id");
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Thaka.ThakaMaterialIssue", b =>
                 {
                     b.HasOne("EdgeRetails.Domain.Thaka.ThakaProject", null)
@@ -6978,3 +7077,6 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
         }
     }
 }
+
+
+

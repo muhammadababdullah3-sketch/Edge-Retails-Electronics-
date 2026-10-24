@@ -42,6 +42,12 @@ public sealed class ProductManagementReadService : IProductManagementReadService
             query = query.Where(x => x.CategoryId == categoryId);
         }
 
+        if (!string.IsNullOrWhiteSpace(request.ClassRef))
+        {
+            var classRef = request.ClassRef.Trim();
+            query = query.Where(x => x.ClassRef == classRef);
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var term = request.Search.Trim();
@@ -338,7 +344,8 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                 product.CompanyId,
                 company?.Name,
                 company?.Code,
-                product.ModelCode);
+                product.ModelCode,
+                product.ClassRef);
         }).ToArray();
     }
 
@@ -354,17 +361,23 @@ public sealed class ProductManagementReadService : IProductManagementReadService
         var skip = (pageNumber - 1) * take;
 
         string? resolvedAlias = null;
-        string? aliasDepartment = null;
+        string? aliasScope = null;
+        string? aliasTargetRef = null;
 
         var term = query?.Trim();
         if (!string.IsNullOrWhiteSpace(term))
         {
-            var matched = TaxonomyV3Store.SearchAliases.FirstOrDefault(a =>
-                string.Equals(a.Keyword, term, StringComparison.OrdinalIgnoreCase));
+            // Prefer specific leaf CLASS mappings over broad DEPARTMENT aliases
+            var matched = TaxonomyV3Store.SearchAliases
+                .Where(a => string.Equals(a.Keyword, term, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(a => string.Equals(a.TargetScope, "CLASS", StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+
             if (matched is not null)
             {
                 resolvedAlias = matched.Keyword;
-                aliasDepartment = matched.TargetRef;
+                aliasScope = matched.TargetScope;
+                aliasTargetRef = matched.TargetRef;
             }
         }
 
@@ -384,19 +397,31 @@ public sealed class ProductManagementReadService : IProductManagementReadService
 
         if (!string.IsNullOrWhiteSpace(term))
         {
-            if (resolvedAlias != null)
+            if (resolvedAlias != null && aliasTargetRef != null)
             {
-                baseQuery = baseQuery.Where(x =>
-                    x.product.Name.Contains(term) ||
-                    (x.product.Sku != null && x.product.Sku.Contains(term)) ||
-                    (x.product.Brand != null && x.product.Brand.Contains(term)) ||
-                    (x.CategoryName != null && x.CategoryName.Contains(resolvedAlias)) ||
-                    (aliasDepartment != null && x.product.AttributesJson != null && x.product.AttributesJson.Contains(aliasDepartment)) ||
-                    (aliasDepartment != null && x.product.Name.Contains(resolvedAlias)) ||
-                    (aliasDepartment == "A01" && (x.product.Name.Contains("Wire") || x.product.Name.Contains("Cable") || (x.CategoryName != null && (x.CategoryName.Contains("Wire") || x.CategoryName.Contains("Cable"))))) ||
-                    (aliasDepartment == "A03" && (x.product.Name.Contains("Breaker") || x.product.Name.Contains("MCB") || (x.CategoryName != null && x.CategoryName.Contains("Breaker")))) ||
-                    (aliasDepartment == "B01" && (x.product.Name.Contains("Fan") || (x.CategoryName != null && x.CategoryName.Contains("Fan")))) ||
-                    (aliasDepartment == "B04" && (x.product.Name.Contains("Iron") || (x.CategoryName != null && x.CategoryName.Contains("Iron")))));
+                if (string.Equals(aliasScope, "CLASS", StringComparison.OrdinalIgnoreCase))
+                {
+                    baseQuery = baseQuery.Where(x =>
+                        x.product.ClassRef == aliasTargetRef ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains(aliasTargetRef)) ||
+                        x.product.Name.Contains(term) ||
+                        (x.product.Sku != null && x.product.Sku.Contains(term)) ||
+                        (x.product.Brand != null && x.product.Brand.Contains(term)) ||
+                        (aliasTargetRef == "B05-01" && (x.product.Name.Contains("Fan") || (x.CategoryName != null && x.CategoryName.Contains("Fan")))));
+                }
+                else
+                {
+                    baseQuery = baseQuery.Where(x =>
+                        x.product.Name.Contains(term) ||
+                        (x.product.Sku != null && x.product.Sku.Contains(term)) ||
+                        (x.product.Brand != null && x.product.Brand.Contains(term)) ||
+                        (x.CategoryName != null && x.CategoryName.Contains(resolvedAlias)) ||
+                        (x.product.AttributesJson != null && x.product.AttributesJson.Contains(aliasTargetRef)) ||
+                        (aliasTargetRef == "A01" && (x.product.Name.Contains("Wire") || x.product.Name.Contains("Cable") || (x.CategoryName != null && (x.CategoryName.Contains("Wire") || x.CategoryName.Contains("Cable"))))) ||
+                        (aliasTargetRef == "A03" && (x.product.Name.Contains("Breaker") || x.product.Name.Contains("MCB") || (x.CategoryName != null && x.CategoryName.Contains("Breaker")))) ||
+                        (aliasTargetRef == "B05" && (x.product.Name.Contains("Fan") || (x.CategoryName != null && x.CategoryName.Contains("Fan")))) ||
+                        (aliasTargetRef == "E04" && (x.product.Name.Contains("Iron") || (x.CategoryName != null && x.CategoryName.Contains("Iron")))));
+                }
             }
             else
             {
@@ -404,6 +429,7 @@ public sealed class ProductManagementReadService : IProductManagementReadService
                     x.product.Name.Contains(term) ||
                     (x.product.Sku != null && x.product.Sku.Contains(term)) ||
                     (x.product.Brand != null && x.product.Brand.Contains(term)) ||
+                    (x.product.ClassRef != null && x.product.ClassRef.Contains(term)) ||
                     (x.CategoryName != null && x.CategoryName.Contains(term)));
             }
         }

@@ -268,6 +268,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Thaka.ReverseThakaMaterialHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Thaka.ReverseThakaPaymentHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Setup.FirstSetupBootstrapHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Setup.CatalogReferenceUpgradeHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Settings.GetSettingsConfigurationHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Settings.UpdateShopProfileHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Settings.UpdateReceiptTemplateHandler>();

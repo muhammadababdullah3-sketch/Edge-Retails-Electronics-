@@ -203,7 +203,7 @@ public sealed class Phase7Pass4QuantityAndUomTests
     {
         var f = new ReceiptFixture(TrackingMode.Quantity, 2m);
         var handler = new ConfigureProductUnitsHandler(f.Doubles.Catalog, f.Doubles.Transactions,
-            f.Doubles.UnitOfWork, safety: new UnitHistory(used), resourceLock: f.Doubles.ResourceLock);
+            f.Doubles.UnitOfWork, f.Doubles.Authorization, safety: new UnitHistory(used), resourceLock: f.Doubles.ResourceLock);
         var result = await handler.HandleAsync(new ConfigureProductUnitsCommand(f.Product.Id,
             [new(f.Product.BaseUnitId, 1m, true, true, true, false, true),
              new(f.ProductUnit.UnitId, 3m, true, true, true, true, false)], ExpectedVersion: f.Product.Version), default);
@@ -219,7 +219,8 @@ public sealed class Phase7Pass4QuantityAndUomTests
     public async Task G02_StaleProductVersionAndNonUnitBaseFactorReject()
     {
         var f = new ReceiptFixture(TrackingMode.Quantity, 2m);
-        var handler = new ConfigureProductUnitsHandler(f.Doubles.Catalog, f.Doubles.Transactions, f.Doubles.UnitOfWork);
+        var handler = new ConfigureProductUnitsHandler(f.Doubles.Catalog, f.Doubles.Transactions, f.Doubles.UnitOfWork,
+            f.Doubles.Authorization);
         var stale = await handler.HandleAsync(new ConfigureProductUnitsCommand(f.Product.Id,
             [new(f.Product.BaseUnitId, 1m, true, true, true, true, true)], ExpectedVersion: 99), default);
         Assert.Equal("catalog.concurrency_conflict", stale.Error!.Code);

@@ -102,10 +102,10 @@ public sealed class Phase11DurablePostingIntegrationTests
                 "FAIL-CLOSED: Port 5432 is prohibited. Connection to production or default cluster is forbidden.");
         }
 
-        if (builder.Port != 55437)
+        if (builder.Port != 55437 && builder.Port != 55438)
         {
             throw new InvalidOperationException(
-                $"FAIL-CLOSED: Port {builder.Port} is prohibited. Expected disposable test port 55437.");
+                $"FAIL-CLOSED: Port {builder.Port} is prohibited. Expected disposable test port 55437 or 55438.");
         }
 
         // Guard 3: Database must be the dedicated test database
@@ -1747,7 +1747,7 @@ public sealed class Phase11DurablePostingIntegrationTests
             var outcomeLedger = new EfOperationOutcomeLedger(db);
             var costAllocator = new InventoryCostAllocator(db, invRepo, clock);
 
-            var createHandler = new CreateStocktakeHandler(invRepo, txRunner, db, clock, null, outcomeLedger, lockService);
+            var createHandler = new CreateStocktakeHandler(invRepo, txRunner, db, clock, EdgeRetails.Application.Features.Identity.AllowAllPermissionAuthorizer.Instance, outcomeLedger, lockService);
             var startHandler = new StartStocktakeHandler(catalogRepo, invRepo, lockService, txRunner, db, clock, lockService, outcomeLedger);
             var serializedCountHandler = new RecordSerializedStocktakeHandler(catalogRepo, invRepo, txRunner, db, clock, lockService, outcomeLedger);
             var reviewHandler = new ReviewStocktakeHandler(invRepo, txRunner, db, clock, lockService, outcomeLedger);

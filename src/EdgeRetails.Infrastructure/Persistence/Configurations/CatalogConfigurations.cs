@@ -20,6 +20,9 @@ internal sealed class UnitConfiguration : IEntityTypeConfiguration<Unit>
         builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Symbol).HasMaxLength(20).IsRequired();
         builder.Property(x => x.DisplayDecimalPlaces).HasDefaultValue(0);
+        builder.Property(x => x.Dimension).HasConversion<string>().HasMaxLength(20);
+        builder.Property(x => x.FactorToReference).HasPrecision(18, 9).HasDefaultValue(1.0m);
+        builder.Property(x => x.ConversionKind).HasMaxLength(20).HasDefaultValue("FIXED");
 
         builder.HasIndex(x => x.Name).IsUnique();
         builder.HasIndex(x => x.Symbol).IsUnique();
@@ -109,6 +112,7 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.Brand).HasMaxLength(150);
         builder.Property(x => x.Model).HasMaxLength(150);
         builder.Property(x => x.ModelCode).HasMaxLength(50);
+        builder.Property(x => x.ClassRef).HasMaxLength(20);
         builder.Property(x => x.ReferencePurchaseCost).HasPrecision(18, 6);
         builder.Property(x => x.DefaultSalePrice).HasPrecision(18, 2);
         builder.Property(x => x.MinimumStockLevel).HasPrecision(18, 6).HasDefaultValue(0m);
@@ -132,11 +136,14 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasForeignKey(x => x.CompanyId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Taxonomy rows remain importer-owned (outside the operational DbContext model).
+        // The authoritative cross-schema FK is added by a dedicated migration.
         builder.HasIndex(x => x.Sku)
             .IsUnique()
             .HasFilter("sku IS NOT NULL");
 
         builder.HasIndex(x => x.Name);
+        builder.HasIndex(x => x.ClassRef);
         builder.HasIndex(x => x.CompanyId);
         builder.HasIndex(x => new { x.CategoryId, x.IsActive });
     }

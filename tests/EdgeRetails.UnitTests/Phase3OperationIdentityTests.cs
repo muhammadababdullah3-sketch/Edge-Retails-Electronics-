@@ -19,6 +19,7 @@ public sealed class Phase3OperationIdentityTests
             fakes.Transactions,
             fakes.UnitOfWork,
             fakes.Clock,
+            authorizer: fakes.Authorization,
             outcomeLedger: fakes.OutcomeLedger,
             operationLock: fakes.OperationLock);
         var operationId = Guid.CreateVersion7();
@@ -92,3 +93,4 @@ public sealed class Phase3OperationIdentityTests
         Assert.Single(fakes.Thaka.Payments);
     }
 }
+

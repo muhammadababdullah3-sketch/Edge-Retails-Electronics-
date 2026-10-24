@@ -138,6 +138,11 @@ public sealed class Sprint7Phase1SetupTests
         public Task<bool> AnyUsersAsync(CancellationToken cancellationToken) =>
             Task.FromResult(Users.Count > 0);
 
+        public Task<bool> HasCatalogReferenceUpgradeAsync(
+            Guid installationId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
         public Task<ShopProfile?> GetShopProfileAsync(CancellationToken cancellationToken) =>
             Task.FromResult(ShopProfiles.SingleOrDefault());
 

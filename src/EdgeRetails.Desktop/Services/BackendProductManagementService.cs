@@ -72,7 +72,8 @@ public sealed record BackendProductManagementItem(
     Guid? CompanyId = null,
     string? CompanyName = null,
     string? CompanyCode = null,
-    string? ModelCode = null)
+    string? ModelCode = null,
+    string? ClassRef = null)
 {
     public string TrackingDisplay => TrackingMode switch
     {
@@ -121,7 +122,8 @@ public sealed record BackendProductCatalogRequest(
     string? AttributesJson,
     int AttributesSchemaVersion,
     Guid? CompanyId = null,
-    string? ModelCode = null);
+    string? ModelCode = null,
+    string? ClassRef = null);
 
 public sealed class BackendCatalogOperationException : Exception
 {
@@ -146,7 +148,8 @@ public interface IBackendProductManagementService
         int pageSize = 200,
         string? beforeName = null,
         Guid? beforeProductId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? classRef = null);
 
     Task<BackendProductManagementItem?> GetProductAsync(
         Guid productId,
@@ -286,7 +289,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
         int pageSize = 200,
         string? beforeName = null,
         Guid? beforeProductId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? classRef = null)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var reads = scope.ServiceProvider.GetRequiredService<IProductManagementReadService>();
@@ -298,7 +302,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
                 BeforeName: beforeName,
                 BeforeProductId: beforeProductId,
                 CategoryId: categoryId,
-                IsActive: isActive),
+                IsActive: isActive,
+                ClassRef: classRef),
             cancellationToken);
         return rows.Select(Map).ToArray();
     }
@@ -478,7 +483,7 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             request.AttributesSchemaVersion, true, committed.Version,
             units.Where(x => x.IsActive).ToArray(),
             suppliers.Distinct().Select(x => new BackendSupplierProductLink(Guid.Empty, x, string.Empty, true, 0)).ToArray(),
-            request.CompanyId, ModelCode: request.ModelCode);
+            request.CompanyId, ModelCode: request.ModelCode, ClassRef: request.ClassRef);
 
     public async Task<BackendProductManagementItem> SetProductActiveAsync(
         Guid productId,
@@ -724,7 +729,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             request.MinimumStockLevel,
             request.DefaultWarrantyMonths,
             request.AttributesJson,
-            request.AttributesSchemaVersion);
+            request.AttributesSchemaVersion,
+            request.ClassRef);
 
     internal static BackendProductManagementItem Map(ProductManagementRowDto row) =>
         new(
@@ -769,7 +775,8 @@ public sealed class BackendProductManagementService : IBackendProductManagementS
             row.CompanyId,
             row.Company,
             row.CompanyCode,
-            row.ModelCode);
+            row.ModelCode,
+            row.ClassRef);
 
     private Guid RequireActor() =>
         _actorUserId() is Guid actor && actor != Guid.Empty

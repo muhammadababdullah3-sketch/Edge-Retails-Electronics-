@@ -271,6 +271,7 @@ public sealed class SalesReturnViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(IsCashRefund));
                 OnPropertyChanged(nameof(IsBankRefund));
+                Validate();
             }
         }
     }

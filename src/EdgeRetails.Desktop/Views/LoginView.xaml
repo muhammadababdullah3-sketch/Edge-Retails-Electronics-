@@ -4,12 +4,24 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:viewModels="clr-namespace:EdgeRetails.Desktop.ViewModels"
+             xmlns:converters="clr-namespace:EdgeRetails.Desktop.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=viewModels:LoginViewModel, IsDesignTimeCreatable=True}"
              Focusable="True"
              Background="{DynamicResource Brush.App.Background}" Foreground="{DynamicResource Brush.Text.Primary}">
 
     <UserControl.Resources>
+        <!--
+            Account viewport height governor.
+
+            Only the account list is allowed to give up height when the window is short. The card
+            chrome below the list (PIN boxes, helper text, keypad, sign-in) is a fixed ~543.5px, so
+            the list is clamped to that remainder, capped at 220px so a tall window cannot push the
+            keypad out of view, and floored so a short window still shows a usable account card.
+            This is what keeps the PIN keypad reachable without scrolling the whole login surface.
+        -->
+        <converters:HeightOffsetConverter x:Key="Converter.AccountViewportHeight" />
+
         <!-- Keypad standard button style -->
         <Style x:Key="Style.KeypadButton" TargetType="Button">
             <Setter Property="Height" Value="42" />
@@ -92,11 +104,19 @@
             </Ellipse>
         </Grid>
 
-        <!-- Centered Login Card Scrollable Container -->
+        <!--
+            Centered login surface.
+
+            This container deliberately does NOT scroll the whole login. The card is sized so that
+            the header, PIN boxes, keypad and sign-in button always remain on screen; only the
+            account list inside the card is a bounded scroll region. The scroll viewer is retained
+            purely as a last-resort safety net for windows below the supported minimum, and must
+            never engage at a supported size.
+        -->
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Focusable="False">
-            <Grid MinHeight="720" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
                 <!-- Outer Border: Ambient Purple Drop Shadow -->
                 <Border Width="400"
                         Margin="24"
@@ -138,23 +158,39 @@
                                            Margin="0,4,0,0" />
                             </StackPanel>
 
-                            <!-- 2. Account Selector (Width 342px, Gap 7px, Height-Bounded to ensure PIN keypad remains visible) -->
-                            <ScrollViewer MaxHeight="220"
+                            <!--
+                                2. Account Selector — the ONLY scrollable region on the login.
+
+                                The viewport is height-bounded to whatever vertical space is left
+                                after the fixed card chrome (PIN boxes, helper text, keypad,
+                                sign-in) has been accounted for, and is capped at 220px so a tall
+                                window cannot grow the list to the point where the keypad leaves
+                                the visible area. Only the account boxes scroll; the login shell,
+                                selected account, PIN keypad, sign-in and error context stay put.
+
+                                Hiding or suspending accounts is explicitly NOT an acceptable way
+                                to satisfy this bound, so every loaded account remains in the
+                                collection and reachable by scrolling.
+                            -->
+                            <ScrollViewer Height="{Binding ActualHeight,
+                                                   RelativeSource={RelativeSource AncestorType=UserControl},
+                                                   Converter={StaticResource Converter.AccountViewportHeight},
+                                                   ConverterParameter='566:220'}"
+                                          MinHeight="44"
                                           Margin="0,21,0,0"
                                           Width="342"
+                                          HorizontalAlignment="Center"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           Focusable="False"
+                                          PanningMode="VerticalOnly"
                                           CanContentScroll="True">
                                 <ItemsControl ItemsSource="{Binding Accounts}"
                                               Width="342"
-                                              Focusable="False"
-                                              VirtualizingPanel.IsVirtualizing="True"
-                                              VirtualizingPanel.VirtualizationMode="Recycling"
-                                              VirtualizingPanel.ScrollUnit="Pixel">
+                                              Focusable="False">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <VirtualizingStackPanel />
+                                            <StackPanel />
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>

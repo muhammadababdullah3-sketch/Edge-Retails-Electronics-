@@ -1,0 +1,41 @@
+{
+  "run_id": "ER-RUN-CATALOG-EXEC-20261021-106",
+  "authority": "OWNER-UPDATE-20261018-019 / OWNER-UPDATE-20261019-007 / ER-RUN-CATALOG-PROMPT-20261021-104",
+  "session_id": "session-e143b7ec-1d5c-4ad8-ad06-4bbe1dd20736",
+  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
+  "timestamp_utc": "2026-10-21T12:00:00Z",
+  "status": "COMPLETED",
+  "verdict": "DELIVERED_FOR_DISTINCT_ROOT_REVIEW",
+  "total_candidate_files": 796,
+  "archives": {
+    "candidate_source_bundle": {
+      "file": "export/candidate_source_bundle.zip",
+      "sha256": "f9f39fd9fa8afbb7c70cc85d3e72d60fad16c9d7152b5ca7e9f6b9d5538c1a79",
+      "size_bytes": 4471617
+    },
+    "candidate_tracked_patch": {
+      "file": "export/candidate_tracked.patch",
+      "sha256": "ccf51c2479954da7aaf9c5a6999dfbde2180082d0571ccfef2b8659daed56712",
+      "size_bytes": 21361583
+    },
+    "candidate_untracked_zip": {
+      "file": "export/candidate_untracked.zip",
+      "sha256": "dda1ada90cfd30f69b8f697b3442a321670ba21a1476d9cd6bae164de5e18fb7",
+      "size_bytes": 25390
+    }
+  },
+  "test_evidence": {
+    "unit_tests": {
+      "total": 1407,
+      "passed": 1407,
+      "failed": 0,
+      "trx": "test-results/catalog_v3_unit_tests.trx"
+    },
+    "desktop_editor_tests": {
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "trx": "test-results/catalog_v3_desktop_editor_tests.trx"
+    }
+  }
+}

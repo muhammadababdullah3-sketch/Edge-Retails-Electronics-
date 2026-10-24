@@ -25,7 +25,8 @@ public sealed record ProductCatalogInput(
     decimal MinimumStockLevel = 0m,
     int DefaultWarrantyMonths = 0,
     string? AttributesJson = null,
-    int AttributesSchemaVersion = 1);
+    int AttributesSchemaVersion = 1,
+    string? ClassRef = null);
 
 public sealed record CreateProductCommand(
     Guid ActorId,
@@ -102,7 +103,8 @@ public static class ProductAggregatePayloadFingerprint
 public sealed record NormalizedProductCatalogData(
     string Sku,
     string? ModelCode,
-    Guid? CompanyId);
+    Guid? CompanyId,
+    string? ClassRef = null);
 
 internal static class ProductCatalogCommandRules
 {
@@ -254,8 +256,33 @@ internal static class ProductCatalogCommandRules
                 $"SKU '{normalizedSku}' is already assigned to another product.");
         }
 
+        string? normalizedClassRef = null;
+        if (!string.IsNullOrWhiteSpace(input.ClassRef))
+        {
+            var trimmedRef = input.ClassRef.Trim();
+            var matchedClass = TaxonomyV3Store.ProductClasses.FirstOrDefault(c =>
+                string.Equals(c.ClassRef, trimmedRef, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(c.CanonicalClassRef, trimmedRef, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedClass is null)
+            {
+                return Result<NormalizedProductCatalogData>.Failure(
+                    "catalog.class_ref_invalid",
+                    $"Class reference '{trimmedRef}' is not a recognized canonical product class.");
+            }
+
+            if (!string.Equals(matchedClass.CatalogRole, "LEAF", StringComparison.OrdinalIgnoreCase))
+            {
+                return Result<NormalizedProductCatalogData>.Failure(
+                    "catalog.class_ref_not_leaf",
+                    $"Class reference '{trimmedRef}' is not a leaf class and cannot be assigned directly to a product.");
+            }
+
+            normalizedClassRef = matchedClass.CanonicalClassRef ?? matchedClass.ClassRef;
+        }
+
         return Result<NormalizedProductCatalogData>.Success(
-            new NormalizedProductCatalogData(normalizedSku, normalizedModelCode, company?.Id ?? input.CompanyId));
+            new NormalizedProductCatalogData(normalizedSku, normalizedModelCode, company?.Id ?? input.CompanyId, normalizedClassRef));
     }
 
     public static void Apply(Product product, ProductCatalogInput input, NormalizedProductCatalogData normalized)
@@ -268,6 +295,7 @@ internal static class ProductCatalogCommandRules
         product.CompanyId = normalized.CompanyId;
         product.CategoryId = input.CategoryId;
         product.BaseUnitId = input.BaseUnitId;
+        product.ClassRef = normalized.ClassRef;
         product.TrackingMode = input.TrackingMode;
         product.SerialTrackingEnabled = input.SerialTrackingEnabled;
         product.ImeiTrackingEnabled = input.ImeiTrackingEnabled;
@@ -1016,68 +1044,17 @@ public sealed class SaveProductAggregateHandler
                     "A unit can only appear once for a product.");
             }
 
-            var baseInput = units.SingleOrDefault(x => x.UnitId == product.BaseUnitId);
-            if (baseInput is null || QuantityMath.RoundFactor(baseInput.FactorToBaseUnit) != 1m)
+            var unitLookup = new Dictionary<Guid, Unit>();
+            foreach (var id in units.Select(u => u.UnitId).Append(product.BaseUnitId).Distinct())
             {
-                return Result<ProductMutationResult>.Failure(
-                    "catalog.base_unit_required",
-                    "Base unit must exist with conversion factor 1.");
+                var u = await _catalog.GetUnitAsync(id, ct);
+                if (u != null) unitLookup[id] = u;
             }
 
-            if (units.Count(x => x.CanPurchase && x.IsDefaultPurchaseUnit) > 1)
+            var unitValidation = ProductUnitValidator.ValidateUnitInputs(product.TrackingMode, product.BaseUnitId, units, unitLookup);
+            if (unitValidation is not null)
             {
-                return Result<ProductMutationResult>.Failure(
-                    "catalog.multiple_default_purchase_units",
-                    "Only one default purchase unit is allowed.");
-            }
-
-            if (units.Count(x => x.CanSell && x.IsDefaultSaleUnit) > 1)
-            {
-                return Result<ProductMutationResult>.Failure(
-                    "catalog.multiple_default_sale_units",
-                    "Only one default sale unit is allowed.");
-            }
-
-            if (units.Any(x => x.IsDefaultPurchaseUnit && !x.CanPurchase) ||
-                units.Any(x => x.IsDefaultSaleUnit && !x.CanSell))
-            {
-                return Result<ProductMutationResult>.Failure(
-                    "catalog.invalid_default_unit",
-                    "A default unit must be enabled for the corresponding operation.");
-            }
-
-            foreach (var input in units)
-            {
-                if (input.FactorToBaseUnit <= 0)
-                {
-                    return Result<ProductMutationResult>.Failure(
-                        "catalog.conversion_factor_positive",
-                        "Conversion factor must be greater than zero.");
-                }
-
-                if (product.TrackingMode == TrackingMode.Container &&
-                    !QuantityMath.IsWhole(input.FactorToBaseUnit))
-                {
-                    return Result<ProductMutationResult>.Failure(
-                        "catalog.container_conversion_whole",
-                        "Container conversion factor must be an exact whole integer count.");
-                }
-
-                if (product.TrackingMode == TrackingMode.Serialized &&
-                    !QuantityMath.IsWhole(input.FactorToBaseUnit))
-                {
-                    return Result<ProductMutationResult>.Failure(
-                        "catalog.serialized_conversion_whole",
-                        "Serialized product unit factors must resolve to whole units.");
-                }
-
-                var unit = await _catalog.GetUnitAsync(input.UnitId, ct);
-                if (unit is null || !unit.IsActive)
-                {
-                    return Result<ProductMutationResult>.Failure(
-                        "catalog.unit_unavailable",
-                        "One of the selected units is unavailable.");
-                }
+                return Result<ProductMutationResult>.Failure(unitValidation.Code, unitValidation.Message);
             }
 
             var existingUnits = await _catalog.GetProductUnitsAsync(product.Id, ct);

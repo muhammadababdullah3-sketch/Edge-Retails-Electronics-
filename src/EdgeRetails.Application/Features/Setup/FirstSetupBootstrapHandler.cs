@@ -1,5 +1,8 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Catalog;
+using EdgeRetails.Domain.Catalog;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Parties;
 using EdgeRetails.Domain.SystemConfiguration;
@@ -100,7 +103,9 @@ public sealed class FirstSetupBootstrapHandler
         "sales.draft.resume",
         "sales.draft.cancel",
         "sales.price_check"
-    ]; private readonly ISetupRepository _setup;
+    ];
+
+    private readonly ISetupRepository _setup;
     private readonly IPinCredentialService _pinCredentials;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
@@ -263,7 +268,9 @@ public sealed class FirstSetupBootstrapHandler
             CreatedAt = now,
             UpdatedAt = now
         };
-        _setup.AddUser(owner); installation.SetupStatus = SetupStatus.Complete;
+        _setup.AddUser(owner);
+
+        installation.SetupStatus = SetupStatus.Complete;
         installation.CompletedAt = now;
         installation.Version++;
 
@@ -274,6 +281,63 @@ public sealed class FirstSetupBootstrapHandler
                 installation.InstallationId,
                 owner.Id,
                 walkIn.Id));
+    }
+
+    private static async Task PreloadCanonicalCatalogAsync(
+        ICatalogRepository catalog,
+        CancellationToken cancellationToken)
+    {
+        var existingUnits = await catalog.GetUnitsAsync(includeInactive: true, cancellationToken);
+        var existingUnitSymbols = new HashSet<string>(
+            existingUnits.Select(u => u.Symbol),
+            StringComparer.OrdinalIgnoreCase);
+        var existingUnitNames = new HashSet<string>(
+            existingUnits.Select(u => u.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var def in TaxonomyV3Store.UnitDefinitions)
+        {
+            if (!existingUnitSymbols.Contains(def.LocalCode) && !existingUnitNames.Contains(def.Name))
+            {
+                catalog.AddUnit(new Unit
+                {
+                    Name = def.Name,
+                    Symbol = def.LocalCode,
+                    Dimension = def.Dimension,
+                    FactorToReference = def.FactorToReference,
+                    ConversionKind = def.ConversionKind,
+                    DisplayDecimalPlaces = def.Dimension == PhysicalDimension.Count ? 0 : 3,
+                    IsActive = def.IsActiveSupported
+                });
+                existingUnitSymbols.Add(def.LocalCode);
+                existingUnitNames.Add(def.Name);
+            }
+        }
+
+        var existingCategories = await catalog.GetCategoriesAsync(includeInactive: true, cancellationToken);
+        var existingCategorySymbols = new HashSet<string>(
+            existingCategories.Select(c => c.IdentitySymbol),
+            StringComparer.OrdinalIgnoreCase);
+        var existingCategoryNames = new HashSet<string>(
+            existingCategories.Select(c => c.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dept in TaxonomyV3Store.Departments)
+        {
+            var symbol = dept.Code.ToUpperInvariant();
+            if (!existingCategorySymbols.Contains(symbol) && !existingCategoryNames.Contains(dept.Name))
+            {
+                catalog.AddCategory(new Category
+                {
+                    Name = dept.Name,
+                    IdentitySymbol = symbol,
+                    IsActive = true,
+                    Version = 1
+                });
+                existingCategorySymbols.Add(symbol);
+                existingCategoryNames.Add(dept.Name);
+            }
+        }
     }
 
     private static Role CreateRole(string name) =>
