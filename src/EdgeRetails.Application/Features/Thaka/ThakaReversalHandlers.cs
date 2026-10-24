@@ -6,6 +6,7 @@ using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Thaka;
 
 namespace EdgeRetails.Application.Features.Thaka;
@@ -15,7 +16,10 @@ public sealed record ReverseThakaMaterialCommand(
     Guid ProjectId,
     Guid MaterialIssueId,
     string Reason,
-    Guid ActorId);
+    Guid ActorId,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record ReverseThakaMaterialResult(
     Guid ReversalId,
@@ -38,6 +42,7 @@ public sealed class ReverseThakaMaterialHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public ReverseThakaMaterialHandler(
         IThakaRepository thaka,
@@ -51,7 +56,8 @@ public sealed class ReverseThakaMaterialHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _thaka = thaka;
         _inventory = inventory;
@@ -65,6 +71,7 @@ public sealed class ReverseThakaMaterialHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _postingValidation = postingValidation;
     }
 
     public async Task<Result<ReverseThakaMaterialResult>> HandleAsync(
@@ -78,6 +85,23 @@ public sealed class ReverseThakaMaterialHandler
                 "thaka.material_reversal_invalid",
                 "Material reversal requires operation id and reason.");
         }
+
+        var domainProjection = new
+        {
+            command.ProjectId,
+            command.MaterialIssueId,
+            Reason = command.Reason.Trim(),
+            command.ActorId,
+            PostingDate = command.PostingDate?.ToString("O")
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ThakaMaterialReversal", domainProjection);
+        var legacyFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "ThakaMaterialReversal",
+            command.ProjectId.ToString("D"),
+            command.MaterialIssueId.ToString("D"),
+            command.Reason.Trim(),
+            command.ActorId.ToString("D"));
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -91,12 +115,64 @@ public sealed class ReverseThakaMaterialHandler
                     authorization.Error.Message);
             }
 
+            if (_outcomeLedger is not null)
+            {
+                var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (preOutcome is not null)
+                {
+                    if (!string.Equals(preOutcome.OperationType, "ThakaMaterialReversal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result<ReverseThakaMaterialResult>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to another operation type ({preOutcome.OperationType}).");
+                    }
+
+                    if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<ReverseThakaMaterialResult>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                        !string.Equals(preOutcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(preOutcome.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result<ReverseThakaMaterialResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with different material reversal parameters.");
+                    }
+
+                    if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                    {
+                        var existing = await _thaka.GetMaterialReversalByOperationIdAsync(command.ClientOperationId, ct);
+                        if (existing is not null)
+                        {
+                            return Result<ReverseThakaMaterialResult>.Success(new(
+                                existing.Id,
+                                existing.ReversalNumber,
+                                existing.ReversedCharge,
+                                existing.RestoredCost,
+                                true));
+                        }
+                    }
+                }
+            }
+
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             var byOperation = await _thaka.GetMaterialReversalByOperationIdAsync(
                 command.ClientOperationId,
                 ct);
             if (byOperation is not null)
             {
+                if (byOperation.ProjectId != command.ProjectId ||
+                    byOperation.MaterialIssueId != command.MaterialIssueId)
+                {
+                    return Result<ReverseThakaMaterialResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with a different project or material issue.");
+                }
+
                 if (_outcomeLedger is not null)
                 {
                     await _outcomeLedger.RecordSuccessAsync(
@@ -105,6 +181,7 @@ public sealed class ReverseThakaMaterialHandler
                         byOperation.Id,
                         byOperation.ReversalNumber,
                         actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -216,7 +293,29 @@ public sealed class ReverseThakaMaterialHandler
                     reversal.Id,
                     reversal.ReversalNumber,
                     actorId: command.ActorId,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
+            }
+
+            if (_postingValidation is not null)
+            {
+                var postingDate = command.PostingDate ?? _clock.ShopDate;
+                var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                    OperationType: PostingOperationTypes.Thaka,
+                    EntityId: reversal.Id,
+                    EntityNumber: reversal.ReversalNumber,
+                    ActorId: command.ActorId,
+                    PostingDate: postingDate,
+                    SupplierDocumentDate: null,
+                    SupervisorApproval: command.SupervisorApproval,
+                    CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                if (!postingValidationResult.IsSuccess)
+                {
+                    return Result<ReverseThakaMaterialResult>.Failure(
+                        postingValidationResult.Error!.Code,
+                        postingValidationResult.Error.Message);
+                }
             }
 
             await _unitOfWork.SaveChangesAsync(ct);
@@ -317,6 +416,28 @@ public sealed class ReverseThakaMaterialHandler
             var from = unit.Status;
             unit.Status = InventoryUnitStatus.InStock;
             unit.InventoryLotId = lotId;
+            if (unit.PackState is not null)
+            {
+                unit.RemainingBaseQuantity = unit.InitialBaseQuantity;
+                unit.PackState = PackState.Sealed;
+
+                _inventory.AddPackAllocation(new PackAllocation
+                {
+                    Id = Guid.CreateVersion7(),
+                    PackUnitId = unit.Id,
+                    MovementId = reversalMovement.Id,
+                    LotId = lotId,
+                    OperationType = PackAllocationOperationTypes.ThakaReturn,
+                    AllocatedBaseQuantity = basePerUnit,
+                    UnitCostSnapshot = snapshot.UnitCostSnapshot / basePerUnit,
+                    TotalCostSnapshot = snapshot.UnitCostSnapshot,
+                    RemainingQuantityAfter = unit.RemainingBaseQuantity ?? basePerUnit,
+                    PackStateAfter = PackState.Sealed,
+                    ActorId = reversalMovement.ActorId,
+                    OccurredAt = _clock.UtcNow,
+                    CreatedAt = _clock.UtcNow
+                });
+            }
             unit.Version++;
 
             _inventory.AddMovementUnit(new InventoryMovementUnit

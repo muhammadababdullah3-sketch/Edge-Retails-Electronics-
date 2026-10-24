@@ -169,8 +169,12 @@ public sealed class FinanceController : ControllerBase
         {
             return BadRequest(new { code = "cash.manual_type_required", message = "This endpoint accepts only manual cash in or out." });
         }
+        if (!sanitized.ClientOperationId.HasValue || sanitized.ClientOperationId.Value == Guid.Empty)
+        {
+            return BadRequest(new { code = "cash.client_operation_id_required", message = "Manual cash movement requires a valid immutable client operation id." });
+        }
         var result = await _manualCashMovementHandler.HandleAsync(new RecordManualCashMovementCommand(
-            sanitized.Direction, sanitized.Amount, sanitized.ActorId, sanitized.Reason ?? string.Empty, sanitized.Note), cancellationToken);
+            sanitized.Direction, sanitized.Amount, sanitized.ActorId, sanitized.Reason ?? string.Empty, sanitized.Note, sanitized.ClientOperationId), cancellationToken);
         return ToActionResult(result);
     }
 

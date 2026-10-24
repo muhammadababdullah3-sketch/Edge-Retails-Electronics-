@@ -790,7 +790,8 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await using var attested = Phase2PostgresTestHarness.BuildProvider();
         var name = "edge_retails_warranty_migration_" + Guid.NewGuid().ToString("N");
-        var builder = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"))
+        var baseConn = Phase2PostgresTestHarness.ResolveConnectionString();
+        var builder = new NpgsqlConnectionStringBuilder(baseConn)
         {
             Database = "postgres"
         };

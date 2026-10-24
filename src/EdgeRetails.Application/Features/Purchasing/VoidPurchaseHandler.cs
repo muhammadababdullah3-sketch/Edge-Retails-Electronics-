@@ -90,6 +90,19 @@ public sealed class VoidPurchaseHandler
             command.VoidedBy.ToString(),
             command.Reason.Trim());
 
+        if (_outcomeLedger is not null)
+        {
+            var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preLockOutcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, currentFingerprint, cancellationToken);
+                if (evaluated.HasValue)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -105,6 +118,19 @@ public sealed class VoidPurchaseHandler
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
 
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null)
+                {
+                    var evaluated = await EvaluateGuardedOutcomeAsync(outcome, command, currentFingerprint, ct);
+                    if (evaluated.HasValue)
+                    {
+                        return evaluated.Value;
+                    }
+                }
+            }
+
             var existing = await _purchases.GetVoidByClientOperationIdAsync(
                 command.ClientOperationId, ct);
             if (existing is not null)
@@ -116,26 +142,14 @@ public sealed class VoidPurchaseHandler
                         "The operation was previously executed for a different purchase.");
                 }
 
-                if (_outcomeLedger is not null)
+                if (existing.VoidedBy != command.VoidedBy)
                 {
-                    var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                    if (outcome is not null && !string.IsNullOrEmpty(outcome.PayloadFingerprint))
-                    {
-                        if (!string.Equals(outcome.PayloadFingerprint, currentFingerprint, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return Result<VoidPurchaseResult>.Failure(
-                                "idempotency.payload_mismatch",
-                                "The operation was previously executed with different parameters.");
-                        }
-                    }
-                    else if (existing.VoidedBy != command.VoidedBy || !string.Equals(existing.Reason, command.Reason.Trim(), StringComparison.Ordinal))
-                    {
-                        return Result<VoidPurchaseResult>.Failure(
-                            "idempotency.payload_mismatch",
-                            "The operation was previously executed with different parameters.");
-                    }
+                    return Result<VoidPurchaseResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
                 }
-                else if (existing.VoidedBy != command.VoidedBy || !string.Equals(existing.Reason, command.Reason.Trim(), StringComparison.Ordinal))
+
+                if (!string.Equals(existing.Reason, command.Reason.Trim(), StringComparison.Ordinal))
                 {
                     return Result<VoidPurchaseResult>.Failure(
                         "idempotency.payload_mismatch",
@@ -398,7 +412,8 @@ public sealed class VoidPurchaseHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -415,5 +430,70 @@ public sealed class VoidPurchaseHandler
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
+
+    private async Task<Result<VoidPurchaseResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        VoidPurchaseCommand command,
+        string fingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "VoidPurchase")
+        {
+            return Result<VoidPurchaseResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'VoidPurchase'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.VoidedBy)
+        {
+            return Result<VoidPurchaseResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+            !string.Equals(outcome.PayloadFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<VoidPurchaseResult>.Failure(
+                "idempotency.payload_mismatch",
+                "The operation was previously executed with different parameters.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            var existing = await _purchases.GetVoidByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existing is not null)
+            {
+                if (existing.PurchaseId != command.PurchaseId)
+                {
+                    return Result<VoidPurchaseResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "The operation was previously executed for a different purchase.");
+                }
+
+                return Result<VoidPurchaseResult>.Success(new(
+                    existing.PurchaseId, existing.Id, true));
+            }
+
+            if (outcome.EntityId.HasValue)
+            {
+                return Result<VoidPurchaseResult>.Success(new(
+                    command.PurchaseId, outcome.EntityId.Value, true));
+            }
+
+            return Result<VoidPurchaseResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed void outcome has no matching void record; reconciliation is required.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<VoidPurchaseResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous void outcome before another execution.");
+        }
+
+        return null;
+    }
 }
 

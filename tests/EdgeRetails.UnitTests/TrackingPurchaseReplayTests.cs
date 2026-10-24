@@ -29,6 +29,7 @@ public sealed class TrackingPurchaseReplayTests
     public async Task Successful_purchase_replay_rejects_changed_intent_without_new_effects(string field)
     {
         var f = new Phase2TestDoubles();
+        f.Clock.UtcNow = new DateTimeOffset(2026, 10, 10, 10, 0, 0, TimeSpan.Zero);
         var supplier = new Supplier { Name = "Replay supplier", DealerCode = "REP", IsActive = true };
         f.Parties.AddSupplier(supplier);
         var product = new Product { Name = "Replay product", Sku = "REP", BaseUnitId = Guid.NewGuid(),
@@ -80,6 +81,7 @@ public sealed class TrackingPurchaseReplayTests
     public async Task Legacy_purchase_cannot_be_blessed_by_retry_payload(bool hasLegacyOutcome)
     {
         var f = new Phase2TestDoubles();
+        f.Clock.UtcNow = new DateTimeOffset(2026, 10, 10, 10, 0, 0, TimeSpan.Zero);
         var command = new CreatePurchaseCommand(Guid.NewGuid(), "LEGACY", new(2026, 10, 7), null, 0m,
             PurchaseSettlementMode.External, Guid.NewGuid(), Guid.NewGuid(), [new(Guid.NewGuid(), Guid.NewGuid(), 1m, 1m, 1m, [])]);
         var purchase = new Purchase { ClientOperationId = command.ClientOperationId, SupplierId = command.SupplierId,
@@ -97,6 +99,29 @@ public sealed class TrackingPurchaseReplayTests
         Assert.Empty(f.SupplierAccounts.Entries);
         Assert.Empty(f.Inventory.Lots);
         Assert.Empty(f.Audit.Records);
+    }
+
+    [Fact]
+    public async Task CreatePurchase_With_Future_PurchaseDate_Is_Rejected()
+    {
+        var f = new Phase2TestDoubles();
+        f.Clock.UtcNow = new DateTimeOffset(2026, 10, 7, 10, 0, 0, TimeSpan.Zero);
+        var supplier = new Supplier { Name = "Replay supplier", DealerCode = "REP", IsActive = true };
+        f.Parties.AddSupplier(supplier);
+        var product = new Product { Name = "Replay product", Sku = "REP", BaseUnitId = Guid.NewGuid(),
+            TrackingMode = TrackingMode.Quantity, IsActive = true };
+        f.Catalog.Products[product.Id] = product;
+        var unit = new ProductUnit { ProductId = product.Id, UnitId = product.BaseUnitId, FactorToBaseUnit = 1m,
+            CanPurchase = true, CanSell = true, IsActive = true };
+        f.Catalog.AddProductUnit(unit);
+
+        var futureCommand = new CreatePurchaseCommand(supplier.Id, "INV-FUTURE", new(2026, 10, 8), "Note", 0m,
+            PurchaseSettlementMode.External, Guid.NewGuid(), Guid.NewGuid(), [new(product.Id, unit.Id, 2m, 10m, 15m, [])],
+            InitialPaymentAmount: 0m, ReceiveStockImmediately: false);
+        var handler = Handler(f);
+        var result = await handler.HandleAsync(futureCommand, default);
+        Assert.False(result.IsSuccess);
+        Assert.Equal("purchasing.date_in_future", result.Error?.Code);
     }
 
     private static string Snapshot(Phase2TestDoubles f) => JsonSerializer.Serialize(new

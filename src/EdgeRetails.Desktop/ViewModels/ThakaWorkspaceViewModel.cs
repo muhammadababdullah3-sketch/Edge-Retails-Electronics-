@@ -49,6 +49,7 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
     private MaterialLedgerEntry? _selectedMaterial;
     private Guid? _pendingMaterialReversalIssueId;
     private Guid? _pendingMaterialReversalOperationId;
+    private readonly IClientOperationIntentStore _operationIntents;
     private bool _isLoading;
     private bool _hasSnapshot;
     private bool _changingSuspension;
@@ -68,11 +69,13 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         IDialogService? dialogService = null,
         IToastService? toastService = null,
         IBackendThakaService? backendService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _backendService = backendService;
         _workflowService = workflowService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _previewRetailState = ResolvePreviewRetailState(backendService);
         _dialogService = dialogService;
         _toastService = toastService;
@@ -146,12 +149,6 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedMaterial, value))
             {
-                if (_pendingMaterialReversalIssueId != value?.BackendMaterialIssueId)
-                {
-                    _pendingMaterialReversalIssueId = value?.BackendMaterialIssueId;
-                    _pendingMaterialReversalOperationId = null;
-                }
-
                 OnPropertyChanged(nameof(CanReverseSelectedMaterial));
                 ((RelayCommand)ReverseMaterialCommand).NotifyCanExecuteChanged();
             }
@@ -233,7 +230,8 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
             toastService: _toastService,
             backendService: _backendService,
             workflowService: _workflowService,
-            dialogService: _dialogService);
+            dialogService: _dialogService,
+            operationIntents: _operationIntents);
 
         _dialogService.Show(vm);
     }
@@ -289,21 +287,46 @@ public sealed class ThakaWorkspaceViewModel : ViewModelBase
         _pendingMaterialReversalIssueId = issueId;
         _pendingMaterialReversalOperationId ??= Guid.CreateVersion7();
 
+        var reason = $"Operator reversal of {SelectedMaterial.ChallanNumber}";
+        var operationKey = $"thaka:material-reversal:{issueId:D}";
+        var canonicalPayload = $"{issueId:D}|{reason}";
+        Guid clientOperationId;
+        try
+        {
+            clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            _toastService?.Show(
+                "A previous material reversal for this issue has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                ToastTone.Warning);
+            return;
+        }
+
         try
         {
             await _backendService.ReverseMaterialAsync(
                 _project,
                 issueId,
-                $"Operator reversal of {SelectedMaterial.ChallanNumber}",
-                _pendingMaterialReversalOperationId.Value);
+                reason,
+                clientOperationId);
+
+            _operationIntents.Complete(operationKey, clientOperationId);
 
             _toastService?.Show(
                 $"{SelectedMaterial.ChallanNumber} reversed and exact stock provenance restored.",
                 ToastTone.Success);
-            _pendingMaterialReversalIssueId = null;
-            _pendingMaterialReversalOperationId = null;
             SelectedMaterial = null;
             await RefreshBackendAsync();
+        }
+        catch (DesktopApiException ex) when (ex.StatusCode is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError
+            and not System.Net.HttpStatusCode.Unauthorized
+            and not System.Net.HttpStatusCode.Forbidden
+            and not System.Net.HttpStatusCode.RequestTimeout
+            and not (System.Net.HttpStatusCode)429)
+        {
+            _operationIntents.Complete(operationKey, clientOperationId);
+            throw;
         }
         catch (BackendOperationException ex)
         {

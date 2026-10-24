@@ -24,6 +24,16 @@ public sealed class Sprint5ForensicAuditTests
     private static string ReadDesktop(params string[] parts) =>
         File.ReadAllText(DesktopFile(parts));
 
+    private static string ReadMasterPlan()
+    {
+        var path = Path.Combine(SolutionRoot(), "docs", "Sprint5_Master_Implementation_Plan.md");
+        if (!File.Exists(path))
+        {
+            path = Path.Combine(SolutionRoot(), "docs", "historical-audits", "phase2-3-4", "Sprint5_Master_Implementation_Plan.md");
+        }
+        return File.ReadAllText(path);
+    }
+
     [Fact]
     public void Sprint5Phase1_NavigationReplacesThreePlaceholders()
     {
@@ -168,7 +178,7 @@ public sealed class Sprint5ForensicAuditTests
     [Fact]
     public void Sprint5MasterPlan_LocksThreePhaseBoundary()
     {
-        var plan = File.ReadAllText(Path.Combine(SolutionRoot(), "docs", "Sprint5_Master_Implementation_Plan.md"));
+        var plan = ReadMasterPlan();
 
         Assert.Contains("Phase 1 — Expenses + Customers + Suppliers", plan);
         Assert.Contains("Phase 2 — Reports", plan);
@@ -321,10 +331,7 @@ public sealed class Sprint5ForensicAuditTests
     [Fact]
     public void Sprint5Phase2_MasterPlanMatchesLockedReportingArchitecture()
     {
-        var plan = File.ReadAllText(Path.Combine(
-            SolutionRoot(),
-            "docs",
-            "Sprint5_Master_Implementation_Plan.md"));
+        var plan = ReadMasterPlan();
 
         Assert.Contains("Moving Weighted Average", plan);
         Assert.Contains("Daily graph: Hourly Sales + Hourly Gross Profit", plan);
@@ -542,10 +549,7 @@ public sealed class Sprint5ForensicAuditTests
     [Fact]
     public void Sprint5Forensic_MasterPlanUsesLockedCostingLanguage()
     {
-        var plan = File.ReadAllText(Path.Combine(
-            SolutionRoot(),
-            "docs",
-            "Sprint5_Master_Implementation_Plan.md"));
+        var plan = ReadMasterPlan();
 
         Assert.Contains("Moving Weighted Average costing is now locked", plan);
         Assert.Contains("historical cost-snapshot rules", plan);

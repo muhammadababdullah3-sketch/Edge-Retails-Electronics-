@@ -92,7 +92,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 ? null
                 : new BackendThakaService(backendScopeFactory, () => _sessionContext.UserId);
         _businessOperationsService = apiClient is not null
-            ? new RemoteBackendBusinessOperationsService(apiClient)
+            ? new RemoteBackendBusinessOperationsService(apiClient, _operationIntents)
             : backendScopeFactory is null
                 ? null
                 : new BackendBusinessOperationsService(backendScopeFactory, () => _sessionContext.UserId);
@@ -188,7 +188,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                     _drawerService,
                     _dialogService,
                     _purchasingInventoryService,
-                    _workflowReadService),
+                    _workflowReadService,
+                    _operationIntents),
             NavigationTarget.ProductManagement => new ProductManagementViewModel(
                 _toastService,
                 _dialogService,
@@ -206,7 +207,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
             NavigationTarget.Expenses => _expensesViewModel ??= new ExpensesViewModel(
                 _toastService,
                 _dialogService,
-                _businessOperationsService),
+                _businessOperationsService,
+                _operationIntents),
             NavigationTarget.Customers => _customersViewModel ??= new CustomersViewModel(
                 _toastService,
                 _dialogService,
@@ -217,7 +219,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _dialogService,
                 _drawerService,
                 _businessOperationsService,
-                _operationsService),
+                _operationsService,
+                _operationIntents),
             NavigationTarget.Warranty => new WarrantyViewModel(
                 _operationsService,
                 _toastService),
@@ -313,7 +316,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
             _dialogService,
             _toastService,
             _backendThakaService,
-            _workflowReadService);
+            _workflowReadService,
+            _operationIntents);
 
         workspace.BackRequested += (_, _) =>
         {

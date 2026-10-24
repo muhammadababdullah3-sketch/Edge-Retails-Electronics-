@@ -53,6 +53,26 @@ public sealed record ReportingSnapshotDto(
     decimal InventoryLossRecoveryGain = 0m,
     decimal WarrantyRecoveryGain = 0m);
 
+public sealed record FinancialValuationLineDto(
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    decimal InStockQuantity,
+    decimal UnitCost,
+    decimal RetailPrice,
+    decimal TotalCost,
+    decimal TotalRetailValue,
+    decimal MarginPercentage);
+
+public sealed record FinancialValuationReportDto(
+    DateTimeOffset GeneratedAtUtc,
+    int TotalProductsCount,
+    int TotalUnitsInStock,
+    decimal TotalRetailValuation,
+    decimal TotalCostValuation,
+    decimal TotalEstimatedMargin,
+    IReadOnlyList<FinancialValuationLineDto> ValuationLines);
+
 public interface IReportingReadService
 {
     Task<ReportingSnapshotDto> GetSnapshotAsync(

@@ -13,7 +13,9 @@ using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Purchasing;
+using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Application.Features.Terminals;
 
 namespace EdgeRetails.UnitTests;
@@ -47,6 +49,8 @@ internal sealed class Phase2TestDoubles
     public FakePurchasingReadService PurchasingReads { get; }
     public FakePhysicalUnitCreationAuthority PhysicalUnits { get; }
     public CashMovementService CashMovements { get; }
+    public IPackSubLedgerAllocationAuthority PackAllocations { get; } = new PackSubLedgerAllocationAuthority();
+    public ReturnExchangeEligibilityAuthority Eligibility { get; }
 
     public Phase2TestDoubles()
     {
@@ -55,6 +59,17 @@ internal sealed class Phase2TestDoubles
         PurchasingReads = new FakePurchasingReadService(Purchasing, Inventory);
         PhysicalUnits = new FakePhysicalUnitCreationAuthority(Catalog, Parties, Traceability, Inventory, Clock);
         CashMovements = new CashMovementService(Cash, Clock);
+        Eligibility = new ReturnExchangeEligibilityAuthority(
+            Sales,
+            Inventory,
+            Catalog,
+            CostAllocator,
+            Clock,
+            Warranty,
+            PhysicalUnits,
+            PackAllocations,
+            Traceability,
+            Parties);
     }
 }
 
@@ -789,9 +804,17 @@ internal sealed class FakePhysicalUnitCreationAuthority : IPhysicalUnitCreationA
                 SourceWarrantyCaseId = entry.SourceWarrantyCaseId,
                 SourceStockAdjustmentItemId = entry.SourceStockAdjustmentItemId,
                 CreatedAt = _clock.UtcNow,
-                Version = 1
+                Version = 1,
+                InitialBaseQuantity = entry.InitialBaseQuantity,
+                RemainingBaseQuantity = entry.RemainingBaseQuantity,
+                PackState = entry.PackState,
+                IsLooseStock = entry.IsLooseStock
             };
             unit.ValidateOriginInvariants();
+            if (unit.PackState is not null)
+            {
+                unit.ValidatePackInvariants();
+            }
             _inventory.AddInventoryUnit(unit);
             if (serial is not null)
             {

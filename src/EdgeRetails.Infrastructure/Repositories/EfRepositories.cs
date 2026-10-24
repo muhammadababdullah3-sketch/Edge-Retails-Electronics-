@@ -286,10 +286,13 @@ public sealed class InventoryRepository : IInventoryRepository
     public Task<StockBalance?> GetStockBalanceForUpdateAsync(
         Guid productId,
         CancellationToken cancellationToken) =>
-        _db.StockBalances
-            .FromSqlInterpolated(
-                $"SELECT * FROM inventory.stock_balances WHERE product_id = {productId} FOR UPDATE")
-            .SingleOrDefaultAsync(cancellationToken);
+        _db.Database.IsRelational()
+            ? _db.StockBalances
+                .FromSqlInterpolated(
+                    $"SELECT * FROM inventory.stock_balances WHERE product_id = {productId} FOR UPDATE")
+                .SingleOrDefaultAsync(cancellationToken)
+            : _db.StockBalances
+                .SingleOrDefaultAsync(x => x.ProductId == productId, cancellationToken);
 
     public Task<ProductCostState?> GetCostStateForUpdateAsync(
         Guid productId,
@@ -298,12 +301,18 @@ public sealed class InventoryRepository : IInventoryRepository
         var tracked = _db.ProductCostStates.Local
             .SingleOrDefault(x => x.ProductId == productId);
 
-        return tracked is not null
-            ? Task.FromResult<ProductCostState?>(tracked)
-            : _db.ProductCostStates
+        if (tracked is not null)
+        {
+            return Task.FromResult<ProductCostState?>(tracked);
+        }
+
+        return _db.Database.IsRelational()
+            ? _db.ProductCostStates
                 .FromSqlInterpolated(
                     $"SELECT * FROM inventory.cost_states WHERE product_id = {productId} FOR UPDATE")
-                .SingleOrDefaultAsync(cancellationToken);
+                .SingleOrDefaultAsync(cancellationToken)
+            : _db.ProductCostStates
+                .SingleOrDefaultAsync(x => x.ProductId == productId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<LotBucketPosition>> GetLotBucketPositionsForUpdateAsync(
@@ -382,10 +391,13 @@ public sealed class InventoryRepository : IInventoryRepository
         Guid lotId,
         InventoryBucket bucket,
         CancellationToken cancellationToken) =>
-        _db.InventoryLotBucketBalances
-            .FromSqlInterpolated(
-                $"SELECT * FROM inventory.lot_bucket_balances WHERE lot_id = {lotId} AND stock_bucket = {(int)bucket} FOR UPDATE")
-            .SingleOrDefaultAsync(cancellationToken);
+        _db.Database.IsRelational()
+            ? _db.InventoryLotBucketBalances
+                .FromSqlInterpolated(
+                    $"SELECT * FROM inventory.lot_bucket_balances WHERE lot_id = {lotId} AND stock_bucket = {(int)bucket} FOR UPDATE")
+                .SingleOrDefaultAsync(cancellationToken)
+            : _db.InventoryLotBucketBalances
+                .SingleOrDefaultAsync(x => x.LotId == lotId && x.StockBucket == bucket, cancellationToken);
 
     public Task<InventoryLot?> GetInventoryLotForUpdateAsync(
         Guid lotId,
@@ -396,10 +408,13 @@ public sealed class InventoryRepository : IInventoryRepository
         {
             return Task.FromResult<InventoryLot?>(provisional);
         }
-        return _db.InventoryLots
-            .FromSqlInterpolated(
-                $"SELECT * FROM inventory.lots WHERE id = {lotId} FOR UPDATE")
-            .SingleOrDefaultAsync(cancellationToken);
+        return _db.Database.IsRelational()
+            ? _db.InventoryLots
+                .FromSqlInterpolated(
+                    $"SELECT * FROM inventory.lots WHERE id = {lotId} FOR UPDATE")
+                .SingleOrDefaultAsync(cancellationToken)
+            : _db.InventoryLots
+                .SingleOrDefaultAsync(x => x.Id == lotId, cancellationToken);
     }
 
     public async Task<decimal> GetPhysicalUnitBaseQuantitySnapshotAsync(
@@ -913,6 +928,23 @@ public sealed class InventoryRepository : IInventoryRepository
         _db.InventoryLotBucketBalances.Add(balance);
     public void AddLotConsumption(InventoryLotConsumption consumption) =>
         _db.InventoryLotConsumptions.Add(consumption);
+    public void AddPackAllocation(PackAllocation allocation) => _db.PackAllocations.Add(allocation);
+    public async Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByMovementAsync(
+        Guid movementId,
+        CancellationToken cancellationToken) =>
+        await _db.PackAllocations
+            .AsNoTracking()
+            .Where(x => x.MovementId == movementId)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+    public async Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByUnitAsync(
+        Guid unitId,
+        CancellationToken cancellationToken) =>
+        await _db.PackAllocations
+            .AsNoTracking()
+            .Where(x => x.PackUnitId == unitId)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
 
     public Task<Stocktake?> GetOpenStocktakeForUpdateAsync(
         CancellationToken cancellationToken) =>

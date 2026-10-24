@@ -135,6 +135,19 @@ public sealed class CreatePurchaseReturnHandler
             }).ToArray()
         }));
 
+        if (_outcomeLedger is not null)
+        {
+            var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preLockOutcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, fingerprint, cancellationToken);
+                if (evaluated.HasValue)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -149,6 +162,19 @@ public sealed class CreatePurchaseReturnHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null)
+                {
+                    var evaluated = await EvaluateGuardedOutcomeAsync(outcome, command, fingerprint, ct);
+                    if (evaluated.HasValue)
+                    {
+                        return evaluated.Value;
+                    }
+                }
+            }
 
             var existing = await _purchases.GetReturnByClientOperationIdAsync(
                 command.ClientOperationId, ct);
@@ -524,7 +550,8 @@ public sealed class CreatePurchaseReturnHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -705,5 +732,67 @@ public sealed class CreatePurchaseReturnHandler
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
+
+    private async Task<Result<CreatePurchaseReturnResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        CreatePurchaseReturnCommand command,
+        string fingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "PurchaseReturn")
+        {
+            return Result<CreatePurchaseReturnResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'PurchaseReturn'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CreatedBy)
+        {
+            return Result<CreatePurchaseReturnResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) && outcome.PayloadFingerprint != fingerprint)
+        {
+            return Result<CreatePurchaseReturnResult>.Failure(
+                "idempotency.payload_mismatch",
+                "The return operation was previously posted with different parameters.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            var existing = await _purchases.GetReturnByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existing is not null)
+            {
+                if (existing.PurchaseId != command.PurchaseId)
+                {
+                    return Result<CreatePurchaseReturnResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted for a different purchase.");
+                }
+
+                return Result<CreatePurchaseReturnResult>.Success(new(
+                    existing.Id,
+                    existing.ReturnNumber,
+                    existing.SupplierReturnValue,
+                    existing.InventoryCostRemoved,
+                    WasExisting: true));
+            }
+
+            return Result<CreatePurchaseReturnResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed return outcome has no matching return record; reconciliation is required.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<CreatePurchaseReturnResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous return outcome before another execution.");
+        }
+
+        return null;
+    }
 }
 

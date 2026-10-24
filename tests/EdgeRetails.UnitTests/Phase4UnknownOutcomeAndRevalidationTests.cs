@@ -416,7 +416,7 @@ public sealed class Phase4UnknownOutcomeAndRevalidationTests
         {
             Id = openSessionId,
             Status = CashSessionStatus.Open,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            BusinessDate = _fakes.Clock.ShopDate,
             OpenedBy = Guid.NewGuid(),
             OpenedAt = _fakes.Clock.UtcNow,
             OpeningCash = 500m
@@ -452,7 +452,7 @@ public sealed class Phase4UnknownOutcomeAndRevalidationTests
         {
             Id = Guid.NewGuid(),
             Status = CashSessionStatus.Closed,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            BusinessDate = _fakes.Clock.ShopDate,
             OpenedBy = Guid.NewGuid(),
             OpenedAt = _fakes.Clock.UtcNow,
             OpeningCash = 500m
@@ -956,7 +956,7 @@ public sealed class Phase4UnknownOutcomeAndRevalidationTests
         var purchaseCommand = new CreatePurchaseCommand(
             SupplierId: supplierId,
             SupplierInvoiceNumber: "INV-SUPP-888",
-            PurchaseDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            PurchaseDate: _fakes.Clock.ShopDate,
             Note: "Inventory restock",
             OtherCharges: 0m,
             SettlementMode: PurchaseSettlementMode.External,

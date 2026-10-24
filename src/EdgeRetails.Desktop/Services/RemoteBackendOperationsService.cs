@@ -10,10 +10,66 @@ namespace EdgeRetails.Desktop.Services;
 /// <summary>Warranty and supplier ledger adapter for the local Server HTTP boundary.</summary>
 public sealed class RemoteBackendOperationsService(DesktopApiClient apiClient) : IBackendOperationsService
 {
-    public Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(Guid supplierId, int pageSize = 200,
+    public async Task<SupplierAccountWorkspaceDto> GetSupplierWorkspaceAsync(Guid supplierId, int pageSize = 200,
         DateTimeOffset? beforeOccurredAt = null, DateTimeOffset? beforeCreatedAt = null, Guid? beforeEntryId = null,
-        CancellationToken cancellationToken = default) =>
-        GetSupplierHistoryPageAsync(supplierId, pageSize, new(beforeOccurredAt, beforeCreatedAt, beforeEntryId), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (beforeOccurredAt.HasValue || beforeCreatedAt.HasValue || beforeEntryId.HasValue)
+        {
+            return await GetSupplierHistoryPageAsync(supplierId, pageSize, new(beforeOccurredAt, beforeCreatedAt, beforeEntryId), cancellationToken);
+        }
+
+        var size = Math.Clamp(pageSize, 1, 200);
+        var firstPage = await GetSupplierHistoryPageAsync(supplierId, size, new(null, null, null), cancellationToken);
+
+        // When loading a full workspace with statement entries or when bounded to a specific page size < 200,
+        // load only one bounded page without draining other lists (Phase3 contract).
+        // Only paginate payments across requests when performing an unbounded payment history lookup
+        // where other workspace lists are unpopulated and the initial page was full.
+        var isPurePaymentHistory = size == 200 &&
+                                   firstPage.Statement.Count == 0 &&
+                                   firstPage.Refunds.Count == 0 &&
+                                   firstPage.SuppliedProducts.Count == 0 &&
+                                   firstPage.Payments.Count == size;
+
+        if (!isPurePaymentHistory)
+        {
+            return firstPage;
+        }
+
+        var allPayments = new List<SupplierPaymentReadDto>(firstPage.Payments);
+        var seenPaymentIds = new HashSet<Guid>(firstPage.Payments.Select(p => p.PaymentId));
+
+        while (firstPage.Payments.Count == size && allPayments.Count % size == 0)
+        {
+            var lastPayment = allPayments[^1];
+            var nextCursor = new SupplierHistoryCursor(
+                PaymentAt: lastPayment.PaidAt,
+                PaymentId: lastPayment.PaymentId);
+
+            var nextPage = await GetSupplierHistoryPageAsync(supplierId, size, nextCursor, cancellationToken);
+            if (nextPage.Payments.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var p in nextPage.Payments)
+            {
+                if (p.PaymentId == Guid.Empty || !seenPaymentIds.Add(p.PaymentId))
+                {
+                    throw CursorFailure();
+                }
+                allPayments.Add(p);
+            }
+
+            if (nextPage.Payments.Count < size)
+            {
+                break;
+            }
+        }
+
+        return firstPage with { Payments = allPayments };
+    }
 
     public async Task<SupplierAccountWorkspaceDto> GetSupplierHistoryPageAsync(Guid supplierId, int pageSize,
         SupplierHistoryCursor cursor, CancellationToken cancellationToken = default)

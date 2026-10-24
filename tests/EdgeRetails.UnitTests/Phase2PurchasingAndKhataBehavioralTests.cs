@@ -48,6 +48,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Transactions,
             _fakes.Authorization,
             _fakes.UnitOfWork,
+            outcomeLedger: _fakes.OutcomeLedger,
             cash: _fakes.Cash);
 
     private VoidPurchaseHandler CreateVoidPurchaseHandler() =>
@@ -65,7 +66,8 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             _fakes.Transactions,
             _fakes.Authorization,
             _fakes.UnitOfWork,
-            cash: _fakes.Cash);
+            cash: _fakes.Cash,
+            outcomeLedger: _fakes.OutcomeLedger);
 
     private CreateSupplierPaymentHandler CreateSupplierPaymentHandler() =>
         new(
@@ -217,7 +219,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-1001",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Initial stock purchase",
                 0m,
                 PurchaseSettlementMode.External,
@@ -274,7 +276,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-SER-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Serialized intake",
                 0m,
                 PurchaseSettlementMode.External,
@@ -332,7 +334,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             OpeningCash = 10000m,
             Status = CashSessionStatus.Open,
             OpenedAt = DateTimeOffset.UtcNow,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            BusinessDate = _fakes.Clock.ShopDate
         };
         _fakes.Cash.AddSession(session);
 
@@ -340,7 +342,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-CASH-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Cash purchase",
                 0m,
                 PurchaseSettlementMode.CashDrawer,
@@ -381,7 +383,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-RET-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Initial purchase",
                 0m,
                 PurchaseSettlementMode.External,
@@ -452,7 +454,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-VOID-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Mistaken purchase",
                 0m,
                 PurchaseSettlementMode.External,
@@ -580,7 +582,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             OpeningCash = 20000m,
             Status = CashSessionStatus.Open,
             OpenedAt = DateTimeOffset.UtcNow,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            BusinessDate = _fakes.Clock.ShopDate
         };
         _fakes.Cash.AddSession(session);
 
@@ -646,7 +648,7 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
             OpeningCash = 5000m,
             Status = CashSessionStatus.Open,
             OpenedAt = DateTimeOffset.UtcNow,
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            BusinessDate = _fakes.Clock.ShopDate
         };
         _fakes.Cash.AddSession(session);
 
@@ -720,5 +722,132 @@ public sealed class Phase2PurchasingAndKhataBehavioralTests
 
         Assert.True(adjDec.IsSuccess);
         Assert.Equal(1000m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task P11_IMP_050_Intake_Return_Void_Failure_And_Replay_Cases()
+    {
+        var (supplier, product, unit) = SeedQuantityProduct();
+        var purchaseHandler = CreatePurchaseHandler();
+        var returnHandler = CreatePurchaseReturnHandler();
+        var voidHandler = CreateVoidPurchaseHandler();
+        var actorId = Guid.CreateVersion7();
+
+        // 1. Initial Purchase: 10 units at 100/unit = 1000 payable
+        var purchaseOpId = Guid.CreateVersion7();
+        var purchaseCmd = new CreatePurchaseCommand(
+            supplier.Id,
+            "INV-P050-1",
+            _fakes.Clock.ShopDate,
+            "P11-IMP-050 intake",
+            0m,
+            PurchaseSettlementMode.External,
+            actorId,
+            purchaseOpId,
+            [
+                new CreatePurchaseLineInput(product.Id, unit.Id, 10m, 100m, 150m, [])
+            ],
+            InitialPaymentAmount: 0m);
+
+        var purchaseResult = await purchaseHandler.HandleAsync(purchaseCmd, CancellationToken.None);
+        Assert.True(purchaseResult.IsSuccess, purchaseResult.Error?.Message);
+        Assert.False(purchaseResult.Value!.WasExisting);
+        Assert.Equal(10m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(1000m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // Idempotent Replay of Purchase Intake: same ClientOperationId returns same purchase without double stock or payable
+        var replayPurchase = await purchaseHandler.HandleAsync(purchaseCmd, CancellationToken.None);
+        Assert.True(replayPurchase.IsSuccess, replayPurchase.Error?.Message);
+        Assert.True(replayPurchase.Value!.WasExisting);
+        Assert.Equal(purchaseResult.Value.PurchaseId, replayPurchase.Value.PurchaseId);
+        Assert.Equal(10m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(1000m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // 2. Purchase Return:
+        var purchaseItem = _fakes.Purchasing.PurchaseItems.First(x => x.PurchaseId == purchaseResult.Value.PurchaseId);
+
+        // a) Over-return failure: returning 15 units when only 10 purchased fails closed
+        var overReturnCmd = new CreatePurchaseReturnCommand(
+            PurchaseId: purchaseResult.Value.PurchaseId,
+            Reason: "Attempt over-return",
+            Note: null,
+            SettlementMode: PurchaseReturnSettlementMode.External,
+            CreatedBy: actorId,
+            ClientOperationId: Guid.CreateVersion7(),
+            Lines: [new PurchaseReturnLineInput(purchaseItem.Id, 15m, 100m, [])]);
+        var overReturnResult = await returnHandler.HandleAsync(overReturnCmd, CancellationToken.None);
+        Assert.False(overReturnResult.IsSuccess);
+        Assert.Equal("purchasing.return_exceeds_original", overReturnResult.Error?.Code);
+        Assert.Equal(10m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(1000m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // b) Valid return: returning 3 units reduces stock to 7 and reduces payable by 300 to 700
+        var returnOpId = Guid.CreateVersion7();
+        var validReturnCmd = new CreatePurchaseReturnCommand(
+            PurchaseId: purchaseResult.Value.PurchaseId,
+            Reason: "Valid 3 unit return",
+            Note: null,
+            SettlementMode: PurchaseReturnSettlementMode.External,
+            CreatedBy: actorId,
+            ClientOperationId: returnOpId,
+            Lines: [new PurchaseReturnLineInput(purchaseItem.Id, 3m, 100m, [])]);
+        var returnResult = await returnHandler.HandleAsync(validReturnCmd, CancellationToken.None);
+        Assert.True(returnResult.IsSuccess, returnResult.Error?.Message);
+        Assert.False(returnResult.Value!.WasExisting);
+        Assert.Equal(7m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(700m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // c) Idempotent Replay of Purchase Return: same ClientOperationId returns same return without double debit
+        var replayReturn = await returnHandler.HandleAsync(validReturnCmd, CancellationToken.None);
+        Assert.True(replayReturn.IsSuccess, replayReturn.Error?.Message);
+        Assert.True(replayReturn.Value!.WasExisting);
+        Assert.Equal(returnResult.Value.PurchaseReturnId, replayReturn.Value.PurchaseReturnId);
+        Assert.Equal(7m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(700m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // 3. Purchase Void:
+        // Seed a separate un-returned purchase for void testing
+        var voidTargetOpId = Guid.CreateVersion7();
+        var voidTargetCmd = new CreatePurchaseCommand(
+            supplier.Id,
+            "INV-P050-2",
+            _fakes.Clock.ShopDate,
+            "Purchase for void",
+            0m,
+            PurchaseSettlementMode.External,
+            actorId,
+            voidTargetOpId,
+            [
+                new CreatePurchaseLineInput(product.Id, unit.Id, 5m, 100m, 150m, [])
+            ],
+            InitialPaymentAmount: 0m);
+        var voidTargetResult = await purchaseHandler.HandleAsync(voidTargetCmd, CancellationToken.None);
+        Assert.True(voidTargetResult.IsSuccess);
+        var voidTargetId = voidTargetResult.Value!.PurchaseId;
+        Assert.Equal(12m, _fakes.Inventory.Balances[product.Id].SellableQty); // 7 + 5 = 12
+        Assert.Equal(1200m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None)); // 700 + 500 = 1200
+
+        // a) Valid void: voids the purchase, reverses inventory by 5 (12 -> 7) and supplier payable by 500 (1200 -> 700)
+        var voidOpId = Guid.CreateVersion7();
+        var voidCmd = new VoidPurchaseCommand(voidTargetId, voidOpId, actorId, "Void mistaken purchase");
+        var voidResult = await voidHandler.HandleAsync(voidCmd, CancellationToken.None);
+        Assert.True(voidResult.IsSuccess, voidResult.Error?.Message);
+        Assert.False(voidResult.Value!.WasExisting);
+        Assert.Equal(7m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(700m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // b) Idempotent Replay of Purchase Void: same ClientOperationId returns WasExisting = true without duplicate deduction
+        var replayVoid = await voidHandler.HandleAsync(voidCmd, CancellationToken.None);
+        Assert.True(replayVoid.IsSuccess, replayVoid.Error?.Message);
+        Assert.True(replayVoid.Value!.WasExisting);
+        Assert.Equal(voidResult.Value.PurchaseVoidId, replayVoid.Value.PurchaseVoidId);
+        Assert.Equal(7m, _fakes.Inventory.Balances[product.Id].SellableQty);
+        Assert.Equal(700m, await _fakes.SupplierAccounts.GetCurrentBalanceAsync(supplier.Id, CancellationToken.None));
+
+        // c) Hostile new void on already-voided purchase with a different operation ID fails closed
+        var hostileVoidCmd = new VoidPurchaseCommand(voidTargetId, Guid.CreateVersion7(), actorId, "Hostile second void attempt");
+        var hostileVoidResult = await voidHandler.HandleAsync(hostileVoidCmd, CancellationToken.None);
+        Assert.False(hostileVoidResult.IsSuccess);
+        Assert.Equal("purchasing.already_voided", hostileVoidResult.Error?.Code);
     }
 }

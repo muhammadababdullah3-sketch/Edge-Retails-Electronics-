@@ -24,7 +24,7 @@ public sealed class TrackingMultilineRollbackPostgresTests
         foreach (var seed in seeds)
         {
             var purchase = await scope.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(
-                new(seed.SupplierId, "MULTI-" + Guid.NewGuid().ToString("N"), new(2026, 10, 7), null, 0m,
+                new(seed.SupplierId, "MULTI-" + Guid.NewGuid().ToString("N"), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
                     PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(), [new(seed.ProductId, seed.ProductUnitId, 10m, 100m, 150m, [])]), default);
             Assert.True(purchase.IsSuccess, purchase.Error?.ToString());
         }

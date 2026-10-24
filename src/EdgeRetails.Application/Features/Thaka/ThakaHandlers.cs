@@ -2,13 +2,16 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Operations;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Thaka;
+using System.Globalization;
 
 namespace EdgeRetails.Application.Features.Thaka;
 
@@ -27,14 +30,21 @@ public sealed record IssueThakaMaterialLineInput(
     Guid ProductUnitId,
     decimal EnteredQuantity,
     decimal ExpectedUnitCharge,
-    IReadOnlyList<Guid> InventoryUnitIds);
+    IReadOnlyList<Guid> InventoryUnitIds,
+    Guid? PreferredPackUnitId = null,
+    bool AllowSplitCuts = false);
 
 public sealed record IssueThakaMaterialCommand(
     Guid ClientOperationId,
     Guid ProjectId,
     Guid ActorId,
     string? Note,
-    IReadOnlyList<IssueThakaMaterialLineInput> Lines); public sealed record IssueThakaMaterialResult(
+    IReadOnlyList<IssueThakaMaterialLineInput> Lines,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
+
+public sealed record IssueThakaMaterialResult(
     Guid MaterialIssueId,
     string ChallanNumber,
     decimal TotalCharge,
@@ -48,7 +58,8 @@ internal sealed record PreparedThakaLine(
     TransactionQuantitySnapshot Quantity,
     decimal UnitCharge,
     decimal LineCharge,
-    IReadOnlyList<InventoryUnit> SerializedUnits);
+    IReadOnlyList<InventoryUnit> SerializedUnits,
+    PackAllocationResult? PackAllocation = null);
 
 public sealed class CreateThakaProjectHandler
 {
@@ -87,18 +98,82 @@ public sealed class CreateThakaProjectHandler
         _outcomeLedger = outcomeLedger;
     }
 
-    public Task<Result<Guid>> HandleAsync(
+    public async Task<Result<Guid>> HandleAsync(
         CreateThakaProjectCommand command,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(command.ProjectName))
         {
-            return Task.FromResult(Result<Guid>.Failure(
+            return Result<Guid>.Failure(
                 "thaka.project_name_required",
-                "Thaka project name is required."));
+                "Thaka project name is required.");
         }
 
-        return _transactions.ExecuteAsync(async ct =>
+        var domainProjection = new
+        {
+            command.CustomerId,
+            ProjectName = command.ProjectName.Trim(),
+            SiteAddress = Normalize(command.SiteAddress),
+            Note = Normalize(command.Note),
+            StartedOn = command.StartedOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            command.ActorId
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("CreateThakaProject", domainProjection);
+        var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "CreateThakaProject",
+            command.CustomerId.ToString("D"),
+            command.ProjectName.Trim(),
+            Normalize(command.SiteAddress),
+            Normalize(command.Note),
+            command.StartedOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            command.ActorId.ToString("D"));
+
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, payloadFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        if (command.ClientOperationId != Guid.Empty && _outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!string.Equals(preOutcome.OperationType, "CreateThakaProject", StringComparison.Ordinal))
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity was already used for '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                    !FingerprintMatches(preOutcome.PayloadFingerprint))
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.payload_mismatch",
+                        "This operation id is already associated with another or unresolved Thaka project operation.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                {
+                    return Result<Guid>.Success(preOutcome.EntityId.Value);
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result<Guid>.Failure(
+                        preOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        preOutcome.ErrorMessage ?? "Thaka project operation previously failed.");
+                }
+            }
+        }
+
+        return await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
@@ -111,14 +186,6 @@ public sealed class CreateThakaProjectHandler
                     authorization.Error.Message);
             }
 
-            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
-                "CreateThakaProject",
-                command.CustomerId.ToString("D"),
-                command.ProjectName.Trim(),
-                Normalize(command.SiteAddress),
-                Normalize(command.Note),
-                command.StartedOn.ToString("yyyy-MM-dd"),
-                command.ActorId.ToString("D"));
             if (command.ClientOperationId != Guid.Empty)
             {
                 if (_operationLock is not null)
@@ -128,15 +195,36 @@ public sealed class CreateThakaProjectHandler
                     var saved = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
                     if (saved is not null)
                     {
-                        if (saved is { State: OperationOutcomeState.Succeeded, OperationType: "CreateThakaProject", EntityId: Guid savedProjectId } &&
-                            string.Equals(saved.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal))
+                        if (!string.Equals(saved.OperationType, "CreateThakaProject", StringComparison.Ordinal))
                         {
-                            return Result<Guid>.Success(savedProjectId);
+                            return Result<Guid>.Failure(
+                                "idempotency.operation_type_mismatch",
+                                $"Operation identity was already used for '{saved.OperationType}'.");
+                        }
+
+                        if (saved.ActorId.HasValue && command.ActorId != Guid.Empty && saved.ActorId.Value != command.ActorId)
+                        {
+                            return Result<Guid>.Failure(
+                                "idempotency.context_mismatch",
+                                "Operation actor mismatch.");
+                        }
+
+                        if (!string.IsNullOrEmpty(saved.PayloadFingerprint) &&
+                            !FingerprintMatches(saved.PayloadFingerprint))
+                        {
+                            return Result<Guid>.Failure(
+                                "idempotency.payload_mismatch",
+                                "This operation id is already associated with another or unresolved Thaka project operation.");
+                        }
+
+                        if (saved.State == OperationOutcomeState.Succeeded && saved.EntityId.HasValue)
+                        {
+                            return Result<Guid>.Success(saved.EntityId.Value);
                         }
 
                         return Result<Guid>.Failure(
-                            "thaka.operation_id_conflict",
-                            "This operation id is already associated with another or unresolved Thaka project operation.");
+                            saved.ErrorCode ?? "idempotency.outcome_unknown",
+                            saved.ErrorMessage ?? "Thaka project operation outcome requires reconciliation.");
                     }
                 }
             }
@@ -176,7 +264,7 @@ public sealed class CreateThakaProjectHandler
                     project.Id,
                     project.ProjectNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: payloadFingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -206,7 +294,11 @@ public sealed class IssueThakaMaterialHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IApplicationPermissionAuthorizer _authorization;
-    private readonly IUnitOfWork _unitOfWork; public IssueThakaMaterialHandler(
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IPackSubLedgerAllocationAuthority _packAllocations;
+    private readonly IShopPostingValidationService? _postingValidation;
+
+    public IssueThakaMaterialHandler(
         IThakaRepository thaka,
         IPartyRepository parties,
         ICatalogRepository catalog,
@@ -220,7 +312,9 @@ public sealed class IssueThakaMaterialHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPackSubLedgerAllocationAuthority? packAllocations = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _thaka = thaka;
         _parties = parties;
@@ -236,6 +330,8 @@ public sealed class IssueThakaMaterialHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _packAllocations = packAllocations ?? new PackSubLedgerAllocationAuthority();
+        _postingValidation = postingValidation;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -258,6 +354,83 @@ public sealed class IssueThakaMaterialHandler
                 "The same product and unit may appear only once.");
         }
 
+        var domainProjection = new
+        {
+            command.ProjectId,
+            Lines = command.Lines.OrderBy(x => x.ProductId).ThenBy(x => x.ProductUnitId)
+                .Select(x => new
+                {
+                    x.ProductId,
+                    x.ProductUnitId,
+                    EnteredQuantity = QuantityMath.RoundQuantity(x.EnteredQuantity),
+                    ExpectedUnitCharge = decimal.Round(x.ExpectedUnitCharge, 2, MidpointRounding.AwayFromZero)
+                }).ToList(),
+            Note = Normalize(command.Note),
+            command.ActorId
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ThakaMaterialIssue", domainProjection);
+        var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "ThakaMaterialIssue",
+            command.ProjectId.ToString("D"),
+            string.Join(";", command.Lines.OrderBy(x => x.ProductId).ThenBy(x => x.ProductUnitId)
+                .Select(x => string.Create(CultureInfo.InvariantCulture, $"{x.ProductId:D}:{x.ProductUnitId:D}:{x.EnteredQuantity:0.0000}:{x.ExpectedUnitCharge:0.00}"))),
+            Normalize(command.Note),
+            command.ActorId.ToString("D"));
+
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, payloadFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        if (_outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!string.Equals(preOutcome.OperationType, "ThakaMaterialIssue", StringComparison.Ordinal))
+                {
+                    return Result<IssueThakaMaterialResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity was already used for '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<IssueThakaMaterialResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                    !FingerprintMatches(preOutcome.PayloadFingerprint))
+                {
+                    return Result<IssueThakaMaterialResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "This operation id is already associated with another or unresolved material issue.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                {
+                    var existingIssue = await _thaka.GetIssueByOperationIdAsync(command.ClientOperationId, cancellationToken);
+                    if (existingIssue is not null)
+                    {
+                        return Result<IssueThakaMaterialResult>.Success(new(
+                            existingIssue.Id,
+                            existingIssue.ChallanNumber,
+                            existingIssue.TotalCharge,
+                            existingIssue.TotalCost,
+                            true));
+                    }
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result<IssueThakaMaterialResult>.Failure(
+                        preOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        preOutcome.ErrorMessage ?? "Material issue previously failed.");
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -277,6 +450,34 @@ public sealed class IssueThakaMaterialHandler
                 ct);
             if (existing is not null)
             {
+                var savedOutcome = _outcomeLedger is null
+                    ? null
+                    : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (_outcomeLedger is not null && savedOutcome is not null)
+                {
+                    if (!string.Equals(savedOutcome.OperationType, "ThakaMaterialIssue", StringComparison.Ordinal))
+                    {
+                        return Result<IssueThakaMaterialResult>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity was already used for '{savedOutcome.OperationType}'.");
+                    }
+
+                    if (savedOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && savedOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<IssueThakaMaterialResult>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(savedOutcome.PayloadFingerprint) &&
+                        !FingerprintMatches(savedOutcome.PayloadFingerprint))
+                    {
+                        return Result<IssueThakaMaterialResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "This operation id is already associated with another or unresolved material issue.");
+                    }
+                }
+
                 if (_outcomeLedger is not null)
                 {
                     await _outcomeLedger.RecordSuccessAsync(
@@ -285,6 +486,7 @@ public sealed class IssueThakaMaterialHandler
                         existing.Id,
                         existing.ChallanNumber,
                         actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -392,10 +594,90 @@ public sealed class IssueThakaMaterialHandler
                     stocks[product.Id] = stock;
 
                     IReadOnlyList<InventoryUnit> serialized = Array.Empty<InventoryUnit>();
-                    if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                    PackAllocationResult? packAllocationResult = null;
+
+                    if (product.TrackingMode == TrackingMode.Container)
+                    {
+                        var isCable = product.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase) ||
+                                      product.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) ||
+                                      product.AttributesJson?.Contains("Length", StringComparison.OrdinalIgnoreCase) == true;
+
+                        if (!isCable && !QuantityMath.IsWhole(quantity.BaseQuantity))
+                        {
+                            return Result<IssueThakaMaterialResult>.Failure(
+                                "thaka.pack_fractional_count_prohibited",
+                                $"Fractional unit quantity '{quantity.BaseQuantity}' is not permitted for count-based pack product '{product.Name}'.");
+                        }
+
+                        IReadOnlyList<InventoryUnit> eligibleUnits;
+                        if (input.InventoryUnitIds.Count > 0)
+                        {
+                            eligibleUnits = await _inventory.GetInventoryUnitsForUpdateAsync(
+                                product.Id,
+                                input.InventoryUnitIds,
+                                ct);
+
+                            if (eligibleUnits.Count != input.InventoryUnitIds.Count ||
+                                eligibleUnits.Any(x => x.Status != InventoryUnitStatus.InStock || x.InventoryLotId is null))
+                            {
+                                return Result<IssueThakaMaterialResult>.Failure(
+                                    "thaka.serial_not_available",
+                                    "One or more serialized units are not available.");
+                            }
+                        }
+                        else
+                        {
+                            eligibleUnits = await _inventory.GetSellableInventoryUnitsAsync(product.Id, ct);
+                        }
+
+                        foreach (var unit in eligibleUnits)
+                        {
+                            if (unit.PackState is null)
+                            {
+                                var qty = unit.RemainingBaseQuantity ?? unit.InitialBaseQuantity;
+                                if (qty is null || qty <= 0m)
+                                {
+                                    qty = await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct);
+                                }
+                                unit.InitialBaseQuantity = qty;
+                                unit.RemainingBaseQuantity = qty;
+                                unit.PackState = PackState.Sealed;
+                            }
+                        }
+
+                        var preferredUnitId = input.PreferredPackUnitId ?? (input.InventoryUnitIds.Count == 1 ? input.InventoryUnitIds[0] : null);
+
+                        var allocRequest = new PackAllocationRequest(
+                            ProductId: product.Id,
+                            RequestedBaseQuantity: quantity.BaseQuantity,
+                            MovementId: Guid.Empty,
+                            OperationType: PackAllocationOperationTypes.ThakaIssue,
+                            ActorId: command.ActorId,
+                            OccurredAt: _clock.UtcNow,
+                            PreferredPackUnitId: preferredUnitId,
+                            AllowSplitCuts: input.AllowSplitCuts,
+                            IsCableOrLengthProduct: isCable,
+                            MinimumCutIncrement: 1m);
+
+                        try
+                        {
+                            packAllocationResult = _packAllocations.Allocate(eligibleUnits, allocRequest);
+                        }
+                        catch (BusinessRuleException ex)
+                        {
+                            return Result<IssueThakaMaterialResult>.Failure(ex.Code, ex.Message);
+                        }
+
+                        serialized = packAllocationResult.Allocations
+                            .Select(a => eligibleUnits.First(u => u.Id == a.PackUnitId))
+                            .Distinct()
+                            .OrderBy(u => u.Id)
+                            .ToArray();
+                    }
+                    else if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
                     {
                         if (!QuantityMath.IsWhole(quantity.BaseQuantity) ||
-                            input.InventoryUnitIds.Count != (product.TrackingMode == TrackingMode.Container ? quantity.EnteredQuantity : quantity.BaseQuantity) ||
+                            input.InventoryUnitIds.Count != quantity.BaseQuantity ||
                             input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
                         {
                             return Result<IssueThakaMaterialResult>.Failure(
@@ -416,13 +698,12 @@ public sealed class IssueThakaMaterialHandler
                                 "thaka.serial_not_available",
                                 "One or more serialized units are not available.");
                         }
-                        if (product.TrackingMode == TrackingMode.Container)
-                        {
-                            foreach (var unit in serialized)
-                                if (await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct) != quantity.BaseQuantity / serialized.Count)
-                                    return Result<IssueThakaMaterialResult>.Failure("thaka.container_quantity_mismatch",
-                                        "Selected issue unit does not match the original physical pack quantity.");
-                        }
+                    }
+                    else if (input.InventoryUnitIds.Count > 0)
+                    {
+                        return Result<IssueThakaMaterialResult>.Failure(
+                            "thaka.serials_not_allowed",
+                            $"Product '{product.Name}' is not serialized.");
                     }
 
                     prepared.Add(new PreparedThakaLine(
@@ -432,7 +713,8 @@ public sealed class IssueThakaMaterialHandler
                         quantity,
                         authoritativeCharge,
                         Money(authoritativeCharge * quantity.BaseQuantity),
-                        serialized));
+                        serialized,
+                        packAllocationResult));
                 }
                 var issue = new ThakaMaterialIssue
                 {
@@ -464,7 +746,11 @@ public sealed class IssueThakaMaterialHandler
                     _inventory.AddMovement(movement);
 
                     decimal lineCost;
-                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                    if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
+                    {
+                        lineCost = await ConsumePackAllocationAsync(line, line.PackAllocation, movement, ct);
+                    }
+                    else if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
                     {
                         lineCost = await ConsumeSerializedAsync(line, movement, ct);
                     }
@@ -518,14 +804,34 @@ public sealed class IssueThakaMaterialHandler
                     };
                     _thaka.AddMaterialIssueItem(item);
 
-                    foreach (var unit in line.SerializedUnits)
+                    if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
                     {
-                        _thaka.AddMaterialIssueUnit(new ThakaMaterialIssueUnit
+                        foreach (var alloc in line.PackAllocation.Allocations)
                         {
-                            MaterialIssueItemId = item.Id,
-                            InventoryUnitId = unit.Id,
-                            UnitCostSnapshot = unit.AcquisitionCost
-                        });
+                            alloc.MovementId = movement.Id;
+                            alloc.ThakaIssueItemId = item.Id;
+                            alloc.ValidateInvariants();
+                            _inventory.AddPackAllocation(alloc);
+
+                            _thaka.AddMaterialIssueUnit(new ThakaMaterialIssueUnit
+                            {
+                                MaterialIssueItemId = item.Id,
+                                InventoryUnitId = alloc.PackUnitId,
+                                UnitCostSnapshot = alloc.TotalCostSnapshot
+                            });
+                        }
+                    }
+                    else
+                    {
+                        foreach (var unit in line.SerializedUnits)
+                        {
+                            _thaka.AddMaterialIssueUnit(new ThakaMaterialIssueUnit
+                            {
+                                MaterialIssueItemId = item.Id,
+                                InventoryUnitId = unit.Id,
+                                UnitCostSnapshot = unit.AcquisitionCost
+                            });
+                        }
                     }
 
                     totalCost += lineCost;
@@ -550,7 +856,29 @@ public sealed class IssueThakaMaterialHandler
                         issue.Id,
                         issue.ChallanNumber,
                         actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
+                }
+
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? _clock.ShopDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.Thaka,
+                        EntityId: issue.Id,
+                        EntityNumber: issue.ChallanNumber,
+                        ActorId: command.ActorId,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: null,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<IssueThakaMaterialResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
                 }
 
                 await _unitOfWork.SaveChangesAsync(ct);
@@ -567,7 +895,8 @@ public sealed class IssueThakaMaterialHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -629,6 +958,72 @@ public sealed class IssueThakaMaterialHandler
                 MovementId = movement.Id,
                 InventoryUnitId = unit.Id,
                 FromStatus = from,
+                ToStatus = unit.Status
+            });
+        }
+
+        return Cost(totalCost);
+    }
+
+    private async Task<decimal> ConsumePackAllocationAsync(
+        PreparedThakaLine line,
+        PackAllocationResult packAllocResult,
+        InventoryMovement movement,
+        CancellationToken ct)
+    {
+        decimal totalCost = 0m;
+
+        foreach (var alloc in packAllocResult.Allocations)
+        {
+            var unit = line.SerializedUnits.First(u => u.Id == alloc.PackUnitId);
+            var lotId = unit.InventoryLotId ?? alloc.LotId;
+
+            var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
+                lotId,
+                InventoryBucket.Sellable,
+                ct)
+                ?? throw new BusinessRuleException(
+                    "thaka.serial_lot_missing",
+                    "Pack inventory lot was not found.");
+
+            if (lotBalance.Quantity < alloc.AllocatedBaseQuantity)
+            {
+                throw new BusinessRuleException(
+                    "thaka.serial_lot_insufficient",
+                    "Pack inventory lot is no longer sellable.");
+            }
+
+            lotBalance.Quantity = QuantityMath.RoundQuantity(
+                lotBalance.Quantity - alloc.AllocatedBaseQuantity);
+
+            _inventory.AddLotConsumption(new InventoryLotConsumption
+            {
+                LotId = lotId,
+                MovementId = movement.Id,
+                Quantity = alloc.AllocatedBaseQuantity,
+                UnitCostSnapshot = alloc.UnitCostSnapshot,
+                TotalCostSnapshot = alloc.TotalCostSnapshot,
+                OccurredAt = _clock.UtcNow
+            });
+
+            totalCost += await _costs.RemoveCarryingValueAsync(
+                line.Product.Id,
+                alloc.AllocatedBaseQuantity,
+                alloc.UnitCostSnapshot,
+                ct);
+
+            var fromStatus = unit.Status;
+            if (alloc.PackStateAfter == PackState.Consumed)
+            {
+                unit.Status = InventoryUnitStatus.IssuedThaka;
+            }
+            unit.Version++;
+
+            _inventory.AddMovementUnit(new InventoryMovementUnit
+            {
+                MovementId = movement.Id,
+                InventoryUnitId = unit.Id,
+                FromStatus = fromStatus,
                 ToStatus = unit.Status
             });
         }

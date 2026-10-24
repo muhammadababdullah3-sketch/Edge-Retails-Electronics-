@@ -77,15 +77,76 @@ public sealed class SettleThakaHandler
                 "Settlement values are invalid.");
         }
 
+        var domainProjection = new
+        {
+            command.ProjectId,
+            SettlementDiscount = Money(command.SettlementDiscount),
+            FinalPaymentAmount = Money(command.FinalPaymentAmount),
+            PaymentMethod = command.PaymentMethod.ToString(),
+            PaymentReference = Normalize(command.PaymentReference),
+            command.ActorId
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ThakaSettlement", domainProjection);
+        var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "ThakaSettlement",
+            command.ProjectId.ToString("D"),
+            Money(command.SettlementDiscount).ToString("0.00", CultureInfo.InvariantCulture),
+            Money(command.FinalPaymentAmount).ToString("0.00", CultureInfo.InvariantCulture),
+            command.PaymentMethod.ToString(),
+            Normalize(command.PaymentReference));
+
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, payloadFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        if (_outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!string.Equals(preOutcome.OperationType, "ThakaSettlement", StringComparison.Ordinal))
+                {
+                    return Result<SettleThakaResult>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity was already used for '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<SettleThakaResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                    !FingerprintMatches(preOutcome.PayloadFingerprint))
+                {
+                    return Result<SettleThakaResult>.Failure(
+                        "idempotency.payload_mismatch",
+                        "This operation id is already associated with another or unresolved settlement.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                {
+                    return Result<SettleThakaResult>.Success(new(
+                        preOutcome.EntityId.Value,
+                        preOutcome.DocumentNumber ?? string.Empty,
+                        command.SettlementDiscount,
+                        command.FinalPaymentAmount,
+                        true));
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result<SettleThakaResult>.Failure(
+                        preOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        preOutcome.ErrorMessage ?? "Settlement operation previously failed.");
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
-            var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
-                "ThakaSettlement",
-                command.ProjectId.ToString("D"),
-                Money(command.SettlementDiscount).ToString("0.00", CultureInfo.InvariantCulture),
-                Money(command.FinalPaymentAmount).ToString("0.00", CultureInfo.InvariantCulture),
-                command.PaymentMethod.ToString(),
-                Normalize(command.PaymentReference));
             var authorization = await _authorization.AuthorizeAsync(
                 command.ActorId,
                 PermissionKeys.ThakaManage,
@@ -106,13 +167,27 @@ public sealed class SettleThakaHandler
                 var savedOutcome = _outcomeLedger is null
                     ? null
                     : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                if (_outcomeLedger is not null &&
-                    (savedOutcome is not { State: OperationOutcomeState.Succeeded, OperationType: "ThakaSettlement" } ||
-                     !string.Equals(savedOutcome.PayloadFingerprint, payloadFingerprint, StringComparison.Ordinal)))
+                if (_outcomeLedger is not null && savedOutcome is not null)
                 {
-                    return Result<SettleThakaResult>.Failure(
-                        "thaka.operation_id_conflict",
-                        "This operation id is already associated with another or unresolved settlement.");
+                    if (!string.Equals(savedOutcome.OperationType, "ThakaSettlement", StringComparison.Ordinal))
+                    {
+                        return Result<SettleThakaResult>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity was already used for '{savedOutcome.OperationType}'.");
+                    }
+                    if (savedOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && savedOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<SettleThakaResult>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+                    if (!string.IsNullOrEmpty(savedOutcome.PayloadFingerprint) &&
+                        !FingerprintMatches(savedOutcome.PayloadFingerprint))
+                    {
+                        return Result<SettleThakaResult>.Failure(
+                            "idempotency.payload_mismatch",
+                            "This operation id is already associated with another or unresolved settlement.");
+                    }
                 }
 
                 if (_outcomeLedger is not null)
@@ -123,7 +198,7 @@ public sealed class SettleThakaHandler
                         existing.Id,
                         existing.SettlementNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: payloadFingerprint,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -239,7 +314,7 @@ public sealed class SettleThakaHandler
                     settlement.Id,
                     settlement.SettlementNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: payloadFingerprint,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 

@@ -6,7 +6,7 @@ using EdgeRetails.Domain.Warranty;
 
 namespace EdgeRetails.Application.Features.Sales;
 
-internal sealed record OriginalLotReturnAllocation(
+public sealed record OriginalLotReturnAllocation(
     Guid SaleConsumptionId, Guid LotId, Guid? PurchaseItemId, Guid? SupplierId, decimal Quantity);
 
 internal static class SoldSourceAllocationAuthority

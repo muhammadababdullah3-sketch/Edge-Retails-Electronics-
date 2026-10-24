@@ -157,6 +157,7 @@ public sealed class DesktopApiClient : IDisposable
 
         var request = new HttpRequestMessage(method, path);
         request.Headers.Add("X-Protocol-Version", TerminalProtocol.CurrentProtocolVersion);
+        request.Headers.Add("X-Client-Version", "1.0.0");
         lock (_contextGate)
         {
             if (_terminalId is Guid terminalId)

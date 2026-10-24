@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Domain.Posting;
 
 namespace EdgeRetails.Desktop.ViewModels;
 
@@ -98,6 +99,39 @@ public sealed class SalesReturnItemViewModel : ViewModelBase
     public decimal ReturnLineTotal => Math.Round(ReturnQuantity * UnitPrice, 2);
     public string ReturnLineTotalDisplay => $"Rs. {ReturnLineTotal:N0}";
 
+    private string _conditionInspectionResult = "Intact";
+    private bool _isRestockAsRemnant;
+    private Guid? _returnSourceContainerId;
+
+    public string ConditionInspectionResult
+    {
+        get => _conditionInspectionResult;
+        set => SetProperty(ref _conditionInspectionResult, value ?? "Intact");
+    }
+
+    public bool IsRestockAsRemnant
+    {
+        get => _isRestockAsRemnant;
+        set => SetProperty(ref _isRestockAsRemnant, value);
+    }
+
+    public Guid? ReturnSourceContainerId
+    {
+        get => _returnSourceContainerId ?? OriginalItem.SourceContainerId;
+        set => SetProperty(ref _returnSourceContainerId, value);
+    }
+
+    public IReadOnlyList<Guid> InventoryUnitIds => OriginalItem.InventoryUnitIds;
+
+    public static IReadOnlyList<string> InspectionConditions { get; } =
+    [
+        "Intact",
+        "Remnant",
+        "Defective",
+        "Damaged",
+        "Opened"
+    ];
+
     public ICommand IncrementCommand { get; }
     public ICommand DecrementCommand { get; }
 
@@ -137,6 +171,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
     private readonly Action<SalesReturnResult>? _onReturnProcessed;
     private readonly Action? _onClose;
     private readonly IToastService? _toastService;
+    private readonly IDialogService? _dialogService;
+    private readonly DesktopApiClient? _apiClient;
     private readonly ITransactionService _transactionService;
     private readonly IClientOperationIntentStore _operationIntents;
     private readonly DemoRetailState? _previewRetailState;
@@ -146,6 +182,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
     private string _returnNotes = string.Empty;
     private bool _isProcessing;
     private string? _validationMessage;
+    private DateOnly _postingDate = DateOnly.FromDateTime(DateTime.Now);
+    private SupervisorApprovalRequest? _supervisorApproval;
+    private string? _supervisorName;
 
     public SalesReturnViewModel(
         SaleTransactionItemViewModel sale,
@@ -155,7 +194,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
         IDrawerService? drawerService = null,
         IDialogService? dialogService = null,
         ITransactionService? transactionService = null,
-        IClientOperationIntentStore? operationIntents = null)
+        IClientOperationIntentStore? operationIntents = null,
+        DesktopApiClient? apiClient = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
 
@@ -163,7 +203,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
         _onReturnProcessed = onReturnProcessed;
         _onClose = onClose;
         _toastService = toastService;
-        _transactionService = ResolveTransactionService(transactionService);
+        _dialogService = dialogService;
+        _transactionService = ResolveTransactionService(transactionService, apiClient);
+        _apiClient = apiClient ?? (_transactionService as BackendTransactionService)?.ApiClient;
         _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _previewRetailState = ResolvePreviewRetailState(transactionService);
 
@@ -184,6 +226,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
         CancelCommand = new RelayCommand(Cancel, () => !IsProcessing);
         SetDispositionCommand = new RelayCommand<ReturnDisposition>(SetDisposition);
         SetRefundMethodCommand = new RelayCommand<string>(SetRefundMethod);
+        AuthorizeSupervisorCommand = new RelayCommand(OpenSupervisorApproval);
+        ClearSupervisorApprovalCommand = new RelayCommand(ClearSupervisorApproval);
 
         RecalculateRefundTotals();
     }
@@ -280,16 +324,122 @@ public sealed class SalesReturnViewModel : ViewModelBase
 
     public bool HasValidationMessage => !string.IsNullOrWhiteSpace(ValidationMessage);
 
+    public DateOnly PostingDate
+    {
+        get => _postingDate;
+        set
+        {
+            if (SetProperty(ref _postingDate, value))
+            {
+                OnPropertyChanged(nameof(PostingDateText));
+                OnPropertyChanged(nameof(IsHistoricalPosting));
+                Validate();
+            }
+        }
+    }
+
+    public string PostingDateText
+    {
+        get => _postingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        set
+        {
+            if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                PostingDate = parsed;
+            }
+        }
+    }
+
+    public bool IsHistoricalPosting => _postingDate != DateOnly.FromDateTime(DateTime.Now);
+
+    public SupervisorApprovalRequest? SupervisorApproval
+    {
+        get => _supervisorApproval;
+        private set
+        {
+            if (SetProperty(ref _supervisorApproval, value))
+            {
+                OnPropertyChanged(nameof(HasSupervisorApproval));
+                OnPropertyChanged(nameof(SupervisorApprovalDisplay));
+                Validate();
+            }
+        }
+    }
+
+    public string? SupervisorName
+    {
+        get => _supervisorName;
+        private set
+        {
+            if (SetProperty(ref _supervisorName, value))
+            {
+                OnPropertyChanged(nameof(SupervisorApprovalDisplay));
+            }
+        }
+    }
+
+    public bool HasSupervisorApproval => _supervisorApproval is not null;
+
+    public string SupervisorApprovalDisplay =>
+        _supervisorApproval is not null
+            ? $"Authorized by {SupervisorName ?? "Supervisor"} ({_supervisorApproval.Reason})"
+            : "No supervisor authorization active";
+
     public bool CanProcessReturn =>
         !IsProcessing &&
         !Sale.HasInvoiceLevelDiscount &&
         TotalReturnQuantity > 0m &&
-        (!RequiresNotes || !string.IsNullOrWhiteSpace(ReturnNotes));
+        (!RequiresNotes || !string.IsNullOrWhiteSpace(ReturnNotes)) &&
+        (!IsHistoricalPosting || HasSupervisorApproval);
 
     public ICommand ProcessReturnCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand SetDispositionCommand { get; }
     public ICommand SetRefundMethodCommand { get; }
+    public ICommand AuthorizeSupervisorCommand { get; }
+    public ICommand ClearSupervisorApprovalCommand { get; }
+
+    public void OpenSupervisorApproval()
+    {
+        if (_dialogService is null || _apiClient is null)
+        {
+            return;
+        }
+
+        var shopDate = DateOnly.FromDateTime(DateTime.Now);
+        var supervisorModal = new SupervisorApprovalModalViewModel(
+            _apiClient,
+            postingDate: _postingDate,
+            shopDate: shopDate,
+            operationType: "SaleReturn",
+            dialogService: _dialogService,
+            onAuthorized: res =>
+            {
+                if (res.IsAuthorized)
+                {
+                    PostingDate = _postingDate;
+                    SupervisorApproval = res.Request;
+                    SupervisorName = res.SupervisorName;
+                }
+            });
+
+        _dialogService.Show(supervisorModal);
+        _ = supervisorModal.LoadSupervisorsAsync();
+        _ = supervisorModal.EvaluatePeriodLockAsync();
+    }
+
+    public void SetSupervisorApproval(SupervisorApprovalRequest? approval, string? supervisorName = null)
+    {
+        SupervisorApproval = approval;
+        SupervisorName = supervisorName;
+    }
+
+    public void ClearSupervisorApproval()
+    {
+        SupervisorApproval = null;
+        SupervisorName = null;
+        PostingDate = DateOnly.FromDateTime(DateTime.Now);
+    }
 
     public void SetDisposition(ReturnDisposition disposition)
     {
@@ -334,7 +484,11 @@ public sealed class SalesReturnViewModel : ViewModelBase
                     ProductId = item.ProductId,
                     Sku = item.Sku,
                     Quantity = item.ReturnQuantity,
-                    RefundAmount = item.ReturnLineTotal
+                    RefundAmount = item.ReturnLineTotal,
+                    ReturnSourceContainerId = item.ReturnSourceContainerId,
+                    ConditionInspectionResult = item.ConditionInspectionResult,
+                    IsRestockAsRemnant = item.IsRestockAsRemnant,
+                    InventoryUnitIds = item.InventoryUnitIds ?? []
                 })
                 .ToArray();
 
@@ -346,6 +500,8 @@ public sealed class SalesReturnViewModel : ViewModelBase
                 RefundMethod,
                 Notes = ReturnNotes.Trim(),
                 TotalRefundAmount = TotalReturnAmount,
+                PostingDate = _postingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                SupervisorApproval = _supervisorApproval?.SupervisorId,
                 Items = requestItems
                     .OrderBy(item => item.ProductId, StringComparer.Ordinal)
                     .ThenBy(item => item.Sku, StringComparer.Ordinal)
@@ -354,7 +510,11 @@ public sealed class SalesReturnViewModel : ViewModelBase
                         item.ProductId,
                         item.Sku,
                         item.Quantity,
-                        item.RefundAmount
+                        item.RefundAmount,
+                        item.ReturnSourceContainerId,
+                        item.ConditionInspectionResult,
+                        item.IsRestockAsRemnant,
+                        item.InventoryUnitIds
                     })
                     .ToArray()
             });
@@ -368,7 +528,9 @@ public sealed class SalesReturnViewModel : ViewModelBase
                 RefundMethod = RefundMethod,
                 Notes = ReturnNotes.Trim(),
                 TotalRefundAmount = TotalReturnAmount,
-                Items = requestItems
+                Items = requestItems,
+                PostingDate = _postingDate,
+                SupervisorApproval = _supervisorApproval
             };
 
             var record = await _transactionService.RecordReturnAsync(request);
@@ -427,11 +589,17 @@ public sealed class SalesReturnViewModel : ViewModelBase
     }
 
     private static ITransactionService ResolveTransactionService(
-        ITransactionService? transactionService)
+        ITransactionService? transactionService,
+        DesktopApiClient? apiClient = null)
     {
         if (transactionService is not null)
         {
             return transactionService;
+        }
+
+        if (apiClient is not null)
+        {
+            return new BackendTransactionService(apiClient);
         }
 
 #if DEBUG
@@ -481,6 +649,10 @@ public sealed class SalesReturnViewModel : ViewModelBase
         else if (RequiresNotes && string.IsNullOrWhiteSpace(ReturnNotes))
         {
             ValidationMessage = "A note is required for the Other return reason.";
+        }
+        else if (IsHistoricalPosting && !HasSupervisorApproval)
+        {
+            ValidationMessage = "Historical return posting requires supervisor authorization.";
         }
         else
         {

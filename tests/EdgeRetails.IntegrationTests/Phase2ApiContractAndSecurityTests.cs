@@ -821,12 +821,16 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
 
         // 2. Verify parity matrix certifies Backup and Restore boundary
         var currentDir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (currentDir != null && !File.Exists(Path.Combine(currentDir.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md")))
+        string? matrixPath = null;
+        while (currentDir != null)
         {
+            var p1 = Path.Combine(currentDir.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
+            var p2 = Path.Combine(currentDir.FullName, "docs", "historical-audits", "phase2-3-4", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
+            if (File.Exists(p1)) { matrixPath = p1; break; }
+            if (File.Exists(p2)) { matrixPath = p2; break; }
             currentDir = currentDir.Parent;
         }
-        var matrixPath = Path.Combine(currentDir!.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
-        if (File.Exists(matrixPath))
+        if (matrixPath != null && File.Exists(matrixPath))
         {
             var content = await File.ReadAllTextAsync(matrixPath);
             Assert.Contains("Backup Creation", content);
@@ -860,12 +864,17 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
     public async Task AllCriticalParityAreas_HaveExplicitClassification()
     {
         var currentDir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (currentDir != null && !File.Exists(Path.Combine(currentDir.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md")))
+        string? matrixPath = null;
+        while (currentDir != null)
         {
+            var p1 = Path.Combine(currentDir.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
+            var p2 = Path.Combine(currentDir.FullName, "docs", "historical-audits", "phase2-3-4", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
+            if (File.Exists(p1)) { matrixPath = p1; break; }
+            if (File.Exists(p2)) { matrixPath = p2; break; }
             currentDir = currentDir.Parent;
         }
-        var matrixPath = Path.Combine(currentDir!.FullName, "docs", "Phase2_Shop_Server_API_Parity_Matrix_2026-09-26.md");
 
+        Assert.NotNull(matrixPath);
         Assert.True(File.Exists(matrixPath), $"Matrix file not found at: {matrixPath}");
         var text = await File.ReadAllTextAsync(matrixPath);
 
@@ -921,6 +930,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
     {
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount = 50.00m,
@@ -941,6 +951,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
     {
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount = 50.00m,
@@ -999,6 +1010,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
 
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType,
             direction,
             amount = 100.00m,
@@ -1026,6 +1038,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
 
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount,
@@ -1049,6 +1062,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
 
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount = 50.00m,
@@ -1073,6 +1087,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
         // 1. Manual Cash In
         var cashInBody = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount = 75.50m,
@@ -1103,6 +1118,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
         // 2. Manual Cash Out
         var cashOutBody = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashOut",
             direction = "Out",
             amount = 25.00m,
@@ -1139,6 +1155,7 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
 
         var body = new
         {
+            clientOperationId = Guid.NewGuid(),
             movementType = "ManualCashIn",
             direction = "In",
             amount = 40.00m,
@@ -1155,6 +1172,139 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
         Assert.Equal(_factory.ValidUserId, movement.ActorId);
         Assert.NotEqual(spoofedActorId, movement.ActorId);
         Assert.Equal(_factory.ValidUserId, _factory.AuditWriter.LastRecordedActorId);
+    }
+
+    [Fact]
+    public async Task B03_ManualCash_NullOrEmptyClientOperationId_IsRejected_With_400_BadRequest()
+    {
+        var session = _factory.SeedValidSession();
+        _factory.SeedOpenCashSession();
+
+        // 1. Missing / null clientOperationId
+        var nullBody = new
+        {
+            movementType = "ManualCashIn",
+            direction = "In",
+            amount = 50.00m,
+            reason = "Float replenishment"
+        };
+        using (var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req.Content = JsonContent.Create(nullBody);
+            var res = await _client.SendAsync(req);
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            var json = await res.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            Assert.Equal("cash.client_operation_id_required", json.GetProperty("code").GetString());
+        }
+
+        // 2. Empty Guid clientOperationId
+        var emptyBody = new
+        {
+            clientOperationId = Guid.Empty,
+            movementType = "ManualCashIn",
+            direction = "In",
+            amount = 50.00m,
+            reason = "Float replenishment"
+        };
+        using (var req = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req.Content = JsonContent.Create(emptyBody);
+            var res = await _client.SendAsync(req);
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            var json = await res.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            Assert.Equal("cash.client_operation_id_required", json.GetProperty("code").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task B03_ManualCash_IdempotentReplay_SameOperationId_ReturnsSameMovementId_WithoutDuplicateEffects()
+    {
+        var session = _factory.SeedValidSession();
+        _factory.SeedOpenCashSession();
+        var clientOpId = Guid.NewGuid();
+
+        var body = new
+        {
+            clientOperationId = clientOpId,
+            movementType = "ManualCashIn",
+            direction = "In",
+            amount = 120.00m,
+            reason = "Initial till float",
+            note = "Morning register A"
+        };
+
+        // First attempt: succeeds and records outcome
+        Guid firstMovementId;
+        using (var req1 = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req1.Content = JsonContent.Create(body);
+            var res1 = await _client.SendAsync(req1);
+            Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+            firstMovementId = await res1.Content.ReadFromJsonAsync<Guid>();
+            Assert.NotEqual(Guid.Empty, firstMovementId);
+        }
+
+        var movementsAfterFirst = _factory.CashRepository.GetAllMovements();
+        Assert.Single(movementsAfterFirst);
+        Assert.Equal(firstMovementId, movementsAfterFirst[0].Id);
+
+        // Second attempt: identical replay with same ClientOperationId
+        using (var req2 = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req2.Content = JsonContent.Create(body);
+            var res2 = await _client.SendAsync(req2);
+            Assert.Equal(HttpStatusCode.OK, res2.StatusCode);
+            var secondMovementId = await res2.Content.ReadFromJsonAsync<Guid>();
+            Assert.Equal(firstMovementId, secondMovementId);
+        }
+
+        // Verify NO duplicate cash movement entity was persisted
+        var movementsAfterReplay = _factory.CashRepository.GetAllMovements();
+        Assert.Single(movementsAfterReplay);
+        Assert.Equal(firstMovementId, movementsAfterReplay[0].Id);
+    }
+
+    [Fact]
+    public async Task B03_ManualCash_IdempotentReplay_PayloadMismatch_Returns_409_Conflict()
+    {
+        var session = _factory.SeedValidSession();
+        _factory.SeedOpenCashSession();
+        var clientOpId = Guid.NewGuid();
+
+        var initialBody = new
+        {
+            clientOperationId = clientOpId,
+            movementType = "ManualCashIn",
+            direction = "In",
+            amount = 50.00m,
+            reason = "Till top up"
+        };
+
+        using (var req1 = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req1.Content = JsonContent.Create(initialBody);
+            var res1 = await _client.SendAsync(req1);
+            Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+        }
+
+        // Conflicting replay with different amount
+        var mismatchedBody = new
+        {
+            clientOperationId = clientOpId,
+            movementType = "ManualCashIn",
+            direction = "In",
+            amount = 99.00m,
+            reason = "Till top up"
+        };
+
+        using (var req2 = CreateAuthenticatedRequest(HttpMethod.Post, "/api/finance/cash-movement", session))
+        {
+            req2.Content = JsonContent.Create(mismatchedBody);
+            var res2 = await _client.SendAsync(req2);
+            Assert.Equal(HttpStatusCode.Conflict, res2.StatusCode);
+            var json = await res2.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            Assert.Equal("idempotency.payload_mismatch", json.GetProperty("code").GetString());
+        }
     }
 
     // ========================================================================
@@ -1613,7 +1763,8 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=127.0.0.1;Port=5432;Database=edge_retails_test;Username=test");
+        var testDb = Phase2PostgresTestHarness.ResolveConnectionString();
+        builder.UseSetting("EDGE_RETAILS_TEST_DB", testDb);
 
         builder.ConfigureServices(services =>
         {

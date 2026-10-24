@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Desktop.Services;
 
 namespace EdgeRetails.Desktop.ViewModels;
@@ -22,11 +23,15 @@ public sealed class PosCartItemViewModel : ViewModelBase
         BackendExactUnit? exactUnit = null,
         Action<PosCartItemViewModel>? onChanged = null,
         Action<PosCartItemViewModel>? onRemove = null,
-        bool canOverridePrice = false)
+        bool canOverridePrice = false,
+        PackContainerDto? packContainer = null,
+        bool allowSplitCuts = false)
     {
         ArgumentNullException.ThrowIfNull(product);
         Product = product;
         ExactUnit = exactUnit;
+        PackContainer = packContainer;
+        AllowSplitCuts = allowSplitCuts;
         _quantity = exactUnit is not null
             ? 1m
             : Math.Min(product.Stock, Math.Max(0.01m, quantity));
@@ -45,6 +50,9 @@ public sealed class PosCartItemViewModel : ViewModelBase
 
     public PosProductItemViewModel Product { get; }
     public BackendExactUnit? ExactUnit { get; }
+    public PackContainerDto? PackContainer { get; }
+    public bool AllowSplitCuts { get; }
+    public bool IsPackContainer => PackContainer is not null;
     public string ProductId => Product.Id;
     public string Name => Product.Name;
     public string Sku => Product.Sku;
@@ -102,22 +110,32 @@ public sealed class PosCartItemViewModel : ViewModelBase
         decimal.TryParse(PriceOverrideUnitPriceText, NumberStyles.Number, CultureInfo.InvariantCulture, out var price) &&
         price >= 0m &&
         !string.IsNullOrWhiteSpace(PriceOverrideReasonInput);
-    public bool HasExactUnit => ExactUnit is not null;
-    public Guid? InventoryUnitId => ExactUnit?.InventoryUnitId;
-    public string? TrackingCode => ExactUnit?.TrackingCode;
+    public bool HasExactUnit => ExactUnit is not null || PackContainer is not null;
+    public Guid? InventoryUnitId => ExactUnit?.InventoryUnitId ?? PackContainer?.ContainerId;
+    public string? TrackingCode => ExactUnit?.TrackingCode ?? PackContainer?.TrackingCode;
     public Guid? ProductUnitId => Product.BackendProductUnitId;
     public IReadOnlyList<Guid> InventoryUnitIds =>
-        ExactUnit is null ? Array.Empty<Guid>() : new[] { ExactUnit.InventoryUnitId };
-    public string ExactIdentityDisplay => ExactUnit?.PrimaryIdentity ?? string.Empty;
+        ExactUnit is not null ? new[] { ExactUnit.InventoryUnitId } :
+        PackContainer is not null ? new[] { PackContainer.ContainerId } :
+        Array.Empty<Guid>();
+    public string ExactIdentityDisplay =>
+        ExactUnit?.PrimaryIdentity ??
+        PackContainer?.TrackingCode ??
+        string.Empty;
 
     public decimal Quantity
     {
         get => _quantity;
         set
         {
-            var clamped = HasExactUnit
+            var maxStock = PackContainer is not null && !AllowSplitCuts
+                ? PackContainer.RemainingQuantity
+                : Product.Stock;
+            var clamped = ExactUnit is not null
                 ? 1m
-                : Math.Clamp(Math.Round(value, 2), 0m, Product.Stock);
+                : (PackContainer is not null && !AllowSplitCuts
+                    ? Math.Clamp(Math.Round(value, 2), 0m, maxStock)
+                    : Math.Clamp(Math.Round(value, 2), 0m, Product.Stock));
             if (SetProperty(ref _quantity, clamped))
             {
                 OnPropertyChanged(nameof(QuantityDisplay));
@@ -132,12 +150,14 @@ public sealed class PosCartItemViewModel : ViewModelBase
     }
 
     public string QuantityDisplay => _quantity.ToString("0.##", CultureInfo.InvariantCulture);
-    public string UnitPriceCalculationDisplay => HasExactUnit
+    public string UnitPriceCalculationDisplay => ExactUnit is not null
         ? $"{ExactIdentityDisplay} · Rs. {UnitPrice:N2}"
-        : $"Rs. {UnitPrice:N2} × {QuantityDisplay}";
+        : PackContainer is not null
+            ? $"{ExactIdentityDisplay} · Rs. {UnitPrice:N2} × {QuantityDisplay}"
+            : $"Rs. {UnitPrice:N2} × {QuantityDisplay}";
     public decimal LineTotal => Math.Round(UnitPrice * _quantity, 2);
     public string LineTotalDisplay => $"Rs. {LineTotal:N2}";
-    public bool CanIncrement => !HasExactUnit && Quantity < Product.Stock;
+    public bool CanIncrement => ExactUnit is null && (PackContainer is not null && !AllowSplitCuts ? Quantity < PackContainer.RemainingQuantity : Quantity < Product.Stock);
     public ICommand IncrementCommand { get; }
     public ICommand DecrementCommand { get; }
     public ICommand RemoveCommand { get; }
@@ -174,16 +194,10 @@ public sealed class PosCartItemViewModel : ViewModelBase
         IsPriceOverrideEditorOpen = !IsPriceOverrideEditorOpen;
     }
 
-    private void ApplyPriceOverride()
+    public void ApplyPriceOverride(decimal price, string reason)
     {
-        if (!CanApplyPriceOverride ||
-            !decimal.TryParse(PriceOverrideUnitPriceText, NumberStyles.Number, CultureInfo.InvariantCulture, out var price))
-        {
-            return;
-        }
-
         _priceOverrideUnitPrice = Math.Round(price, 2, MidpointRounding.AwayFromZero);
-        _priceOverrideReason = PriceOverrideReasonInput.Trim();
+        _priceOverrideReason = reason.Trim();
         IsPriceOverrideEditorOpen = false;
         OnPropertyChanged(nameof(PriceOverrideUnitPrice));
         OnPropertyChanged(nameof(PriceOverrideReason));
@@ -195,6 +209,17 @@ public sealed class PosCartItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(LineTotal));
         OnPropertyChanged(nameof(LineTotalDisplay));
         _onChanged?.Invoke(this);
+    }
+
+    private void ApplyPriceOverride()
+    {
+        if (!CanApplyPriceOverride ||
+            !decimal.TryParse(PriceOverrideUnitPriceText, NumberStyles.Number, CultureInfo.InvariantCulture, out var price))
+        {
+            return;
+        }
+
+        ApplyPriceOverride(price, PriceOverrideReasonInput);
     }
 
     private void CancelPriceOverride()

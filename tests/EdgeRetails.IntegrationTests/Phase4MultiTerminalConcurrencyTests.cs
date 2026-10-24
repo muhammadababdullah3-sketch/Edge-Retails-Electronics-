@@ -451,7 +451,8 @@ public sealed class Phase4MultiTerminalConcurrencyTests
                     500m,
                     actorId,
                     "Terminal A Cash Drop",
-                    "Race test midday movement"),
+                    "Race test midday movement",
+                    Guid.NewGuid()),
                 CancellationToken.None);
         });
 

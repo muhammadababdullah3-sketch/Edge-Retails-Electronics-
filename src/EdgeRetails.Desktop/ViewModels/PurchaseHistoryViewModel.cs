@@ -19,6 +19,7 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
     private readonly IToastService _toastService;
     private readonly IDrawerService _drawerService;
     private readonly IDialogService _dialogService;
+    private readonly IClientOperationIntentStore _operationIntents;
     private string _searchText = string.Empty;
     private string _selectedPeriod = "ThisMonth";
     private string _selectedSupplier = "All";
@@ -31,11 +32,13 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
         IDrawerService drawerService,
         IDialogService dialogService,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _toastService = toastService;
         _drawerService = drawerService;
         _dialogService = dialogService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _service = DemoPurchaseInventoryService.Instance;
         _backendService = backendService;
         _workflowService = workflowService;
@@ -194,7 +197,8 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
                 }
             },
             backendService: _backendService,
-            dialogService: _dialogService);
+            dialogService: _dialogService,
+            operationIntents: _operationIntents);
         IsNewPurchaseActive = true;
     }
 
@@ -221,7 +225,8 @@ public sealed class PurchaseHistoryViewModel : ViewModelBase, IDisposable
             _dialogService,
             _toastService,
             _backendService,
-            _workflowService));
+            _workflowService,
+            _operationIntents));
     }
 
     private void OnServiceStateChanged(object? sender, EventArgs e) => Refresh();

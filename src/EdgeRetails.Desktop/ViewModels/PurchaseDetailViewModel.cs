@@ -14,6 +14,7 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
     private bool _isLoadingBackendDetail;
     private bool _isVoidingPurchase;
     private const string PurchaseVoidReason = "Purchase void";
+    private readonly IClientOperationIntentStore _operationIntents;
 
     public PurchaseDetailViewModel(
         PurchaseRecord purchase,
@@ -21,7 +22,8 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
         IDialogService dialogService,
         IToastService toastService,
         IBackendPurchasingInventoryService? backendService = null,
-        IBackendWorkflowReadService? workflowService = null)
+        IBackendWorkflowReadService? workflowService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _purchase = purchase;
         _drawerService = drawerService;
@@ -29,6 +31,7 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
         _toastService = toastService;
         _backendService = backendService;
         _workflowService = workflowService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 
         CloseCommand = new RelayCommand(_drawerService.Close);
         ReturnPurchaseCommand = new RelayCommand(OpenReturn, () => CanReturnPurchase);
@@ -231,7 +234,8 @@ public sealed class PurchaseDetailViewModel : ViewModelBase
             completed: OnReturnProcessed,
             backendService: _backendService,
             workflowService: _workflowService,
-            dialogService: _dialogService));
+            dialogService: _dialogService,
+            operationIntents: _operationIntents));
     }
 
     private void OnReturnProcessed()

@@ -65,10 +65,11 @@ public sealed class Phase234PurchaseReadbackTests
     [Fact]
     public async Task ConfirmedDialogOffersOnlyReadRefreshAndDoesNotRepost()
     {
+        var tempStore = new FileClientOperationIntentStore(Path.Combine(Path.GetTempPath(), $"po_readback_{Guid.NewGuid():N}.json"));
         var backend = DispatchProxy.Create<IBackendPurchasingInventoryService, BackendProxy>();
         var proxy = (BackendProxy)(object)backend;
         var saved = 0;
-        var vm = new NewPurchaseViewModel(backendService: backend, saved: _ => saved++);
+        var vm = new NewPurchaseViewModel(backendService: backend, saved: _ => saved++, operationIntents: tempStore);
         vm.SelectedSupplier = "Supplier";
         vm.InvoiceNumber = "INV-TEST";
         vm.SelectedProduct = Draft().Product;
@@ -89,10 +90,11 @@ public sealed class Phase234PurchaseReadbackTests
     [Fact]
     public async Task FailedRefreshKeepsConfirmedIdentityAndNeverReposts()
     {
+        var tempStore = new FileClientOperationIntentStore(Path.Combine(Path.GetTempPath(), $"po_readback_{Guid.NewGuid():N}.json"));
         var backend = DispatchProxy.Create<IBackendPurchasingInventoryService, BackendProxy>();
         var proxy = (BackendProxy)(object)backend;
         proxy.FailReads = true;
-        var vm = new NewPurchaseViewModel(backendService: backend);
+        var vm = new NewPurchaseViewModel(backendService: backend, operationIntents: tempStore);
         vm.SelectedSupplier = "Supplier";
         vm.InvoiceNumber = "INV-TEST";
         vm.SelectedProduct = Draft().Product;

@@ -745,7 +745,7 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
         // 5. MANUAL CASH OUT:
         // Store manager pays 200m cash for office cleaning supplies
         var manualCash = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, p1.ActorId, "Office supplies purchase", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, p1.ActorId, "Office supplies purchase", null, Guid.NewGuid()), default);
         Assert.True(manualCash.IsSuccess, manualCash.Error?.Message);
         db.ChangeTracker.Clear();
 
@@ -897,7 +897,7 @@ public sealed class Phase7Pass5GoldenScenariosPostgresTests
 
         // Attempt manual cash movement with negative amount
         var negativeCash = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.In, -100m, seed.ActorId, "Invalid negative cash", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.In, -100m, seed.ActorId, "Invalid negative cash", null, Guid.NewGuid()), default);
         Assert.False(negativeCash.IsSuccess);
     }
 }

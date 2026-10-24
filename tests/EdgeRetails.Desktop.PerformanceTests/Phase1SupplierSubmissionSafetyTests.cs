@@ -21,6 +21,10 @@ public sealed class Phase1SupplierSubmissionSafetyTests
             {
                 return Task.FromException<SupplierAccountWorkspaceDto>(new IOException("Unavailable read"));
             }
+            if (method.Name == "GetSupplierStatementPageAsync")
+            {
+                return Task.FromException<SupplierStatementPage>(new IOException("Unavailable read"));
+            }
             requests.Add(args!.ToArray());
             return requests.Count == 1 ? Task.FromException(new IOException("Response lost")) : Task.CompletedTask;
         });
@@ -52,6 +56,10 @@ public sealed class Phase1SupplierSubmissionSafetyTests
             {
                 return Task.FromException<SupplierAccountWorkspaceDto>(new IOException("Unavailable read"));
             }
+            if (method.Name == "GetSupplierStatementPageAsync")
+            {
+                return Task.FromException<SupplierStatementPage>(new IOException("Unavailable read"));
+            }
             Interlocked.Increment(ref calls);
             return completion.Task;
         });
@@ -81,6 +89,10 @@ public sealed class Phase1SupplierSubmissionSafetyTests
             if (method.Name == "GetSupplierWorkspaceAsync")
             {
                 return Task.FromException<SupplierAccountWorkspaceDto>(new IOException("Unavailable read"));
+            }
+            if (method.Name == "GetSupplierStatementPageAsync")
+            {
+                return Task.FromException<SupplierStatementPage>(new IOException("Unavailable read"));
             }
             calls++;
             return Task.FromException(new OperationException("idempotency.payload_mismatch", "Conflict"));

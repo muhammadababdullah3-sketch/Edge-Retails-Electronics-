@@ -4,11 +4,13 @@ using System.Text;
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.Warranty;
 
@@ -27,7 +29,10 @@ public sealed record CommercialExchangeCommand(
     decimal InvoiceDiscount,
     SalePaymentMethod SettlementMethod,
     decimal AmountTendered,
-    string? PaymentReference);
+    string? PaymentReference,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record CommercialExchangeResult(
     Guid SaleId,
@@ -59,6 +64,9 @@ public sealed class CommercialExchangeHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly IWarrantyRepository? _warranty;
     private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly IPackSubLedgerAllocationAuthority _packAllocations;
+    private readonly IReturnExchangeEligibilityAuthority _eligibility;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public CommercialExchangeHandler(
         ISalesRepository sales,
@@ -77,7 +85,12 @@ public sealed class CommercialExchangeHandler
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
         IWarrantyRepository? warranty = null,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IPackSubLedgerAllocationAuthority? packAllocations = null,
+        IPhysicalUnitCreationAuthority? physicalUnits = null,
+        ITraceabilityRepository? traceability = null,
+        IReturnExchangeEligibilityAuthority? eligibility = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _sales = sales;
         _parties = parties;
@@ -96,6 +109,19 @@ public sealed class CommercialExchangeHandler
         _unitOfWork = unitOfWork;
         _warranty = warranty;
         _outcomeLedger = outcomeLedger;
+        _postingValidation = postingValidation;
+        _packAllocations = packAllocations ?? new PackSubLedgerAllocationAuthority();
+        _eligibility = eligibility ?? new ReturnExchangeEligibilityAuthority(
+            sales,
+            inventory,
+            catalog,
+            costs,
+            clock,
+            warranty,
+            physicalUnits,
+            _packAllocations,
+            traceability,
+            parties);
     }
 
     public async Task<Result<CommercialExchangeResult>> HandleAsync(
@@ -128,6 +154,19 @@ public sealed class CommercialExchangeHandler
 
         var currentFingerprint = ComputePayloadFingerprint(command);
 
+        if (_outcomeLedger is not null)
+        {
+            var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preLockOutcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, currentFingerprint, cancellationToken);
+                if (evaluated.HasValue)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -143,6 +182,19 @@ public sealed class CommercialExchangeHandler
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
 
+            if (_outcomeLedger is not null)
+            {
+                var postLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (postLockOutcome is not null)
+                {
+                    var evaluated = await EvaluateGuardedOutcomeAsync(postLockOutcome, command, currentFingerprint, ct);
+                    if (evaluated.HasValue)
+                    {
+                        return evaluated.Value;
+                    }
+                }
+            }
+
             var existingSale = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct);
             var existingReturn = await _sales.GetReturnByClientOperationIdAsync(command.ClientOperationId, ct);
 
@@ -155,30 +207,31 @@ public sealed class CommercialExchangeHandler
 
             if (existingSale is not null && existingReturn is not null)
             {
-                if (_outcomeLedger is not null)
+                if (existingSale.CashierUserId != command.CashierUserId)
                 {
-                    var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
-                    if (outcome is not null && !string.IsNullOrEmpty(outcome.PayloadFingerprint))
-                    {
-                        if (!string.Equals(outcome.PayloadFingerprint, currentFingerprint, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return Result<CommercialExchangeResult>.Failure(
-                                "idempotency.payload_mismatch",
-                                "The operation was previously executed with different parameters.");
-                        }
-                    }
-                    else if (existingReturn.SaleId != command.OriginalSaleId || existingSale.CashierUserId != command.CashierUserId)
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "idempotency.payload_mismatch",
-                            "The operation was previously executed with different parameters.");
-                    }
+                    return Result<CommercialExchangeResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
                 }
-                else if (existingReturn.SaleId != command.OriginalSaleId || existingSale.CashierUserId != command.CashierUserId)
+
+                if (existingReturn.SaleId != command.OriginalSaleId)
                 {
                     return Result<CommercialExchangeResult>.Failure(
                         "idempotency.payload_mismatch",
                         "The operation was previously executed with different parameters.");
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "CommercialExchange",
+                        existingSale.Id,
+                        existingSale.InvoiceNumber,
+                        actorId: command.CashierUserId,
+                        sessionId: command.SessionId,
+                        payloadFingerprint: currentFingerprint,
+                        cancellationToken: ct);
                 }
 
                 var payment = await _sales.GetSalePaymentAsync(existingSale.Id, ct);
@@ -281,121 +334,21 @@ public sealed class CommercialExchangeHandler
 
                 foreach (var returnInput in command.ReturnLines.OrderBy(x => x.SaleItemId))
                 {
-                    var item = await _sales.GetSaleItemForUpdateAsync(returnInput.SaleItemId, ct);
-                    if (item is null || item.SaleId != originalSale.Id)
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "sales.return_item_invalid",
-                            "Sale return item does not belong to the original sale.");
-                    }
-
-                    var baseQuantity = QuantityMath.RoundQuantity(returnInput.BaseQuantity);
-                    if (baseQuantity <= 0)
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "sales.return_quantity_positive",
-                            "Return base quantity must be greater than zero.");
-                    }
-
-                    var priorQty = await _sales.GetReturnedBaseQuantityAsync(item.Id, ct);
-                    var cumulativeQty = QuantityMath.RoundQuantity(priorQty + baseQuantity);
-                    if (cumulativeQty > item.BaseQuantity)
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "sales.return_exceeds_original",
-                            "Return quantity exceeds the remaining sold quantity.");
-                    }
-
-                    if (_warranty is not null)
-                    {
-                        var activeWarrantyQty = await _warranty.GetActiveClaimedQuantityAsync(item.Id, ct);
-                        var terminallyRemovedQty = await _warranty.GetTerminallyRemovedQuantityAsync(item.Id, ct);
-                        var warrantyBlockedQty = QuantityMath.RoundQuantity(activeWarrantyQty + terminallyRemovedQty);
-                        if (cumulativeQty > QuantityMath.RoundQuantity(item.BaseQuantity - warrantyBlockedQty))
-                        {
-                            return Result<CommercialExchangeResult>.Failure(
-                                "sales.return_unit_active_warranty",
-                                "Return quantity exceeds remaining quantity available outside warranty claims.");
-                        }
-                    }
-
-                    if (await _inventory.IsProductBlockedByCountingStocktakeAsync(item.ProductId, ct))
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "inventory.stocktake_blocks_product",
-                            "Sale return is blocked by an active stocktake.");
-                    }
-
-                    var stock = await _inventory.GetStockBalanceForUpdateAsync(item.ProductId, ct);
-                    if (stock is null)
-                    {
-                        return Result<CommercialExchangeResult>.Failure(
-                            "sales.stock_missing",
-                            "Stock balance was not found for the returned product.");
-                    }
-
-                    var priorRefund = await _sales.GetRefundedAmountAsync(item.Id, ct);
-                    var refundAmount = CalculateResidualAmount(
-                        item.NetLineTotal,
-                        item.BaseQuantity,
-                        priorQty,
-                        baseQuantity,
-                        priorRefund,
-                        2);
-
-                    var saleItemUnits = await _sales.GetSaleItemUnitsAsync(item.Id, ct);
-                    var isSerialized = saleItemUnits.Count > 0;
-
-                    decimal originalCostAmount;
-                    IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)> serializedUnits =
-                        Array.Empty<(InventoryUnit, SaleItemUnit)>();
-                    IReadOnlyList<OriginalLotReturnAllocation> originAllocations =
-                        Array.Empty<OriginalLotReturnAllocation>();
-
-                    if (isSerialized)
-                    {
-                        var prepared = await PrepareSerializedReturnUnitsAsync(
-                            item,
-                            returnInput,
-                            baseQuantity,
-                            saleItemUnits,
-                            ct);
-                        serializedUnits = prepared;
-                        originalCostAmount = Cost(prepared.Sum(x => x.Snapshot.UnitCostSnapshot));
-                    }
-                    else
-                    {
-                        if (returnInput.InventoryUnitIds.Count > 0)
-                        {
-                            return Result<CommercialExchangeResult>.Failure(
-                                "sales.return_serials_not_allowed",
-                                "Non-serialized sale items cannot return inventory-unit ids.");
-                        }
-
-                        var priorCost = await _sales.GetReturnedOriginalCostAmountAsync(item.Id, ct);
-                        originalCostAmount = CalculateResidualAmount(
-                            item.TotalCostSnapshot,
-                            item.BaseQuantity,
-                            priorQty,
-                            baseQuantity,
-                            priorCost,
-                            6);
-
-                        originAllocations = SoldSourceAllocationAuthority.Select(
-                            await _sales.GetSoldSourceCapacityForUpdateAsync(item.Id, ct),
-                            baseQuantity);
-                    }
+                    var prepared = await _eligibility.PrepareReturnLineAsync(
+                        returnInput,
+                        originalSale.Id,
+                        ct);
 
                     var destination = SaleMath.ToInventoryBucket(returnInput.Disposition);
                     var movement = new InventoryMovement
                     {
-                        ProductId = item.ProductId,
+                        ProductId = prepared.Item.ProductId,
                         MovementType = InventoryMovementType.SaleReturn,
                         ReferenceType = "SALE_RETURN",
                         ReferenceId = saleReturn.Id,
-                        UnitCostSnapshot = Cost(originalCostAmount / baseQuantity),
+                        UnitCostSnapshot = Cost(prepared.OriginalCostAmount / prepared.BaseQuantity),
                         RecognizedLossAmount = returnInput.Disposition == SaleReturnDisposition.Scrap
-                            ? Money(originalCostAmount)
+                            ? Money(prepared.OriginalCostAmount)
                             : 0m,
                         ActorId = command.CashierUserId,
                         OccurredAt = _clock.UtcNow,
@@ -405,74 +358,47 @@ public sealed class CommercialExchangeHandler
                     };
                     _inventory.AddMovement(movement);
 
-                    var before = stock.Get(destination);
-                    stock.ApplyDelta(destination, baseQuantity);
+                    var before = prepared.Stock.Get(destination);
+                    prepared.Stock.ApplyDelta(destination, prepared.BaseQuantity);
                     _inventory.AddMovementEffect(new InventoryMovementEffect
                     {
                         MovementId = movement.Id,
                         StockBucket = destination,
-                        QuantityDelta = baseQuantity,
+                        QuantityDelta = prepared.BaseQuantity,
                         QuantityBefore = before,
-                        QuantityAfter = stock.Get(destination)
+                        QuantityAfter = prepared.Stock.Get(destination)
                     });
 
                     var returnItemId = Guid.NewGuid();
 
-                    if (isSerialized)
-                    {
-                        await RestoreSerializedUnitsAsync(
-                            serializedUnits,
-                            baseQuantity / serializedUnits.Count,
-                            returnInput.Disposition,
-                            movement,
-                            ct);
-                    }
-                    else
-                    {
-                        await SoldSourceAllocationAuthority.RestoreReturnAsync(
-                            _sales,
-                            _inventory,
-                            _costs,
-                            item,
-                            returnItemId,
-                            originAllocations,
-                            returnInput.Disposition,
-                            originalCostAmount,
-                            movement,
-                            movement.OccurredAt,
-                            ct);
-                    }
+                    await _eligibility.RestoreReturnLineAsync(
+                        prepared,
+                        returnItemId,
+                        movement,
+                        command.CashierUserId,
+                        ct);
 
                     var enteredQuantity = QuantityMath.RoundQuantity(
-                        baseQuantity / item.FactorToBaseSnapshot);
+                        prepared.BaseQuantity / prepared.Item.FactorToBaseSnapshot);
 
                     var returnItem = new SaleReturnItem
                     {
                         Id = returnItemId,
                         SaleReturnId = saleReturn.Id,
-                        SaleItemId = item.Id,
-                        ProductId = item.ProductId,
+                        SaleItemId = prepared.Item.Id,
+                        ProductId = prepared.Item.ProductId,
                         EnteredQuantity = enteredQuantity,
-                        ProductUnitId = item.ProductUnitId,
-                        FactorToBaseSnapshot = item.FactorToBaseSnapshot,
-                        BaseQuantity = baseQuantity,
+                        ProductUnitId = prepared.Item.ProductUnitId,
+                        FactorToBaseSnapshot = prepared.Item.FactorToBaseSnapshot,
+                        BaseQuantity = prepared.BaseQuantity,
                         Disposition = returnInput.Disposition,
-                        RefundAmount = refundAmount,
-                        OriginalCostAmount = originalCostAmount,
-                        CostReversalAmount = originalCostAmount
+                        RefundAmount = prepared.RefundAmount,
+                        OriginalCostAmount = prepared.OriginalCostAmount,
+                        CostReversalAmount = prepared.OriginalCostAmount
                     };
                     _sales.AddReturnItem(returnItem);
 
-                    foreach (var pair in serializedUnits)
-                    {
-                        _sales.AddReturnItemUnit(new SaleReturnItemUnit
-                        {
-                            SaleReturnItemId = returnItem.Id,
-                            InventoryUnitId = pair.Unit.Id
-                        });
-                    }
-
-                    totalReturnRefund += refundAmount;
+                    totalReturnRefund += prepared.RefundAmount;
                 }
 
                 saleReturn.RefundAmount = Money(totalReturnRefund);
@@ -511,7 +437,7 @@ public sealed class CommercialExchangeHandler
                     stocks[pid] = stock;
                 }
 
-                var preparedSaleLines = await PrepareSaleLinesAsync(command.ReplacementLines, products, ct);
+                var preparedSaleLines = await PrepareSaleLinesAsync(command.ReplacementLines, products, command.CashierUserId, ct);
 
                 foreach (var group in preparedSaleLines.GroupBy(x => x.Product.Id))
                 {
@@ -571,9 +497,13 @@ public sealed class CommercialExchangeHandler
                     _inventory.AddMovement(movement);
 
                     decimal totalCost;
-                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+                    if (line.Product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
                     {
                         totalCost = await ConsumeSerializedSaleAsync(line, movement, ct);
+                    }
+                    else if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
+                    {
+                        totalCost = await ConsumePackAllocationAsync(line, line.PackAllocation, movement, ct);
                     }
                     else
                     {
@@ -634,15 +564,36 @@ public sealed class CommercialExchangeHandler
                     };
                     _sales.AddSaleItem(saleItem);
 
-                    foreach (var unit in line.SerializedUnits)
+                    if (line.Product.TrackingMode == TrackingMode.Container && line.PackAllocation is not null)
                     {
-                        _sales.AddSaleItemUnit(new SaleItemUnit
+                        foreach (var alloc in line.PackAllocation.Allocations)
                         {
-                            SaleItemId = saleItem.Id,
-                            InventoryUnitId = unit.Id,
-                            UnitCostSnapshot = unit.AcquisitionCost,
-                            WarrantyValidUntil = saleItem.WarrantyValidUntil
-                        });
+                            alloc.MovementId = movement.Id;
+                            alloc.SaleItemId = saleItem.Id;
+                            alloc.ValidateInvariants();
+                            _inventory.AddPackAllocation(alloc);
+
+                            _sales.AddSaleItemUnit(new SaleItemUnit
+                            {
+                                SaleItemId = saleItem.Id,
+                                InventoryUnitId = alloc.PackUnitId,
+                                UnitCostSnapshot = alloc.TotalCostSnapshot,
+                                WarrantyValidUntil = saleItem.WarrantyValidUntil
+                            });
+                        }
+                    }
+                    else
+                    {
+                        foreach (var unit in line.SerializedUnits)
+                        {
+                            _sales.AddSaleItemUnit(new SaleItemUnit
+                            {
+                                SaleItemId = saleItem.Id,
+                                InventoryUnitId = unit.Id,
+                                UnitCostSnapshot = unit.AcquisitionCost,
+                                WarrantyValidUntil = saleItem.WarrantyValidUntil
+                            });
+                        }
                     }
                 }
 
@@ -795,6 +746,27 @@ public sealed class CommercialExchangeHandler
                         cancellationToken: ct);
                 }
 
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? _clock.ShopDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.Sale,
+                        EntityId: replacementSale.Id,
+                        EntityNumber: replacementSale.InvoiceNumber,
+                        ActorId: command.CashierUserId,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: null,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<CommercialExchangeResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
 
                 return Result<CommercialExchangeResult>.Success(new(
@@ -814,7 +786,8 @@ public sealed class CommercialExchangeHandler
             }
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
@@ -833,6 +806,7 @@ public sealed class CommercialExchangeHandler
     private async Task<IReadOnlyList<PreparedSaleLine>> PrepareSaleLinesAsync(
         IReadOnlyList<CompleteSaleLineInput> inputs,
         IReadOnlyDictionary<Guid, Product> products,
+        Guid cashierUserId,
         CancellationToken ct)
     {
         var result = new List<PreparedSaleLine>(inputs.Count);
@@ -866,9 +840,11 @@ public sealed class CommercialExchangeHandler
             }
 
             IReadOnlyList<InventoryUnit> serializedUnits = Array.Empty<InventoryUnit>();
-            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece or TrackingMode.Container)
+            PackAllocationResult? packAllocationResult = null;
+
+            if (product.TrackingMode is TrackingMode.Serialized or TrackingMode.IndividualPiece)
             {
-                var physicalCount = product.TrackingMode == TrackingMode.Container ? quantity.EnteredQuantity : quantity.BaseQuantity;
+                var physicalCount = quantity.BaseQuantity;
                 if (!QuantityMath.IsWhole(physicalCount) || physicalCount <= 0m || physicalCount > int.MaxValue ||
                     input.InventoryUnitIds.Count != decimal.ToInt32(physicalCount) ||
                     input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
@@ -901,18 +877,83 @@ public sealed class CommercialExchangeHandler
                 }
 
                 serializedUnits = units.OrderBy(x => x.Id).ToArray();
-                if (product.TrackingMode == TrackingMode.Container)
+            }
+            else if (product.TrackingMode == TrackingMode.Container)
+            {
+                var isCable = product.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase) ||
+                              product.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) ||
+                              product.AttributesJson?.Contains("Length", StringComparison.OrdinalIgnoreCase) == true;
+
+                if (!isCable && !QuantityMath.IsWhole(quantity.BaseQuantity))
                 {
-                    var basePerUnit = quantity.BaseQuantity / units.Count;
-                    foreach (var unit in units)
+                    throw new BusinessRuleException(
+                        "sales.pack_fractional_count_prohibited",
+                        $"Fractional unit quantity '{quantity.BaseQuantity}' is not permitted for count-based pack product '{product.Name}'.");
+                }
+
+                if (!isCable)
+                {
+                    var physicalCount = quantity.EnteredQuantity;
+                    if (!QuantityMath.IsWhole(physicalCount) || physicalCount <= 0m || physicalCount > int.MaxValue ||
+                        input.InventoryUnitIds.Count != decimal.ToInt32(physicalCount) ||
+                        input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
                     {
-                        if (await _inventory.GetPhysicalUnitBaseQuantitySnapshotAsync(unit, ct) != basePerUnit)
-                        {
-                            throw new BusinessRuleException("sales.container_quantity_mismatch",
-                                "Selected container does not match the selling unit quantity.");
-                        }
+                        throw new BusinessRuleException(
+                            "sales.serial_count_mismatch",
+                            $"Select one exact serialized unit per base unit for '{product.Name}'.");
                     }
                 }
+
+                IReadOnlyList<InventoryUnit> eligibleUnits;
+                if (input.InventoryUnitIds.Count > 0)
+                {
+                    foreach (var id in input.InventoryUnitIds)
+                    {
+                        if (!selectedSerializedIds.Add(id))
+                        {
+                            throw new BusinessRuleException(
+                                "sales.serial_selected_twice",
+                                "A pack unit cannot be selected twice in one sale.");
+                        }
+                    }
+
+                    eligibleUnits = await _inventory.GetInventoryUnitsForUpdateAsync(
+                        product.Id,
+                        input.InventoryUnitIds,
+                        ct);
+                    if (eligibleUnits.Count != input.InventoryUnitIds.Count ||
+                        eligibleUnits.Any(x => x.Status != InventoryUnitStatus.InStock || x.InventoryLotId is null))
+                    {
+                        throw new BusinessRuleException(
+                            "sales.serial_not_sellable",
+                            $"One or more pack units for '{product.Name}' are not sellable.");
+                    }
+                }
+                else
+                {
+                    eligibleUnits = await _inventory.GetSellableInventoryUnitsAsync(product.Id, ct);
+                }
+
+                var preferredUnitId = input.PreferredPackUnitId ?? (input.InventoryUnitIds.Count == 1 ? input.InventoryUnitIds[0] : null);
+
+                var allocRequest = new PackAllocationRequest(
+                    ProductId: product.Id,
+                    RequestedBaseQuantity: quantity.BaseQuantity,
+                    MovementId: Guid.Empty,
+                    OperationType: PackAllocationOperationTypes.Sale,
+                    ActorId: cashierUserId,
+                    OccurredAt: _clock.UtcNow,
+                    PreferredPackUnitId: preferredUnitId,
+                    AllowSplitCuts: input.AllowSplitCuts,
+                    IsCableOrLengthProduct: isCable,
+                    MinimumCutIncrement: 1m);
+
+                packAllocationResult = _packAllocations.Allocate(eligibleUnits, allocRequest);
+                serializedUnits = packAllocationResult.Allocations
+                    .Select(a => eligibleUnits.First(u => u.Id == a.PackUnitId))
+                    .Distinct()
+                    .OrderBy(u => u.Id)
+                    .ToArray();
             }
             else if (input.InventoryUnitIds.Count > 0)
             {
@@ -931,10 +972,77 @@ public sealed class CommercialExchangeHandler
                 null,
                 null,
                 Money(quantity.EnteredQuantity * authoritativePrice),
-                serializedUnits));
+                serializedUnits,
+                packAllocationResult));
         }
 
         return result;
+    }
+
+    private async Task<decimal> ConsumePackAllocationAsync(
+        PreparedSaleLine line,
+        PackAllocationResult packAllocResult,
+        InventoryMovement movement,
+        CancellationToken ct)
+    {
+        decimal totalCost = 0m;
+
+        foreach (var alloc in packAllocResult.Allocations)
+        {
+            var unit = line.SerializedUnits.First(u => u.Id == alloc.PackUnitId);
+            var lotId = unit.InventoryLotId ?? alloc.LotId;
+
+            var lotBalance = await _inventory.GetLotBucketBalanceForUpdateAsync(
+                lotId,
+                InventoryBucket.Sellable,
+                ct)
+                ?? throw new BusinessRuleException(
+                    "sales.serial_lot_missing",
+                    "Pack inventory lot was not found.");
+
+            if (lotBalance.Quantity < alloc.AllocatedBaseQuantity)
+            {
+                throw new BusinessRuleException(
+                    "sales.serial_lot_insufficient",
+                    "Pack inventory lot is no longer sellable.");
+            }
+
+            lotBalance.Quantity = QuantityMath.RoundQuantity(
+                lotBalance.Quantity - alloc.AllocatedBaseQuantity);
+
+            _inventory.AddLotConsumption(new InventoryLotConsumption
+            {
+                LotId = lotId,
+                MovementId = movement.Id,
+                Quantity = alloc.AllocatedBaseQuantity,
+                UnitCostSnapshot = alloc.UnitCostSnapshot,
+                TotalCostSnapshot = alloc.TotalCostSnapshot,
+                OccurredAt = _clock.UtcNow
+            });
+
+            totalCost += await _costs.RemoveCarryingValueAsync(
+                line.Product.Id,
+                alloc.AllocatedBaseQuantity,
+                alloc.UnitCostSnapshot,
+                ct);
+
+            var fromStatus = unit.Status;
+            if (alloc.PackStateAfter == PackState.Consumed)
+            {
+                unit.Status = InventoryUnitStatus.Sold;
+            }
+            unit.Version++;
+
+            _inventory.AddMovementUnit(new InventoryMovementUnit
+            {
+                MovementId = movement.Id,
+                InventoryUnitId = unit.Id,
+                FromStatus = fromStatus,
+                ToStatus = unit.Status
+            });
+        }
+
+        return Cost(totalCost);
     }
 
     private async Task<decimal> ConsumeSerializedSaleAsync(
@@ -994,141 +1102,6 @@ public sealed class CommercialExchangeHandler
         return Cost(totalCost);
     }
 
-    private async Task<IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)>> PrepareSerializedReturnUnitsAsync(
-        SaleItem item,
-        SaleReturnLineInput input,
-        decimal baseQuantity,
-        IReadOnlyList<SaleItemUnit> soldUnits,
-        CancellationToken ct)
-    {
-        var basePerUnit = item.BaseQuantity / soldUnits.Count;
-        var physicalCount = baseQuantity / basePerUnit;
-        if (!QuantityMath.IsWhole(physicalCount) || physicalCount <= 0m || physicalCount > int.MaxValue ||
-            input.InventoryUnitIds.Count != decimal.ToInt32(physicalCount) ||
-            input.InventoryUnitIds.Distinct().Count() != input.InventoryUnitIds.Count)
-        {
-            throw new BusinessRuleException(
-                "sales.return_serial_count_mismatch",
-                "Serialized return requires one distinct sold unit per base unit.");
-        }
-
-        var soldById = soldUnits.ToDictionary(x => x.InventoryUnitId);
-        if (input.InventoryUnitIds.Any(x => !soldById.ContainsKey(x)))
-        {
-            throw new BusinessRuleException(
-                "sales.return_serial_not_original",
-                "One or more serialized units were not sold on this sale item.");
-        }
-
-        var priorReturned = await _sales.GetReturnedInventoryUnitIdsAsync(item.Id, ct);
-        if (input.InventoryUnitIds.Any(priorReturned.Contains))
-        {
-            throw new BusinessRuleException(
-                "sales.return_serial_already_returned",
-                "One or more serialized units were already returned.");
-        }
-
-        var units = await _inventory.GetInventoryUnitsForUpdateAsync(
-            item.ProductId,
-            input.InventoryUnitIds,
-            ct);
-
-        if (units.Count != input.InventoryUnitIds.Count ||
-            units.Any(x => x.Status != InventoryUnitStatus.Sold))
-        {
-            throw new BusinessRuleException(
-                "sales.return_serial_not_eligible",
-                "One or more serialized units are not currently eligible for return.");
-        }
-
-        if (_warranty is not null)
-        {
-            foreach (var unit in units)
-            {
-                if (await _warranty.HasActiveClaimForUnitAsync(unit.Id, ct))
-                {
-                    throw new BusinessRuleException(
-                        "sales.return_unit_active_warranty",
-                        "One or more serialized units have an active warranty claim and cannot be returned.");
-                }
-
-                if (await _warranty.IsUnitTerminallyResolvedAsync(unit.Id, ct))
-                {
-                    throw new BusinessRuleException(
-                        "sales.return_unit_warranty_resolved",
-                        "One or more serialized units have already received terminal warranty resolution and cannot be returned.");
-                }
-            }
-        }
-
-        return units.OrderBy(x => x.Id).Select(x => (x, soldById[x.Id])).ToArray();
-    }
-
-    private async Task RestoreSerializedUnitsAsync(
-        IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)> units,
-        decimal basePerUnit,
-        SaleReturnDisposition disposition,
-        InventoryMovement movement,
-        CancellationToken ct)
-    {
-        foreach (var pair in units)
-        {
-            var destination = SaleMath.ToInventoryBucket(disposition);
-            Guid lotId;
-
-            if (disposition == SaleReturnDisposition.Scrap)
-            {
-                lotId = await _costs.AddZeroCarryingLotAsync(
-                    pair.Unit.ProductId,
-                    basePerUnit,
-                    pair.Snapshot.UnitCostSnapshot / basePerUnit,
-                    movement.Id,
-                    pair.Unit.SourcePurchaseItemId,
-                    InventoryBucket.Scrap,
-                    ct);
-            }
-            else
-            {
-                lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
-                    pair.Unit.ProductId,
-                    basePerUnit,
-                    pair.Snapshot.UnitCostSnapshot / basePerUnit,
-                    movement.Id,
-                    pair.Unit.SourcePurchaseItemId,
-                    destination,
-                    ct);
-
-                // Restore the immutable sold amount, including the residual
-                // that a six-place per-base lot price cannot represent.
-                var costState = await _inventory.GetCostStateForUpdateAsync(pair.Unit.ProductId, ct)
-                    ?? throw new BusinessRuleException("inventory.cost_state_missing", "Inventory cost state is required.");
-                var represented = Cost(basePerUnit * Cost(pair.Snapshot.UnitCostSnapshot / basePerUnit));
-                costState.TotalInventoryCost = Cost(costState.TotalInventoryCost + pair.Snapshot.UnitCostSnapshot - represented);
-                costState.MovingAverageCost = Cost(costState.TotalInventoryCost / costState.CostedQty);
-            }
-
-            var from = pair.Unit.Status;
-            pair.Unit.Status = disposition switch
-            {
-                SaleReturnDisposition.RestockSellable => InventoryUnitStatus.InStock,
-                SaleReturnDisposition.Damaged => InventoryUnitStatus.Damaged,
-                SaleReturnDisposition.Defective => InventoryUnitStatus.Defective,
-                SaleReturnDisposition.Scrap => InventoryUnitStatus.Scrapped,
-                _ => throw new ArgumentOutOfRangeException(nameof(disposition))
-            };
-            pair.Unit.InventoryLotId = lotId;
-            pair.Unit.Version++;
-
-            _inventory.AddMovementUnit(new InventoryMovementUnit
-            {
-                MovementId = movement.Id,
-                InventoryUnitId = pair.Unit.Id,
-                FromStatus = from,
-                ToStatus = pair.Unit.Status
-            });
-        }
-    }
-
     private static decimal CalculateResidualAmount(
         decimal originalTotal,
         decimal originalBaseQuantity,
@@ -1170,6 +1143,54 @@ public sealed class CommercialExchangeHandler
 
     private static string ComputePayloadFingerprint(CommercialExchangeCommand command)
     {
+        var projection = new
+        {
+            command.OriginalSaleId,
+            command.CustomerId,
+            command.CashierUserId,
+            ReturnReasonCode = command.ReturnReasonCode.Trim().ToUpperInvariant(),
+            ReturnReasonNote = Normalize(command.ReturnReasonNote),
+            command.SettlementMethod,
+            InvoiceDiscount = command.InvoiceDiscount.ToString("G29", CultureInfo.InvariantCulture),
+            ReturnLines = command.ReturnLines
+                .OrderBy(x => x.SaleItemId)
+                .Select(x => new
+                {
+                    x.SaleItemId,
+                    BaseQuantity = x.BaseQuantity.ToString("G29", CultureInfo.InvariantCulture),
+                    Disposition = x.Disposition.ToString(),
+                    InventoryUnitIds = x.InventoryUnitIds.OrderBy(u => u).ToArray(),
+                    x.ReturnSourceContainerId,
+                    ConditionInspectionResult = Normalize(x.ConditionInspectionResult),
+                    x.IsRestockAsRemnant
+                }).ToArray(),
+            ReplacementLines = command.ReplacementLines
+                .OrderBy(x => x.ProductId)
+                .ThenBy(x => x.ProductUnitId)
+                .Select(x => new
+                {
+                    x.ProductId,
+                    x.ProductUnitId,
+                    EnteredQuantity = x.EnteredQuantity.ToString("G29", CultureInfo.InvariantCulture),
+                    ExpectedUnitPrice = x.ExpectedUnitPrice.ToString("G29", CultureInfo.InvariantCulture),
+                    InventoryUnitIds = x.InventoryUnitIds.OrderBy(u => u).ToArray(),
+                    PackAllocationDetails = x.PackAllocationDetails is null ? null : new
+                    {
+                        x.PackAllocationDetails.TrackingCode,
+                        x.PackAllocationDetails.AllocatedContainerId,
+                        x.PackAllocationDetails.RequestedCutLength
+                    }
+                }).ToArray()
+        };
+
+        return OperationPayloadFingerprint.ComputeVersionedFingerprint(
+            "CommercialExchange",
+            projection,
+            OperationPayloadFingerprint.DefaultVersion);
+    }
+
+    private static string ComputeLegacyHexFingerprint(CommercialExchangeCommand command)
+    {
         var returnLines = command.ReturnLines
             .OrderBy(x => x.SaleItemId)
             .Select(x => $"{x.SaleItemId}:{x.BaseQuantity.ToString("0.####", CultureInfo.InvariantCulture)}:{string.Join(",", x.InventoryUnitIds.OrderBy(u => u))}");
@@ -1192,5 +1213,73 @@ public sealed class CommercialExchangeHandler
         });
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    private async Task<Result<CommercialExchangeResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        CommercialExchangeCommand command,
+        string currentFingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "CommercialExchange")
+        {
+            return Result<CommercialExchangeResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'CommercialExchange'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CashierUserId)
+        {
+            return Result<CommercialExchangeResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        var legacyFingerprint = ComputeLegacyHexFingerprint(command);
+        var matches = string.IsNullOrEmpty(outcome.PayloadFingerprint) ||
+                      string.Equals(outcome.PayloadFingerprint, currentFingerprint, StringComparison.Ordinal) ||
+                      string.Equals(outcome.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        if (!matches)
+        {
+            return Result<CommercialExchangeResult>.Failure(
+                "idempotency.payload_mismatch",
+                "The operation was previously executed with different parameters.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            var existingSale = await _sales.GetSaleByClientOperationIdAsync(command.ClientOperationId, ct);
+            var existingReturn = await _sales.GetReturnByClientOperationIdAsync(command.ClientOperationId, ct);
+
+            if (existingSale is not null && existingReturn is not null)
+            {
+                var payment = await _sales.GetSalePaymentAsync(existingSale.Id, ct);
+                var netDiff = Money(existingSale.GrandTotal - existingReturn.RefundAmount);
+                return Result<CommercialExchangeResult>.Success(new(
+                    existingSale.Id,
+                    existingSale.InvoiceNumber,
+                    existingReturn.Id,
+                    existingReturn.ReturnNumber,
+                    existingSale.GrandTotal,
+                    existingReturn.RefundAmount,
+                    netDiff,
+                    payment?.ChangeGiven ?? 0m,
+                    WasExisting: true));
+            }
+
+            return Result<CommercialExchangeResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed exchange outcome has no matching entities; reconciliation is required.");
+        }
+
+        if (outcome.State != OperationOutcomeState.Succeeded || !outcome.WasCommitted)
+        {
+            return Result<CommercialExchangeResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous exchange outcome before another execution.");
+        }
+
+        return null;
     }
 }

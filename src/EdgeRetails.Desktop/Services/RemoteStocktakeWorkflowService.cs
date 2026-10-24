@@ -1,7 +1,9 @@
 using System.Net.Http;
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Gateways;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 
 namespace EdgeRetails.Desktop.Services;
@@ -19,6 +21,10 @@ public sealed class RemoteStocktakeWorkflowService(
     public Task<IReadOnlyList<BackendScannerMatch>> ResolveScannerAsync(
         string input, CancellationToken cancellationToken = default) =>
         _pos.ResolveScannerAsync(input, cancellationToken);
+
+    public Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode, CancellationToken cancellationToken = default) =>
+        _pos.GetPackByTrackingCodeAsync(trackingCode, cancellationToken);
 
     public Task<IReadOnlyList<BackendExactUnit>> GetExactUnitsAsync(
         Guid productId,
@@ -147,10 +153,18 @@ public sealed class RemoteStocktakeWorkflowService(
         IReadOnlyCollection<Guid> foundInventoryUnitIds,
         IReadOnlyCollection<string> unexpectedIdentitySnapshots,
         string? reviewNote,
+        IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
+        decimal minimumSellableIncrement = 1m,
+        decimal separateLooseQuantity = 0m,
         CancellationToken cancellationToken = default)
     {
+        var measuredPayload = measuredContainerQuantities is { Count: > 0 }
+            ? string.Join(',', measuredContainerQuantities.OrderBy(x => x.Key).Select(x => FormattableString.Invariant($"{x.Key:D}={QuantityMath.RoundQuantity(x.Value)}")))
+            : string.Empty;
+        var incrementPayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(minimumSellableIncrement)}");
+        var loosePayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(separateLooseQuantity)}");
         var key = $"serialized-count:{stocktakeId:D}:{productId:D}";
-        var payload = $"{stocktakeId:D}|{productId:D}|{string.Join(',', foundInventoryUnitIds.Order())}|{string.Join('|', unexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{Normalize(reviewNote)}";
+        var payload = $"{stocktakeId:D}|{productId:D}|{string.Join(',', foundInventoryUnitIds.Order())}|{string.Join('|', unexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{Normalize(reviewNote)}|{measuredPayload}|{incrementPayload}|{loosePayload}";
         await PostSuccessAsync(
             $"/api/inventory/stocktake/{stocktakeId:D}/serialized-counts",
             key, "Stocktake.SerializedCount", payload,
@@ -158,7 +172,11 @@ public sealed class RemoteStocktakeWorkflowService(
                 productId,
                 foundInventoryUnitIds,
                 unexpectedIdentitySnapshots,
-                Normalize(reviewNote), GetOperationId(key, payload)), cancellationToken);
+                Normalize(reviewNote),
+                GetOperationId(key, payload),
+                measuredContainerQuantities,
+                minimumSellableIncrement,
+                separateLooseQuantity), cancellationToken);
     }
 
     public async Task ReviewStocktakeAsync(
@@ -435,7 +453,10 @@ public sealed class RemoteStocktakeWorkflowService(
         IReadOnlyCollection<Guid> FoundInventoryUnitIds,
         IReadOnlyCollection<string> UnexpectedIdentitySnapshots,
         string? ReviewNote,
-        Guid ClientOperationId);
+        Guid ClientOperationId,
+        IReadOnlyDictionary<Guid, decimal>? MeasuredContainerQuantities = null,
+        decimal? MinimumSellableIncrement = null,
+        decimal? SeparateLooseQuantity = null);
     private sealed record StocktakeActionRequest(Guid ClientOperationId);
     private sealed record StocktakePostRequest(
         Guid? ClientOperationId,

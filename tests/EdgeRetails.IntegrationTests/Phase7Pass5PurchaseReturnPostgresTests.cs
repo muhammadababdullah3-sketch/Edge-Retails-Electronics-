@@ -244,7 +244,7 @@ public sealed class Phase7Pass5PurchaseReturnPostgresTests
             var contender = contenderScope.ServiceProvider.GetRequiredService<CreatePurchaseReturnHandler>().HandleAsync(intent, default);
             try
             {
-                await using var observer = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+                await using var observer = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
                 await observer.OpenAsync();
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 while (true)

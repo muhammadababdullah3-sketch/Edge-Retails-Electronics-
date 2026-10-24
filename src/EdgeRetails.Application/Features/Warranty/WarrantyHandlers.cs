@@ -202,6 +202,186 @@ public sealed class CreateWarrantyClaimHandler
                 "Every warranty line requires one distinct original SaleItem.");
         }
 
+        var domainProjection = new
+        {
+            command.CustomerId,
+            command.OriginalSaleId,
+            command.SupplierId,
+            command.ActorId,
+            Items = command.Items.Select(item => new
+            {
+                item.ProductId,
+                item.Quantity,
+                FaultDescription = item.FaultDescription?.Trim(),
+                item.OriginalSaleItemId,
+                item.WarrantyValidUntil,
+                Units = item.Units?.Select(u => new
+                {
+                    u.OriginalInventoryUnitId,
+                    OriginalIdentitySnapshot = u.OriginalIdentitySnapshot?.Trim()
+                }).ToArray()
+            }).ToArray()
+        };
+        var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("WarrantyClaim", domainProjection);
+        var payloadFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "WarrantyClaim",
+            command.CustomerId.ToString("D"),
+            command.OriginalSaleId?.ToString("D") ?? string.Empty,
+            command.SupplierId?.ToString("D") ?? string.Empty,
+            command.Items.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            string.Join(";", command.Items.Select(x =>
+                $"{x.ProductId:D}:{x.Quantity}:{x.FaultDescription}:{x.OriginalSaleItemId?.ToString("D") ?? string.Empty}:" +
+                string.Join("|", (x.Units ?? Array.Empty<WarrantyClaimUnitInput>()).Select(u => $"{u.OriginalInventoryUnitId?.ToString("D") ?? string.Empty}")))));
+        var legacyFingerprint = OperationPayloadFingerprint.ComputeSha256(
+            "WarrantyClaim",
+            command.CustomerId.ToString("D"),
+            command.OriginalSaleId?.ToString("D") ?? string.Empty,
+            command.Items.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            string.Join(";", command.Items.Select(x => $"{x.ProductId:D}:{x.Quantity}:{x.FaultDescription}")));
+
+        bool FingerprintMatches(string? fp) =>
+            string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, payloadFingerprint, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fp, legacyFingerprint, StringComparison.OrdinalIgnoreCase);
+
+        async Task<Result?> ReconcileLegacyClaimAsync(OperationOutcomeRecord? outcome, WarrantyClaim? existingClaim, CancellationToken ct)
+        {
+            var isLegacyMatch = (outcome is not null &&
+                !string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                string.Equals(outcome.PayloadFingerprint, legacyFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(outcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(outcome.PayloadFingerprint, payloadFingerprint, StringComparison.OrdinalIgnoreCase))
+                || (outcome is null && existingClaim is not null)
+                || (outcome is not null && string.IsNullOrEmpty(outcome.PayloadFingerprint) && (existingClaim is not null || outcome.EntityId.HasValue));
+
+            if (!isLegacyMatch)
+            {
+                return null;
+            }
+
+            var persistedClaim = existingClaim;
+            if (persistedClaim is null && outcome?.EntityId.HasValue == true)
+            {
+                persistedClaim = await _warranty.GetClaimAsync(outcome.EntityId.Value, ct);
+            }
+
+            if (persistedClaim is null)
+            {
+                return Result.Failure("idempotency.legacy_claim_missing", "Legacy warranty claim entity not found for reconciliation.");
+            }
+
+            if (persistedClaim.CustomerId != command.CustomerId ||
+                persistedClaim.OriginalSaleId != command.OriginalSaleId)
+            {
+                return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with a different Warranty claim payload.");
+            }
+
+            if (command.SupplierId.HasValue && persistedClaim.SupplierId != command.SupplierId.Value)
+            {
+                return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with a different supplier.");
+            }
+
+            var persistedItems = await _warranty.GetClaimItemsAsync(persistedClaim.Id, ct);
+            if (persistedItems.Count != command.Items.Count)
+            {
+                return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with different warranty items.");
+            }
+
+            var persistedUnits = await _warranty.GetClaimUnitsAsync(persistedClaim.Id, ct);
+            var matchedPersistedIds = new HashSet<Guid>();
+            foreach (var cmdItem in command.Items)
+            {
+                var cmdUnitIds = (cmdItem.Units ?? Array.Empty<WarrantyClaimUnitInput>())
+                    .Select(u => u.OriginalInventoryUnitId)
+                    .Where(u => u.HasValue)
+                    .Select(u => u!.Value)
+                    .OrderBy(u => u)
+                    .ToList();
+
+                var matchItem = persistedItems.FirstOrDefault(x =>
+                    !matchedPersistedIds.Contains(x.Id) &&
+                    x.ProductId == cmdItem.ProductId &&
+                    x.Quantity == cmdItem.Quantity &&
+                    x.FaultDescription == cmdItem.FaultDescription &&
+                    x.OriginalSaleItemId == cmdItem.OriginalSaleItemId &&
+                    UnitIdsMatch(x.Id, cmdUnitIds));
+
+                if (matchItem is null)
+                {
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with different sale items or unit identities.");
+                }
+
+                matchedPersistedIds.Add(matchItem.Id);
+            }
+
+            return Result.Success();
+
+            bool UnitIdsMatch(Guid claimItemId, List<Guid> expectedUnitIds)
+            {
+                var itemUnitIds = persistedUnits
+                    .Where(u => u.ClaimItemId == claimItemId)
+                    .Select(u => u.OriginalInventoryUnitId)
+                    .Where(u => u.HasValue)
+                    .Select(u => u!.Value)
+                    .OrderBy(u => u)
+                    .ToList();
+
+                return expectedUnitIds.SequenceEqual(itemUnitIds);
+            }
+        }
+
+        if (_outcomeLedger is not null)
+        {
+            var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preOutcome is not null)
+            {
+                if (!string.Equals(preOutcome.OperationType, "WarrantyClaim", StringComparison.Ordinal))
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.operation_type_mismatch",
+                        $"Operation identity already belongs to operation type '{preOutcome.OperationType}'.");
+                }
+
+                if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Failed)
+                {
+                    return Result<Guid>.Failure(
+                        preOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                        preOutcome.ErrorMessage ?? "Warranty claim operation previously failed.");
+                }
+
+                if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                    !FingerprintMatches(preOutcome.PayloadFingerprint))
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with a different Warranty claim payload.");
+                }
+
+                var legacyCheck = await ReconcileLegacyClaimAsync(preOutcome, null, cancellationToken);
+                if (legacyCheck.HasValue && !legacyCheck.Value.IsSuccess)
+                {
+                    return Result<Guid>.Failure(legacyCheck.Value.Error!.Code, legacyCheck.Value.Error.Message);
+                }
+
+                if (string.IsNullOrEmpty(preOutcome.PayloadFingerprint) && (!legacyCheck.HasValue || !legacyCheck.Value.IsSuccess))
+                {
+                    return Result<Guid>.Failure("idempotency.legacy_claim_missing", "Legacy warranty claim entity not found for reconciliation.");
+                }
+
+                if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                {
+                    return Result<Guid>.Success(preOutcome.EntityId.Value);
+                }
+            }
+        }
+
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -221,14 +401,59 @@ public sealed class CreateWarrantyClaimHandler
             }
 
             var existingByOperation = await _warranty.GetClaimByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existingByOperation is null && _outcomeLedger is not null)
+            {
+                var savedOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (savedOutcome is not null)
+                {
+                    if (savedOutcome.State == OperationOutcomeState.Failed)
+                    {
+                        return Result<Guid>.Failure(
+                            savedOutcome.ErrorCode ?? "idempotency.outcome_unknown",
+                            savedOutcome.ErrorMessage ?? "Warranty claim operation previously failed.");
+                    }
+
+                    if (savedOutcome.EntityId.HasValue)
+                    {
+                        existingByOperation = await _warranty.GetClaimAsync(savedOutcome.EntityId.Value, ct);
+                    }
+
+                    if (existingByOperation is null)
+                    {
+                        return Result<Guid>.Failure("idempotency.legacy_claim_missing", "Legacy warranty claim entity not found for reconciliation.");
+                    }
+                }
+            }
+
             if (existingByOperation is not null)
             {
-                if (existingByOperation.CustomerId != command.CustomerId ||
-                    existingByOperation.OriginalSaleId != command.OriginalSaleId)
+                var savedOutcome = _outcomeLedger is null ? null : await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (savedOutcome?.PayloadFingerprint is not null &&
+                    !FingerprintMatches(savedOutcome.PayloadFingerprint))
                 {
                     return Result<Guid>.Failure(
-                        "payload_mismatch",
+                        "idempotency.payload_mismatch",
                         "Operation was previously submitted with a different Warranty claim payload.");
+                }
+
+                if (existingByOperation.CustomerId != command.CustomerId ||
+                    existingByOperation.OriginalSaleId != command.OriginalSaleId ||
+                    (command.SupplierId.HasValue && existingByOperation.SupplierId != command.SupplierId.Value))
+                {
+                    return Result<Guid>.Failure(
+                        "idempotency.payload_mismatch",
+                        "Operation was previously submitted with a different Warranty claim payload.");
+                }
+
+                var legacyCheck = await ReconcileLegacyClaimAsync(savedOutcome, existingByOperation, ct);
+                if (legacyCheck.HasValue && !legacyCheck.Value.IsSuccess)
+                {
+                    return Result<Guid>.Failure(legacyCheck.Value.Error!.Code, legacyCheck.Value.Error.Message);
+                }
+
+                if (savedOutcome is not null && string.IsNullOrEmpty(savedOutcome.PayloadFingerprint) && (!legacyCheck.HasValue || !legacyCheck.Value.IsSuccess))
+                {
+                    return Result<Guid>.Failure("idempotency.legacy_claim_missing", "Legacy warranty claim entity not found for reconciliation.");
                 }
 
                 if (_outcomeLedger is not null)
@@ -239,6 +464,7 @@ public sealed class CreateWarrantyClaimHandler
                         existingByOperation.Id,
                         existingByOperation.ClaimNumber,
                         actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
                         cancellationToken: ct);
                 }
 
@@ -253,7 +479,7 @@ public sealed class CreateWarrantyClaimHandler
                     "Warranty customer was not found.");
             }
 
-            var sale = await _sales.GetSaleForUpdateAsync(command.OriginalSaleId.Value, ct);
+            var sale = await _sales.GetSaleForUpdateAsync(command.OriginalSaleId!.Value, ct);
             if (sale is null || sale.Status != EdgeRetails.Domain.Sales.SaleStatus.Completed)
             {
                 return Result<Guid>.Failure(
@@ -615,6 +841,7 @@ public sealed class CreateWarrantyClaimHandler
                     claim.Id,
                     claim.ClaimNumber,
                     actorId: command.ActorId,
+                    payloadFingerprint: versionedFingerprint,
                     cancellationToken: ct);
             }
 
@@ -630,6 +857,7 @@ public sealed class CreateWarrantyClaimHandler
                 result.Error?.Code ?? "warranty.claim_failed",
                 result.Error?.Message ?? "Warranty claim creation failed.",
                 actorId: command.ActorId,
+                payloadFingerprint: payloadFingerprint,
                 cancellationToken: cancellationToken);
         }
 
@@ -1427,6 +1655,7 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public ReceiveCustomerWarrantyReplacementHandler(
         IWarrantyRepository warranty,
@@ -1440,7 +1669,8 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _warranty = warranty;
         _catalog = catalog;
@@ -1454,6 +1684,7 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _physicalUnits = physicalUnitCreationAuthority;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -1493,6 +1724,19 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
             {
                 return Result.Failure(ex.Code, ex.Message);
             }
+            var domainProjection = new
+            {
+                command.ClaimId,
+                Units = command.Units.OrderBy(x => x.ClaimItemUnitId).Select(x => new
+                {
+                    x.ClaimItemUnitId,
+                    Serial = IdentityNormalizationRules.NormalizeOptionalSerialNumber(x.SerialNumber),
+                    Imei1 = IdentityNormalizationRules.NormalizeOptionalImei(x.Imei1),
+                    Imei2 = IdentityNormalizationRules.NormalizeOptionalImei(x.Imei2)
+                }).ToArray(),
+                Note = WarrantyOperationIdentity.Normalize(command.Note)
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("CustomerWarrantyReplacement", domainProjection);
             var payloadHash = WarrantyOperationIdentity.Hash(
                 "CUSTOMER_CLAIM",
                 command.ClaimId.ToString("D"),
@@ -1503,6 +1747,44 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                 "CUSTOMER_REPLACEMENT", string.Join(";", command.Units.OrderBy(x => x.ClaimItemUnitId)
                     .Select(x => $"{x.ClaimItemUnitId:D}|{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}")),
                 WarrantyOperationIdentity.Normalize(command.Note));
+
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null)
+                {
+                    if (!string.Equals(outcome.OperationType, "CustomerWarrantyReplacement", StringComparison.Ordinal) &&
+                        !string.Equals(outcome.OperationType, "CustomerReplacement", StringComparison.Ordinal))
+                    {
+                        return Result.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to operation type '{outcome.OperationType}'.");
+                    }
+
+                    if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                        !string.Equals(outcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outcome.PayloadFingerprint, payloadHash, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outcome.PayloadFingerprint, legacyPayloadHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result.Failure(
+                            "warranty.replay_reconciliation_required",
+                            "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
+                    }
+
+                    if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+                    {
+                        return Result.Success();
+                    }
+                }
+            }
+
             var existingOperation = await _warranty.GetOperationForReplayAsync(command.ClientOperationId, ct);
             if (existingOperation is not null)
             {
@@ -1510,13 +1792,26 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                     existingOperation.TargetType != "CUSTOMER_CLAIM" ||
                     existingOperation.TargetId != command.ClaimId)
                 {
-                    return Result.Failure("payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
                 }
-                if (existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
+                if (existingOperation.PayloadHash != versionedFingerprint && existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
                 {
                     return Result.Failure("warranty.replay_reconciliation_required",
                         "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
                 }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "CustomerWarrantyReplacement",
+                        command.ClaimId,
+                        documentNumber: null,
+                        actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result.Success();
             }
 
@@ -1858,6 +2153,18 @@ public sealed class ReceiveCustomerWarrantyReplacementHandler
                 OccurredAt = now
             });
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "CustomerWarrantyReplacement",
+                    claim.Id,
+                    documentNumber: null,
+                    actorId: command.ActorId,
+                    payloadFingerprint: versionedFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result.Success();
         }, cancellationToken);
@@ -1911,6 +2218,7 @@ public sealed class SendShopStockToSupplierWarrantyHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public SendShopStockToSupplierWarrantyHandler(
         IWarrantyRepository warranty,
@@ -1927,7 +2235,8 @@ public sealed class SendShopStockToSupplierWarrantyHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IOperationLock? operationLock = null)
+        IOperationLock? operationLock = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _warranty = warranty;
         _operationLock = operationLock;
@@ -1944,6 +2253,7 @@ public sealed class SendShopStockToSupplierWarrantyHandler
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result<Guid>> HandleAsync(
@@ -1980,6 +2290,91 @@ public sealed class SendShopStockToSupplierWarrantyHandler
             if (_operationLock is not null)
             {
                 await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+            }
+
+            var domainProjection = new
+            {
+                command.ProductId,
+                SourceBucket = command.SourceBucket.ToString(),
+                BaseQuantity = QuantityMath.RoundQuantity(command.BaseQuantity).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                command.SupplierId,
+                command.SourcePurchaseItemId,
+                InventoryUnitIds = (command.InventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).ToArray(),
+                FaultDescription = WarrantyOperationIdentity.Normalize(command.FaultDescription)
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ShopStockWarrantySend", domainProjection);
+            var payloadHash = WarrantyOperationIdentity.Hash(
+                "SHOP_STOCK",
+                "SEND",
+                command.ProductId.ToString("D"),
+                command.SourceBucket.ToString(),
+                QuantityMath.RoundQuantity(command.BaseQuantity).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                command.SupplierId.ToString("D"),
+                command.SourcePurchaseItemId?.ToString("D"),
+                string.Join(",", (command.InventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).Select(x => x.ToString("D"))),
+                WarrantyOperationIdentity.Normalize(command.FaultDescription));
+
+            if (_outcomeLedger is not null)
+            {
+                var preOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (preOutcome is not null)
+                {
+                    if (!string.Equals(preOutcome.OperationType, "ShopStockWarrantySend", StringComparison.Ordinal) &&
+                        !string.Equals(preOutcome.OperationType, "ShopSend", StringComparison.Ordinal))
+                    {
+                        return Result<Guid>.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to operation type '{preOutcome.OperationType}'.");
+                    }
+
+                    if (preOutcome.ActorId.HasValue && command.ActorId != Guid.Empty && preOutcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result<Guid>.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(preOutcome.PayloadFingerprint) &&
+                        !string.Equals(preOutcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(preOutcome.PayloadFingerprint, payloadHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result<Guid>.Failure(
+                            "idempotency.payload_mismatch",
+                            "Operation was previously submitted with a different Warranty payload.");
+                    }
+
+                    if (preOutcome.State == OperationOutcomeState.Succeeded && preOutcome.WasCommitted && preOutcome.EntityId.HasValue)
+                    {
+                        return Result<Guid>.Success(preOutcome.EntityId.Value);
+                    }
+                }
+            }
+
+            var existingOperation = await _warranty.GetOperationByClientOperationIdAsync(command.ClientOperationId, ct);
+            if (existingOperation is not null)
+            {
+                if (existingOperation.OperationType != WarrantyOperationType.ShopSend ||
+                    existingOperation.TargetType != "SHOP_STOCK" ||
+                    (existingOperation.PayloadHash != versionedFingerprint && existingOperation.PayloadHash != payloadHash))
+                {
+                    return Result<Guid>.Failure("idempotency.payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
+                }
+                if (existingOperation.ResultId is Guid existingCaseId)
+                {
+                    if (_outcomeLedger is not null)
+                    {
+                        await _outcomeLedger.RecordSuccessAsync(
+                            command.ClientOperationId,
+                            "ShopStockWarrantySend",
+                            existingCaseId,
+                            documentNumber: null,
+                            actorId: command.ActorId,
+                            payloadFingerprint: versionedFingerprint,
+                            cancellationToken: ct);
+                    }
+                    return Result<Guid>.Success(existingCaseId);
+                }
+                return Result<Guid>.Failure("warranty.operation_result_missing", "Previously completed Warranty operation has no result identity.");
             }
 
             if (command.SourceBucket is not InventoryBucket.Damaged and
@@ -2126,30 +2521,6 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                 targetLot = lotPosition.Lot;
             }
 
-            var payloadHash = WarrantyOperationIdentity.Hash(
-                "SHOP_STOCK",
-                "SEND",
-                command.ProductId.ToString("D"),
-                command.SourceBucket.ToString(),
-                QuantityMath.RoundQuantity(command.BaseQuantity).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                command.SupplierId.ToString("D"),
-                command.SourcePurchaseItemId?.ToString("D"),
-                string.Join(",", (command.InventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).Select(x => x.ToString("D"))),
-                WarrantyOperationIdentity.Normalize(command.FaultDescription));
-            var existingOperation = await _warranty.GetOperationByClientOperationIdAsync(command.ClientOperationId, ct);
-            if (existingOperation is not null)
-            {
-                if (existingOperation.OperationType != WarrantyOperationType.ShopSend ||
-                    existingOperation.TargetType != "SHOP_STOCK" ||
-                    existingOperation.PayloadHash != payloadHash)
-                {
-                    return Result<Guid>.Failure("payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
-                }
-                return existingOperation.ResultId is Guid existingCaseId
-                    ? Result<Guid>.Success(existingCaseId)
-                    : Result<Guid>.Failure("warranty.operation_result_missing", "Previously completed Warranty operation has no result identity.");
-            }
-
             var now = _clock.UtcNow;
             var warrantyCase = new ShopStockWarrantyCase
             {
@@ -2262,6 +2633,18 @@ public sealed class SendShopStockToSupplierWarrantyHandler
                 OccurredAt = now
             });
 
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ShopStockWarrantySend",
+                    warrantyCase.Id,
+                    warrantyCase.CaseNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: versionedFingerprint,
+                    cancellationToken: ct);
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(warrantyCase.Id);
         }, cancellationToken);
@@ -2310,6 +2693,7 @@ public sealed class ReceiveShopStockWarrantyHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
+    private readonly IOperationOutcomeLedger? _outcomeLedger;
 
     public ReceiveShopStockWarrantyHandler(
         ICatalogRepository catalog,
@@ -2328,7 +2712,8 @@ public sealed class ReceiveShopStockWarrantyHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
+        IOperationOutcomeLedger? outcomeLedger = null)
     {
         _catalog = catalog;
         _inventory = inventory;
@@ -2347,6 +2732,7 @@ public sealed class ReceiveShopStockWarrantyHandler
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _physicalUnits = physicalUnitCreationAuthority;
+        _outcomeLedger = outcomeLedger;
     }
 
     public Task<Result> HandleAsync(
@@ -2434,6 +2820,23 @@ public sealed class ReceiveShopStockWarrantyHandler
             {
                 return Result.Failure(ex.Code, ex.Message);
             }
+            var domainProjection = new
+            {
+                command.CaseId,
+                Resolution = command.Resolution.ToString(),
+                OriginalInventoryUnitIds = (command.OriginalInventoryUnitIds ?? Array.Empty<Guid>()).OrderBy(x => x).ToArray(),
+                ReplacementUnits = (command.ReplacementUnits ?? Array.Empty<ReplacementSerializedUnitInput>()).Select(x => new
+                {
+                    Serial = IdentityNormalizationRules.NormalizeOptionalSerialNumber(x.SerialNumber),
+                    Imei1 = IdentityNormalizationRules.NormalizeOptionalImei(x.Imei1),
+                    Imei2 = IdentityNormalizationRules.NormalizeOptionalImei(x.Imei2)
+                }).ToArray(),
+                Note = WarrantyOperationIdentity.Normalize(command.Note),
+                SupplierCreditAmount = command.SupplierCreditAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                SupplierReference = WarrantyOperationIdentity.Normalize(command.SupplierReference),
+                ResolvedQuantity = command.ResolvedQuantity?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            };
+            var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("ShopStockWarrantyReceive", domainProjection);
             var payloadHash = WarrantyOperationIdentity.Hash(
                 "SHOP_STOCK",
                 "RECEIVE",
@@ -2451,6 +2854,43 @@ public sealed class ReceiveShopStockWarrantyHandler
                     $"{WarrantyOperationIdentity.Normalize(x.SerialNumber)}|{WarrantyOperationIdentity.Normalize(x.Imei1)}|{WarrantyOperationIdentity.Normalize(x.Imei2)}")),
                 WarrantyOperationIdentity.Normalize(command.Note), command.SupplierCreditAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 WarrantyOperationIdentity.Normalize(command.SupplierReference));
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null)
+                {
+                    if (!string.Equals(outcome.OperationType, "ShopStockWarrantyReceive", StringComparison.Ordinal) &&
+                        !string.Equals(outcome.OperationType, "ShopReceive", StringComparison.Ordinal))
+                    {
+                        return Result.Failure(
+                            "idempotency.operation_type_mismatch",
+                            $"Operation identity already belongs to operation type '{outcome.OperationType}'.");
+                    }
+
+                    if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                    {
+                        return Result.Failure(
+                            "idempotency.context_mismatch",
+                            "Operation actor mismatch.");
+                    }
+
+                    if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
+                        !string.Equals(outcome.PayloadFingerprint, versionedFingerprint, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outcome.PayloadFingerprint, payloadHash, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outcome.PayloadFingerprint, legacyPayloadHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Result.Failure(
+                            "warranty.replay_reconciliation_required",
+                            "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
+                    }
+
+                    if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+                    {
+                        return Result.Success();
+                    }
+                }
+            }
+
             var existingOperation = await _warranty.GetOperationForReplayAsync(command.ClientOperationId, ct);
             if (existingOperation is not null)
             {
@@ -2458,13 +2898,26 @@ public sealed class ReceiveShopStockWarrantyHandler
                     existingOperation.TargetType != "SHOP_STOCK" ||
                     existingOperation.TargetId != command.CaseId)
                 {
-                    return Result.Failure("payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
+                    return Result.Failure("idempotency.payload_mismatch", "Operation was previously submitted with a different Warranty payload.");
                 }
-                if (existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
+                if (existingOperation.PayloadHash != versionedFingerprint && existingOperation.PayloadHash != payloadHash && existingOperation.PayloadHash != legacyPayloadHash)
                 {
                     return Result.Failure("warranty.replay_reconciliation_required",
                         "Stored Warranty payload cannot establish replay equivalence, including a possible legacy hash. Reconcile the original operation before retrying; no replacement was allocated.");
                 }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "ShopStockWarrantyReceive",
+                        command.CaseId,
+                        documentNumber: null,
+                        actorId: command.ActorId,
+                        payloadFingerprint: versionedFingerprint,
+                        cancellationToken: ct);
+                }
+
                 return Result.Success();
             }
 
@@ -2819,6 +3272,18 @@ public sealed class ReceiveShopStockWarrantyHandler
                 ResultId = warrantyCase.Id,
                 OccurredAt = now
             });
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordSuccessAsync(
+                    command.ClientOperationId,
+                    "ShopStockWarrantyReceive",
+                    warrantyCase.Id,
+                    warrantyCase.CaseNumber,
+                    actorId: command.ActorId,
+                    payloadFingerprint: versionedFingerprint,
+                    cancellationToken: ct);
+            }
 
             _audit.Record(
                 command.Resolution == WarrantyResolutionType.Credited

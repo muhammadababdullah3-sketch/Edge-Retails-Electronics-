@@ -37,6 +37,7 @@ public sealed class TrackingLockOrderPostgresTests
                 sp.GetRequiredService<EdgeRetailsDbContext>(), trace));
             services.AddScoped<IOperationLock>(sp => sp.GetRequiredService<RecordingLock>());
             services.AddScoped<IResourceLock>(sp => sp.GetRequiredService<RecordingLock>());
+            services.RemoveAll<IShopPostingValidationService>();
         });
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
@@ -100,7 +101,7 @@ public sealed class TrackingLockOrderPostgresTests
         var application = "lock-order-" + Guid.NewGuid().ToString("N");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('application_name', {application}, false)");
 
-        await using var blocker = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var blocker = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await blocker.OpenAsync();
         await using var blockerTransaction = await blocker.BeginTransactionAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@key)", blocker, blockerTransaction))
@@ -116,7 +117,7 @@ public sealed class TrackingLockOrderPostgresTests
         {
             await AssertLockWaitAsync(application, identityKey);
             Assert.False(operationTask.IsCompleted);
-            await using var sentinel = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            await using var sentinel = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
             await sentinel.OpenAsync();
             await using var sentinelTransaction = await sentinel.BeginTransactionAsync();
             await using var row = new NpgsqlCommand("SELECT id FROM catalog.products WHERE id=@id FOR UPDATE NOWAIT", sentinel, sentinelTransaction);
@@ -182,7 +183,7 @@ public sealed class TrackingLockOrderPostgresTests
         var application = "intake-lock-order-" + Guid.NewGuid().ToString("N");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('application_name', {application}, false)");
         var identityKey = LockTrace.Key($"resource:inventory-identity:SERIAL:{serial}");
-        await using var blocker = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var blocker = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await blocker.OpenAsync();
         await using var block = await blocker.BeginTransactionAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@key)", blocker, block))
@@ -198,7 +199,7 @@ public sealed class TrackingLockOrderPostgresTests
         {
             await AssertLockWaitAsync(application, identityKey);
             Assert.False(intakeTask.IsCompleted);
-            await using var sentinel = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            await using var sentinel = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
             await sentinel.OpenAsync();
             await using var sentinelTransaction = await sentinel.BeginTransactionAsync();
             try
@@ -253,6 +254,7 @@ public sealed class TrackingLockOrderPostgresTests
                 sp.GetRequiredService<EdgeRetailsDbContext>(), trace));
             services.AddScoped<IOperationLock>(sp => sp.GetRequiredService<RecordingLock>());
             services.AddScoped<IResourceLock>(sp => sp.GetRequiredService<RecordingLock>());
+            services.RemoveAll<IShopPostingValidationService>();
         });
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
@@ -276,7 +278,7 @@ public sealed class TrackingLockOrderPostgresTests
         var application = "adjustment-lock-" + Guid.NewGuid().ToString("N");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('application_name', {application}, false)");
         var identityKey = LockTrace.Key($"resource:inventory-identity:SERIAL:{serial}");
-        await using var blocker = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var blocker = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await blocker.OpenAsync();
         await using var block = await blocker.BeginTransactionAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@key)", blocker, block))
@@ -359,7 +361,7 @@ public sealed class TrackingLockOrderPostgresTests
         var application = "count-lock-" + Guid.NewGuid().ToString("N");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('application_name', {application}, false)");
         var unitKey = LockTrace.Key($"resource:inventory-unit:{selectedId:D}");
-        await using var blocker = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var blocker = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await blocker.OpenAsync();
         await using var block = await blocker.BeginTransactionAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@key)", blocker, block))
@@ -414,6 +416,7 @@ public sealed class TrackingLockOrderPostgresTests
                 sp.GetRequiredService<EdgeRetailsDbContext>(), trace));
             services.AddScoped<IOperationLock>(sp => sp.GetRequiredService<RecordingLock>());
             services.AddScoped<IResourceLock>(sp => sp.GetRequiredService<RecordingLock>());
+            services.RemoveAll<IShopPostingValidationService>();
         });
         await using var setup = provider.CreateAsyncScope();
         var services = setup.ServiceProvider;
@@ -475,7 +478,7 @@ public sealed class TrackingLockOrderPostgresTests
         var application = "warranty-lock-" + Guid.NewGuid().ToString("N");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('application_name', {application}, false)");
         var key = LockTrace.Key($"resource:inventory-identity:SERIAL:{serial}");
-        await using var blocker = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var blocker = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await blocker.OpenAsync();
         await using var block = await blocker.BeginTransactionAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@key)", blocker, block))
@@ -495,7 +498,7 @@ public sealed class TrackingLockOrderPostgresTests
             await AssertLockWaitAsync(application, key);
             Assert.False(task.IsCompleted);
             await AssertProductAndBalanceRowsAvailableAsync(seed.ProductId);
-            await using var sentinel = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            await using var sentinel = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
             await sentinel.OpenAsync();
             await using var transaction = await sentinel.BeginTransactionAsync();
             try
@@ -537,7 +540,7 @@ public sealed class TrackingLockOrderPostgresTests
 
     private static async Task AssertProductAndBalanceRowsAvailableAsync(Guid productId)
     {
-        await using var sentinel = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var sentinel = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await sentinel.OpenAsync();
         await using var transaction = await sentinel.BeginTransactionAsync();
         try
@@ -563,7 +566,7 @@ public sealed class TrackingLockOrderPostgresTests
 
     private static async Task AssertLockWaitAsync(string application, long identityKey)
     {
-        await using var observer = new NpgsqlConnection(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+        await using var observer = new NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
         await observer.OpenAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         while (true)

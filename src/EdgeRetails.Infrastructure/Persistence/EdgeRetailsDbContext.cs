@@ -6,6 +6,7 @@ using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Operations;
 using EdgeRetails.Domain.Parties;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Purchasing;
 using EdgeRetails.Domain.Sales;
 using EdgeRetails.Domain.SystemConfiguration;
@@ -55,6 +56,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<InventoryUnit> InventoryUnits => Set<InventoryUnit>();
     public DbSet<InventoryUnitIdentityClaim> InventoryUnitIdentityClaims => Set<InventoryUnitIdentityClaim>();
     public DbSet<InventoryUnitIdentityOwnership> InventoryUnitIdentityOwnerships => Set<InventoryUnitIdentityOwnership>();
+    public DbSet<PackAllocation> PackAllocations => Set<PackAllocation>();
     public DbSet<ProductCostState> ProductCostStates => Set<ProductCostState>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<InventoryLotBucketBalance> InventoryLotBucketBalances => Set<InventoryLotBucketBalance>();
@@ -123,10 +125,13 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<Terminal> Terminals => Set<Terminal>();
     public DbSet<OperationOutcome> OperationOutcomes => Set<OperationOutcome>();
+    public DbSet<PeriodLock> PeriodLocks => Set<PeriodLock>();
+    public DbSet<PostingAuditEntry> PostingAuditEntries => Set<PostingAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.HasPostgresEnum<PackState>("inventory", "pack_state", new Npgsql.NameTranslation.NpgsqlNullNameTranslator());
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(EdgeRetailsDbContext).Assembly);
         ApplySnakeCaseDatabaseNames(modelBuilder);
     }
@@ -193,6 +198,20 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
         {
             throw new InvalidOperationException(
                 "Cash movements are append-only ledger facts and cannot be modified or deleted.");
+        }
+
+        if (ChangeTracker.Entries<PackAllocation>()
+            .Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Pack allocations are append-only ledger facts and cannot be modified or deleted.");
+        }
+
+        if (ChangeTracker.Entries<PostingAuditEntry>()
+            .Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Posting audit entries are append-only ledger facts and cannot be modified or deleted.");
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
 
@@ -99,7 +100,7 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
     private readonly IDialogService? _dialogService;
     private readonly Action _close;
     private readonly Action? _completed;
-    private readonly Guid _clientOperationId = Guid.CreateVersion7();
+    private readonly IClientOperationIntentStore _operationIntents;
     private string _reason = "Supplier Return";
     private string _note = string.Empty;
 
@@ -110,13 +111,15 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
         Action? completed = null,
         IBackendPurchasingInventoryService? backendService = null,
         IBackendWorkflowReadService? workflowService = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         Purchase = purchase;
         _toastService = toastService;
         _close = close;
         _completed = completed;
         _backendService = backendService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
 #if DEBUG
         _previewService = backendService is null ? DemoPurchaseInventoryService.Instance : null;
 #else
@@ -223,6 +226,11 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
             }
             else
             {
+                if (Purchase.BackendPurchaseId is not Guid purchaseId)
+                {
+                    throw new InvalidOperationException("Purchase is not attached to backend authority.");
+                }
+
                 var values = selectedLines
                     .Where(line => line.Item.BackendPurchaseItemId is not null)
                     .ToDictionary(
@@ -231,12 +239,53 @@ public sealed class PurchaseReturnViewModel : ViewModelBase
                             line.ReturnQuantity,
                             line.SelectedUnits.Select(x => x.InventoryUnitId).ToArray()));
 
-                total = await _backendService.ReturnPurchaseAsync(
-                    Purchase,
-                    values,
-                    Reason,
-                    Note,
-                    _clientOperationId);
+                var operationKey = $"purchase:return:{purchaseId:D}";
+                var canonicalPayload = JsonSerializer.Serialize(new
+                {
+                    PurchaseId = purchaseId,
+                    Reason = Reason.Trim(),
+                    Note = Note.Trim(),
+                    Selections = values.OrderBy(k => k.Key).Select(kvp => new
+                    {
+                        PurchaseItemId = kvp.Key,
+                        Quantity = kvp.Value.EnteredQuantity,
+                        Units = kvp.Value.InventoryUnitIds.OrderBy(u => u).ToArray()
+                    }).ToArray()
+                });
+
+                Guid clientOperationId;
+                try
+                {
+                    clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+                }
+                catch (InvalidOperationException)
+                {
+                    _toastService.Show(
+                        "A previous return for this purchase has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.",
+                        ToastTone.Warning);
+                    return;
+                }
+
+                try
+                {
+                    total = await _backendService.ReturnPurchaseAsync(
+                        Purchase,
+                        values,
+                        Reason,
+                        Note,
+                        clientOperationId);
+
+                    _operationIntents.Complete(operationKey, clientOperationId);
+                }
+                catch (DesktopApiException ex) when (ex.StatusCode is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError
+                    and not System.Net.HttpStatusCode.Unauthorized
+                    and not System.Net.HttpStatusCode.Forbidden
+                    and not System.Net.HttpStatusCode.RequestTimeout
+                    and not (System.Net.HttpStatusCode)429)
+                {
+                    _operationIntents.Complete(operationKey, clientOperationId);
+                    throw;
+                }
 
                 foreach (var line in selectedLines)
                 {

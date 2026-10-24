@@ -1,6 +1,8 @@
 using System.Globalization;
+using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Parties;
+using EdgeRetails.Application.Features.Posting;
 using EdgeRetails.Application.Features.Reporting;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Inventory;
@@ -323,8 +325,15 @@ public sealed class PartyDirectoryReadService : IPartyDirectoryReadService
 public sealed class ReportingReadService : IReportingReadService
 {
     private readonly EdgeRetailsDbContext _db;
+    private readonly IShopPeriodBoundaryService _periodBoundaryService;
 
-    public ReportingReadService(EdgeRetailsDbContext db) => _db = db;
+    public ReportingReadService(
+        EdgeRetailsDbContext db,
+        IShopPeriodBoundaryService? periodBoundaryService = null)
+    {
+        _db = db;
+        _periodBoundaryService = periodBoundaryService ?? new ShopPeriodBoundaryService(new ShopClock());
+    }
 
     public async Task<ReportingSnapshotDto> GetSnapshotAsync(
         ReportingPeriodKind mode,
@@ -333,13 +342,11 @@ public sealed class ReportingReadService : IReportingReadService
         int selectedYear,
         CancellationToken cancellationToken)
     {
-        var (startLocal, endLocal, label) = ResolvePeriod(
+        var (start, end, startDay, endDay, label) = ResolvePeriod(
             mode,
             selectedDate,
             selectedMonth,
             selectedYear);
-        var start = ToOffset(startLocal);
-        var end = ToOffset(endLocal);
 
         var salesBase = _db.Sales.AsNoTracking()
             .Where(x => x.CompletedAt >= start && x.CompletedAt < end);
@@ -370,8 +377,8 @@ public sealed class ReportingReadService : IReportingReadService
         var expenseBase = _db.Expenses.AsNoTracking()
             .Where(x =>
                 x.Status == ExpenseStatus.Posted &&
-                x.ExpenseDate >= DateOnly.FromDateTime(startLocal) &&
-                x.ExpenseDate < DateOnly.FromDateTime(endLocal));
+                x.ExpenseDate >= startDay &&
+                x.ExpenseDate < endDay);
         var expenseTotal = await expenseBase.Select(x => (decimal?)x.Amount).SumAsync(cancellationToken) ?? 0m;
         var expenseBreakdownRaw = await expenseBase
             .GroupBy(x => x.CategoryId)
@@ -385,8 +392,8 @@ public sealed class ReportingReadService : IReportingReadService
         var purchaseTotal = await _db.Purchases.AsNoTracking()
             .Where(x =>
                 x.Status == PurchaseStatus.Completed &&
-                x.PurchaseDate >= DateOnly.FromDateTime(startLocal) &&
-                x.PurchaseDate < DateOnly.FromDateTime(endLocal))
+                x.PurchaseDate >= startDay &&
+                x.PurchaseDate < endDay)
             .Select(x => (decimal?)x.GrandTotal)
             .SumAsync(cancellationToken) ?? 0m;
         var purchaseReturnTotal = await _db.PurchaseReturns.AsNoTracking()
@@ -526,13 +533,11 @@ public sealed class ReportingReadService : IReportingReadService
         int selectedYear,
         CancellationToken cancellationToken)
     {
-        var (startLocal, endLocal, _) = ResolvePeriod(
+        var (start, end, startDay, endDay, _) = ResolvePeriod(
             mode,
             selectedDate,
             selectedMonth,
             selectedYear);
-        var start = ToOffset(startLocal);
-        var end = ToOffset(endLocal);
 
         var sales = await _db.Sales.AsNoTracking()
             .Where(x => x.CompletedAt >= start && x.CompletedAt < end)
@@ -567,8 +572,8 @@ public sealed class ReportingReadService : IReportingReadService
             : await _db.Expenses.AsNoTracking()
                 .Where(x =>
                     x.Status == ExpenseStatus.Posted &&
-                    x.ExpenseDate >= DateOnly.FromDateTime(startLocal) &&
-                    x.ExpenseDate < DateOnly.FromDateTime(endLocal))
+                    x.ExpenseDate >= startDay &&
+                    x.ExpenseDate < endDay)
                 .GroupBy(x => x.ExpenseDate)
                 .Select(g => new ValueTuple<DateTime, decimal>(
                     g.Key.ToDateTime(TimeOnly.MinValue),
@@ -690,22 +695,23 @@ public sealed class ReportingReadService : IReportingReadService
         return results;
     }
 
-    private static IReadOnlyList<(DateTime Start, DateTime End, string Label)> BuildTrendSlices(
+    private IReadOnlyList<(DateTimeOffset Start, DateTimeOffset End, string Label)> BuildTrendSlices(
         ReportingPeriodKind mode,
         DateOnly selectedDate,
         int selectedMonth,
         int selectedYear)
     {
-        var slices = new List<(DateTime Start, DateTime End, string Label)>();
+        var slices = new List<(DateTimeOffset Start, DateTimeOffset End, string Label)>();
         if (mode == ReportingPeriodKind.Daily)
         {
             var day = selectedDate.ToDateTime(TimeOnly.MinValue);
             for (var hour = 0; hour < 24; hour++)
             {
+                var (startUtc, endUtc) = _periodBoundaryService.GetHourlyUtcBoundary(selectedDate, hour);
                 var start = day.AddHours(hour);
                 slices.Add((
-                    start,
-                    start.AddHours(1),
+                    startUtc,
+                    endUtc,
                     hour % 3 == 0 ? start.ToString("htt").ToLowerInvariant() : string.Empty));
             }
             return slices;
@@ -716,10 +722,11 @@ public sealed class ReportingReadService : IReportingReadService
             var days = DateTime.DaysInMonth(selectedYear, selectedMonth);
             for (var day = 1; day <= days; day++)
             {
-                var start = new DateTime(selectedYear, selectedMonth, day);
+                var date = new DateOnly(selectedYear, selectedMonth, day);
+                var (startUtc, endUtc) = _periodBoundaryService.GetDailyUtcBoundary(date);
                 slices.Add((
-                    start,
-                    start.AddDays(1),
+                    startUtc,
+                    endUtc,
                     day == 1 || day == days || day % 5 == 0
                         ? day.ToString()
                         : string.Empty));
@@ -729,37 +736,43 @@ public sealed class ReportingReadService : IReportingReadService
 
         for (var month = 1; month <= 12; month++)
         {
+            var (startUtc, endUtc) = _periodBoundaryService.GetMonthlyUtcBoundary(selectedYear, month);
             var start = new DateTime(selectedYear, month, 1);
-            slices.Add((start, start.AddMonths(1), start.ToString("MMM")));
+            slices.Add((startUtc, endUtc, start.ToString("MMM")));
         }
 
         return slices;
     }
 
-    private static (DateTime Start, DateTime End, string Label) ResolvePeriod(
+    private (DateTimeOffset Start, DateTimeOffset End, DateOnly StartDay, DateOnly EndDay, string Label) ResolvePeriod(
         ReportingPeriodKind mode,
         DateOnly selectedDate,
         int selectedMonth,
-        int selectedYear) =>
-        mode switch
+        int selectedYear)
+    {
+        switch (mode)
         {
-            ReportingPeriodKind.Daily => (
-                selectedDate.ToDateTime(TimeOnly.MinValue),
-                selectedDate.AddDays(1).ToDateTime(TimeOnly.MinValue),
-                selectedDate.ToString("dd MMM yyyy")),
-            ReportingPeriodKind.Monthly => (
-                new DateTime(selectedYear, selectedMonth, 1),
-                new DateTime(selectedYear, selectedMonth, 1).AddMonths(1),
-                new DateTime(selectedYear, selectedMonth, 1).ToString("MMMM yyyy")),
-            ReportingPeriodKind.Yearly => (
-                new DateTime(selectedYear, 1, 1),
-                new DateTime(selectedYear + 1, 1, 1),
-                selectedYear.ToString(CultureInfo.InvariantCulture)),
-            _ => throw new ArgumentOutOfRangeException(nameof(mode))
-        };
-
-    private static DateTimeOffset ToOffset(DateTime local) =>
-        new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local)).ToUniversalTime();
+            case ReportingPeriodKind.Daily:
+            {
+                var (startUtc, endUtc) = _periodBoundaryService.GetDailyUtcBoundary(selectedDate);
+                return (startUtc, endUtc, selectedDate, selectedDate.AddDays(1), selectedDate.ToString("dd MMM yyyy"));
+            }
+            case ReportingPeriodKind.Monthly:
+            {
+                var (startUtc, endUtc) = _periodBoundaryService.GetMonthlyUtcBoundary(selectedYear, selectedMonth);
+                var startDay = new DateOnly(selectedYear, selectedMonth, 1);
+                return (startUtc, endUtc, startDay, startDay.AddMonths(1), new DateTime(selectedYear, selectedMonth, 1).ToString("MMMM yyyy"));
+            }
+            case ReportingPeriodKind.Yearly:
+            {
+                var (startUtc, endUtc) = _periodBoundaryService.GetYearlyUtcBoundary(selectedYear);
+                var startDay = new DateOnly(selectedYear, 1, 1);
+                return (startUtc, endUtc, startDay, startDay.AddYears(1), selectedYear.ToString(CultureInfo.InvariantCulture));
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+    }
 
     private static decimal Round(decimal value) =>
         decimal.Round(value, 2, MidpointRounding.AwayFromZero);

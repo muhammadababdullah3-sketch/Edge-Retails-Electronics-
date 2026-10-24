@@ -114,7 +114,8 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
                 500m,
                 actorId,
                 "Office tea & snacks",
-                null),
+                null,
+                Guid.NewGuid()),
             CancellationToken.None);
 
         Assert.True(outResult.IsSuccess, outResult.Error?.Message);
@@ -126,7 +127,8 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
                 1000m,
                 actorId,
                 "Petty cash top-up",
-                null),
+                null,
+                Guid.NewGuid()),
             CancellationToken.None);
 
         Assert.True(inResult.IsSuccess, inResult.Error?.Message);

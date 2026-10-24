@@ -268,7 +268,7 @@ public sealed class Phase7Pass1ExpensePostgresTests
             var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
             var before = await SnapshotAsync(db, expenseId);
             var post = await scope.ServiceProvider.GetRequiredService<PostExpenseHandler>().HandleAsync(
-                new(operation, fixture.CategoryId, null, new DateOnly(2026, 10, 7), 1000m,
+                new(operation, fixture.CategoryId, null, DateOnly.FromDateTime(DateTime.UtcNow), 1000m,
                     ExpensePaymentMethod.Bank, "Forbidden reuse", null, fixture.ActorId), default);
             Assert.Equal("idempotency.payload_mismatch", post.Error?.Code);
             Assert.False(await db.Expenses.AnyAsync(x => x.ClientOperationId == operation));

@@ -156,6 +156,9 @@ public interface IInventoryRepository
     void AddLot(InventoryLot lot);
     void AddLotBucketBalance(InventoryLotBucketBalance balance);
     void AddLotConsumption(InventoryLotConsumption consumption);
+    void AddPackAllocation(PackAllocation allocation);
+    Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByMovementAsync(Guid movementId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PackAllocation>> GetPackAllocationsByUnitAsync(Guid unitId, CancellationToken cancellationToken);
 
     Task<Stocktake?> GetOpenStocktakeForUpdateAsync(CancellationToken cancellationToken);
     Task<Stocktake?> GetStocktakeForUpdateAsync(

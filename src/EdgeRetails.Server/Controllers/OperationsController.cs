@@ -17,6 +17,7 @@ public sealed class OperationsController : ControllerBase
     }
 
     [HttpGet("{clientOperationId:guid}")]
+    [HttpGet("/api/v1/operations/{clientOperationId:guid}")]
     public async Task<IActionResult> GetOperationStatus(
         [FromRoute] Guid clientOperationId,
         CancellationToken cancellationToken)

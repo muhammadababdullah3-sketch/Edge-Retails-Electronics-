@@ -29,7 +29,7 @@ public sealed class StocktakeReconciliationIdempotencyTests
         new(_fakes.Catalog, _fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
 
     private RecordSerializedStocktakeHandler CreateRecordSerializedStocktakeHandler() =>
-        new(_fakes.Catalog, _fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
+        new(_fakes.Catalog, _fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock, _fakes.OperationLock, _fakes.OutcomeLedger);
 
     private ReviewStocktakeHandler CreateReviewStocktakeHandler() =>
         new(_fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock);
@@ -181,6 +181,87 @@ public sealed class StocktakeReconciliationIdempotencyTests
         _fakes.Inventory.AddInventoryUnit(invUnit);
 
         return (product, invUnit);
+    }
+
+    private (Product product, InventoryUnit unit) SeedContainerProduct(string name, string sku, decimal initialQty, decimal unitCost)
+    {
+        var unitType = new Unit { Id = Guid.CreateVersion7(), Name = "Meter", Symbol = "m" };
+        var product = new Product
+        {
+            Id = Guid.CreateVersion7(),
+            Name = name,
+            Sku = sku,
+            BaseUnitId = unitType.Id,
+            TrackingMode = TrackingMode.Container,
+            DefaultSalePrice = unitCost * 1.5m,
+            ReferencePurchaseCost = unitCost,
+            IsActive = true
+        };
+        _fakes.Catalog.Products[product.Id] = product;
+
+        var pu = new ProductUnit
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            UnitId = unitType.Id,
+            FactorToBaseUnit = 1m,
+            IsDefaultPurchaseUnit = true,
+            IsDefaultSaleUnit = true,
+            CanPurchase = true,
+            CanSell = true
+        };
+        _fakes.Catalog.AddProductUnit(pu);
+
+        _fakes.Inventory.AddStockBalance(new StockBalance
+        {
+            ProductId = product.Id,
+            SellableQty = initialQty
+        });
+
+        _fakes.Inventory.AddCostState(new ProductCostState
+        {
+            ProductId = product.Id,
+            CostedQty = initialQty,
+            TotalInventoryCost = initialQty * unitCost,
+            MovingAverageCost = unitCost,
+            LastPurchaseCost = unitCost,
+            Version = 1
+        });
+
+        var lot = new InventoryLot
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            ReceivedQuantity = initialQty,
+            OriginalUnitCost = unitCost,
+            EffectiveUnitCost = unitCost,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        _fakes.Inventory.AddLot(lot);
+
+        _fakes.Inventory.AddLotBucketBalance(new InventoryLotBucketBalance
+        {
+            LotId = lot.Id,
+            StockBucket = InventoryBucket.Sellable,
+            Quantity = initialQty
+        });
+
+        var container = new InventoryUnit
+        {
+            Id = Guid.CreateVersion7(),
+            ProductId = product.Id,
+            InventoryLotId = lot.Id,
+            TrackingCode = $"COIL-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+            Status = InventoryUnitStatus.InStock,
+            InitialBaseQuantity = initialQty,
+            RemainingBaseQuantity = initialQty,
+            AcquisitionCost = initialQty * unitCost,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Version = 1
+        };
+        _fakes.Inventory.AddInventoryUnit(container);
+
+        return (product, container);
     }
 
     [Fact]
@@ -531,5 +612,108 @@ public sealed class StocktakeReconciliationIdempotencyTests
         var ctor = typeof(PostStocktakeHandler).GetConstructors().First();
         var parameterTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
         Assert.Contains(typeof(IOperationOutcomeLedger), parameterTypes);
+    }
+
+    [Fact]
+    public async Task SerializedStocktake_ContainerMeasurementAndLooseStock_AuthoritativeCountAndReplayConflict()
+    {
+        var (product, container) = SeedContainerProduct("Heavy Duty Cable 4mm", "CBL-4MM", 100m, 2.50m);
+        var actorId = Guid.CreateVersion7();
+        var clientOpId = Guid.CreateVersion7();
+
+        var createHandler = CreateCreateStocktakeHandler();
+        var startHandler = CreateStartStocktakeHandler();
+        var serializedCountHandler = CreateRecordSerializedStocktakeHandler();
+        var reviewHandler = CreateReviewStocktakeHandler();
+        var postHandler = CreatePostStocktakeHandler();
+
+        var createRes = await createHandler.HandleAsync(
+            new CreateStocktakeCommand(StocktakeScope.FullShop, null, actorId, "Container and loose stock reconciliation"),
+            CancellationToken.None);
+        Assert.True(createRes.IsSuccess);
+        var stocktakeId = createRes.Value;
+
+        var startRes = await startHandler.HandleAsync(new StartStocktakeCommand(stocktakeId), CancellationToken.None);
+        Assert.True(startRes.IsSuccess);
+
+        // 1. Initial count: Container measured remaining = 55.0m, Separate loose stock = 12.0m. Total counted = 67.0m.
+        var measured = new Dictionary<Guid, decimal> { [container.Id] = 55.0m };
+        var countCmd1 = new RecordSerializedStocktakeCommand(
+            stocktakeId,
+            product.Id,
+            [container.Id],
+            [],
+            actorId,
+            "Partial container plus loose cut ends",
+            ClientOperationId: clientOpId,
+            MeasuredContainerQuantities: measured,
+            MinimumSellableIncrement: 1m,
+            SeparateLooseQuantity: 12.0m);
+
+        var countRes1 = await serializedCountHandler.HandleAsync(countCmd1, CancellationToken.None);
+        Assert.True(countRes1.IsSuccess);
+
+        var item = await _fakes.Inventory.GetStocktakeItemForUpdateAsync(stocktakeId, product.Id, CancellationToken.None);
+        Assert.NotNull(item);
+        Assert.Equal(67.0m, item.CountedSellableQty);
+        Assert.Equal(100.0m, item.ExpectedSellableQty);
+        Assert.Equal(-33.0m, item.VarianceQty);
+        Assert.NotNull(item.ReviewNote);
+        Assert.Contains("[Loose stock counted: 12]", item.ReviewNote);
+
+        // 2. Exact same measurement replay under same ClientOperationId preserves identity (idempotent replay)
+        var replayRes = await serializedCountHandler.HandleAsync(countCmd1, CancellationToken.None);
+        Assert.True(replayRes.IsSuccess);
+
+        // 3. Changed measurement under same ClientOperationId triggers conflict
+        var changedMeasurementCmd = countCmd1 with
+        {
+            MeasuredContainerQuantities = new Dictionary<Guid, decimal> { [container.Id] = 60.0m }
+        };
+        var conflictRes1 = await serializedCountHandler.HandleAsync(changedMeasurementCmd, CancellationToken.None);
+        Assert.False(conflictRes1.IsSuccess);
+        Assert.Equal("inventory.stocktake_operation_conflict", conflictRes1.Error?.Code);
+
+        // Changed loose count under same ClientOperationId also triggers conflict
+        var changedLooseCmd = countCmd1 with
+        {
+            SeparateLooseQuantity = 15.0m
+        };
+        var conflictRes2 = await serializedCountHandler.HandleAsync(changedLooseCmd, CancellationToken.None);
+        Assert.False(conflictRes2.IsSuccess);
+        Assert.Equal("inventory.stocktake_operation_conflict", conflictRes2.Error?.Code);
+
+        // 4. Negative loose count fails closed
+        var negativeLooseCmd = countCmd1 with
+        {
+            ClientOperationId = Guid.CreateVersion7(),
+            SeparateLooseQuantity = -5.0m
+        };
+        var negRes = await serializedCountHandler.HandleAsync(negativeLooseCmd, CancellationToken.None);
+        Assert.False(negRes.IsSuccess);
+        Assert.Equal("inventory.stocktake_loose_quantity_negative", negRes.Error?.Code);
+
+        // 5. Post stocktake and verify authoritative balance & movement variance effects
+        var reviewRes = await reviewHandler.HandleAsync(new ReviewStocktakeCommand(stocktakeId), CancellationToken.None);
+        Assert.True(reviewRes.IsSuccess);
+
+        var postOpId = Guid.CreateVersion7();
+        var postRes = await postHandler.HandleAsync(
+            new PostStocktakeCommand(stocktakeId, actorId, null, postOpId),
+            CancellationToken.None);
+        Assert.True(postRes.IsSuccess);
+
+        // Authoritative stock balance updated to 67.0m
+        Assert.Equal(67.0m, _fakes.Inventory.Balances[product.Id].SellableQty);
+
+        // Authoritative movement recorded with -33.0m shrinkage
+        var movement = _fakes.Inventory.Movements.Single(m => m.ProductId == product.Id);
+        Assert.Equal(InventoryMovementType.PhysicalCountCorrection, movement.MovementType);
+        Assert.Equal(82.50m, movement.RecognizedLossAmount); // 33m * 2.50
+
+        var effect = _fakes.Inventory.MovementEffects.Single(e => e.MovementId == movement.Id);
+        Assert.Equal(-33.0m, effect.QuantityDelta);
+        Assert.Equal(100.0m, effect.QuantityBefore);
+        Assert.Equal(67.0m, effect.QuantityAfter);
     }
 }

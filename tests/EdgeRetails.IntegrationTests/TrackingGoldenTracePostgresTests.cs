@@ -34,7 +34,7 @@ public sealed class TrackingGoldenTracePostgresTests
         var db = services.GetRequiredService<EdgeRetailsDbContext>();
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
         var seed = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
-        var category = new Category { Name = "Golden-" + Guid.NewGuid(), IdentitySymbol = "G" + Guid.NewGuid().ToString("N")[..3].ToUpperInvariant() };
+        var category = new Category { Name = "Golden-" + Guid.NewGuid(), IdentitySymbol = "G" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant() };
         db.Categories.Add(category);
         var product = await db.Products.SingleAsync(x => x.Id == seed.ProductId);
         product.TrackingMode = mode;
@@ -45,8 +45,9 @@ public sealed class TrackingGoldenTracePostgresTests
             null, "Golden Supplier " + Guid.NewGuid(), null, null, null, true, seed.ActorId, Guid.NewGuid()), default);
         Assert.True(supplier.IsSuccess, supplier.Error?.Message);
         var serial = "GOLDEN-" + Guid.NewGuid().ToString("N");
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var purchase = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            supplier.Value, "GOLDEN-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            supplier.Value, "GOLDEN-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m, [new SerializedIdentityInput(serial)])]), default);
         Assert.True(purchase.IsSuccess, purchase.Error?.Message);
@@ -117,13 +118,14 @@ public sealed class TrackingGoldenTracePostgresTests
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
         var seed = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = TrackingMode.Container;
-        var packUnit = new Unit { Name = "Pack-" + Guid.NewGuid(), Symbol = "PK", DisplayDecimalPlaces = 0 };
+        var packUnit = new Unit { Name = "Pack-" + Guid.NewGuid(), Symbol = "PK-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), DisplayDecimalPlaces = 0 };
         var productPack = new ProductUnit { ProductId = seed.ProductId, UnitId = packUnit.Id, FactorToBaseUnit = 2m, CanPurchase = true, CanSell = true };
         db.Units.Add(packUnit);
         db.ProductUnits.Add(productPack);
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var purchase = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "PACK-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "PACK-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, productPack.Id, 1m, 100m, 5000m,
                 [new SerializedIdentityInput("PACK-" + Guid.NewGuid())])]), default);
@@ -171,8 +173,9 @@ public sealed class TrackingGoldenTracePostgresTests
         var seed = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = mode;
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var receipt = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "THAKA-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "THAKA-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m,
                 [new SerializedIdentityInput("THAKA-" + Guid.NewGuid())])]), default);
@@ -182,7 +185,7 @@ public sealed class TrackingGoldenTracePostgresTests
         var tracking = unit.TrackingCode;
         var customer = await Phase2PostgresTestHarness.SeedCustomerAsync(db);
         var project = await services.GetRequiredService<CreateThakaProjectHandler>().HandleAsync(new CreateThakaProjectCommand(
-            customer.Id, "Tracking project", null, null, DateOnly.FromDateTime(DateTime.UtcNow), seed.ActorId, Guid.NewGuid(), Guid.NewGuid()), default);
+            customer.Id, "Tracking project", null, null, shopDate, seed.ActorId, Guid.NewGuid(), Guid.NewGuid()), default);
         Assert.True(project.IsSuccess, project.Error?.Message);
         var intent = new IssueThakaMaterialCommand(Guid.NewGuid(), project.Value, seed.ActorId, null,
             [new IssueThakaMaterialLineInput(seed.ProductId, seed.ProductUnitId, 1m, 5000m, [unit.Id])]);
@@ -215,8 +218,9 @@ public sealed class TrackingGoldenTracePostgresTests
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = mode;
         (await db.ProductUnits.SingleAsync(x => x.Id == seed.ProductUnitId)).FactorToBaseUnit = factor;
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var purchase = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "RETURN-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "RETURN-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m,
                 [new SerializedIdentityInput("RETURN-" + Guid.NewGuid())])]), default);
@@ -249,8 +253,9 @@ public sealed class TrackingGoldenTracePostgresTests
         async Task<InventoryUnit> ReceiveAsync()
         {
             var serial = "LOT-" + Guid.NewGuid();
+            var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
             var receipt = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-                seed.SupplierId, serial, DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+                seed.SupplierId, serial, shopDate, null, 0m,
                 PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
                 [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m, [new SerializedIdentityInput(serial)])]), default);
             Assert.True(receipt.IsSuccess, receipt.Error?.Message);
@@ -281,15 +286,16 @@ public sealed class TrackingGoldenTracePostgresTests
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<EdgeRetailsDbContext>();
         var seed = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
-        var category = new Category { Name = "Missing-" + Guid.NewGuid(), IdentitySymbol = "M" + Guid.NewGuid().ToString("N")[..3].ToUpperInvariant() };
+        var category = new Category { Name = "Missing-" + Guid.NewGuid(), IdentitySymbol = "M" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant() };
         db.Categories.Add(category);
         var product = await db.Products.SingleAsync(x => x.Id == seed.ProductId);
         product.TrackingMode = mode;
         product.CategoryId = category.Id;
         (await db.ProductUnits.SingleAsync(x => x.Id == seed.ProductUnitId)).FactorToBaseUnit = factor;
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var receipt = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "MISSING-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "MISSING-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m, [new SerializedIdentityInput("MISSING-" + Guid.NewGuid())])]), default);
         Assert.True(receipt.IsSuccess, receipt.Error?.Message);
@@ -343,8 +349,9 @@ public sealed class TrackingGoldenTracePostgresTests
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = TrackingMode.Container;
         (await db.ProductUnits.SingleAsync(x => x.Id == seed.ProductUnitId)).FactorToBaseUnit = 2m;
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var receipt = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "CREDIT-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "CREDIT-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 5000m, [new SerializedIdentityInput("CREDIT-" + Guid.NewGuid())])]), default);
         Assert.True(receipt.IsSuccess, receipt.Error?.Message);
@@ -399,13 +406,14 @@ public sealed class TrackingGoldenTracePostgresTests
         var seed = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = TrackingMode.Container;
         var pack = new ProductUnit { ProductId = seed.ProductId, UnitId = seed.UnitId, FactorToBaseUnit = 2m, CanPurchase = true, CanSell = true };
-        var packMeasure = new Unit { Name = "Negative pack-" + Guid.NewGuid(), Symbol = "NP" + Guid.NewGuid().ToString("N")[..8] };
+        var packMeasure = new Unit { Name = "Negative pack-" + Guid.NewGuid(), Symbol = "NP-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant() };
         pack.UnitId = packMeasure.Id;
         db.Units.Add(packMeasure);
         db.ProductUnits.Add(pack);
         await db.SaveChangesAsync();
+        var shopDate = services.GetRequiredService<IShopClock>().ShopDate;
         var receipt = await services.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "NEGATIVE-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "NEGATIVE-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, pack.Id, 1m, 100m, 5000m, [new SerializedIdentityInput("NEGATIVE-" + Guid.NewGuid())])]), default);
         Assert.True(receipt.IsSuccess, receipt.Error?.Message);
@@ -441,8 +449,9 @@ public sealed class TrackingGoldenTracePostgresTests
         var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
         (await db.Products.SingleAsync(x => x.Id == seed.ProductId)).TrackingMode = mode;
         await db.SaveChangesAsync();
+        var shopDate = scope.ServiceProvider.GetRequiredService<IShopClock>().ShopDate;
         var purchase = await scope.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(new CreatePurchaseCommand(
-            seed.SupplierId, "NONPHYSICAL-" + Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
+            seed.SupplierId, "NONPHYSICAL-" + Guid.NewGuid(), shopDate, null, 0m,
             PurchaseSettlementMode.External, seed.ActorId, Guid.NewGuid(),
             [new CreatePurchaseLineInput(seed.ProductId, seed.ProductUnitId, 1m, 100m, 150m, [])]), default);
         Assert.True(purchase.IsSuccess, purchase.Error?.Message);

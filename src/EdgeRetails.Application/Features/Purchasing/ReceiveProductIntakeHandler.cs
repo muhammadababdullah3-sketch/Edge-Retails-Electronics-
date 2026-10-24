@@ -7,6 +7,7 @@ using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Purchasing;
 
 namespace EdgeRetails.Application.Features.Purchasing;
@@ -20,7 +21,10 @@ public sealed record ReceiveProductIntakeCommand(
     IReadOnlyList<SerializedIdentityInput> SerializedUnits,
     Guid CreatedBy,
     Guid ClientOperationId,
-    string? Note = null);
+    string? Note = null,
+    DateOnly? PostingDate = null,
+    SupervisorApprovalRequest? SupervisorApproval = null,
+    bool? CallerSuppliedBooleanOverride = null);
 
 public sealed record CommittedInventoryUnitDto(
     Guid Id,
@@ -63,6 +67,7 @@ public sealed class ReceiveProductIntakeHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISequenceHighWaterService _highWaterService;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public ReceiveProductIntakeHandler(
         IPurchasingRepository purchases,
@@ -80,7 +85,8 @@ public sealed class ReceiveProductIntakeHandler
         IUnitOfWork unitOfWork,
         ISequenceHighWaterService? highWaterService = null,
         IOperationOutcomeLedger? outcomeLedger = null,
-        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null)
+        IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _purchases = purchases;
         _parties = parties;
@@ -98,6 +104,7 @@ public sealed class ReceiveProductIntakeHandler
         _highWaterService = highWaterService ?? NullSequenceHighWaterService.Instance;
         _outcomeLedger = outcomeLedger;
         _physicalUnits = physicalUnitCreationAuthority;
+        _postingValidation = postingValidation;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -169,6 +176,19 @@ public sealed class ReceiveProductIntakeHandler
 
         var computedFingerprint = ComputeFallbackFingerprint(command);
 
+        if (_outcomeLedger is not null)
+        {
+            var preLockOutcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, cancellationToken);
+            if (preLockOutcome is not null)
+            {
+                var evaluated = await EvaluateGuardedOutcomeAsync(preLockOutcome, command, computedFingerprint, cancellationToken);
+                if (evaluated.HasValue)
+                {
+                    return evaluated.Value;
+                }
+            }
+        }
+
         if (command.PurchaseId == Guid.Empty)
         {
             var fail = Result<ReceiveProductIntakeResult>.Failure(
@@ -237,6 +257,19 @@ public sealed class ReceiveProductIntakeHandler
             }
 
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+
+            if (_outcomeLedger is not null)
+            {
+                var outcome = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (outcome is not null)
+                {
+                    var evaluated = await EvaluateGuardedOutcomeAsync(outcome, command, computedFingerprint, ct);
+                    if (evaluated.HasValue)
+                    {
+                        return evaluated.Value;
+                    }
+                }
+            }
 
             // Discover resource IDs without row locks. Definitive reads below
             // revalidate after all command-wide logical locks are held.
@@ -461,7 +494,7 @@ public sealed class ReceiveProductIntakeHandler
                 {
                     await _outcomeLedger.RecordSuccessAsync(
                         command.ClientOperationId,
-                        "InventoryMovement",
+                        PostingOperationTypes.ProductIntake,
                         existingMovement.Id,
                         existingMovement.ReferenceId?.ToString("D"),
                         actorId: command.CreatedBy,
@@ -791,7 +824,11 @@ public sealed class ReceiveProductIntakeHandler
                         PurchaseReceiptCost.PhysicalAcquisitionCost(receiptValue, lineUnits.Count, index),
                         lotId,
                         InventoryUnitOriginType.Purchase,
-                        SourcePurchaseItemId: purchaseItem.Id)).ToArray(),
+                        SourcePurchaseItemId: purchaseItem.Id,
+                        InitialBaseQuantity: isContainer ? purchaseItem.FactorToBaseSnapshot : (decimal?)null,
+                        RemainingBaseQuantity: isContainer ? purchaseItem.FactorToBaseSnapshot : (decimal?)null,
+                        PackState: isContainer ? PackState.Sealed : (PackState?)null,
+                        IsLooseStock: false)).ToArray(),
                     ct);
                 if (!creation.IsSuccess || creation.Value is null)
                 {
@@ -839,7 +876,7 @@ public sealed class ReceiveProductIntakeHandler
             {
                 await _outcomeLedger.RecordSuccessAsync(
                     command.ClientOperationId,
-                    "InventoryMovement",
+                    PostingOperationTypes.ProductIntake,
                     movement.Id,
                     movement.ReferenceId?.ToString("D"),
                     actorId: command.CreatedBy,
@@ -847,7 +884,28 @@ public sealed class ReceiveProductIntakeHandler
                     cancellationToken: ct);
             }
 
-            await _unitOfWork.SaveChangesAsync(ct);
+                if (_postingValidation is not null)
+                {
+                    var postingDate = command.PostingDate ?? _clock.ShopDate;
+                    var postingValidationResult = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.Purchase,
+                        EntityId: movement.Id,
+                        EntityNumber: purchase.PurchaseNumber,
+                        ActorId: command.CreatedBy,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: purchase.PurchaseDate,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!postingValidationResult.IsSuccess)
+                    {
+                        return Result<ReceiveProductIntakeResult>.Failure(
+                            postingValidationResult.Error!.Code,
+                            postingValidationResult.Error.Message);
+                    }
+                }
+
+                await _unitOfWork.SaveChangesAsync(ct);
 
             // Resolve company/category details for response
             Company? company = null;
@@ -878,11 +936,12 @@ public sealed class ReceiveProductIntakeHandler
                 false));
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty &&
+            result.Error?.Code?.StartsWith("idempotency.") != true)
         {
             await _outcomeLedger.RecordFailureAsync(
                 command.ClientOperationId,
-                "InventoryMovement",
+                PostingOperationTypes.ProductIntake,
                 result.Error?.Code ?? "receiving.failed",
                 result.Error?.Message ?? "Physical receiving failed.",
                 actorId: command.CreatedBy,
@@ -966,4 +1025,160 @@ public sealed class ReceiveProductIntakeHandler
 
     private static decimal Cost(decimal value) =>
         decimal.Round(value, 4, MidpointRounding.AwayFromZero);
+
+    private async Task<Result<ReceiveProductIntakeResult>?> EvaluateGuardedOutcomeAsync(
+        OperationOutcomeRecord outcome,
+        ReceiveProductIntakeCommand command,
+        string fallbackFingerprint,
+        CancellationToken ct)
+    {
+        if (outcome.OperationType != "ProductIntake" && outcome.OperationType != "InventoryMovement")
+        {
+            return Result<ReceiveProductIntakeResult>.Failure(
+                "idempotency.operation_type_mismatch",
+                $"Operation was registered as '{outcome.OperationType}', not 'ProductIntake'.");
+        }
+
+        if (outcome.ActorId.HasValue && outcome.ActorId.Value != command.CreatedBy)
+        {
+            return Result<ReceiveProductIntakeResult>.Failure(
+                "idempotency.context_mismatch",
+                "Operation actor mismatch.");
+        }
+
+        string? authoritativeFingerprint = null;
+        if (command.PurchaseId != Guid.Empty && command.ProductId != Guid.Empty)
+        {
+            var purchase = await _purchases.GetPurchaseAsync(command.PurchaseId, ct);
+            if (purchase is not null)
+            {
+                var items = await _purchases.GetPurchaseItemsForDiscoveryAsync(command.PurchaseId, ct);
+                var item = items.FirstOrDefault(x => x.ProductId == command.ProductId);
+                if (item is not null)
+                {
+                    authoritativeFingerprint = ComputePayloadFingerprint(
+                        command.PurchaseId,
+                        item.Id,
+                        command.ProductId,
+                        purchase.SupplierId,
+                        command.ProductUnitId,
+                        command.EnteredQuantity,
+                        command.EnteredUnitCost,
+                        command.SerializedUnits,
+                        command.Note);
+                }
+            }
+        }
+
+        var matchesFingerprint = string.IsNullOrEmpty(outcome.PayloadFingerprint) ||
+            string.Equals(outcome.PayloadFingerprint, fallbackFingerprint, StringComparison.Ordinal) ||
+            (authoritativeFingerprint is not null && string.Equals(outcome.PayloadFingerprint, authoritativeFingerprint, StringComparison.Ordinal));
+
+        if (!matchesFingerprint)
+        {
+            return Result<ReceiveProductIntakeResult>.Failure(
+                "idempotency.payload_mismatch",
+                "Operation was previously submitted with a different payload.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Succeeded && outcome.WasCommitted)
+        {
+            var movement = await _inventory.GetMovementByCorrelationIdAsync(command.ClientOperationId, ct);
+            if (movement is null && outcome.EntityId.HasValue)
+            {
+                try
+                {
+                    var evidence = await _inventory.GetInventoryMovementEvidenceAsync(outcome.EntityId.Value, ct);
+                    movement = evidence?.Movement;
+                }
+                catch (BusinessRuleException)
+                {
+                    // Fallback if test double does not support evidence read
+                }
+            }
+
+            if (movement is not null)
+            {
+                var purchase = await _purchases.GetPurchaseAsync(command.PurchaseId, ct);
+                if (purchase is null && movement.ReferenceId.HasValue)
+                {
+                    purchase = await _purchases.GetPurchaseAsync(movement.ReferenceId.Value, ct);
+                }
+
+                if (purchase is not null)
+                {
+                    var purchaseItems = await _purchases.GetPurchaseItemsAsync(purchase.Id, ct);
+                    var purchaseItem = purchaseItems.FirstOrDefault(x => x.ProductId == command.ProductId);
+                    if (purchaseItem is not null)
+                    {
+                        var productExisting = await _catalog.GetProductAsync(command.ProductId, ct);
+                        var supplierExisting = await _parties.GetSupplierAsync(purchase.SupplierId, ct);
+                        var dealerCodeExisting = supplierExisting?.DealerCode ?? string.Empty;
+
+                        var existingUnits = await _inventory.GetUnitsForMovementAsync(movement.Id, ct);
+                        if (existingUnits.Count == 0 && (productExisting?.TrackingMode == TrackingMode.Serialized || productExisting?.TrackingMode == TrackingMode.IndividualPiece || productExisting?.TrackingMode == TrackingMode.Container))
+                        {
+                            existingUnits = await _inventory.GetUnitsByPurchaseItemAsync(purchaseItem.Id, ct);
+                        }
+
+                        var committedExistingUnits = existingUnits
+                            .OrderBy(u => u.ItemSequence)
+                            .ThenBy(u => u.CreatedAt)
+                            .Select(u => new CommittedInventoryUnitDto(
+                                u.Id,
+                                u.TrackingCode ?? string.Empty,
+                                u.ItemSequence ?? 0,
+                                u.SerialNumber,
+                                u.Imei1,
+                                u.Imei2,
+                                u.AcquisitionCost))
+                            .ToList();
+
+                        var baseQuantityExisting = QuantityMath.RoundQuantity(
+                            command.EnteredQuantity * purchaseItem.FactorToBaseSnapshot);
+
+                        Company? companyExisting = null;
+                        if (productExisting?.CompanyId.HasValue == true)
+                        {
+                            companyExisting = await _catalog.GetCompanyAsync(productExisting.CompanyId.Value, ct);
+                        }
+
+                        Category? categoryExisting = null;
+                        if (productExisting?.CategoryId.HasValue == true)
+                        {
+                            categoryExisting = await _catalog.GetCategoryAsync(productExisting.CategoryId.Value, ct);
+                        }
+
+                        return Result<ReceiveProductIntakeResult>.Success(new ReceiveProductIntakeResult(
+                            purchase.Id,
+                            command.ProductId,
+                            productExisting?.Name ?? string.Empty,
+                            productExisting?.Sku ?? string.Empty,
+                            productExisting?.ModelCode,
+                            companyExisting?.Code,
+                            categoryExisting?.IdentitySymbol,
+                            dealerCodeExisting,
+                            command.EnteredQuantity,
+                            baseQuantityExisting,
+                            productExisting?.TrackingMode ?? TrackingMode.Quantity,
+                            committedExistingUnits,
+                            WasExisting: true));
+                    }
+                }
+            }
+
+            return Result<ReceiveProductIntakeResult>.Failure(
+                "idempotency.outcome_unknown",
+                "Committed intake outcome has no matching inventory movement; reconciliation is required.");
+        }
+
+        if (outcome.State == OperationOutcomeState.Failed)
+        {
+            return Result<ReceiveProductIntakeResult>.Failure(
+                outcome.ErrorCode ?? "idempotency.outcome_unknown",
+                outcome.ErrorMessage ?? "Reconcile the previous intake outcome before another execution.");
+        }
+
+        return null;
+    }
 }

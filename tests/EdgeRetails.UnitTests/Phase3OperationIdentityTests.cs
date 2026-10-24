@@ -88,7 +88,7 @@ public sealed class Phase3OperationIdentityTests
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("thaka.operation_id_conflict", result.Error?.Code);
+        Assert.Equal("idempotency.payload_mismatch", result.Error?.Code);
         Assert.Single(fakes.Thaka.Payments);
     }
 }

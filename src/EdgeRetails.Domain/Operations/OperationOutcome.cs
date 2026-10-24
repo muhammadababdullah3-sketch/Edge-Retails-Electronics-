@@ -27,4 +27,7 @@ public sealed class OperationOutcome
     public DateTimeOffset? CompletedAt { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? ResponsePayload { get; set; }
+    public int? ResponseStatusCode { get; set; }
+    public string? ResponseContentType { get; set; }
 }

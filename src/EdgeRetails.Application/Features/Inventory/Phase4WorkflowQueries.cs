@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Inventory;
 
@@ -58,7 +59,8 @@ public sealed record ScannerProductMatchDto(
     string? SupplierName = null,
     string? PurchaseNumber = null,
     Guid? SourcePurchaseItemId = null,
-    Guid? SupplierId = null);
+    Guid? SupplierId = null,
+    TrackingMode? TrackingMode = null);
 
 public sealed record PosDraftSummaryDto(
     Guid DraftId,
@@ -149,4 +151,9 @@ public interface IPhase4WorkflowReadService
 
     Task<StocktakeSnapshotDto?> GetOpenStocktakeAsync(
         CancellationToken cancellationToken);
+
+    Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<PackContainerDto?>(null);
 }

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
 using EdgeRetails.Desktop.Services;
 
@@ -41,7 +42,8 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
     private bool _isProcessing;
     private string? _validationMessage;
     private IReadOnlyList<BackendExactUnit> _selectedExactUnits = [];
-    private readonly Guid _clientOperationId = Guid.CreateVersion7();
+    private readonly IClientOperationIntentStore _operationIntents;
+    private Guid _clientOperationId;
 
     public ThakaAddMaterialViewModel(
         ThakaProjectListItemViewModel project,
@@ -50,7 +52,8 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         IToastService? toastService = null,
         IBackendThakaService? backendService = null,
         IBackendWorkflowReadService? workflowService = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        IClientOperationIntentStore? operationIntents = null)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _onMaterialAdded = onMaterialAdded;
@@ -59,6 +62,7 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
         _backendService = backendService;
         _workflowService = workflowService;
         _dialogService = dialogService;
+        _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _retailState = ResolvePreviewRetailState(backendService);
 
         Products = [];
@@ -359,12 +363,50 @@ public sealed class ThakaAddMaterialViewModel : ViewModelBase
             }
             else
             {
-                var result = await _backendService.IssueMaterialAsync(
-                    _project,
-                    SelectedProduct.Product,
+                var projectId = _project.BackendProjectId ?? throw new InvalidOperationException("Project is not attached to backend.");
+                var operationKey = $"thaka:material-issue:{projectId:D}";
+                var canonicalPayload = JsonSerializer.Serialize(new
+                {
+                    ProjectId = projectId,
+                    ProductId = SelectedProduct.Product.BackendProductId,
+                    ProductUnitId = SelectedProduct.Product.BackendProductUnitId,
                     Quantity,
-                    _selectedExactUnits.Select(x => x.InventoryUnitId).ToArray(),
-                    _clientOperationId);
+                    UnitPrice = SelectedProduct.UnitPrice,
+                    ExactUnits = _selectedExactUnits.Select(x => x.InventoryUnitId).OrderBy(u => u).ToArray()
+                });
+
+                try
+                {
+                    _clientOperationId = _operationIntents.GetOrCreate(operationKey, canonicalPayload);
+                }
+                catch (InvalidOperationException)
+                {
+                    ValidationMessage = "A previous material issue for this project has an unresolved outcome and different details. Reconcile or retry with the original details before changing values.";
+                    _toastService?.Show(ValidationMessage, ToastTone.Warning);
+                    return;
+                }
+
+                BackendThakaIssueResult result;
+                try
+                {
+                    result = await _backendService.IssueMaterialAsync(
+                        _project,
+                        SelectedProduct.Product,
+                        Quantity,
+                        _selectedExactUnits.Select(x => x.InventoryUnitId).ToArray(),
+                        _clientOperationId);
+
+                    _operationIntents.Complete(operationKey, _clientOperationId);
+                }
+                catch (DesktopApiException ex) when (ex.StatusCode is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError
+                    and not System.Net.HttpStatusCode.Unauthorized
+                    and not System.Net.HttpStatusCode.Forbidden
+                    and not System.Net.HttpStatusCode.RequestTimeout
+                    and not (System.Net.HttpStatusCode)429)
+                {
+                    _operationIntents.Complete(operationKey, _clientOperationId);
+                    throw;
+                }
 
                 entry = new MaterialLedgerEntry
                 {

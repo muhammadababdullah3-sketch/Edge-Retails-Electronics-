@@ -288,6 +288,8 @@
                             <Button Content="Hold" Command="{Binding HoldDraftCommand}"
                                     Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,6,2" />
                             <Button Content="Drafts" Command="{Binding RecentDraftsCommand}"
+                                    Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,6,2" />
+                            <Button Content="Posting / Supervisor" Command="{Binding OpenSupervisorApprovalCommand}"
                                     Style="{StaticResource Button.Neutral}" Height="28" Padding="10,0" Margin="0,0,0,2" />
                         </WrapPanel>
                     </Grid>
@@ -643,6 +645,34 @@
                         <StackPanel>
                             <!-- NORMAL SALE SUMMARY -->
                             <StackPanel>
+                                <!-- Supervisor Authorization / Posting Date Banner -->
+                                <Border Margin="0,0,0,8"
+                                        Padding="10,6"
+                                        Background="{DynamicResource Brush.Surface.Subtle}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Visibility="{Binding HasActiveSupervisorApproval, Converter={StaticResource BoolToVis}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ActivePostingDateDisplay}"
+                                                       FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
+                                            <TextBlock Text="{Binding ActiveSupervisorSummary}"
+                                                       FontSize="10.5" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,1,0,0" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Content="Clear"
+                                                Command="{Binding ClearSupervisorApprovalCommand}"
+                                                Style="{StaticResource Button.Text.Borderless}"
+                                                FontSize="11"
+                                                VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
                                 <!-- Customer Row: Walk-in Customer + Change F4 -->
                                 <Border MinHeight="42"
                                         Background="{DynamicResource Brush.Surface.Default}"

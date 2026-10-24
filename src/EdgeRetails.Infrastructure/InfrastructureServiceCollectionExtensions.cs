@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Production;
+using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Infrastructure.Persistence;
 using EdgeRetails.Infrastructure.Production.Backup;
 using EdgeRetails.Infrastructure.Repositories;
@@ -11,19 +12,27 @@ namespace EdgeRetails.Infrastructure;
 
 public static class InfrastructureServiceCollectionExtensions
 {
+    private static readonly Npgsql.NameTranslation.NpgsqlNullNameTranslator NullTranslator = new();
+
     public static IServiceCollection AddEdgeRetailsInfrastructure(
         this IServiceCollection services,
-        string connectionString)
+        string connectionString,
+        Action<DbContextOptionsBuilder>? configureDbContext = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
         services.AddDbContext<EdgeRetailsDbContext>(options =>
+        {
+            options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.ManyServiceProvidersCreatedWarning));
             options.UseNpgsql(
                 connectionString,
                 npgsql => npgsql
                     .MigrationsAssembly(typeof(EdgeRetailsDbContext).Assembly.FullName)
                     .MigrationsHistoryTable("__ef_migrations_history", "system")
-                    .CommandTimeout(ResolveDbCommandTimeoutSeconds())));
+                    .CommandTimeout(ResolveDbCommandTimeoutSeconds())
+                    .MapEnum<PackState>("pack_state", "inventory", NullTranslator));
+            configureDbContext?.Invoke(options);
+        });
 
         services.AddSingleton(_ => ProductionBackupConfiguration.FromConnectionString(connectionString));
 
@@ -188,6 +197,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Thaka.IThakaReadService, ThakaReadService>();
         services.AddScoped<EdgeRetails.Application.Features.Warranty.IWarrantyReadService, WarrantyReadService>();
 
+        services.AddScoped<EdgeRetails.Application.Features.Sales.IReturnExchangeEligibilityAuthority, EdgeRetails.Application.Features.Sales.ReturnExchangeEligibilityAuthority>();
         services.AddScoped<EdgeRetails.Application.Features.Sales.CompleteSaleHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Sales.CreateSaleReturnHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Sales.SavePosDraftHandler>();
@@ -276,8 +286,16 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<IDocumentNumberService, PostgresDocumentNumberService>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IShopClock>(sp => (IShopClock)sp.GetRequiredService<IClock>());
         services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
         services.AddSingleton<ISequenceHighWaterService, MachineSequenceHighWaterService>();
+
+        services.AddScoped<IPeriodLockRepository, EdgeRetails.Infrastructure.Repositories.EfPeriodLockRepository>();
+        services.AddScoped<IPostingAuditRepository, EdgeRetails.Infrastructure.Repositories.EfPostingAuditRepository>();
+        services.AddScoped<IShopPeriodBoundaryService, EdgeRetails.Application.Features.Posting.ShopPeriodBoundaryService>();
+        services.AddScoped<IShopPostingValidationService, EdgeRetails.Application.Features.Posting.ShopPostingValidationService>();
+        services.AddScoped<EdgeRetails.Infrastructure.Repositories.FinancialPostingAdapter>();
+        services.AddScoped<EdgeRetails.Application.Features.Inventory.IPackSubLedgerAllocationAuthority, EdgeRetails.Application.Features.Inventory.PackSubLedgerAllocationAuthority>();
 
         // The signed installed license is machine-wide in ProgramData. Only an
         // explicit state-root override (used by isolated rehearsals and configured

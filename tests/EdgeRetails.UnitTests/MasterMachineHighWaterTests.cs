@@ -1,4 +1,7 @@
+using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EdgeRetails.UnitTests;
 
@@ -147,6 +150,210 @@ public sealed class MasterMachineHighWaterTests
         var reader = files.Open();
         writer.RecordSupplierProductHighWater(supplier, product, 8);
         Assert.Equal(8, reader.GetSupplierProductHighWater(supplier, product));
+    }
+
+    [Fact]
+    public void ProductionDiRejectsOrdinaryUserOwnedAuthorityEvenWhenConfiguredInTemp()
+    {
+        using var files = new OwnedFiles();
+        var prev = Environment.GetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH", files.Manifest);
+            var services = new ServiceCollection();
+            services.AddEdgeRetailsInfrastructure("Host=localhost;Database=edge_retails_test;Username=test;Password=test");
+            using var sp = services.BuildServiceProvider();
+            // Production DI unconditionally binds WindowsSequenceAuthorityCustody.
+            // When resolved, ordinary user custody in temp is rejected fail-closed immediately.
+            Assert.Throws<InvalidOperationException>(() => sp.GetRequiredService<ISequenceHighWaterService>());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH", prev);
+        }
+    }
+
+    [Fact]
+    public void ProductionDiDoesNotAutoDiscoverCandidateManifestsOnNonstandardPort()
+    {
+        using var files = new OwnedFiles();
+        var prev = Environment.GetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH", null);
+            var services = new ServiceCollection();
+            services.AddEdgeRetailsInfrastructure("Host=127.0.0.1;Port=55437;Database=edgeretails_test_run20261012_001;Username=er_provisioner;Password=test");
+            using var sp = services.BuildServiceProvider();
+            // Must not auto-discover temp manifests; attempts production custody on default path which fails closed on non-elevated identity.
+            Assert.Throws<InvalidOperationException>(() => sp.GetRequiredService<ISequenceHighWaterService>());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_HIGHWATER_PATH", prev);
+        }
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityRejectsPort5432()
+    {
+        var services = new ServiceCollection();
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            services.AddGuardedTestSequenceAuthority("Host=127.0.0.1;Port=5432;Database=edgeretails_test_001;Username=er_provisioner;Password=test", skipLiveConnectionCheck: true));
+        Assert.Contains("Port 5432 is prohibited", ex.Message);
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityRejectsNonLoopbackHost()
+    {
+        var services = new ServiceCollection();
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            services.AddGuardedTestSequenceAuthority("Host=192.168.1.150;Port=55437;Database=edgeretails_test_001;Username=er_provisioner;Password=test", skipLiveConnectionCheck: true));
+        Assert.Contains("Only isolated loopback", ex.Message);
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityRejectsUnapprovedDatabaseOrRole()
+    {
+        var services = new ServiceCollection();
+        var exDb = Assert.Throws<InvalidOperationException>(() =>
+            services.AddGuardedTestSequenceAuthority("Host=127.0.0.1;Port=55437;Database=edgeretails;Username=er_provisioner;Password=test", skipLiveConnectionCheck: true));
+        Assert.Contains("Database 'edgeretails' is prohibited", exDb.Message);
+
+        var exRole = Assert.Throws<InvalidOperationException>(() =>
+            services.AddGuardedTestSequenceAuthority("Host=127.0.0.1;Port=55437;Database=edgeretails_test_001;Username=postgres;Password=test", skipLiveConnectionCheck: true));
+        Assert.Contains("User 'postgres' is prohibited", exRole.Message);
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityRejectsMismatchedClusterBinding()
+    {
+        var tempCluster = Directory.CreateTempSubdirectory("er-cluster-test-");
+        try
+        {
+            var markerPath = Path.Combine(tempCluster.FullName, "OWNERSHIP_MARKER.json");
+            File.WriteAllText(markerPath, System.Text.Json.JsonSerializer.Serialize(new
+            {
+                marker = "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER",
+                run_id = "RUN_MOCK_001",
+                port = 55600,
+                isolation_mode = "owned_disposable_local_cluster"
+            }));
+
+            var authorityRoot = Path.Combine(tempCluster.FullName, "harness-highwater");
+            Directory.CreateDirectory(authorityRoot);
+            try
+            {
+                // Write mismatched binding
+                var bindingPath = Path.Combine(authorityRoot, "cluster_binding.json");
+                File.WriteAllText(bindingPath, System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ClusterRoot = tempCluster.FullName,
+                    RunId = "DIFFERENT_RUN_ID",
+                    Port = 55600,
+                    Database = "edgeretails_test_001",
+                    BoundAtUtc = DateTimeOffset.UtcNow
+                }));
+
+                var services = new ServiceCollection();
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    services.AddGuardedTestSequenceAuthority("Host=127.0.0.1;Port=55600;Database=edgeretails_test_001;Username=er_provisioner;Password=test",
+                        runnerRootOverride: tempCluster.FullName, skipLiveConnectionCheck: true));
+                Assert.Contains("Cluster binding mismatch", ex.Message);
+            }
+            finally
+            {
+                if (Directory.Exists(authorityRoot)) { Directory.Delete(authorityRoot, true); }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempCluster.FullName)) { Directory.Delete(tempCluster.FullName, true); }
+        }
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityRejectsBindingWithMissingRunId()
+    {
+        var tempCluster = Directory.CreateTempSubdirectory("er-cluster-test-missing-run-");
+        try
+        {
+            var markerPath = Path.Combine(tempCluster.FullName, "OWNERSHIP_MARKER.json");
+            File.WriteAllText(markerPath, System.Text.Json.JsonSerializer.Serialize(new
+            {
+                marker = "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER",
+                run_id = "RUN_MOCK_REQUIRED_ID",
+                port = 55602,
+                isolation_mode = "owned_disposable_local_cluster"
+            }));
+
+            var authorityRoot = Path.Combine(tempCluster.FullName, "harness-highwater");
+            Directory.CreateDirectory(authorityRoot);
+            try
+            {
+                // Write existing binding with missing (null/empty) RunId
+                var bindingPath = Path.Combine(authorityRoot, "cluster_binding.json");
+                File.WriteAllText(bindingPath, System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ClusterRoot = tempCluster.FullName,
+                    RunId = (string?)null,
+                    Port = 55602,
+                    Database = "edgeretails_test_001",
+                    BoundAtUtc = DateTimeOffset.UtcNow
+                }));
+
+                var services = new ServiceCollection();
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    services.AddGuardedTestSequenceAuthority(
+                        "Host=127.0.0.1;Port=55602;Database=edgeretails_test_001;Username=er_provisioner;Password=test",
+                        runnerRootOverride: tempCluster.FullName, skipLiveConnectionCheck: true));
+                Assert.Contains("Cluster binding mismatch", ex.Message);
+            }
+            finally
+            {
+                if (Directory.Exists(authorityRoot)) { Directory.Delete(authorityRoot, true); }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempCluster.FullName)) { Directory.Delete(tempCluster.FullName, true); }
+        }
+    }
+
+    [Fact]
+    public void GuardedTestSequenceAuthorityResolvesOwnedFixtureForVerifiedTarget()
+    {
+        var tempCluster = Directory.CreateTempSubdirectory("er-cluster-test-valid-");
+        try
+        {
+            var markerPath = Path.Combine(tempCluster.FullName, "OWNERSHIP_MARKER.json");
+            File.WriteAllText(markerPath, System.Text.Json.JsonSerializer.Serialize(new
+            {
+                marker = "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER",
+                run_id = "RUN_MOCK_VALID",
+                port = 55601,
+                isolation_mode = "owned_disposable_local_cluster"
+            }));
+
+            var services = new ServiceCollection();
+            services.AddEdgeRetailsInfrastructure("Host=127.0.0.1;Port=55601;Database=edgeretails_test_valid;Username=er_provisioner;Password=test");
+            services.AddGuardedTestSequenceAuthority("Host=127.0.0.1;Port=55601;Database=edgeretails_test_valid;Username=er_provisioner;Password=test",
+                runnerRootOverride: tempCluster.FullName, skipLiveConnectionCheck: true);
+
+            using var sp = services.BuildServiceProvider();
+            var service = sp.GetRequiredService<ISequenceHighWaterService>();
+            Assert.NotNull(service);
+
+            // Verified target binds owned sequence authority successfully
+            Assert.Equal(0, service.GetDealerPrefixHighWater("VALID"));
+            service.RecordDealerPrefixHighWater("VALID", 100);
+            Assert.Equal(100, service.GetDealerPrefixHighWater("VALID"));
+        }
+        finally
+        {
+            var authorityRoot = Path.Combine(Path.GetTempPath(), "EdgeRetailsMasterPg_55601_RUN_MOCK_VALID", "harness-highwater");
+            if (Directory.Exists(authorityRoot)) { Directory.Delete(authorityRoot, true); }
+            if (Directory.Exists(tempCluster.FullName)) { Directory.Delete(tempCluster.FullName, true); }
+        }
     }
 
     private sealed class OwnedFiles : IDisposable

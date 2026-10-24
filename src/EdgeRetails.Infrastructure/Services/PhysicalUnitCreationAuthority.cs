@@ -263,11 +263,16 @@ public sealed class PhysicalUnitCreationAuthority : IPhysicalUnitCreationAuthori
                 SourceWarrantyCaseId = value.Entry.SourceWarrantyCaseId,
                 SourceStockAdjustmentItemId = value.Entry.SourceStockAdjustmentItemId,
                 CreatedAt = _clock.UtcNow,
-                Version = 1
+                Version = 1,
+                InitialBaseQuantity = value.Entry.InitialBaseQuantity,
+                RemainingBaseQuantity = value.Entry.RemainingBaseQuantity,
+                PackState = value.Entry.PackState,
+                IsLooseStock = value.Entry.IsLooseStock
             };
             try
             {
                 unit.ValidateOriginInvariants();
+                unit.ValidatePackInvariants();
             }
             catch (EdgeRetails.Domain.Common.BusinessRuleException ex)
             {

@@ -324,7 +324,10 @@ public sealed class InventoryController : ControllerBase
                 request.UnexpectedIdentitySnapshots,
                 actor?.UserId ?? Guid.Empty,
                 request.ReviewNote,
-                request.ClientOperationId),
+                request.ClientOperationId,
+                request.MeasuredContainerQuantities,
+                request.MinimumSellableIncrement ?? 1m,
+                request.SeparateLooseQuantity ?? 0m),
             cancellationToken);
         return result.IsSuccess ? Ok(new { success = true }) : ToActionResult(result);
     }
@@ -463,7 +466,10 @@ public sealed record RecordSerializedStocktakeApiRequest(
     IReadOnlyCollection<Guid> FoundInventoryUnitIds,
     IReadOnlyCollection<string> UnexpectedIdentitySnapshots,
     string? ReviewNote = null,
-    Guid ClientOperationId = default);
+    Guid ClientOperationId = default,
+    IReadOnlyDictionary<Guid, decimal>? MeasuredContainerQuantities = null,
+    decimal? MinimumSellableIncrement = null,
+    decimal? SeparateLooseQuantity = null);
 
 public sealed record StocktakeActionApiRequest(Guid ClientOperationId);
 

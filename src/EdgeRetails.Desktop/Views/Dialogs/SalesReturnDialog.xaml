@@ -179,6 +179,7 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <!-- Row 0: Title and Rate -->
@@ -293,8 +294,28 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <!-- Row 2: Item refund total impact banner -->
-                                    <Border Grid.Row="2"
+                                    <!-- Row 2: Condition & Remnant Restock Selection -->
+                                    <Grid Grid.Row="2" Margin="0,8,0,0" Visibility="{Binding HasReturnQuantity, Converter={StaticResource BoolToVis}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="Condition:" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                            <ComboBox ItemsSource="{x:Static viewModels:SalesReturnItemViewModel.InspectionConditions}"
+                                                      SelectedItem="{Binding ConditionInspectionResult, Mode=TwoWay}"
+                                                      Height="26" Width="100" FontSize="11" VerticalContentAlignment="Center" />
+                                        </StackPanel>
+                                        <CheckBox Grid.Column="1"
+                                                  Content="Restock as Remnant"
+                                                  IsChecked="{Binding IsRestockAsRemnant, Mode=TwoWay}"
+                                                  FontSize="11"
+                                                  VerticalAlignment="Center"
+                                                  Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                    </Grid>
+
+                                    <!-- Row 3: Item refund total impact banner -->
+                                    <Border Grid.Row="3"
                                             Margin="0,8,0,0"
                                             Padding="8,5"
                                             Background="{DynamicResource Brush.Badge.Success.Background}"
@@ -556,6 +577,65 @@
                         </Button.Style>
                     </Button>
                 </StackPanel>
+
+                <!-- Section: Posting Date & Supervisor Authorization -->
+                <Border Margin="0,0,0,14"
+                        Padding="12,10"
+                        Background="{DynamicResource Brush.Surface.Subtle}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Control}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="POSTING DATE &amp; SUPERVISOR"
+                                           FontFamily="{StaticResource Font.Primary}"
+                                           FontSize="10.5"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource Brush.Text.Muted}" />
+                                <TextBlock Text="{Binding PostingDateText, StringFormat='Posting Date: {0}'}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Brush.Text.Primary}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="Supervisor Auth"
+                                    Command="{Binding AuthorizeSupervisorCommand}"
+                                    Style="{StaticResource Button.Neutral}"
+                                    Height="26"
+                                    Padding="10,0"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+
+                        <!-- Active Supervisor Banner -->
+                        <Border Margin="0,8,0,0"
+                                Padding="8,5"
+                                Background="{DynamicResource Brush.Badge.Brand.Background}"
+                                BorderBrush="{DynamicResource Brush.Badge.Brand.Border}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="{Binding HasSupervisorApproval, Converter={StaticResource BoolToVis}}">
+                            <Grid>
+                                <TextBlock Text="{Binding SupervisorApprovalDisplay}"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Brush.Badge.Brand.Text}"
+                                           VerticalAlignment="Center" />
+                                <Button Content="Clear"
+                                        Command="{Binding ClearSupervisorApprovalCommand}"
+                                        Style="{StaticResource Button.Text.Borderless}"
+                                        FontSize="11"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Border>
 
                 <Border Margin="0,0,0,12"
                         Padding="10,8"

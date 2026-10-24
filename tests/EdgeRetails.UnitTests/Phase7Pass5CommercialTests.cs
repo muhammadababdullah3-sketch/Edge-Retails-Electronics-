@@ -20,7 +20,7 @@ public sealed class Phase7Pass5CommercialTests
     {
         var f = new Phase2TestDoubles();
         var actor = Guid.NewGuid();
-        var command = new RecordManualCashMovementCommand(CashMovementDirection.In, 1m, actor, "Owner float", null);
+        var command = new RecordManualCashMovementCommand(CashMovementDirection.In, 1m, actor, "Owner float", null, Guid.NewGuid());
         command = invalid switch
         {
             "reason" => command with { Reason = " " },
@@ -45,7 +45,7 @@ public sealed class Phase7Pass5CommercialTests
         var actor = Guid.NewGuid();
         f.Cash.Sessions.Add(Guid.NewGuid(), new CashSession { Status = CashSessionStatus.Open });
         var result = await new RecordManualCashMovementHandler(f.CashMovements, f.Transactions, f.UnitOfWork, f.Audit)
-            .HandleAsync(new(direction, 1.005m, actor, " Owner float ", null), default);
+            .HandleAsync(new(direction, 1.005m, actor, " Owner float ", null, Guid.NewGuid()), default);
         Assert.True(result.IsSuccess, result.Error?.Message);
         var movement = Assert.Single(f.Cash.Movements);
         Assert.Equal(result.Value, movement.Id);

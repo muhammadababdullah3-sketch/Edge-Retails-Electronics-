@@ -693,7 +693,7 @@ public sealed class Phase1DExactUnitLifecycleTests
 
         var res3 = await wcHandler.HandleAsync(wcCommand2, CancellationToken.None);
         Assert.False(res3.IsSuccess);
-        Assert.Equal("payload_mismatch", res3.Error?.Code);
+        Assert.Equal("idempotency.payload_mismatch", res3.Error?.Code);
     }
 
     [Fact]

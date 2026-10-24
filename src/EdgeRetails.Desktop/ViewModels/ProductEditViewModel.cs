@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
+using EdgeRetails.Application.Features.Catalog;
 using EdgeRetails.Desktop.Services;
 using EdgeRetails.Domain.Catalog;
 
@@ -22,6 +25,7 @@ public sealed class ProductUnitEditorItemViewModel : ViewModelBase
     {
         Unit = unit;
         IsBaseUnit = isBaseUnit;
+        ProductUnitId = current?.ProductUnitId;
         _isEnabled = isBaseUnit || current?.IsActive == true;
         _factorText = (isBaseUnit ? 1m : current?.FactorToBaseUnit ?? 1m)
             .ToString("0.#########", CultureInfo.InvariantCulture);
@@ -34,6 +38,7 @@ public sealed class ProductUnitEditorItemViewModel : ViewModelBase
 
     public BackendCatalogUnit Unit { get; }
     public bool IsBaseUnit { get; }
+    public Guid? ProductUnitId { get; }
     public string DisplayName => Unit.DisplayName;
 
     public bool IsEnabled
@@ -98,6 +103,93 @@ public sealed class SupplierLinkEditorItemViewModel : ViewModelBase
     {
         get => _isLinked;
         set => SetProperty(ref _isLinked, value);
+    }
+}
+
+public sealed class ProductAttributeEditorItemViewModel : ViewModelBase
+{
+    private string? _currentValue;
+    private bool _boolValue;
+    private string? _validationError;
+
+    public ProductAttributeEditorItemViewModel(AttributeProfile profile, string? initialValue)
+    {
+        Profile = profile;
+        _currentValue = initialValue;
+        if (IsBoolean && bool.TryParse(initialValue, out var b))
+        {
+            _boolValue = b;
+        }
+
+        if (IsEnum && !string.IsNullOrWhiteSpace(profile.EnumSuggestedValues))
+        {
+            EnumOptions = profile.EnumSuggestedValues
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+        else
+        {
+            EnumOptions = Array.Empty<string>();
+        }
+
+        Validate();
+    }
+
+    public AttributeProfile Profile { get; }
+    public string Key => Profile.AttributeKey;
+    public string Name => Profile.AttributeName;
+    public string ValueType => Profile.ValueType;
+    public string? UnitSymbol => Profile.UnitSymbol;
+    public bool IsRequired => string.Equals(Profile.EffectiveRequiredness, "REQUIRED", StringComparison.OrdinalIgnoreCase);
+    public bool IsNumber => string.Equals(ValueType, "NUMBER", StringComparison.OrdinalIgnoreCase);
+    public bool IsEnum => string.Equals(ValueType, "ENUM", StringComparison.OrdinalIgnoreCase);
+    public bool IsBoolean => string.Equals(ValueType, "BOOLEAN", StringComparison.OrdinalIgnoreCase);
+    public bool IsText => !IsNumber && !IsEnum && !IsBoolean;
+    public IReadOnlyList<string> EnumOptions { get; }
+
+    public string? CurrentValue
+    {
+        get => _currentValue;
+        set
+        {
+            if (SetProperty(ref _currentValue, value))
+            {
+                Validate();
+            }
+        }
+    }
+
+    public bool BoolValue
+    {
+        get => _boolValue;
+        set
+        {
+            if (SetProperty(ref _boolValue, value))
+            {
+                CurrentValue = value ? "true" : "false";
+            }
+        }
+    }
+
+    public string? ValidationError
+    {
+        get => _validationError;
+        private set
+        {
+            if (SetProperty(ref _validationError, value))
+            {
+                OnPropertyChanged(nameof(HasError));
+            }
+        }
+    }
+
+    public bool HasError => !string.IsNullOrWhiteSpace(ValidationError);
+
+    public bool Validate()
+    {
+        var (isValid, err) = ProductManagementViewModel.ValidateAttributeValue(Profile, _currentValue);
+        ValidationError = isValid ? null : err;
+        return isValid;
     }
 }
 
@@ -195,6 +287,9 @@ public sealed class ProductEditViewModel : ViewModelBase
 
         UnitConfigurations = [];
         BuildUnitConfigurationRows();
+
+        AttributeItems = [];
+        LoadAttributeProfiles();
 
         SupplierLinks = new System.Collections.ObjectModel.ObservableCollection<SupplierLinkEditorItemViewModel>(snapshot.Suppliers
             .OrderBy(x => x.Name)
@@ -464,6 +559,7 @@ public sealed class ProductEditViewModel : ViewModelBase
             if (SetProperty(ref _selectedCategory, value))
             {
                 AutoSuggestSkuIfApplicable();
+                LoadAttributeProfiles();
             }
         }
     }
@@ -573,7 +669,69 @@ public sealed class ProductEditViewModel : ViewModelBase
         OnPropertyChanged(nameof(UnitConfigurations));
     }
 
-    private async Task SaveAsync()
+    public ObservableCollection<ProductAttributeEditorItemViewModel> AttributeItems { get; }
+
+    public bool HasAttributeItems => AttributeItems.Count > 0;
+    public bool IsTaxonomyUnmapped { get; private set; }
+    public string? TaxonomyMappingNotice { get; private set; }
+
+    private void LoadAttributeProfiles()
+    {
+        AttributeItems.Clear();
+        var deptCode = SelectedCategory?.IdentitySymbol;
+        var dept = TaxonomyV3Store.Departments.FirstOrDefault(d =>
+            string.Equals(d.Code, deptCode, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(d.Name, SelectedCategory?.Name, StringComparison.OrdinalIgnoreCase) ||
+            (SelectedCategory?.Name != null && SelectedCategory.Name.Contains(d.Name, StringComparison.OrdinalIgnoreCase)));
+
+        List<AttributeProfile> profiles;
+        if (dept is not null)
+        {
+            IsTaxonomyUnmapped = false;
+            TaxonomyMappingNotice = null;
+            profiles = TaxonomyV3Store.AttributeProfiles
+                .Where(p => string.Equals(p.DepartmentCode, dept.Code, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        else
+        {
+            IsTaxonomyUnmapped = true;
+            TaxonomyMappingNotice = "Legacy/unmapped category: preserved without arbitrary department requirements.";
+            profiles = [];
+        }
+
+        OnPropertyChanged(nameof(IsTaxonomyUnmapped));
+        OnPropertyChanged(nameof(TaxonomyMappingNotice));
+
+        var existingValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(AttributesJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(AttributesJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        existingValues[prop.Name] = prop.Value.ToString();
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        foreach (var profile in profiles)
+        {
+            existingValues.TryGetValue(profile.AttributeKey, out var val);
+            var item = new ProductAttributeEditorItemViewModel(profile, val);
+            AttributeItems.Add(item);
+        }
+        OnPropertyChanged(nameof(HasAttributeItems));
+    }
+
+    internal async Task SaveAsync()
     {
         if (IsSaving)
         {
@@ -642,6 +800,60 @@ public sealed class ProductEditViewModel : ViewModelBase
             return;
         }
 
+        foreach (var attr in AttributeItems)
+        {
+            if (!attr.Validate())
+            {
+                ValidationMessage = attr.ValidationError;
+                return;
+            }
+        }
+
+        var attrDict = new Dictionary<string, object>();
+        if (!string.IsNullOrWhiteSpace(AttributesJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(AttributesJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        attrDict[prop.Name] = prop.Value.Clone();
+                    }
+                }
+            }
+            catch { }
+        }
+
+        foreach (var item in AttributeItems)
+        {
+            if (!string.IsNullOrWhiteSpace(item.CurrentValue))
+            {
+                if (item.IsNumber && decimal.TryParse(item.CurrentValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var num))
+                {
+                    attrDict[item.Key] = num;
+                }
+                else if (item.IsBoolean && bool.TryParse(item.CurrentValue, out var b))
+                {
+                    attrDict[item.Key] = b;
+                }
+                else
+                {
+                    attrDict[item.Key] = item.CurrentValue;
+                }
+            }
+            else
+            {
+                attrDict.Remove(item.Key);
+            }
+        }
+
+        if (attrDict.Count > 0)
+        {
+            AttributesJson = JsonSerializer.Serialize(attrDict);
+        }
+
         var unitConfigurations = new List<BackendProductUnitConfiguration>();
         foreach (var row in UnitConfigurations.Where(x => x.IsEnabled))
         {
@@ -657,7 +869,7 @@ public sealed class ProductEditViewModel : ViewModelBase
             }
 
             unitConfigurations.Add(new BackendProductUnitConfiguration(
-                null,
+                row.ProductUnitId,
                 row.Unit.Id,
                 row.Unit.Name,
                 row.Unit.Symbol,

@@ -2,6 +2,8 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Parties;
 using EdgeRetails.Domain.Purchasing;
+using EdgeRetails.Domain.Sales;
+using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -142,6 +144,20 @@ internal sealed class InventoryUnitConfiguration : IEntityTypeConfiguration<Inve
                     "(origin_type = 1 AND source_purchase_item_id IS NOT NULL AND source_warranty_claim_item_id IS NULL AND source_warranty_case_id IS NULL AND source_stock_adjustment_item_id IS NULL) OR " +
                     "(origin_type = 2 AND source_purchase_item_id IS NULL AND source_stock_adjustment_item_id IS NULL AND ((source_warranty_claim_item_id IS NOT NULL AND source_warranty_case_id IS NULL) OR (source_warranty_claim_item_id IS NULL AND source_warranty_case_id IS NOT NULL))) OR " +
                     "(origin_type = 3 AND source_stock_adjustment_item_id IS NOT NULL AND source_purchase_item_id IS NULL AND source_warranty_claim_item_id IS NULL AND source_warranty_case_id IS NULL)");
+                table.HasCheckConstraint(
+                    "chk_units_pack_quantity_bounds",
+                    "(pack_state IS NULL AND remaining_base_quantity IS NULL AND initial_base_quantity IS NULL) " +
+                    "OR (pack_state IS NOT NULL " +
+                    "AND initial_base_quantity IS NOT NULL " +
+                    "AND remaining_base_quantity IS NOT NULL " +
+                    "AND initial_base_quantity > 0 " +
+                    "AND remaining_base_quantity >= 0 " +
+                    "AND remaining_base_quantity <= initial_base_quantity " +
+                    "AND (" +
+                    "(pack_state = 'Sealed'::inventory.pack_state AND is_loose_stock IS FALSE AND remaining_base_quantity = initial_base_quantity) " +
+                    "OR (pack_state = 'Open'::inventory.pack_state AND remaining_base_quantity > 0 AND ((is_loose_stock IS FALSE AND remaining_base_quantity < initial_base_quantity) OR (is_loose_stock IS TRUE AND remaining_base_quantity <= initial_base_quantity))) " +
+                    "OR (pack_state = 'Consumed'::inventory.pack_state AND remaining_base_quantity = 0)" +
+                    "))");
             });
 
         builder.HasKey(x => x.Id);
@@ -153,6 +169,10 @@ internal sealed class InventoryUnitConfiguration : IEntityTypeConfiguration<Inve
         builder.Property(x => x.Imei1).HasMaxLength(40);
         builder.Property(x => x.Imei2).HasMaxLength(40);
         builder.Property(x => x.AcquisitionCost).HasPrecision(18, 6);
+        builder.Property(x => x.InitialBaseQuantity).HasPrecision(18, 4);
+        builder.Property(x => x.RemainingBaseQuantity).HasPrecision(18, 4);
+        builder.Property(x => x.PackState).HasColumnType("inventory.pack_state");
+        builder.Property(x => x.IsLooseStock).HasDefaultValue(false);
         builder.Property(x => x.Version).IsConcurrencyToken();
 
         builder.HasOne<Product>()
@@ -530,3 +550,88 @@ internal sealed class StockAdjustmentItemConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(x => x.SupplierProductId);
     }
 }
+
+internal sealed class PackAllocationConfiguration : IEntityTypeConfiguration<PackAllocation>
+{
+    public void Configure(EntityTypeBuilder<PackAllocation> builder)
+    {
+        builder.ToTable(
+            "pack_allocations",
+            "inventory",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "chk_pack_alloc_positive_qty",
+                    "allocated_base_quantity > 0");
+                table.HasCheckConstraint(
+                    "chk_pack_alloc_remaining_bounds",
+                    "remaining_quantity_after >= 0");
+                table.HasCheckConstraint(
+                    "chk_pack_alloc_single_source",
+                    "(CASE WHEN sale_item_id IS NOT NULL THEN 1 ELSE 0 END + " +
+                    "CASE WHEN sale_return_item_id IS NOT NULL THEN 1 ELSE 0 END + " +
+                    "CASE WHEN thaka_issue_item_id IS NOT NULL THEN 1 ELSE 0 END) <= 1");
+            });
+
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.OperationType).HasMaxLength(32).IsRequired();
+        builder.Property(x => x.AllocatedBaseQuantity).HasPrecision(18, 4);
+        builder.Property(x => x.UnitCostSnapshot).HasPrecision(18, 6);
+        builder.Property(x => x.TotalCostSnapshot).HasPrecision(18, 2);
+        builder.Property(x => x.RemainingQuantityAfter).HasPrecision(18, 4);
+        builder.Property(x => x.PackStateAfter).HasColumnType("inventory.pack_state");
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.Property(x => x.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+        builder.HasOne<InventoryUnit>()
+            .WithMany()
+            .HasForeignKey(x => x.PackUnitId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<InventoryMovement>()
+            .WithMany()
+            .HasForeignKey(x => x.MovementId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<InventoryLot>()
+            .WithMany()
+            .HasForeignKey(x => x.LotId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<SaleItem>()
+            .WithMany()
+            .HasForeignKey(x => x.SaleItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<SaleReturnItem>()
+            .WithMany()
+            .HasForeignKey(x => x.SaleReturnItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<ThakaMaterialIssueItem>()
+            .WithMany()
+            .HasForeignKey(x => x.ThakaIssueItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(x => new { x.PackUnitId, x.SaleItemId })
+            .HasDatabaseName("uq_pack_alloc_sale_idempotency")
+            .IsUnique()
+            .HasFilter("sale_item_id IS NOT NULL");
+
+        builder.HasIndex(x => new { x.PackUnitId, x.SaleReturnItemId })
+            .HasDatabaseName("uq_pack_alloc_return_idempotency")
+            .IsUnique()
+            .HasFilter("sale_return_item_id IS NOT NULL");
+
+        builder.HasIndex(x => new { x.PackUnitId, x.OccurredAt })
+            .HasDatabaseName("ix_pack_allocations_pack_unit_id_occurred_at");
+
+        builder.HasIndex(x => x.MovementId)
+            .HasDatabaseName("ix_pack_allocations_movement_id");
+
+        builder.HasIndex(x => x.LotId)
+            .HasDatabaseName("ix_pack_allocations_lot_id");
+    }
+}
+

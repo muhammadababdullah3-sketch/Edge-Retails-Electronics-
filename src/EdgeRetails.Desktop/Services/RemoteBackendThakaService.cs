@@ -226,15 +226,60 @@ public sealed class RemoteBackendThakaService(
             throw new BackendOperationException("thaka.exact_unit_unexpected", "Quantity-tracked material must not submit exact-unit identities.");
         }
 
-        var result = await apiClient.PostAsync<IssueRequest, IssueThakaMaterialResult>("/api/thaka/material-issue",
-            new(clientOperationId, RequireProject(project), [new(productId, unitId, quantity, product.Price, inventoryUnitIds)]), cancellationToken);
-        return new(result.ChallanNumber, result.TotalCharge);
+        var request = new IssueRequest(clientOperationId, RequireProject(project), [new(productId, unitId, quantity, product.Price, inventoryUnitIds)]);
+        try
+        {
+            var result = await apiClient.PostAsync<IssueRequest, IssueThakaMaterialResult>("/api/thaka/material-issue",
+                request, cancellationToken);
+            return new(result.ChallanNumber, result.TotalCharge);
+        }
+        catch (DesktopApiException ex) when (IsAmbiguous(ex))
+        {
+            var status = await QueryOperationAsync(clientOperationId, cancellationToken);
+            if (status is { WasCommitted: true, DocumentNumber: not null })
+            {
+                return new(status.DocumentNumber, 0m);
+            }
+            if (status is { EffectiveStatus: "NotFound" })
+            {
+                var replay = await apiClient.PostAsync<IssueRequest, IssueThakaMaterialResult>("/api/thaka/material-issue",
+                    request, cancellationToken);
+                return new(replay.ChallanNumber, replay.TotalCharge);
+            }
+            throw UnknownOutcome("Thaka material issue", clientOperationId);
+        }
     }
 
     public async Task ReverseMaterialAsync(ThakaProjectListItemViewModel project, Guid materialIssueId, string reason,
-        Guid clientOperationId, CancellationToken cancellationToken = default) =>
-        _ = await apiClient.PostAsync<MaterialReversalRequest, ReverseThakaMaterialResult>("/api/thaka/material-reversal",
-            new(clientOperationId, RequireProject(project), materialIssueId, Required(reason, "Reason")), cancellationToken);
+        Guid clientOperationId, CancellationToken cancellationToken = default)
+    {
+        if (clientOperationId == Guid.Empty)
+        {
+            throw new BackendOperationException("thaka.operation_id_required", "Thaka reversal operation id is required.");
+        }
+
+        var request = new MaterialReversalRequest(clientOperationId, RequireProject(project), materialIssueId, Required(reason, "Reason"));
+        try
+        {
+            _ = await apiClient.PostAsync<MaterialReversalRequest, ReverseThakaMaterialResult>("/api/thaka/material-reversal",
+                request, cancellationToken);
+        }
+        catch (DesktopApiException ex) when (IsAmbiguous(ex))
+        {
+            var status = await QueryOperationAsync(clientOperationId, cancellationToken);
+            if (status is { WasCommitted: true })
+            {
+                return;
+            }
+            if (status is { EffectiveStatus: "NotFound" })
+            {
+                _ = await apiClient.PostAsync<MaterialReversalRequest, ReverseThakaMaterialResult>("/api/thaka/material-reversal",
+                    request, cancellationToken);
+                return;
+            }
+            throw UnknownOutcome("Thaka material reversal", clientOperationId);
+        }
+    }
 
     public async Task<BackendThakaPaymentResult> RecordPaymentAsync(ThakaProjectListItemViewModel project, decimal amount,
         string paymentMethod, string? reference, CancellationToken cancellationToken = default)
@@ -304,7 +349,12 @@ public sealed class RemoteBackendThakaService(
     private static BackendOperationException UnknownOutcome(string name, Guid id) =>
         new("thaka.operation_outcome_unknown", $"{name} status is not confirmed. Retry with the same operation id {id:D}.");
 
-    private static bool IsDefinitive(System.Net.HttpStatusCode? status) => status is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError;
+    private static bool IsDefinitive(System.Net.HttpStatusCode? status) =>
+        status is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError
+            and not System.Net.HttpStatusCode.Unauthorized
+            and not System.Net.HttpStatusCode.Forbidden
+            and not System.Net.HttpStatusCode.RequestTimeout
+            and not (System.Net.HttpStatusCode)429;
     private static Guid RequireProject(ThakaProjectListItemViewModel project) => project.BackendProjectId ?? throw new BackendOperationException("thaka.project_not_attached", "Project is not attached to the backend.");
     private static ThakaPaymentMethod ParsePaymentMethod(string value) => value.Trim().ToUpperInvariant() switch { "CASH" => ThakaPaymentMethod.Cash, "BANK" => ThakaPaymentMethod.Bank, "OTHER" => ThakaPaymentMethod.Other, _ => throw new InvalidOperationException("Unsupported Thaka payment method.") };
     private static string Required(string value, string field) => string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException($"{field} is required.") : value.Trim();

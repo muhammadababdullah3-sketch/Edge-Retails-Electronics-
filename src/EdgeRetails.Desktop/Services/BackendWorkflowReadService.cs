@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Sales;
 using EdgeRetails.Domain.Catalog;
@@ -55,7 +56,8 @@ public sealed record BackendScannerMatch(
     string SerialNumber,
     string Imei1,
     string Imei2,
-    InventoryUnitStatus? UnitStatus)
+    InventoryUnitStatus? UnitStatus,
+    TrackingMode? TrackingMode = null)
 {
     public bool IsExactUnit => InventoryUnitId is not null;
 }
@@ -170,6 +172,9 @@ public interface IBackendWorkflowReadService
         IReadOnlyCollection<Guid> foundInventoryUnitIds,
         IReadOnlyCollection<string> unexpectedIdentitySnapshots,
         string? reviewNote,
+        IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
+        decimal minimumSellableIncrement = 1m,
+        decimal separateLooseQuantity = 0m,
         CancellationToken cancellationToken = default);
 
     Task ReviewStocktakeAsync(
@@ -184,6 +189,10 @@ public interface IBackendWorkflowReadService
     Task CancelStocktakeAsync(
         Guid stocktakeId,
         CancellationToken cancellationToken = default);
+
+    Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
@@ -197,6 +206,20 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
     {
         _scopeFactory = scopeFactory;
         _actorUserId = actorUserId;
+    }
+
+    public async Task<PackContainerDto?> GetPackByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(trackingCode))
+        {
+            return null;
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var reads = scope.ServiceProvider.GetRequiredService<IPhase4WorkflowReadService>();
+        return await reads.GetPackByTrackingCodeAsync(trackingCode, cancellationToken);
     }
 
     public async Task<IReadOnlyList<BackendScannerMatch>> ResolveScannerAsync(
@@ -417,6 +440,9 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
         IReadOnlyCollection<Guid> foundInventoryUnitIds,
         IReadOnlyCollection<string> unexpectedIdentitySnapshots,
         string? reviewNote,
+        IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
+        decimal minimumSellableIncrement = 1m,
+        decimal separateLooseQuantity = 0m,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -430,7 +456,10 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
                 foundInventoryUnitIds,
                 unexpectedIdentitySnapshots,
                 actor,
-                string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim()),
+                string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim(),
+                MeasuredContainerQuantities: measuredContainerQuantities,
+                MinimumSellableIncrement: minimumSellableIncrement,
+                SeparateLooseQuantity: separateLooseQuantity),
             cancellationToken);
         EnsureSuccess(result, "Serialized stocktake count could not be recorded.");
     }
@@ -578,7 +607,8 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
             x.SerialNumber ?? string.Empty,
             x.Imei1 ?? string.Empty,
             x.Imei2 ?? string.Empty,
-            x.UnitStatus);
+            x.UnitStatus,
+            x.TrackingMode);
 
     private static BackendPosDraftSummary MapDraftSummary(PosDraftSummaryDto x) =>
         new(

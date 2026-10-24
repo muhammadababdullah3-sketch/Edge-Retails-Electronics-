@@ -18,7 +18,13 @@ public sealed class Phase5WpfPerformanceTests
         {
             try
             {
-                var app = System.Windows.Application.Current ?? new System.Windows.Application();
+                var app = System.Windows.Application.Current;
+                if (app is null)
+                {
+                    var edgeApp = new EdgeRetails.Desktop.App();
+                    edgeApp.InitializeComponent();
+                    app = edgeApp;
+                }
 
                 if (!app.Resources.Contains("BooleanToVisibilityConverter"))
                 {

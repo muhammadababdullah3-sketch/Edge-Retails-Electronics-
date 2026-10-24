@@ -52,6 +52,10 @@ public sealed class Phase234AsyncReadTests
         await Task.Delay(30);
         Assert.Equal("new", Name(vm, supplier));
         Assert.True(reads.Tokens[0].IsCancellationRequested);
+        var finalRows = supplier
+            ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToArray()
+            : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToArray();
+        Assert.Equal(["new"], finalRows);
     }
 
     [Theory]
@@ -70,6 +74,10 @@ public sealed class Phase234AsyncReadTests
         await reads.Applied[0].Task;
         await Task.Delay(30);
         Assert.Equal("saved", Name(vm, supplier));
+        var finalRows = supplier
+            ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToArray()
+            : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToArray();
+        Assert.Equal(["saved"], finalRows);
     }
 
     [Theory]
@@ -86,15 +94,23 @@ public sealed class Phase234AsyncReadTests
         await Task.Delay(30);
         Assert.Null(Name(vm, supplier));
         Assert.True(reads.Tokens[0].IsCancellationRequested);
+        var finalRows = supplier
+            ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToArray()
+            : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToArray();
+        Assert.Empty(finalRows);
     }
 
     private static IDisposable Create(bool supplier, IBackendBusinessOperationsService service) => supplier
         ? new SuppliersViewModel(new Toasts(), new DialogService(), new DrawerService(), service)
         : new CustomersViewModel(new Toasts(), new DialogService(), new DrawerService(), service);
     private static void SetSearch(IDisposable vm, string search) => vm.GetType().GetProperty("SearchText")!.SetValue(vm, search);
-    private static string? Name(IDisposable vm, bool supplier) => supplier
-        ? ((SuppliersViewModel)vm).FilteredSuppliers.SingleOrDefault()?.Name
-        : ((CustomersViewModel)vm).FilteredCustomers.SingleOrDefault()?.Name;
+    private static string? Name(IDisposable vm, bool supplier)
+    {
+        var items = supplier
+            ? ((SuppliersViewModel)vm).FilteredSuppliers.Select(x => x.Name).ToList()
+            : ((CustomersViewModel)vm).FilteredCustomers.Select(x => x.Name).ToList();
+        return items.Count == 1 ? items[0] : null;
+    }
     private static async Task AwaitName(IDisposable vm, bool supplier, string name)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));

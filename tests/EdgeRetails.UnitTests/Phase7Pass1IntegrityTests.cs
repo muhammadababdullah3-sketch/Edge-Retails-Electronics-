@@ -190,7 +190,7 @@ public sealed class Phase7Pass1IntegrityTests
         var session = new CashSession
         {
             Id = Guid.CreateVersion7(),
-            BusinessDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            BusinessDate = _fakes.Clock.ShopDate,
             OpenedBy = cashierId,
             OpenedAt = _fakes.Clock.UtcNow,
             OpeningCash = 10000m,
@@ -225,7 +225,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-UNREC-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Deferred order",
                 0m,
                 PurchaseSettlementMode.External,
@@ -275,7 +275,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-UNREC-02",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Deferred order",
                 0m,
                 PurchaseSettlementMode.External,
@@ -326,7 +326,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-PART-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Deferred order",
                 0m,
                 PurchaseSettlementMode.External,
@@ -387,7 +387,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-FIN-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Advance PO",
                 0m,
                 PurchaseSettlementMode.CashDrawer,
@@ -460,7 +460,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-NOCASH-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Advance PO",
                 0m,
                 PurchaseSettlementMode.CashDrawer,
@@ -521,7 +521,7 @@ public sealed class Phase7Pass1IntegrityTests
                 Guid.CreateVersion7(),
                 category.Id,
                 null,
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 250m,
                 ExpensePaymentMethod.Cash,
                 "Printer ink",
@@ -556,7 +556,7 @@ public sealed class Phase7Pass1IntegrityTests
                 Guid.CreateVersion7(),
                 category.Id,
                 null,
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 1000m,
                 ExpensePaymentMethod.Cash,
                 "Office repair",
@@ -608,7 +608,7 @@ public sealed class Phase7Pass1IntegrityTests
                 Guid.CreateVersion7(),
                 category.Id,
                 null,
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 300m,
                 ExpensePaymentMethod.Cash,
                 "Snacks",
@@ -654,7 +654,7 @@ public sealed class Phase7Pass1IntegrityTests
                 Guid.CreateVersion7(),
                 category.Id,
                 null,
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 500m,
                 ExpensePaymentMethod.Cash,
                 "Cleaning",
@@ -698,7 +698,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-RET-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Initial stock purchase",
                 0m,
                 PurchaseSettlementMode.External,
@@ -780,7 +780,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-RET-NOCASH",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Stock purchase",
                 0m,
                 PurchaseSettlementMode.External,
@@ -836,7 +836,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-N01-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "P7-N01 verification PO",
                 0m,
                 PurchaseSettlementMode.External,
@@ -992,7 +992,7 @@ public sealed class Phase7Pass1IntegrityTests
             new CreatePurchaseCommand(
                 supplier.Id,
                 "INV-SER-01",
-                DateOnly.FromDateTime(DateTime.UtcNow),
+                _fakes.Clock.ShopDate,
                 "Serialized order",
                 0m,
                 PurchaseSettlementMode.External,

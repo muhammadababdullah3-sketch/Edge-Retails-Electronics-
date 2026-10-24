@@ -185,12 +185,12 @@ public sealed class Phase7Pass5OwnerReconciliationPostgresTests
 
         // 3. Manual Cash In +500m
         var manualIn = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.In, 500m, fixture.ActorId, "Till float top up", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.In, 500m, fixture.ActorId, "Till float top up", null, Guid.NewGuid()), default);
         Assert.True(manualIn.IsSuccess, manualIn.Error?.Message);
 
         // 4. Manual Cash Out -200m
         var manualOut = await services.GetRequiredService<RecordManualCashMovementHandler>().HandleAsync(
-            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, fixture.ActorId, "Office cleaning supplies", null), default);
+            new RecordManualCashMovementCommand(CashMovementDirection.Out, 200m, fixture.ActorId, "Office cleaning supplies", null, Guid.NewGuid()), default);
         Assert.True(manualOut.IsSuccess, manualOut.Error?.Message);
 
         // 5. Supplier Payment from Cash Drawer: 2,500m
