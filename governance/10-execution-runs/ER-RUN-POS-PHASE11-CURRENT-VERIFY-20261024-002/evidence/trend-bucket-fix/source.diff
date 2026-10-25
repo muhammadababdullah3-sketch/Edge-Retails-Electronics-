@@ -1,0 +1,344 @@
+diff --git a/src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs b/src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs
+index 37f1c8a..105cb67 100644
+--- a/src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs
++++ b/src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs
+@@ -557,145 +557,106 @@ public sealed class ReportingReadService : IReportingReadService
+             selectedDate,
+             selectedMonth,
+             selectedYear);
++        var slices = BuildTrendSlices(mode, selectedDate, selectedMonth, selectedYear);
+ 
+-        var sales = await _db.Sales.AsNoTracking()
++        var salesBySlice = await SumIntoTrendSlicesAsync(_db.Sales.AsNoTracking()
+             .Where(x => x.CompletedAt >= start && x.CompletedAt < end)
+-            .GroupBy(x => new { Date = x.CompletedAt.Date, x.CompletedAt.Hour })
+-            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.GrandTotal) })
+-            .ToListAsync(cancellationToken);
++            .Select(x => new { Timestamp = x.CompletedAt, Amount = x.GrandTotal }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var saleItems = await (
++        var cogsBySlice = await SumIntoTrendSlicesAsync((
+             from item in _db.SaleItems.AsNoTracking()
+             join sale in _db.Sales.AsNoTracking() on item.SaleId equals sale.Id
+             where sale.CompletedAt >= start && sale.CompletedAt < end
+-            group item by new { Date = sale.CompletedAt.Date, Hour = sale.CompletedAt.Hour } into g
+-            select new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.TotalCostSnapshot) })
+-            .ToListAsync(cancellationToken);
++            select new { Timestamp = sale.CompletedAt, Amount = item.TotalCostSnapshot }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var returns = await _db.SaleReturns.AsNoTracking()
++        var refundsBySlice = await SumIntoTrendSlicesAsync(_db.SaleReturns.AsNoTracking()
+             .Where(x => x.CreatedAt >= start && x.CreatedAt < end)
+-            .GroupBy(x => new { Date = x.CreatedAt.Date, x.CreatedAt.Hour })
+-            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RefundAmount) })
+-            .ToListAsync(cancellationToken);
++            .Select(x => new { Timestamp = x.CreatedAt, Amount = x.RefundAmount }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var returnItems = await (
++        var reversedCogsBySlice = await SumIntoTrendSlicesAsync((
+             from item in _db.SaleReturnItems.AsNoTracking()
+             join saleReturn in _db.SaleReturns.AsNoTracking() on item.SaleReturnId equals saleReturn.Id
+             where saleReturn.CreatedAt >= start && saleReturn.CreatedAt < end
+-            group item by new { Date = saleReturn.CreatedAt.Date, Hour = saleReturn.CreatedAt.Hour } into g
+-            select new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.CostReversalAmount) })
+-            .ToListAsync(cancellationToken);
++            select new { Timestamp = saleReturn.CreatedAt, Amount = item.CostReversalAmount }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+         var expenses = mode == ReportingPeriodKind.Daily
+-            ? new List<(DateTime Date, decimal Amount)>()
++            ? new List<(DateOnly Date, decimal Amount)>()
+             : await _db.Expenses.AsNoTracking()
+                 .Where(x =>
+                     x.Status == ExpenseStatus.Posted &&
+                     x.ExpenseDate >= startDay &&
+                     x.ExpenseDate < endDay)
+                 .GroupBy(x => x.ExpenseDate)
+-                .Select(g => new ValueTuple<DateTime, decimal>(
+-                    g.Key.ToDateTime(TimeOnly.MinValue),
+-                    g.Sum(x => x.Amount)))
++                .Select(g => new ValueTuple<DateOnly, decimal>(g.Key, g.Sum(x => x.Amount)))
+                 .ToListAsync(cancellationToken);
+ 
+-        var recognizedLosses = await _db.InventoryMovements.AsNoTracking()
++        var lossesBySlice = await SumIntoTrendSlicesAsync(_db.InventoryMovements.AsNoTracking()
+             .Where(x => x.OccurredAt >= start && x.OccurredAt < end && x.RecognizedLossAmount > 0m)
+-            .GroupBy(x => new { Date = x.OccurredAt.Date, x.OccurredAt.Hour })
+-            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecognizedLossAmount) })
+-            .ToListAsync(cancellationToken);
++            .Select(x => new { Timestamp = x.OccurredAt, Amount = x.RecognizedLossAmount }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var inventoryGains = await (
++        var inventoryGainsBySlice = await SumIntoTrendSlicesAsync((
+             from recovery in _db.InventoryMovements.AsNoTracking()
+             join source in _db.InventoryMovements.AsNoTracking()
+                 on recovery.ReferenceId equals source.Id
+             where recovery.ReferenceType == "InventoryLossRecoveryGain" &&
+                   recovery.OccurredAt >= start && recovery.OccurredAt < end
+-            group source by new { Date = recovery.OccurredAt.Date, Hour = recovery.OccurredAt.Hour } into g
+-            select new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecognizedLossAmount) })
+-            .ToListAsync(cancellationToken);
++            select new { Timestamp = recovery.OccurredAt, Amount = source.RecognizedLossAmount }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var warrantyGains = await _db.ShopWarrantyResolutionAllocations.AsNoTracking()
++        var warrantyGainsBySlice = await SumIntoTrendSlicesAsync(_db.ShopWarrantyResolutionAllocations.AsNoTracking()
+             .Where(x => x.OccurredAt >= start && x.OccurredAt < end &&
+                         x.ResolutionOutcome == WarrantyResolutionType.Credited &&
+                         x.SupplierCreditAmount.HasValue &&
+                         x.SupplierCreditAmount.Value > x.ActualResolvedCarryingValue)
+-            .GroupBy(x => new { Date = x.OccurredAt.Date, Hour = x.OccurredAt.Hour })
+-            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.SupplierCreditAmount!.Value - x.ActualResolvedCarryingValue) })
+-            .ToListAsync(cancellationToken);
++            .Select(x => new
++            {
++                Timestamp = x.OccurredAt,
++                Amount = x.SupplierCreditAmount!.Value - x.ActualResolvedCarryingValue
++            }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
+ 
+-        var legacyWarrantyGains = await _db.ShopStockWarrantyCases.AsNoTracking()
++        var legacyWarrantyGainsBySlice = await SumIntoTrendSlicesAsync(_db.ShopStockWarrantyCases.AsNoTracking()
+             .Where(x => x.Status == ShopWarrantyCaseStatus.Closed &&
+                         x.ResolutionType == WarrantyResolutionType.Credited &&
+                         x.ClosedAt >= start && x.ClosedAt < end &&
+                         (x.RecoveryDifference > 0m || 
+                          ((x.SupplierCreditAmount ?? 0m) > (x.InventoryCarryingCostResolved ?? 0m))) &&
+                         !_db.ShopWarrantySendAllocations.Any(s => s.CaseId == x.Id))
+-            .GroupBy(x => new { Date = x.ClosedAt!.Value.Date, Hour = x.ClosedAt.Value.Hour })
+-            .Select(g => new { g.Key.Date, g.Key.Hour, Amount = g.Sum(x => x.RecoveryDifference ?? ((x.SupplierCreditAmount ?? 0m) - (x.InventoryCarryingCostResolved ?? 0m))) })
+-            .ToListAsync(cancellationToken);
+-
+-        var salesMap = sales
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-        var itemMap = saleItems
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-        var returnMap = returns
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-        var returnItemMap = returnItems
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-        var expenseMap = expenses.ToDictionary(x => DateOnly.FromDateTime(x.Item1), x => x.Item2);
+-        var lossMap = recognizedLosses
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-
+-        var inventoryGainMap = inventoryGains
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
+-        var warrantyGainMap = warrantyGains
+-            .Concat(legacyWarrantyGains)
+-            .GroupBy(x => new { x.Date, x.Hour })
+-            .ToDictionary(g => (g.Key.Date, g.Key.Hour), g => g.Sum(x => x.Amount));
++            .Select(x => new
++            {
++                Timestamp = x.ClosedAt!.Value,
++                Amount = x.RecoveryDifference ?? ((x.SupplierCreditAmount ?? 0m) - (x.InventoryCarryingCostResolved ?? 0m))
++            }),
++            x => x.Timestamp, x => x.Amount, slices, cancellationToken);
++        var expensesByDate = expenses.ToDictionary(x => x.Item1, x => x.Item2);
+ 
+         var results = new List<ReportingTrendPointDto>();
+-        foreach (var slice in BuildTrendSlices(mode, selectedDate, selectedMonth, selectedYear))
++        for (var index = 0; index < slices.Count; index++)
+         {
+-            var days = Enumerable.Range(
+-                    0,
+-                    Math.Max(1, (int)(slice.End - slice.Start).TotalDays))
+-                .Select(offset => slice.Start.Date.AddDays(offset))
+-                .ToArray();
+-
+-            decimal salesAmount = 0m;
+-            decimal cogsAmount = 0m;
+-            decimal refundsAmount = 0m;
+-            decimal reversedCogsAmount = 0m;
++            var slice = slices[index];
++            var salesAmount = salesBySlice[index];
++            var cogsAmount = cogsBySlice[index];
++            var refundsAmount = refundsBySlice[index];
++            var reversedCogsAmount = reversedCogsBySlice[index];
++            var lossAmount = lossesBySlice[index];
++            var inventoryGainAmount = inventoryGainsBySlice[index];
++            var warrantyGainAmount = warrantyGainsBySlice[index] + legacyWarrantyGainsBySlice[index];
+             decimal expenseAmount = 0m;
+-            decimal lossAmount = 0m;
+-            decimal inventoryGainAmount = 0m;
+-            decimal warrantyGainAmount = 0m;
+ 
+-            foreach (var day in days)
++            if (mode == ReportingPeriodKind.Monthly)
+             {
+-                var maxHour = mode == ReportingPeriodKind.Daily ? 23 : 23;
+-                for (var hour = 0; hour <= maxHour; hour++)
+-                {
+-                    salesAmount += salesMap.GetValueOrDefault((day, hour));
+-                    cogsAmount += itemMap.GetValueOrDefault((day, hour));
+-                    refundsAmount += returnMap.GetValueOrDefault((day, hour));
+-                    reversedCogsAmount += returnItemMap.GetValueOrDefault((day, hour));
+-                    lossAmount += lossMap.GetValueOrDefault((day, hour));
+-                    inventoryGainAmount += inventoryGainMap.GetValueOrDefault((day, hour));
+-                    warrantyGainAmount += warrantyGainMap.GetValueOrDefault((day, hour));
+-                }
+-
+-                if (mode != ReportingPeriodKind.Daily)
+-                {
+-                    expenseAmount += expenseMap.GetValueOrDefault(DateOnly.FromDateTime(day));
+-                }
++                expenseAmount = expensesByDate.GetValueOrDefault(new DateOnly(selectedYear, selectedMonth, index + 1));
++            }
++            else if (mode == ReportingPeriodKind.Yearly)
++            {
++                expenseAmount = expensesByDate
++                    .Where(x => x.Key.Year == selectedYear && x.Key.Month == index + 1)
++                    .Sum(x => x.Value);
+             }
+ 
+             var netSales = salesAmount - refundsAmount;
+@@ -714,6 +675,50 @@ public sealed class ReportingReadService : IReportingReadService
+         return results;
+     }
+ 
++    private static async Task<decimal[]> SumIntoTrendSlicesAsync<T>(
++        IQueryable<T> query,
++        Func<T, DateTimeOffset> timestamp,
++        Func<T, decimal> amount,
++        IReadOnlyList<(DateTimeOffset Start, DateTimeOffset End, string Label)> slices,
++        CancellationToken cancellationToken)
++    {
++        var totals = new decimal[slices.Count];
++        await foreach (var entry in query.AsAsyncEnumerable().WithCancellation(cancellationToken))
++        {
++            var occurredAt = timestamp(entry);
++            var low = 0;
++            var high = slices.Count - 1;
++            var matched = false;
++            while (low <= high)
++            {
++                var middle = low + ((high - low) / 2);
++                var slice = slices[middle];
++                if (occurredAt < slice.Start)
++                {
++                    high = middle - 1;
++                }
++                else if (occurredAt >= slice.End)
++                {
++                    low = middle + 1;
++                }
++                else
++                {
++                    totals[middle] += amount(entry);
++                    matched = true;
++                    break;
++                }
++            }
++
++            if (!matched)
++            {
++                throw new InvalidOperationException(
++                    $"Trend event at {occurredAt:O} is outside the configured shop-time slices.");
++            }
++        }
++
++        return totals;
++    }
++
+     private IReadOnlyList<(DateTimeOffset Start, DateTimeOffset End, string Label)> BuildTrendSlices(
+         ReportingPeriodKind mode,
+         DateOnly selectedDate,
+diff --git a/tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs b/tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs
+index 0fdedde..59e29bf 100644
+--- a/tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs
++++ b/tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs
+@@ -228,6 +228,29 @@ public sealed class ShopTimezoneBoundaryPostgresTests
+         var connStr = GetConnectionString();
+         await using var db = CreateDbContext(connStr);
+ 
++        var clock = new ShopClock(KarachiZone);
++        var boundaryService = new ShopPeriodBoundaryService(clock);
++        var reportingService = new ReportingReadService(db, boundaryService);
++        var selectedShopDate = new DateOnly(2026, 10, 10);
++        var dailyBefore = await reportingService.GetSnapshotAsync(
++            ReportingPeriodKind.Daily,
++            selectedShopDate,
++            selectedMonth: 10,
++            selectedYear: 2026,
++            CancellationToken.None);
++        var monthlyBefore = await reportingService.GetSnapshotAsync(
++            ReportingPeriodKind.Monthly,
++            selectedShopDate,
++            selectedMonth: 10,
++            selectedYear: 2026,
++            CancellationToken.None);
++        var yearlyBefore = await reportingService.GetSnapshotAsync(
++            ReportingPeriodKind.Yearly,
++            selectedShopDate,
++            selectedMonth: 10,
++            selectedYear: 2026,
++            CancellationToken.None);
++
+         var (product, productUnit, actorId) = await SeedProductAndActorAsync(db, defaultPrice: 2500m);
+ 
+         // Seed InventoryMovement for the sale
+@@ -281,10 +304,6 @@ public sealed class ShopTimezoneBoundaryPostgresTests
+         db.SaleItems.Add(saleItem);
+         await db.SaveChangesAsync();
+ 
+-        var clock = new ShopClock(KarachiZone);
+-        var boundaryService = new ShopPeriodBoundaryService(clock);
+-        var reportingService = new ReportingReadService(db, boundaryService);
+-
+         // Oct 10 Daily Snapshot MUST include the sale (since 19:30 UTC Oct 9 is 00:30 PKT Oct 10)
+         var oct10Snapshot = await reportingService.GetSnapshotAsync(
+             ReportingPeriodKind.Daily,
+@@ -294,6 +313,44 @@ public sealed class ShopTimezoneBoundaryPostgresTests
+             CancellationToken.None);
+ 
+         Assert.True(oct10Snapshot.NetSales >= 2500m, "Oct 10 snapshot must include the 00:30 PKT sale.");
++        Assert.Equal(oct10Snapshot.NetSales, oct10Snapshot.Trend.Sum(point => point.Sales));
++        Assert.Equal(oct10Snapshot.GrossProfit, oct10Snapshot.Trend.Sum(point => point.Profit));
++        Assert.Equal(2500m, oct10Snapshot.Trend[0].Sales - dailyBefore.Trend[0].Sales);
++        Assert.Equal(1000m, oct10Snapshot.Trend[0].Profit - dailyBefore.Trend[0].Profit);
++        Assert.Equal(0m, oct10Snapshot.Trend.Skip(1).Sum(point => point.Sales) - dailyBefore.Trend.Skip(1).Sum(point => point.Sales));
++        Assert.Equal(0m, oct10Snapshot.Trend.Skip(1).Sum(point => point.Profit) - dailyBefore.Trend.Skip(1).Sum(point => point.Profit));
++
++        var octoberSnapshot = await reportingService.GetSnapshotAsync(
++            ReportingPeriodKind.Monthly,
++            selectedDate: new DateOnly(2026, 10, 10),
++            selectedMonth: 10,
++            selectedYear: 2026,
++            CancellationToken.None);
++        Assert.Equal(octoberSnapshot.NetSales, octoberSnapshot.Trend.Sum(point => point.Sales));
++        Assert.Equal(octoberSnapshot.NetProfit, octoberSnapshot.Trend.Sum(point => point.Profit));
++        Assert.Equal(octoberSnapshot.Expenses, octoberSnapshot.Trend.Sum(point => point.Expenses));
++        Assert.Equal(2500m, octoberSnapshot.Trend[9].Sales - monthlyBefore.Trend[9].Sales);
++        Assert.Equal(1000m, octoberSnapshot.Trend[9].Profit - monthlyBefore.Trend[9].Profit);
++        Assert.Equal(0m, octoberSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Sales) -
++            monthlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Sales));
++        Assert.Equal(0m, octoberSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Profit) -
++            monthlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Profit));
++
++        var yearSnapshot = await reportingService.GetSnapshotAsync(
++            ReportingPeriodKind.Yearly,
++            selectedDate: new DateOnly(2026, 10, 10),
++            selectedMonth: 10,
++            selectedYear: 2026,
++            CancellationToken.None);
++        Assert.Equal(yearSnapshot.NetSales, yearSnapshot.Trend.Sum(point => point.Sales));
++        Assert.Equal(yearSnapshot.NetProfit, yearSnapshot.Trend.Sum(point => point.Profit));
++        Assert.Equal(yearSnapshot.Expenses, yearSnapshot.Trend.Sum(point => point.Expenses));
++        Assert.Equal(2500m, yearSnapshot.Trend[9].Sales - yearlyBefore.Trend[9].Sales);
++        Assert.Equal(1000m, yearSnapshot.Trend[9].Profit - yearlyBefore.Trend[9].Profit);
++        Assert.Equal(0m, yearSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Sales) -
++            yearlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Sales));
++        Assert.Equal(0m, yearSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Profit) -
++            yearlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Profit));
+ 
+         // Oct 9 Daily Snapshot MUST exclude the sale
+         var oct9Snapshot = await reportingService.GetSnapshotAsync(

@@ -159,26 +159,21 @@
 
                     <!-- Left: Greeting & Subtitle -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Style="{StaticResource Text.Base}"
+                        <TextBlock Style="{StaticResource Text.SectionTitle}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="20"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Primary}"
                                    Text="{Binding Greeting, Mode=OneWay}" />
                         <TextBlock Margin="0,3,0,0"
-                                   Style="{StaticResource Text.Base}"
+                                   Style="{StaticResource Text.Secondary}"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="13"
                                    Foreground="{DynamicResource Brush.Text.Secondary}"
                                    Text="{Binding Subtitle, Mode=OneWay}" />
                     </StackPanel>
 
                     <!-- Right: Current Date & Status Chips Row -->
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-                        <TextBlock HorizontalAlignment="Right"
+                        <TextBlock Style="{StaticResource Text.Body}" HorizontalAlignment="Right"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.Text.Primary}"
                                    Text="{Binding CurrentDateFormatted, Mode=OneWay}" />
                         <StackPanel Margin="0,5,0,0"
@@ -203,8 +198,6 @@
                                     </Border.Style>
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12"
-                                           FontWeight="Medium"
                                            Text="{Binding DatabaseStatusText, Mode=OneWay}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
@@ -238,8 +231,6 @@
                                     </Border.Style>
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12"
-                                           FontWeight="Medium"
                                            Text="{Binding BackupStatusText, Mode=OneWay}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
@@ -391,12 +382,10 @@
                                 </Border>
 
                                 <!-- Title -->
-                                <TextBlock Grid.Column="1"
+                                <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="1"
                                            Margin="7,0,0,0"
                                            Text="THAKA / PROJECTS"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12"
-                                           FontWeight="Bold"
                                            Foreground="{DynamicResource Brush.Thaka}"
                                            VerticalAlignment="Center" />
 
@@ -424,28 +413,22 @@
                                             </Grid.ColumnDefinitions>
 
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding ProjectName}"
+                                                <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="{Binding ProjectName}"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="13"
-                                                           FontWeight="SemiBold"
                                                            Foreground="{DynamicResource Brush.Text.Primary}" />
-                                                <TextBlock Margin="0,1.5,0,0"
+                                                <TextBlock Style="{StaticResource Text.PosMeta}" Margin="0,1.5,0,0"
                                                            Text="{Binding CustomerName}"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="11"
                                                            Foreground="{DynamicResource Brush.Text.Muted}" />
                                             </StackPanel>
 
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                                <TextBlock Text="{Binding BalanceFormatted}"
+                                                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding BalanceFormatted}"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="12"
-                                                           FontWeight="Bold"
                                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                                            HorizontalAlignment="Right" />
-                                                <TextBlock Text="{Binding Subtitle}"
+                                                <TextBlock Style="{StaticResource Text.MonoHint}" Text="{Binding Subtitle}"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="10"
                                                            Foreground="{DynamicResource Brush.Text.Muted}"
                                                            HorizontalAlignment="Right" />
                                             </StackPanel>
@@ -474,10 +457,8 @@
                             <Button Style="{StaticResource Button.CardFooter.Link}"
                                     Command="{Binding ViewAllProjectsCommand}">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                    <TextBlock Text="View All Projects"
+                                    <TextBlock Style="{StaticResource Text.TableHeader}" Text="View All Projects"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="12"
-                                               FontWeight="SemiBold"
                                                Foreground="{DynamicResource Brush.Thaka}" />
                                     <Path Data="{StaticResource Icon.Local.ArrowRight}"
                                           Stroke="{DynamicResource Brush.Thaka}"
@@ -515,10 +496,8 @@
                                 BorderThickness="0,0,0,1"
                                 BorderBrush="{DynamicResource Brush.Border.Default}"
                                 Background="{DynamicResource Brush.Surface.Raised}">
-                            <TextBlock Text="RECENT ACTIVITY"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="RECENT ACTIVITY"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Secondary}"
                                        VerticalAlignment="Center" />
                         </Border>
@@ -549,28 +528,24 @@
                                                     Margin="0,0,10,0" />
 
                                             <!-- Title -->
-                                            <TextBlock Grid.Column="1"
+                                            <TextBlock Style="{StaticResource Text.Secondary}" Grid.Column="1"
                                                        Text="{Binding Title}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13"
                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                        VerticalAlignment="Center" />
 
                                             <!-- Time -->
-                                            <TextBlock Grid.Column="2"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Grid.Column="2"
                                                        Text="{Binding TimeFormatted}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                                        VerticalAlignment="Center"
                                                        Margin="10,0" />
 
                                             <!-- Amount -->
-                                            <TextBlock Grid.Column="3"
+                                            <TextBlock Style="{StaticResource Text.TableHeader}" Grid.Column="3"
                                                        Text="{Binding AmountFormatted}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                        HorizontalAlignment="Right"
                                                        VerticalAlignment="Center" />
@@ -608,11 +583,9 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="0"
+                                <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                            Text="LOW STOCK"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12"
-                                           FontWeight="Bold"
                                            Foreground="{DynamicResource Brush.Badge.Warning.Text}"
                                            VerticalAlignment="Center" />
 
@@ -648,10 +621,9 @@
                                                     Margin="0,0,10,0" />
 
                                             <!-- Product Name -->
-                                            <TextBlock Grid.Column="1"
+                                            <TextBlock Style="{StaticResource Text.Secondary}" Grid.Column="1"
                                                        Text="{Binding ProductName}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13"
                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                        VerticalAlignment="Center" />
 

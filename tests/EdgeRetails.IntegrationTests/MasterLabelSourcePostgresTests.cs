@@ -25,11 +25,21 @@ public sealed class MasterLabelSourcePostgresTests(ITestOutputHelper output)
         Assert.StartsWith("18", version);
         output.WriteLine("Provider = PostgreSQL 18 / Npgsql");
         var fixture = await Phase2PostgresTestHarness.SeedSerializedProductAsync(db);
-        // HARNESS_CORRECTION: the generic DB fixture uses a GUID in its display unit
-        // name for uniqueness. Real label unit text is "Piece"; retain its unique
-        // symbol/ID and the renderer's unchanged explicit overflow rejection.
-        var labelUnit = await db.Units.SingleAsync(x => x.Id == fixture.UnitId);
-        labelUnit.Name = "Piece";
+        // Labels need a realistic short display unit. Reuse the canonical Piece
+        // when present instead of violating the global unit-name uniqueness rule.
+        var labelUnit = await db.Units.SingleOrDefaultAsync(x => x.Name == "Piece");
+        if (labelUnit is null)
+        {
+            labelUnit = await db.Units.SingleAsync(x => x.Id == fixture.UnitId);
+            labelUnit.Name = "Piece";
+        }
+        else
+        {
+            Assert.Equal(0, labelUnit.DisplayDecimalPlaces);
+            (await db.Products.SingleAsync(x => x.Id == fixture.ProductId)).BaseUnitId = labelUnit.Id;
+            (await db.ProductUnits.SingleAsync(x => x.Id == fixture.ProductUnitId)).UnitId = labelUnit.Id;
+            fixture = fixture with { UnitId = labelUnit.Id };
+        }
         await db.SaveChangesAsync();
         var purchase = await ActivatorUtilities.CreateInstance<CreatePurchaseHandler>(services).HandleAsync(new CreatePurchaseCommand(
             fixture.SupplierId, "LABEL-" + Guid.NewGuid().ToString("N"), DateOnly.FromDateTime(DateTime.UtcNow), null, 0m,
@@ -67,6 +77,7 @@ public sealed class MasterLabelSourcePostgresTests(ITestOutputHelper output)
             documents.Add(document);
         }
         var productLabel = await new EfProductLabelDocumentSource(db).LoadProductLabelAsync(fixture.ProductUnitId);
+        Assert.Equal("Piece", productLabel.UnitName);
         var first = VectorLabelPdfExporter.Export(documents, [productLabel]);
         var second = VectorLabelPdfExporter.Export(documents, [productLabel]);
         Assert.Equal(first.ExactUnitPdf, second.ExactUnitPdf);

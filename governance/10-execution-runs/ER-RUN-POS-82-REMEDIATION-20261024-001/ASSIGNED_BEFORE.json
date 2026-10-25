@@ -1,0 +1,94 @@
+[
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase2PostgresTestHarness.cs",
+    "exists": true,
+    "sha256": "cae7a737d21adfd2869f48ccc49f9e0bfd302aaa5956059f5abe215a1d9ea770"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/PostgresFixtureProfile.cs",
+    "exists": false
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/MasterSupplierProductSequencePostgresTests.cs",
+    "exists": true,
+    "sha256": "37be124500120e21fa635bddff4c4eea289e833f06d110a8e6545cdd5d2ad623"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/MasterCashierCreationPostgresTests.cs",
+    "exists": true,
+    "sha256": "e22e282f4c5f607f1f586a14bd3a91c2ec2890a6f096434d0c0c5c79792414e2"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase1FrontendRecoveryContractPostgresTests.cs",
+    "exists": true,
+    "sha256": "5f981e752cc13257011076d8f0e4b2df0486e28b42a823bb523fc62a390b5c57"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/TrackingMigrationRehearsalPostgresTests.cs",
+    "exists": true,
+    "sha256": "4dd8950a9da487260d7cde60a3e1762a2c2443462e7502085d1919212c904cbe"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass5WarrantyMigrationPostgresTests.cs",
+    "exists": true,
+    "sha256": "9f418d7ac740f85020cb2f7a3a2716aae87230006eff29f016951d0930be4775"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass5R1MultilotExactWarrantyPostgresTests.cs",
+    "exists": true,
+    "sha256": "ec5b1bae33ff07e42e5f82fa06284bacb422ecf89f802e92e0e73cf2ca2a7696"
+  },
+  {
+    "path": "scripts/Invoke-IntegrationFailureRemediation.ps1",
+    "exists": false
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/IntegrationChildHost.cs",
+    "exists": false
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase12Wave3PostgresTests.cs",
+    "exists": true,
+    "sha256": "1a2d380cae5c2834c260e390317393f5162c941afd6650a153f329015a1f4cb9"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase3CrashRestartIntegrationTests.cs",
+    "exists": true,
+    "sha256": "5c3f49f63991fe2ee85b94a744689b4968968b851d6da6122ac8467521f15e24"
+  },
+  {
+    "path": "src/EdgeRetails.Application/Features/Finance/SupplierAccountHandlers.cs",
+    "exists": true,
+    "sha256": "6eeb93d4df7a674bf9b2a14c832d19150ec486288f146b1cf3603581aedc7e5a"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass5CommercialPostgresTests.cs",
+    "exists": true,
+    "sha256": "16933a25af27127d0c5965996345e93ea4a6eb710229b3c2c89ffa208c8e3e53"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass5WarrantyReportingPostgresTests.cs",
+    "exists": true,
+    "sha256": "c829453d3435ddee72eafbac0cea287de0dfee98fee8e20af31b8aa1d7e0cd43"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7BackendFinancialSafetyPostgresTests.cs",
+    "exists": true,
+    "sha256": "c4a1a92c68d66575b953127a39d0716e9a52e86e057835c23f7ce8c8af8b1c63"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase7Pass3PostgresTests.cs",
+    "exists": true,
+    "sha256": "c4e2b903e46cf82ca3d6273816fac49b75f2c5ac11c445f72717b74fd0162607"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase234KhataTimestampPostgresTests.cs",
+    "exists": true,
+    "sha256": "d8a37965ce8837d16684e5eb4cbc6f774a463bc93cbb96b7499849fa4c36a88c"
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/MasterLabelSourcePostgresTests.cs",
+    "exists": true,
+    "sha256": "917f276520977308031f22a72b84b9e47812efe9cc99fa5f471dc271a2e59a72"
+  }
+]

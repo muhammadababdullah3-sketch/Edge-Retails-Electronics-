@@ -42,6 +42,10 @@ Edge Retails adheres strictly to **Clean Architecture** and **Domain-Driven Desi
 
 ---
 
+## Workspace
+
+Daily development uses **one** git worktree: this folder on Desktop. See [docs/WORKSPACE.md](docs/WORKSPACE.md) for layout, runtime paths, and cleanup policy.
+
 ## 📁 Repository Structure
 
 The repository is structured as a standardized enterprise monorepo:

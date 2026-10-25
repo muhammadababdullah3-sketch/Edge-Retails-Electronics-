@@ -6,9 +6,9 @@
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
                 <Grid>
                     <StackPanel>
-                        <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding Subtitle}" Margin="0,4,0,0" FontSize="12.5"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding Subtitle}" Margin="0,4,0,0"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
                     <Button HorizontalAlignment="Right" Command="{Binding CancelCommand}"
@@ -28,10 +28,9 @@
                             Style="{StaticResource Button.Neutral}" />
                 </Grid>
                 <Grid Margin="0,8,0,0">
-                    <TextBlock Text="{Binding SelectionHint}" FontSize="12"
+                    <TextBlock Text="{Binding SelectionHint}" Style="{StaticResource Text.FormLabel}"
                                Foreground="{DynamicResource Brush.Text.Secondary}" />
-                    <TextBlock Text="{Binding SelectedCountDisplay}" HorizontalAlignment="Right"
-                               FontSize="12" FontWeight="SemiBold"
+                    <TextBlock Style="{StaticResource Text.TableHeader}" Text="{Binding SelectedCountDisplay}" HorizontalAlignment="Right"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                 </Grid>
                 <TextBlock Text="{Binding ValidationMessage}" Margin="0,8,0,0"

@@ -8,6 +8,7 @@ using EdgeRetails.Domain.Operations;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using Xunit;
 
 namespace EdgeRetails.IntegrationTests;
@@ -72,6 +73,8 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.True(replayResult.Value!.WasExisting);
         }
 
+        var paymentOutcomeBeforeRejections = await OutcomeSnapshotAsync(provider, operationId);
+
         // 3. Mutated Purpose fails
         await using (var scope = provider.CreateAsyncScope())
         {
@@ -129,7 +132,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             var mutated = baselineCommand with { ActorId = actor2Id };
             var result = await handler.HandleAsync(mutated, default);
             Assert.False(result.IsSuccess);
-            Assert.Equal("idempotency.payload_mismatch", result.Error?.Code);
+            Assert.Equal("idempotency.context_mismatch", result.Error?.Code);
         }
 
         // 9. Verify single effect in database (1 payment entity, 1 sae from opening + 1 sae from payment)
@@ -139,6 +142,15 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.Single(await db.SupplierPayments.Where(x => x.ClientOperationId == operationId).ToListAsync());
             Assert.Single(await db.SupplierAccountEntries.Where(x => x.ClientOperationId == operationId).ToListAsync());
             Assert.Single(await db.CashMovements.Where(x => x.SourceType == "SUPPLIER_PAYMENT" && x.SourceId == paymentId).ToListAsync());
+        }
+        Assert.Equal(paymentOutcomeBeforeRejections, await OutcomeSnapshotAsync(provider, operationId));
+        await using (var replayScope = provider.CreateAsyncScope())
+        {
+            var replay = await replayScope.ServiceProvider.GetRequiredService<CreateSupplierPaymentHandler>()
+                .HandleAsync(baselineCommand, default);
+            Assert.True(replay.IsSuccess, replay.Error?.Message);
+            Assert.True(replay.Value!.WasExisting);
+            Assert.Equal(paymentId, replay.Value.PaymentId);
         }
     }
 
@@ -201,6 +213,8 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.Equal(expenseId, replayResult.Value.ExpenseId);
         }
 
+        var expenseOutcomeBeforeRejections = await OutcomeSnapshotAsync(provider, operationId);
+
         // 3. Mutated Amount fails
         await using (var scope = provider.CreateAsyncScope())
         {
@@ -258,7 +272,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             var mutated = baselineCommand with { ActorId = actor2Id };
             var result = await handler.HandleAsync(mutated, default);
             Assert.False(result.IsSuccess);
-            Assert.Equal("idempotency.payload_mismatch", result.Error?.Code);
+            Assert.Equal("idempotency.context_mismatch", result.Error?.Code);
         }
 
         // 9. Verify single expense row and cash movement
@@ -268,6 +282,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.Single(await db.Expenses.Where(x => x.ClientOperationId == operationId).ToListAsync());
             Assert.Single(await db.CashMovements.Where(x => x.SourceId == expenseId).ToListAsync());
         }
+        Assert.Equal(expenseOutcomeBeforeRejections, await OutcomeSnapshotAsync(provider, operationId));
     }
 
     [Fact]
@@ -1241,7 +1256,9 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.True(res.IsSuccess, res.Error?.Message);
         }
 
-        // 2. Attempt to use sharedOpId for PostExpense -> rejected with idempotency.payload_mismatch
+        var paymentOutcomeBeforeCollisions = await OutcomeSnapshotAsync(provider, sharedOpId);
+
+        // PostExpense retains its established generic cross-type rejection code.
         await using (var scope = provider.CreateAsyncScope())
         {
             var expenseHandler = scope.ServiceProvider.GetRequiredService<PostExpenseHandler>();
@@ -1253,7 +1270,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.Equal("idempotency.payload_mismatch", expenseRes.Error?.Code);
         }
 
-        // 3. Attempt to use sharedOpId for CreateSupplierRefund -> rejected with idempotency.payload_mismatch
+        // Supplier handlers distinguish the operation-type collision explicitly.
         await using (var scope = provider.CreateAsyncScope())
         {
             var refundHandler = scope.ServiceProvider.GetRequiredService<CreateSupplierRefundHandler>();
@@ -1262,7 +1279,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
                 "CROSS-REF", "MANUAL", null, "Colliding refund"), default);
 
             Assert.False(refundRes.IsSuccess);
-            Assert.Equal("idempotency.payload_mismatch", refundRes.Error?.Code);
+            Assert.Equal("idempotency.operation_type_mismatch", refundRes.Error?.Code);
         }
 
         // 4. Reverse scenario: Create Expense with expenseOpId, then attempt SupplierPayment with same ID
@@ -1276,6 +1293,7 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
             Assert.True(res.IsSuccess);
         }
 
+        var expenseOutcomeBeforeCollision = await OutcomeSnapshotAsync(provider, expenseOpId);
         await using (var scope = provider.CreateAsyncScope())
         {
             var payHandler = scope.ServiceProvider.GetRequiredService<CreateSupplierPaymentHandler>();
@@ -1284,7 +1302,18 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
                 actorId, expenseOpId, "COLLIDING-PAY", "Colliding payment"), default);
 
             Assert.False(payRes.IsSuccess);
-            Assert.Equal("idempotency.payload_mismatch", payRes.Error?.Code);
+            Assert.Equal("idempotency.operation_type_mismatch", payRes.Error?.Code);
+        }
+        Assert.Equal(paymentOutcomeBeforeCollisions, await OutcomeSnapshotAsync(provider, sharedOpId));
+        Assert.Equal(expenseOutcomeBeforeCollision, await OutcomeSnapshotAsync(provider, expenseOpId));
+        await using (var verify = provider.CreateAsyncScope())
+        {
+            var db = verify.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+            Assert.Single(await db.SupplierPayments.Where(x => x.ClientOperationId == sharedOpId).ToListAsync());
+            Assert.Single(await db.Expenses.Where(x => x.ClientOperationId == expenseOpId).ToListAsync());
+            Assert.False(await db.SupplierRefunds.AnyAsync(x => x.ClientOperationId == sharedOpId));
+            Assert.False(await db.Expenses.AnyAsync(x => x.ClientOperationId == sharedOpId));
+            Assert.False(await db.SupplierPayments.AnyAsync(x => x.ClientOperationId == expenseOpId));
         }
     }
 
@@ -1381,6 +1410,14 @@ public sealed class Phase7BackendFinancialSafetyPostgresTests
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         await Phase2PostgresTestHarness.SeedOpenCashSessionAsync(db, actorId, openingCash);
+    }
+
+    private static async Task<string> OutcomeSnapshotAsync(ServiceProvider provider, Guid operationId)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+        return JsonSerializer.Serialize(await db.OperationOutcomes.AsNoTracking()
+            .SingleAsync(x => x.ClientOperationId == operationId));
     }
 
     private static async Task CloseOpenSessionsAsync(EdgeRetailsDbContext db)

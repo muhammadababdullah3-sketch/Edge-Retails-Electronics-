@@ -1,0 +1,25 @@
+{
+  "profile": "PHASE11",
+  "owned_root": "C:\\Users\\muham\\AppData\\Local\\Temp\\EdgeRetailsMasterPg_68d83b4af4ef4316a88edd0bba8dc31e\\scratch\\EdgeRetailsMasterPg_68d83b4af4ef4316a88edd0bba8dc31e_PHASE11",
+  "expected_data_directory": "C:\\Users\\muham\\AppData\\Local\\Temp\\EdgeRetailsMasterPg_68d83b4af4ef4316a88edd0bba8dc31e\\scratch\\EdgeRetailsMasterPg_68d83b4af4ef4316a88edd0bba8dc31e_PHASE11\\data",
+  "observed_data_directory": null,
+  "migration_history_count": null,
+  "postmaster_pid": "10832",
+  "schema_mode": "MIGRATED",
+  "observation": {
+    "database": "edgeretails_test_r82_68d83b4af4ef4316a88edd0bba8dc31e",
+    "connected_role": "er_master_runtime",
+    "port": 55437,
+    "server_version_num": "180006",
+    "role_attributes": {
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolreplication": false,
+      "rolbypassrls": false
+    },
+    "memberships": [],
+    "migration_history_exists": true
+  }
+}

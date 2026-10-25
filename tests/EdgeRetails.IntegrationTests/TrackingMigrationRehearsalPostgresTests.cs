@@ -355,17 +355,15 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
     {
         await using var attested = Phase2PostgresTestHarness.BuildProvider();
         var name = "edge_retails_tracking_rehearsal_" + Guid.NewGuid().ToString("N");
-        var baseConn = Phase2PostgresTestHarness.ResolveConnectionString();
-        var builder = new NpgsqlConnectionStringBuilder(baseConn) { Database = "postgres" };
-        await using var admin = new NpgsqlConnection(builder.ConnectionString);
-        await admin.OpenAsync();
+        var profile = PostgresFixtureProfile.Resolve();
+        await using var admin = profile.OpenMaintenance();
         await using (var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin))
         {
             await create.ExecuteNonQueryAsync();
         }
         try
         {
-            builder.Database = name;
+            var builder = new NpgsqlConnectionStringBuilder(profile.MaintenanceForDatabase(name));
             await using var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
                 .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
             await test(db);

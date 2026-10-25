@@ -102,7 +102,7 @@
                         <TextBlock Margin="0,3,0,0"
                                    Style="{StaticResource Text.Body.Secondary}">
                             <Run Text="Cashier: " />
-                            <Run Text="{Binding CashierContext, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                            <Run Style="{StaticResource Text.Run.Body}" Text="{Binding CashierContext, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Secondary}" />
                             <Run Text=" · View and manage recorded customer transactions &amp; returns" />
                         </TextBlock>
                     </StackPanel>
@@ -276,9 +276,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding CustomerDisplay}"
-                                                       Style="{StaticResource Table.TextCell}"
-                                                       FontWeight="SemiBold"
-                                                       FontSize="13" />
+                                                       Style="{StaticResource Table.TextCell.Emphasis}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -297,10 +295,7 @@
                                                     Binding="{Binding PaymentMethod}"
                                                     Width="1.3*">
                                     <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
-                                            <Setter Property="FontSize" Value="13" />
-                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
-                                        </Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell.Standard}" />
                                     </DataGridTextColumn.ElementStyle>
                                 </DataGridTextColumn>
 
@@ -328,11 +323,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Button Content="View Invoice"
-                                                    Style="{StaticResource Button.Neutral}"
-                                                    Height="28"
-                                                    Padding="10,0"
-                                                    FontSize="12"
-                                                    FontWeight="SemiBold"
+                                                    Style="{StaticResource Button.Neutral.Inline}"
                                                     Command="{Binding DataContext.ViewInvoiceCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}"
                                                     HorizontalAlignment="Center"
@@ -350,16 +341,13 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="No Transactions Found"
+                                <TextBlock Style="{StaticResource Text.DetailTitle}" Text="No Transactions Found"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="16"
-                                           FontWeight="Bold"
                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                            HorizontalAlignment="Center" />
-                                <TextBlock Margin="0,4,0,0"
+                                <TextBlock Style="{StaticResource Text.Secondary}" Margin="0,4,0,0"
                                            Text="No sales match the active search term or date range filter."
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="13"
                                            Foreground="{DynamicResource Brush.Text.Muted}"
                                            HorizontalAlignment="Center" />
                             </StackPanel>

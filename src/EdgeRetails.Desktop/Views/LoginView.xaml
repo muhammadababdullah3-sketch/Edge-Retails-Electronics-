@@ -123,7 +123,7 @@
                         CornerRadius="16"
                         Background="Transparent">
                     <Border.Effect>
-                        <DropShadowEffect Color="#4F46E5" BlurRadius="32" ShadowDepth="8" Opacity="0.13" Direction="270" />
+                        <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="32" ShadowDepth="8" Opacity="0.13" Direction="270" />
                     </Border.Effect>
 
                     <!-- Inner Border: Crisp Surface & Contact Drop Shadow -->
@@ -133,26 +133,23 @@
                             CornerRadius="16"
                             Padding="28">
                         <Border.Effect>
-                            <DropShadowEffect Color="#0A2540" BlurRadius="8" ShadowDepth="2" Opacity="0.08" Direction="270" />
+                            <DropShadowEffect Color="{StaticResource Color.Shadow.Deep}" BlurRadius="8" ShadowDepth="2" Opacity="0.08" Direction="270" />
                         </Border.Effect>
 
                         <StackPanel Width="342" HorizontalAlignment="Center">
                             <!-- 1. Header Section -->
                             <StackPanel HorizontalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Image Source="{StaticResource Brand.Mark}" Width="40" Height="40"/><TextBlock Text="Edge Retails" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/></StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Image Source="{StaticResource Brand.Mark}" Width="40" Height="40"/><TextBlock Text="Edge Retails" Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.PageTitle}" Foreground="{DynamicResource Brush.Text.Primary}"/></StackPanel>
 
-                                <TextBlock Text="EdgeRetails POS"
+                                <TextBlock Style="{StaticResource Text.SectionTitle}" Text="EdgeRetails POS"
                                            FontFamily="{StaticResource Font.Numeric}"
-                                           FontWeight="Bold"
-                                           FontSize="18"
                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                            HorizontalAlignment="Center"
                                            Margin="0,7,0,0" />
 
                                 <!-- Subtitle: Select your account to continue -->
-                                <TextBlock Text="Select your account to continue"
+                                <TextBlock Style="{StaticResource Text.Secondary}" Text="Select your account to continue"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="13"
                                            Foreground="{DynamicResource Brush.Text.Muted}"
                                            HorizontalAlignment="Center"
                                            Margin="0,4,0,0" />
@@ -224,11 +221,9 @@
                                                                     CornerRadius="999"
                                                                     Background="{DynamicResource Brush.Surface.Subtle}"
                                                                     VerticalAlignment="Center">
-                                                                <TextBlock x:Name="AvatarText"
+                                                                <TextBlock Style="{StaticResource Text.Control}" x:Name="AvatarText"
                                                                            Text="{Binding AvatarLetter}"
                                                                            FontFamily="{StaticResource Font.Primary}"
-                                                                           FontSize="14"
-                                                                           FontWeight="Bold"
                                                                            Foreground="{DynamicResource Brush.Text.Secondary}"
                                                                            HorizontalAlignment="Center"
                                                                            VerticalAlignment="Center" />
@@ -238,14 +233,11 @@
                                                             <StackPanel Grid.Column="1"
                                                                         Margin="10.5,0,0,0"
                                                                         VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding DisplayName}"
+                                                                <TextBlock Style="{StaticResource Text.Body}" Text="{Binding DisplayName}"
                                                                            FontFamily="{StaticResource Font.Primary}"
-                                                                           FontSize="14"
-                                                                           FontWeight="SemiBold"
                                                                            Foreground="{DynamicResource Brush.Text.Primary}" />
-                                                                <TextBlock Text="{Binding RoleName}"
+                                                                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding RoleName}"
                                                                            FontFamily="{StaticResource Font.Primary}"
-                                                                           FontSize="12"
                                                                            Foreground="{DynamicResource Brush.Text.Muted}"
                                                                            Margin="0,1,0,0" />
                                                             </StackPanel>
@@ -260,7 +252,7 @@
                                                                     VerticalAlignment="Center"
                                                                     Visibility="Collapsed">
                                                                 <Path Data="M 3.5 7 L 6 9.5 L 10.5 4.5"
-                                                                      Stroke="#FFFFFF"
+                                                                      Stroke="{StaticResource Brush.White}"
                                                                       StrokeThickness="1.5"
                                                                       StrokeStartLineCap="Round"
                                                                       StrokeEndLineCap="Round"
@@ -277,10 +269,10 @@
                                                             <Setter TargetName="AvatarBorder" Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                             <Setter TargetName="AvatarBorder" Property="Effect">
                                                                 <Setter.Value>
-                                                                    <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                    <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                                 </Setter.Value>
                                                             </Setter>
-                                                            <Setter TargetName="AvatarText" Property="Foreground" Value="#FFFFFF" />
+                                                            <Setter TargetName="AvatarText" Property="Foreground" Value="{StaticResource Brush.White}" />
                                                         </DataTrigger>
 
                                                         <!-- Selected state styling -->
@@ -291,7 +283,7 @@
                                                             <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource Brush.Brand.Primary}" />
                                                             <Setter TargetName="CardBorder" Property="Effect">
                                                                 <Setter.Value>
-                                                                    <DropShadowEffect Color="#4F46E5" BlurRadius="6" ShadowDepth="0" Opacity="0.18" />
+                                                                    <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="6" ShadowDepth="0" Opacity="0.18" />
                                                                 </Setter.Value>
                                                             </Setter>
                                                             <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
@@ -372,7 +364,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -385,7 +377,7 @@
                                                         <Setter Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#DC2626" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Danger}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </MultiDataTrigger>
@@ -434,7 +426,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -447,7 +439,7 @@
                                                         <Setter Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#DC2626" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Danger}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </MultiDataTrigger>
@@ -496,7 +488,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -509,7 +501,7 @@
                                                         <Setter Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#DC2626" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Danger}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </MultiDataTrigger>
@@ -558,7 +550,7 @@
                                                         <Setter Property="Background" Value="{StaticResource Gradient.Brand.Primary}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#4F46E5" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </DataTrigger>
@@ -571,7 +563,7 @@
                                                         <Setter Property="Background" Value="{DynamicResource Brush.Badge.Danger.Background}" />
                                                         <Setter Property="Effect">
                                                             <Setter.Value>
-                                                                <DropShadowEffect Color="#DC2626" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
+                                                                <DropShadowEffect Color="{StaticResource Color.Danger}" BlurRadius="8" ShadowDepth="2" Opacity="0.30" Direction="270" />
                                                             </Setter.Value>
                                                         </Setter>
                                                     </MultiDataTrigger>
@@ -612,7 +604,6 @@
                                 <!-- Helper / Error Text -->
                                 <TextBlock Text="{Binding HelperText}"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12"
                                            HorizontalAlignment="Center"
                                            TextAlignment="Center"
                                            TextWrapping="Wrap"
@@ -682,7 +673,7 @@
                                 <Button Grid.Row="6" Grid.Column="2" Content="0" Style="{StaticResource Style.KeypadButton}"
                                         Command="{Binding AppendDigitCommand}" CommandParameter="0" />
                                 <Button Grid.Row="6" Grid.Column="4" Content="⌫" Style="{StaticResource Style.KeypadButton}"
-                                        Foreground="{DynamicResource Brush.Text.Muted}" FontSize="18"
+                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                         Command="{Binding BackspaceCommand}" />
                             </Grid>
 
@@ -700,23 +691,21 @@
                                                 Background="{StaticResource Gradient.Brand.Primary}"
                                                 SnapsToDevicePixels="True">
                                             <Border.Effect>
-                                                <DropShadowEffect Color="#4F46E5" BlurRadius="12" ShadowDepth="3" Opacity="0.35" Direction="270" />
+                                                <DropShadowEffect Color="{StaticResource Color.Brand.Primary}" BlurRadius="12" ShadowDepth="3" Opacity="0.35" Direction="270" />
                                             </Border.Effect>
                                             <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <!-- Default Button Label -->
-                                                <TextBlock x:Name="BtnText"
+                                                <TextBlock Style="{StaticResource Text.Control}" x:Name="BtnText"
                                                            Text="SIGN IN"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontWeight="Bold"
-                                                           FontSize="14"
-                                                           Foreground="#FFFFFF" />
+                                                           Foreground="{StaticResource Brush.White}" />
 
                                                 <!-- Signing In Animated Indicator -->
                                                 <StackPanel x:Name="LoadingPanel"
                                                             Orientation="Horizontal"
                                                             Visibility="Collapsed">
                                                     <Path Data="M 0 6 A 6 6 0 1 1 12 6"
-                                                          Stroke="#FFFFFF"
+                                                          Stroke="{StaticResource Brush.White}"
                                                           StrokeThickness="2"
                                                           Width="12"
                                                           Height="12"
@@ -738,11 +727,9 @@
                                                             </EventTrigger>
                                                         </Path.Triggers>
                                                     </Path>
-                                                    <TextBlock Text="SIGNING IN..."
+                                                    <TextBlock Style="{StaticResource Text.Control}" Text="SIGNING IN..."
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontWeight="Bold"
-                                                               FontSize="14"
-                                                               Foreground="#FFFFFF"
+                                                               Foreground="{StaticResource Brush.White}"
                                                                Margin="8,0,0,0"
                                                                VerticalAlignment="Center" />
                                                 </StackPanel>

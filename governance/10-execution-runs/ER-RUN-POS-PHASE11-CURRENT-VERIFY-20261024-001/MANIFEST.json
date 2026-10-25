@@ -1,0 +1,209 @@
+{
+  "run_id": "ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-001",
+  "captured_at_utc": "2026-10-24T04:31:05.1106595Z",
+  "candidate_head": "6b5bbd04f35aa1bce3362751185b60d3cabfc8e6",
+  "candidate_parent": "ea305c76ac9efeb6c109e182d54c3d7a942a05ff",
+  "disposition": "WORKER_VERIFICATION_NOT_FORMAL_CLOSURE",
+  "tracked_source_modified": false,
+  "formal_phase11_closed": false,
+  "current_governance_lock_exists": false,
+  "source_hashes": [
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/ThakaReadService.cs",
+      "sha256": "b5fd61a20f9e2eb16602ece0f83e4f194298a458dc731343a305416f7f20f0bd"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/ThakaPostgresTransactionIntegrationTests.cs",
+      "sha256": "b9bb1304733fdfe900336748fa5b0ce162c28c7f21921d8fb251d893c062f9af"
+    },
+    {
+      "path": "scripts/Invoke-CatalogPostgresRehearsal.ps1",
+      "sha256": "fbebca64750f1546d1d0491e9ea0e9f1ae8a8d5a79806ce97ee95dfb73204d77"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11DurablePostingIntegrationTests.cs",
+      "sha256": "2aa55663e34eb50e4c07eb29e8eccdc39ddc88460c7d99ecb155b08ac1baa67d"
+    }
+  ],
+  "results": {
+    "unit": "1419/1419 pass",
+    "phase11_desktop": "35/35 pass",
+    "desktop_isolated": "482/482 pass; one Phase12 machine-root assertion excluded; unique per-run EDGE_RETAILS_STATE_DIR",
+    "postgres_catalog": "119/119 pass; PostgreSQL 18 disposable; port 55438",
+    "postgres_expanded_phase11": "145 total, 142 pass, 3 fail; PostgreSQL 18 disposable; port 55437",
+    "postgres_catalog_seed_isolated": "pass; PostgreSQL 18 disposable; port 55438",
+    "postgres_thaka_race_isolated": "1/1 pass for issue-wins interleaving; PostgreSQL 18 disposable; port 55437",
+    "known_findings": [
+      "Thaka race test double-subtracts refund when refund and issue both succeed.",
+      "Runner accepts 55000-55999 while integration guard accepts only 55437/55438.",
+      "Catalog test class can fail from process-wide EF service-provider warning when run after other classes; isolated run passes."
+    ]
+  },
+  "files": [
+    {
+      "path": "BASELINE.json",
+      "bytes": 2465,
+      "sha256": "3ddad2f0a40f4daf2104f7e90139f314d1929085504c7339338a97336e7b2341"
+    },
+    {
+      "path": "evidence\\desktop-isolated-final\\desktop-current-isolated-final.trx",
+      "bytes": 798870,
+      "sha256": "2cdaeb6af4ab5df272daf2d1fb34e483ccfdd3fbacfb43742e837a76539e7240"
+    },
+    {
+      "path": "evidence\\desktop-isolated\\desktop-isolated-current.trx",
+      "bytes": 804812,
+      "sha256": "c6c7e90d4e56fb9ca9cd0b0349845bef09a4d9d65df0ee276ced4b22dd005034"
+    },
+    {
+      "path": "evidence\\desktop-phase11\\phase11-desktop-current.trx",
+      "bytes": 58464,
+      "sha256": "8239b902a153ff5db5cd5e46e1cc93c45c2314592190c85372152bc85a69e4bf"
+    },
+    {
+      "path": "evidence\\desktop-state-final\\Desktop\\operation-intents.json",
+      "bytes": 411,
+      "sha256": "50cbba1774c7d47e1665c680bb3a51ee0d740590e1e5e76dac2e716111bc1201"
+    },
+    {
+      "path": "evidence\\desktop-state\\Desktop\\operation-intents.json",
+      "bytes": 411,
+      "sha256": "241d5577a71f2635fa8864ba0cb5f01bafaaa6240218e51abe2bc0ab4e0ef35e"
+    },
+    {
+      "path": "evidence\\desktop-targeted\\catalog-combined-filter-repeat.trx",
+      "bytes": 3230,
+      "sha256": "6177dc074830353cdf6eb2646b5e4c8eebd120453531540ee7554b7009401651"
+    },
+    {
+      "path": "evidence\\desktop\\console.log",
+      "bytes": 17937,
+      "sha256": "82ef61de5308c5c957cc10cb80be170eda30aa37d2254867633d3ebfa4912812"
+    },
+    {
+      "path": "evidence\\desktop\\desktop-current.trx",
+      "bytes": 833411,
+      "sha256": "ea597cd3073eb07dc0b7eb531f3260ba710b90805d45da9b2d5f3ccdd85b4514"
+    },
+    {
+      "path": "evidence\\Invoke-CatalogSeedPostgresTests-Isolated.ps1",
+      "bytes": 15755,
+      "sha256": "075113727d06ea6f1ca4eab2555e29ee39c1a54a5e1e42bf4b9f061b20d751a0"
+    },
+    {
+      "path": "evidence\\Invoke-Phase11DisposablePostgresTests-AllowedPort.ps1",
+      "bytes": 16206,
+      "sha256": "f36201ffffe5d27dae940169ea85a2f8602cb42268805c7a132ea46721912b7c"
+    },
+    {
+      "path": "evidence\\Invoke-Phase11DisposablePostgresTests.ps1",
+      "bytes": 16383,
+      "sha256": "d5eca061013d8884cd4c91517079c489c74a376cdb899a5c99174d7990966064"
+    },
+    {
+      "path": "evidence\\Invoke-ThakaBalanceOracleTest.ps1",
+      "bytes": 15846,
+      "sha256": "d7dadcda6c564a9e25cedefc14e505580051699830a4221d2e585a97bbc6668a"
+    },
+    {
+      "path": "evidence\\pg18-catalog-seed-isolated\\catalog-postgres-rehearsal.log",
+      "bytes": 10517,
+      "sha256": "3827bb602f742a9d33db17632a3b020f6a5d32474e531b4069e823dd06f98c33"
+    },
+    {
+      "path": "evidence\\pg18-catalog-seed-isolated\\muham_ALI_2026-10-24_09_26_06_net10.0.trx",
+      "bytes": 12447,
+      "sha256": "5b3e7bb2f3215c11f8e7ff4676e44b0567cc15e2b6709f150236be455b4769c0"
+    },
+    {
+      "path": "evidence\\pg18-catalog-seed-isolated\\terminal-result.json",
+      "bytes": 1732,
+      "sha256": "56a301dca6195eb9fb631686c22538b5302f69a1cbec25b4375c32a645f402ef"
+    },
+    {
+      "path": "evidence\\pg18-catalog\\catalog-postgres-rehearsal.log",
+      "bytes": 10772,
+      "sha256": "6bcd82dbb539fd75275b1265c8d6b34f4ba2826dac7e36cb9f26764cc4dcbd2d"
+    },
+    {
+      "path": "evidence\\pg18-catalog\\muham_ALI_2026-10-24_09_17_59_net10.0.trx",
+      "bytes": 316287,
+      "sha256": "96fe957ab72e618449b9950767e235b6ea434585ab080e94d7ce7f4821ac3352"
+    },
+    {
+      "path": "evidence\\pg18-catalog\\terminal-result.json",
+      "bytes": 1732,
+      "sha256": "ade5066a6d03ff12732a0edb8a0cf42f3916d149c6d8d3afb5c88b629af61c23"
+    },
+    {
+      "path": "evidence\\pg18-phase11-allowed-port\\catalog-postgres-rehearsal.log",
+      "bytes": 18795,
+      "sha256": "3d00e7342e2954b63d0cbf7e90734d2ff1ae3278b404803afd3ce8a78e197982"
+    },
+    {
+      "path": "evidence\\pg18-phase11-allowed-port\\muham_ALI_2026-10-24_09_22_19_net10.0.trx",
+      "bytes": 372818,
+      "sha256": "82e9e42a049fdbd494ba8b791806024dddd178d881052c1aa72726f09a6b8068"
+    },
+    {
+      "path": "evidence\\pg18-phase11-allowed-port\\terminal-result.json",
+      "bytes": 1734,
+      "sha256": "322ed9ef26d0f73e1c5f0a563c76bf301a3f5f4c2162bf2ca45326204d255af0"
+    },
+    {
+      "path": "evidence\\pg18-phase11\\catalog-postgres-rehearsal.log",
+      "bytes": 104131,
+      "sha256": "d412efc3a2736002ce22521d8184e6c88c76258dbd900d84c2045584a6d272d9"
+    },
+    {
+      "path": "evidence\\pg18-phase11\\muham_ALI_2026-10-24_09_20_18_net10.0.trx",
+      "bytes": 595097,
+      "sha256": "0e6a383e8590e25b06211f5bf24e62f689d6385ad368a19e03857d4dbc2bdf44"
+    },
+    {
+      "path": "evidence\\pg18-phase11\\terminal-result.json",
+      "bytes": 1734,
+      "sha256": "4d94d5b626edef559cb23e121c5b0c6160fbe88777c7d8a806a0b79fa1289583"
+    },
+    {
+      "path": "evidence\\pg18-thaka-oracle-isolated\\catalog-postgres-rehearsal.log",
+      "bytes": 10518,
+      "sha256": "81f494b3167cdf0f16a9c9f9a519acf9b6d3ad29e38d8311b06a15bc2a0cf22b"
+    },
+    {
+      "path": "evidence\\pg18-thaka-oracle-isolated\\muham_ALI_2026-10-24_09_27_18_net10.0.trx",
+      "bytes": 3546,
+      "sha256": "84ce3a86c5e2f5d77cc08fecbd4e33ea79879acbd51b97aca4a4fed018953cea"
+    },
+    {
+      "path": "evidence\\pg18-thaka-oracle-isolated\\terminal-result.json",
+      "bytes": 1732,
+      "sha256": "367ef37de2d7cd65a262a7c5ae88464a6edff2f5e78daab93c93cfa85ab72221"
+    },
+    {
+      "path": "evidence\\PHASE11_WORKER_HANDOFF_RECEIPT-v1.md",
+      "bytes": 7541,
+      "sha256": "7af4452c61465c8e93d6fef943bb43b9f4337e2826adb8a108814090ffa73939"
+    },
+    {
+      "path": "evidence\\unit\\console.log",
+      "bytes": 1385,
+      "sha256": "392fdc31ccc8df7fa0a143b168acb54ed7d6a444d0c120611ab2442fe25f22cf"
+    },
+    {
+      "path": "evidence\\unit\\unit-current.trx",
+      "bytes": 2102483,
+      "sha256": "ec6313ce5ff308132debfa6ed95f9f9a3a54f91238c75474c19b7539df156255"
+    },
+    {
+      "path": "OWNER_REQUEST.md",
+      "bytes": 570,
+      "sha256": "6957823eda661a726c5ff1b07b84929b9ea747c020d68c15e968b6a5a4168b0a"
+    },
+    {
+      "path": "PHASE11_WORKER_HANDOFF_RECEIPT.md",
+      "bytes": 8088,
+      "sha256": "639d714495cb869ec292c58dfa9acd6d458b3c1e6255eecf79d2abbc43f381ea"
+    }
+  ]
+}

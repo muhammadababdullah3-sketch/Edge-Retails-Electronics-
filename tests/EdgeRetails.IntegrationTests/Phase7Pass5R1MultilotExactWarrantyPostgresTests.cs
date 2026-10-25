@@ -89,8 +89,7 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
     public async Task H02ForwardMigrationPreservesTablesColumnsAndForeignKeysAndCapturesLiveFunctions()
     {
         await using var historical = await HistoricalDatabase.CreateAsync();
-        await using var scope = historical.Provider.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+        await using var db = historical.CreateMaintenanceContext();
         await db.Database.OpenConnectionAsync();
         var connection = (NpgsqlConnection)db.Database.GetDbConnection();
         const string shapeSql = """
@@ -209,18 +208,24 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
         db.ChangeTracker.Clear();
     }
 
-    private sealed class HistoricalDatabase(NpgsqlConnection admin, string name, ServiceProvider provider) : IAsyncDisposable
+    private sealed class HistoricalDatabase(NpgsqlConnection admin, string name, ServiceProvider provider,
+        PostgresFixtureProfile profile) : IAsyncDisposable
     {
         public ServiceProvider Provider { get; } = provider;
+
+        public EdgeRetailsDbContext CreateMaintenanceContext()
+        {
+            using var attested = profile.OpenMaintenance();
+            return new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
+                .UseNpgsql(profile.MaintenanceForDatabase(name), x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
+        }
 
         public static async Task<HistoricalDatabase> CreateAsync()
         {
             // Attest the runner before creating a generated database on its owned cluster.
             await using var attested = Phase2PostgresTestHarness.BuildProvider();
-            var original = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
-            var builder = new NpgsqlConnectionStringBuilder(original) { Database = "postgres" };
-            var admin = new NpgsqlConnection(builder.ConnectionString);
-            await admin.OpenAsync();
+            var profile = PostgresFixtureProfile.Resolve();
+            var admin = profile.OpenMaintenance();
             var name = "edge_retails_h02_history_" + Guid.NewGuid().ToString("N");
             try
             {
@@ -228,15 +233,14 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
                 {
                     await create.ExecuteNonQueryAsync();
                 }
-                builder.Database = name;
+                var builder = new NpgsqlConnectionStringBuilder(profile.MaintenanceForDatabase(name));
                 await using (var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
                     .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options))
                 {
                     await db.GetService<IMigrator>().MigrateAsync("20261006083906_Phase7Pass5WarrantySourceAuthority");
                 }
-                // Collection serialization protects this short provider-construction override.
-                Environment.SetEnvironmentVariable("EDGE_RETAILS_TEST_DB", builder.ConnectionString);
-                return new HistoricalDatabase(admin, name, Phase2PostgresTestHarness.BuildProvider());
+                profile.GrantWriteAccess(name);
+                return new HistoricalDatabase(admin, name, Phase2PostgresTestHarness.BuildProvider(profile.ForOwnedDatabase(name)), profile);
             }
             catch
             {
@@ -244,10 +248,6 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
                 await drop.ExecuteNonQueryAsync();
                 await admin.DisposeAsync();
                 throw;
-            }
-            finally
-            {
-                Environment.SetEnvironmentVariable("EDGE_RETAILS_TEST_DB", original);
             }
         }
 

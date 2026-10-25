@@ -2,8 +2,10 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
+using EdgeRetails.Application.Features.Posting;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Domain.Finance;
+using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Thaka;
 using System.Globalization;
 
@@ -36,6 +38,7 @@ public sealed class RefundThakaCreditHandler
     private readonly IApplicationPermissionAuthorizer _authorization;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOperationOutcomeLedger? _outcomeLedger;
+    private readonly IShopPostingValidationService? _postingValidation;
 
     public RefundThakaCreditHandler(
         IThakaRepository thaka,
@@ -48,7 +51,8 @@ public sealed class RefundThakaCreditHandler
         ITransactionRunner transactions,
         IApplicationPermissionAuthorizer authorization,
         IUnitOfWork unitOfWork,
-        IOperationOutcomeLedger? outcomeLedger = null)
+        IOperationOutcomeLedger? outcomeLedger = null,
+        IShopPostingValidationService? postingValidation = null)
     {
         _thaka = thaka;
         _cashMovements = cashMovements;
@@ -61,6 +65,7 @@ public sealed class RefundThakaCreditHandler
         _authorization = authorization;
         _unitOfWork = unitOfWork;
         _outcomeLedger = outcomeLedger;
+        _postingValidation = postingValidation;
     }
 
     public async Task<Result<RefundThakaCreditResult>> HandleAsync(
@@ -251,6 +256,26 @@ public sealed class RefundThakaCreditHandler
                 RefundedAt = _clock.UtcNow
             };
             _thaka.AddCreditRefund(refund);
+
+            if (_postingValidation is not null)
+            {
+                var postingValidation = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                    OperationType: PostingOperationTypes.ThakaCreditRefund,
+                    EntityId: refund.Id,
+                    EntityNumber: refund.RefundNumber,
+                    ActorId: command.ActorId,
+                    PostingDate: _clock.ShopDate,
+                    SupplierDocumentDate: null,
+                    SupervisorApproval: null,
+                    CallerSuppliedBooleanOverride: null), ct);
+
+                if (!postingValidation.IsSuccess)
+                {
+                    return Result<RefundThakaCreditResult>.Failure(
+                        postingValidation.Error!.Code,
+                        postingValidation.Error.Message);
+                }
+            }
 
             var cash = await _cashMovements.RecordAsync(
                 new RecordCashMovementRequest(

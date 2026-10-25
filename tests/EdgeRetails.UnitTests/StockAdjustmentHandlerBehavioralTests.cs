@@ -1668,6 +1668,26 @@ internal sealed class FakeInventoryCostAllocator : IInventoryCostAllocator
         return Task.FromResult(0m);
     }
 
+    public Task<decimal> RemoveCarryingValueByAmountAsync(Guid productId, decimal baseQuantity, decimal exactAmount, CancellationToken cancellationToken)
+    {
+        if (_inventory.CostStates.TryGetValue(productId, out var state))
+        {
+            state.CostedQty = Math.Max(0m, state.CostedQty - baseQuantity);
+            state.TotalInventoryCost = Math.Max(0m, state.TotalInventoryCost - exactAmount);
+            if (state.CostedQty == 0m)
+            {
+                state.TotalInventoryCost = 0m;
+                state.MovingAverageCost = 0m;
+            }
+            else
+            {
+                state.MovingAverageCost = decimal.Round(state.TotalInventoryCost / state.CostedQty, 6, MidpointRounding.AwayFromZero);
+            }
+            return Task.FromResult(exactAmount);
+        }
+        return Task.FromResult(0m);
+    }
+
     public Task AddCarryingValueAndLotAsync(Guid productId, decimal baseQuantity, decimal unitCost, Guid sourceMovementId, CancellationToken cancellationToken) =>
         AddCarryingValueAndLotWithIdAsync(productId, baseQuantity, unitCost, sourceMovementId, null, InventoryBucket.Sellable, cancellationToken);
 
@@ -1714,6 +1734,18 @@ internal sealed class FakeInventoryCostAllocator : IInventoryCostAllocator
             : 0m;
 
         return Task.FromResult(lot.Id);
+    }
+
+    public async Task<Guid> AddCarryingValueAndLotByAmountAsync(Guid productId, decimal baseQuantity, decimal exactAmount,
+        Guid sourceMovementId, Guid? sourcePurchaseItemId, InventoryBucket initialBucket, CancellationToken cancellationToken)
+    {
+        var previous = _inventory.CostStates.TryGetValue(productId, out var current) ? current.TotalInventoryCost : 0m;
+        var lot = await AddCarryingValueAndLotWithIdAsync(productId, baseQuantity, exactAmount / baseQuantity,
+            sourceMovementId, sourcePurchaseItemId, initialBucket, cancellationToken);
+        var state = _inventory.CostStates[productId];
+        state.TotalInventoryCost = decimal.Round(previous + exactAmount, 6, MidpointRounding.AwayFromZero);
+        state.MovingAverageCost = decimal.Round(state.TotalInventoryCost / state.CostedQty, 6, MidpointRounding.AwayFromZero);
+        return lot;
     }
 
     public Task<Guid> AddZeroCarryingLotAsync(Guid productId, decimal baseQuantity, decimal originalUnitCost, Guid sourceMovementId, Guid? sourcePurchaseItemId, InventoryBucket initialBucket, CancellationToken cancellationToken)

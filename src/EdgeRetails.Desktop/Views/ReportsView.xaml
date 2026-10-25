@@ -228,11 +228,9 @@
                                 <TextBlock Text="{Binding Label}"
                                            Style="{StaticResource Report.Caption}"
                                            TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding Value}"
+                                <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Value}"
                                            Margin="0,5,0,0"
                                            FontFamily="{StaticResource Font.Numeric}"
-                                           FontSize="20"
-                                           FontWeight="SemiBold"
                                            Foreground="{DynamicResource Brush.Text.Primary}" />
                             </StackPanel>
                         </Border>
@@ -254,9 +252,8 @@
                         <StackPanel>
                             <TextBlock Text="{Binding ChartTitle}"
                                        Style="{StaticResource Report.SectionTitle}" />
-                            <TextBlock Text="{Binding ChartSubtitle}"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding ChartSubtitle}"
                                        Margin="0,3,0,0"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                         </StackPanel>
                     </Grid>
@@ -281,9 +278,8 @@
                     <StackPanel>
                         <TextBlock Text="Expense Breakdown"
                                    Style="{StaticResource Report.SectionTitle}" />
-                        <TextBlock Text="Operating expenses by category"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Operating expenses by category"
                                    Margin="0,3,0,12"
-                                   FontSize="12"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
 
                         <ItemsControl ItemsSource="{Binding ExpenseBreakdown}">
@@ -299,20 +295,15 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
-                                        <TextBlock Text="{Binding Category}"
-                                                   FontSize="13"
-                                                   FontWeight="Medium"
+                                        <TextBlock Style="{StaticResource Text.Secondary}" Text="{Binding Category}"
                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                                         <StackPanel Grid.Column="1"
                                                     Orientation="Horizontal">
-                                            <TextBlock Text="{Binding AmountDisplay}"
+                                            <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="{Binding AmountDisplay}"
                                                        FontFamily="{StaticResource Font.Numeric}"
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                                            <TextBlock Text="{Binding ShareDisplay}"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding ShareDisplay}"
                                                        Margin="8,0,0,0"
-                                                       FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                                         </StackPanel>
 
@@ -330,8 +321,7 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <TextBlock Text="No expenses recorded in this month."
-                                   FontSize="12"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="No expenses recorded in this month."
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    Visibility="Collapsed" />
                     </StackPanel>
@@ -343,9 +333,8 @@
                     <StackPanel>
                         <TextBlock Text="Thaka Activity"
                                    Style="{StaticResource Report.SectionTitle}" />
-                        <TextBlock Text="Material issues remain separate from local sales"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Material issues remain separate from local sales"
                                    Margin="0,3,0,12"
-                                   FontSize="12"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
 
                         <ItemsControl ItemsSource="{Binding ThakaActivity}">
@@ -358,28 +347,21 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel>
-                                            <TextBlock Text="{Binding ProjectName}"
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold"
+                                            <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="{Binding ProjectName}"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                                            <TextBlock Text="{Binding ActivitySummaryDisplay}"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding ActivitySummaryDisplay}"
                                                        Margin="0,2,0,0"
-                                                       FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                                         </StackPanel>
 
                                         <StackPanel Grid.Column="1"
                                                     HorizontalAlignment="Right"
                                                     VerticalAlignment="Center">
-                                            <TextBlock Text="Net"
-                                                       FontSize="10"
-                                                       FontWeight="Medium"
+                                            <TextBlock Style="{StaticResource Text.MonoHint}" Text="Net"
                                                        HorizontalAlignment="Right"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                                            <TextBlock Text="{Binding NetMaterialValueDisplay}"
+                                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding NetMaterialValueDisplay}"
                                                        FontFamily="{StaticResource Font.Numeric}"
-                                                       FontSize="14"
-                                                       FontWeight="SemiBold"
                                                        HorizontalAlignment="Right"
                                                        Foreground="{StaticResource Brush.Thaka}" />
                                         </StackPanel>

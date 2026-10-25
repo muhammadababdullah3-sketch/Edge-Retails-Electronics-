@@ -1,0 +1,112 @@
+{
+  "status": "FAIL",
+  "cleanup_pass": true,
+  "owned_root": "C:\\Users\\muham\\AppData\\Local\\Temp\\EdgeRetailsMasterPg_68d83b4af4ef4316a88edd0bba8dc31e",
+  "peak_scratch_bytes": 151394268,
+  "reserved_scratch_bytes": 335544320,
+  "records": [
+    {
+      "step": "Release integration build",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:06.4820681Z"
+    },
+    {
+      "step": "Release crash host build",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:09.1868350Z"
+    },
+    {
+      "step": "initdb PHASE11",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:21.1806420Z"
+    },
+    {
+      "step": "start PHASE11",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:21.8033671Z"
+    },
+    {
+      "step": "create identities/database PHASE11",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:22.5299683Z"
+    },
+    {
+      "step": "migrate PHASE11",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:33.5302666Z"
+    },
+    {
+      "step": "grant write and separate backup read PHASE11",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:33.6990005Z"
+    },
+    {
+      "step": "initdb MASTER",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:45.4768241Z"
+    },
+    {
+      "step": "start MASTER",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:45.9594283Z"
+    },
+    {
+      "step": "create identities/database MASTER",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:46.6163739Z"
+    },
+    {
+      "step": "migrate MASTER",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:58.5895726Z"
+    },
+    {
+      "step": "grant write and separate backup read MASTER",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:10:58.7248265Z"
+    },
+    {
+      "step": "initdb MODEL",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:12.3084855Z"
+    },
+    {
+      "step": "start MODEL",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:13.0928870Z"
+    },
+    {
+      "step": "create identities/database MODEL",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:13.8234409Z"
+    },
+    {
+      "step": "generate model-only schema",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:18.5998775Z"
+    },
+    {
+      "step": "initialize model-only profile before tests",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:19.7607885Z"
+    },
+    {
+      "step": "grant write and separate backup read MODEL",
+      "exit_code": 0,
+      "utc": "2026-10-25T04:11:19.9817812Z"
+    },
+    {
+      "step": "Owned test process",
+      "pid": 13716,
+      "elapsed_seconds": 9.5665118,
+      "peak_scratch_bytes": 149912362,
+      "reserved_bytes": 335544320,
+      "exit_code": 1
+    },
+    {
+      "step": "Failure",
+      "type": "System.IO.DirectoryNotFoundException",
+      "line": 214
+    }
+  ]
+}

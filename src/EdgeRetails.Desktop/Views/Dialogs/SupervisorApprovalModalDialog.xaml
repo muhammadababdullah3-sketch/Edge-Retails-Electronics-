@@ -7,13 +7,13 @@
             <!-- Header -->
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="Supervisor Authorization Required" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="Supervisor Authorization Required" Style="{StaticResource Text.SectionTitle}"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Margin="0,4,0,0" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Muted}">
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0" Foreground="{DynamicResource Brush.Text.Muted}">
                         <Run Text="Operation: "/>
-                        <Run Text="{Binding OperationType, Mode=OneWay}" FontWeight="SemiBold"/>
+                        <Run Style="{StaticResource Text.Run.Body}" Text="{Binding OperationType, Mode=OneWay}"/>
                         <Run Text=" · Backdated "/>
-                        <Run Text="{Binding BackdateDays, Mode=OneWay}" FontWeight="Bold"/>
+                        <Run Style="{StaticResource Text.Run.Control}" Text="{Binding BackdateDays, Mode=OneWay}"/>
                         <Run Text=" days"/>
                     </TextBlock>
                 </StackPanel>
@@ -28,10 +28,9 @@
                     Background="{DynamicResource Brush.Selection.Subtle}"
                     BorderBrush="{DynamicResource Brush.Status.Danger}"
                     BorderThickness="1" CornerRadius="6">
-                <TextBlock x:Name="LockedPeriodBannerText"
+                <TextBlock Style="{StaticResource Text.FormLabel}" x:Name="LockedPeriodBannerText"
                            Text="{Binding LockedPeriodBanner}"
-                           Foreground="{DynamicResource Brush.Status.Danger}"
-                           FontWeight="Bold" FontSize="12" TextWrapping="Wrap" />
+                           Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
             </Border>
 
             <!-- Posting Date and Shop Date Details -->
@@ -41,20 +40,20 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="Posting Date" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" />
-                    <TextBlock Text="{Binding PostingDate, StringFormat=yyyy-MM-dd}" FontSize="14" FontWeight="SemiBold"
+                    <TextBlock Text="Posting Date" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Text="{Binding PostingDate, StringFormat=yyyy-MM-dd}" Style="{StaticResource Text.Body}"
                                Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,2,0,0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="Authoritative Shop Date" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" />
-                    <TextBlock Text="{Binding ShopDate, StringFormat=yyyy-MM-dd}" FontSize="14" FontWeight="SemiBold"
+                    <TextBlock Text="Authoritative Shop Date" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Text="{Binding ShopDate, StringFormat=yyyy-MM-dd}" Style="{StaticResource Text.Body}"
                                Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,2,0,0" />
                 </StackPanel>
             </Grid>
 
             <!-- Supervisor Selection -->
             <StackPanel Margin="0,14,0,0">
-                <TextBlock Text="Authorizing Supervisor" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Text="Authorizing Supervisor" Style="{StaticResource Text.TableHeader}"
                            Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,0,6" />
                 <ComboBox x:Name="SupervisorComboBox"
                           ItemsSource="{Binding Supervisors}"
@@ -65,7 +64,7 @@
 
             <!-- Supervisor PIN Entry (Masked via PasswordBox) -->
             <StackPanel Margin="0,12,0,0">
-                <TextBlock Text="Supervisor PIN (Server-Verified)" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Text="Supervisor PIN (Server-Verified)" Style="{StaticResource Text.TableHeader}"
                            Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,0,6" />
                 <PasswordBox x:Name="SupervisorPinBox"
                              PasswordChanged="OnSupervisorPinChanged"
@@ -75,7 +74,7 @@
 
             <!-- Reason -->
             <StackPanel Margin="0,12,0,0">
-                <TextBlock Text="Authorization Reason" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Text="Authorization Reason" Style="{StaticResource Text.TableHeader}"
                            Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,0,6" />
                 <TextBox x:Name="ReasonBox"
                          Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
@@ -83,10 +82,9 @@
             </StackPanel>
 
             <!-- Error message -->
-            <TextBlock x:Name="ErrorMessageText"
+            <TextBlock Style="{StaticResource Text.FormLabel}" x:Name="ErrorMessageText"
                        Text="{Binding ErrorMessage}" Margin="0,10,0,0"
-                       Foreground="{DynamicResource Brush.Status.Danger}"
-                       FontSize="12" TextWrapping="Wrap" />
+                       Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
 
             <!-- Actions -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">

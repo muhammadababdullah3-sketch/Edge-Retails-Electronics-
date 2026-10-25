@@ -20,6 +20,7 @@
     <Color x:Key="Color.Expense.Start">#C2410C</Color>
     <Color x:Key="Color.Expense.End">#7C2D12</Color>
     <Color x:Key="Color.Danger">#B42338</Color>
+    <Color x:Key="Color.Shadow.Deep">#0A2540</Color>
 
     <Color x:Key="Color.Light.AppBackground">#F5F7FB</Color>
     <Color x:Key="Color.Light.Surface">#FFFFFF</Color>

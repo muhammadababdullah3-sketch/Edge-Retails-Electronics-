@@ -7,10 +7,8 @@
             Style="{StaticResource Card.Raised}">
         <StackPanel>
             <Grid>
-                <TextBlock Text="Record Payment"
+                <TextBlock Style="{StaticResource Text.SectionTitle}" Text="Record Payment"
                            FontFamily="{StaticResource Font.Primary}"
-                           FontSize="20"
-                           FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Button HorizontalAlignment="Right"
                         Command="{Binding CancelCommand}"
@@ -18,10 +16,9 @@
                         Style="{StaticResource Button.Close}" />
             </Grid>
 
-            <TextBlock Margin="0,5,0,16"
+            <TextBlock Style="{StaticResource Text.Secondary}" Margin="0,5,0,16"
                        Text="{Binding ProjectName, StringFormat=Record Payment - {0}}"
                        FontFamily="{StaticResource Font.Primary}"
-                       FontSize="13"
                        Foreground="{DynamicResource Brush.Text.Muted}" />
 
             <Border Padding="14"
@@ -30,48 +27,41 @@
                     BorderBrush="{DynamicResource Brush.Badge.Info.Border}"
                     BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="Outstanding Balance"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Outstanding Balance"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="12"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                    <TextBlock Margin="0,4,0,0"
+                    <TextBlock Style="{StaticResource Text.AmountHero}" Margin="0,4,0,0"
                                Text="{Binding OutstandingBalanceDisplay}"
                                FontFamily="{StaticResource Font.Numeric}"
-                               FontSize="28"
-                               FontWeight="Bold"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                 </StackPanel>
             </Border>
 
-            <TextBlock Margin="0,14,0,6"
+            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,14,0,6"
                        Text="Payment Amount (Rs.)"
                        FontFamily="{StaticResource Font.Primary}"
-                       FontSize="12"
                        Foreground="{DynamicResource Brush.Text.Secondary}" />
             <TextBox Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}"
                      Style="{StaticResource Input.TextBox}" />
 
-            <TextBlock Margin="0,14,0,6"
+            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,14,0,6"
                        Text="Payment Method"
                        FontFamily="{StaticResource Font.Primary}"
-                       FontSize="12"
                        Foreground="{DynamicResource Brush.Text.Secondary}" />
             <ComboBox ItemsSource="{Binding PaymentMethods}"
                       SelectedItem="{Binding PaymentMethod}"
                       Style="{StaticResource Input.ComboBox}" />
 
-            <TextBlock Margin="0,14,0,6"
+            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,14,0,6"
                        Text="Payment Reference / Notes"
                        FontFamily="{StaticResource Font.Primary}"
-                       FontSize="12"
                        Foreground="{DynamicResource Brush.Text.Secondary}" />
             <TextBox Text="{Binding Reference, UpdateSourceTrigger=PropertyChanged}"
                      Style="{StaticResource Input.TextBox}" />
 
-            <TextBlock Margin="0,10,0,0"
+            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,10,0,0"
                        Text="{Binding ValidationMessage}"
                        FontFamily="{StaticResource Font.Primary}"
-                       FontSize="12"
                        Foreground="{DynamicResource Brush.Badge.Warning.Text}"
                        Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}" />
 

@@ -495,9 +495,9 @@ public sealed class Phase3ProductionSafetyPostgresTests
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
 
-        // 1. Verify that all 30 migrations are applied to the live PostgreSQL 18 database
+        // 1. Verify that all 31 migrations are applied to the live PostgreSQL 18 database
         var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToList();
-        Assert.Equal(30, appliedMigrations.Count);
+        Assert.Equal(31, appliedMigrations.Count);
 
         // Verify the Phase 11 and Phase 12 migrations are applied in sequence
         Assert.Contains("20261012050955_Phase11PhysicalPackContainerSubLedger", appliedMigrations);
@@ -505,7 +505,7 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.Contains("20261015103137_Phase12OperationOutcomeResponsePayload", appliedMigrations);
         Assert.Contains("20261021120000_Phase11CatalogCanonicalIntegration", appliedMigrations);
         Assert.Contains("20261021160049_Phase11ThakaCreditRefundTable", appliedMigrations);
-        Assert.Equal("20261021160100_Phase11CatalogV3RelationalIntegrity", appliedMigrations[^1]);
+        Assert.Equal("20261024110000_Phase11LooseReturnSourceGraph", appliedMigrations[^1]);
 
         // 2. Real EF Core Model Differ / Snapshot check
         bool hasPendingChanges = db.Database.HasPendingModelChanges();
@@ -552,7 +552,7 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.True(Directory.Exists(migrationsDir), $"Migrations directory missing: {migrationsDir}");
 
         var migrationFiles = Directory.GetFiles(migrationsDir, "*.cs");
-        Assert.Equal(59, migrationFiles.Length); // 27 historical + 2 Phase 11 + 1 Phase 12 classes, 25 historical + 2 Phase 11 + 1 Phase 12 designers, 1 snapshot
+        Assert.Equal(61, migrationFiles.Length); // Existing 30-migration inventory plus the Phase 11 loose-return source-graph migration and designer.
 
         // Verify known historical migration hashes
         var knownHistoricalHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -606,7 +606,9 @@ public sealed class Phase3ProductionSafetyPostgresTests
             ["20261021160049_Phase11ThakaCreditRefundTable.cs"] = "B47C4EE4CFBF3A7CB84DD2C78EC05B6359D8D2AAAB185879858943F889A9202F",
             ["20261021160049_Phase11ThakaCreditRefundTable.Designer.cs"] = "9933A1BA2E2AD454E8E61E1C5A5466971A452B3C795BEFAFF2A01D05992919E7",
             ["20261021160100_Phase11CatalogV3RelationalIntegrity.cs"] = "963FE2C96343F93C7901E8D9A8825CD7F4A05A82752F69AB91299CB245BD926C",
-            ["20261021160100_Phase11CatalogV3RelationalIntegrity.Designer.cs"] = "66050A1E51F13CDB2BB445F3E6E3B8B614595A145D11D35D910E5F90DDCCFF58"
+            ["20261021160100_Phase11CatalogV3RelationalIntegrity.Designer.cs"] = "66050A1E51F13CDB2BB445F3E6E3B8B614595A145D11D35D910E5F90DDCCFF58",
+            ["20261024110000_Phase11LooseReturnSourceGraph.cs"] = "A61D43208BAC47AEAD8243B055546BA63DD08956B95F577589FBAA45121A2231",
+            ["20261024110000_Phase11LooseReturnSourceGraph.Designer.cs"] = "B0AE2A7D6CD48987EE6962C9BBC331FD5E1767AD3F1B71B8892B0389828282B8"
         };
 
         using var sha = System.Security.Cryptography.SHA256.Create();
@@ -634,12 +636,15 @@ public sealed class Phase3ProductionSafetyPostgresTests
         var p11Catalog = Path.Combine(migrationsDir, "20261021120000_Phase11CatalogCanonicalIntegration.cs");
         var p11Thaka = Path.Combine(migrationsDir, "20261021160049_Phase11ThakaCreditRefundTable.cs");
         var p11V3 = Path.Combine(migrationsDir, "20261021160100_Phase11CatalogV3RelationalIntegrity.cs");
+        var p11LooseReturn = Path.Combine(migrationsDir, "20261024110000_Phase11LooseReturnSourceGraph.cs");
         Assert.True(File.Exists(p11Catalog));
         Assert.True(File.Exists(p11Thaka));
         Assert.True(File.Exists(p11V3));
+        Assert.True(File.Exists(p11LooseReturn));
         Assert.True(new FileInfo(p11Catalog).Length > 0);
         Assert.True(new FileInfo(p11Thaka).Length > 0);
         Assert.True(new FileInfo(p11V3).Length > 0);
+        Assert.True(new FileInfo(p11LooseReturn).Length > 0);
     }
 }
 

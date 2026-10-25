@@ -30,32 +30,32 @@
                     Background="{DynamicResource Brush.Surface.Raised}"
                     BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="Open" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                    <TextBlock Text="{Binding Summary.OpenCount}" FontSize="24" FontWeight="Bold"/>
+                    <TextBlock Text="Open" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                    <TextBlock Text="{Binding Summary.OpenCount}" Style="{StaticResource Text.PageTitle}"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="1" Padding="14" Margin="0,0,10,0"
                     Background="{DynamicResource Brush.Surface.Raised}"
                     BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="With Supplier" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                    <TextBlock Text="{Binding Summary.WithSupplierCount}" FontSize="24" FontWeight="Bold"/>
+                    <TextBlock Text="With Supplier" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                    <TextBlock Text="{Binding Summary.WithSupplierCount}" Style="{StaticResource Text.PageTitle}"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="2" Padding="14" Margin="0,0,10,0"
                     Background="{DynamicResource Brush.Surface.Raised}"
                     BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="Ready" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                    <TextBlock Text="{Binding Summary.ReadyCount}" FontSize="24" FontWeight="Bold"/>
+                    <TextBlock Text="Ready" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                    <TextBlock Text="{Binding Summary.ReadyCount}" Style="{StaticResource Text.PageTitle}"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="3" Padding="14"
                     Background="{DynamicResource Brush.Surface.Raised}"
                     BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock Text="Completed / Closed" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                    <TextBlock Text="{Binding Summary.ClosedCount}" FontSize="24" FontWeight="Bold"/>
+                    <TextBlock Text="Completed / Closed" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                    <TextBlock Text="{Binding Summary.ClosedCount}" Style="{StaticResource Text.PageTitle}"/>
                 </StackPanel>
             </Border>
         </Grid>
@@ -70,8 +70,8 @@
                      ToolTip="Claim/case, customer, product, supplier, TrackingCode, Serial or IMEI"/>
             <ComboBox Grid.Column="1" Margin="10,0,0,0"
                       ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}"/>
-            <TextBlock Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center"
-                       Text="{Binding StatusMessage}" FontSize="11"
+            <TextBlock Style="{StaticResource Text.PosMeta}" Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center"
+                       Text="{Binding StatusMessage}"
                        Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap"
                        MaxWidth="360"/>
         </Grid>
@@ -121,8 +121,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <TextBlock Text="Selected Work Item" Style="{StaticResource Text.DetailTitle}"/>
-                        <TextBlock Text="{Binding SelectedRow.Number}" Margin="0,5,0,0"
-                                   FontSize="18" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/>
+                        <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding SelectedRow.Number}" Margin="0,5,0,0" Foreground="{DynamicResource Brush.Text.Primary}"/>
                         <TextBlock Text="{Binding SelectedRow.ProductName}" Margin="0,2,0,0"
                                    Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap"/>
                         <Grid Margin="0,6,0,0">
@@ -131,12 +130,12 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
-                                <TextBlock Text="Tracking:" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                <TextBlock Text="{Binding SelectedRow.TrackingCode}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                                <TextBlock Text="Tracking:" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                <TextBlock Text="{Binding SelectedRow.TrackingCode}" FontFamily="Consolas" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Secondary}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="Serial / IMEI:" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                <TextBlock Text="{Binding SelectedRow.SerialNumber}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                                <TextBlock Text="Serial / IMEI:" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                <TextBlock Text="{Binding SelectedRow.SerialNumber}" FontFamily="Consolas" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Secondary}"/>
                             </StackPanel>
                         </Grid>
                         <Grid Margin="0,4,0,0">
@@ -145,27 +144,25 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
-                                <TextBlock Text="Status / Custody:" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Brand.Primary}">
+                                <TextBlock Text="Status / Custody:" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                <TextBlock Style="{StaticResource Text.KpiLabel}" Foreground="{DynamicResource Brush.Brand.Primary}">
                                     <Run Text="{Binding SelectedRow.Status}"/>
                                     <Run Text=" / "/>
                                     <Run Text="{Binding SelectedRow.Custody}"/>
                                 </TextBlock>
                             </StackPanel>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="Supplier:" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                <TextBlock Text="{Binding SelectedRow.SupplierName}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                                <TextBlock Text="Supplier:" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                <TextBlock Text="{Binding SelectedRow.SupplierName}" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Secondary}"/>
                             </StackPanel>
                         </Grid>
 
-                        <TextBlock Text="Operator note / reason" Margin="0,16,0,4"
-                                   FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="Operator note / reason" Margin="0,16,0,4" Foreground="{DynamicResource Brush.Text.Muted}"/>
                         <TextBox Text="{Binding ActionNote, UpdateSourceTrigger=PropertyChanged}"
                                  AcceptsReturn="True" MinHeight="54" TextWrapping="Wrap"/>
 
-                        <TextBlock Text="New Customer Warranty Claim" Margin="0,16,0,8"
-                                   FontSize="12" FontWeight="SemiBold"/>
-                        <TextBlock Text="Search authoritative Sale / SaleItem" FontSize="10"
+                        <TextBlock Style="{StaticResource Text.TableHeader}" Text="New Customer Warranty Claim" Margin="0,16,0,8"/>
+                        <TextBlock Text="Search authoritative Sale / SaleItem" Style="{StaticResource Text.MonoHint}"
                                    Foreground="{DynamicResource Brush.Text.Muted}"/>
                         <TextBox Text="{Binding ClaimIntakeSearchText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Invoice, customer, product, TrackingCode, Serial or IMEI"
@@ -204,8 +201,7 @@
                                 Command="{Binding CreateClaimCommand}"
                                 Style="{StaticResource Button.Primary}" Margin="0,0,0,10"/>
 
-                        <TextBlock Text="Customer Claim Actions" Margin="0,6,0,8"
-                                   FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock Style="{StaticResource Text.TableHeader}" Text="Customer Claim Actions" Margin="0,6,0,8"/>
                         <Button Content="Begin Review" Command="{Binding BeginReviewCommand}"
                                 Style="{StaticResource Button.Primary}" Margin="0,0,0,6"/>
                         <Button Content="Send to Supplier" Command="{Binding SendToSupplierCommand}"
@@ -228,9 +224,8 @@
                         <Button Content="Cancel Claim" Command="{Binding CancelClaimCommand}"
                                 Style="{StaticResource Button.Text.Neutral}"/>
 
-                        <TextBlock Text="Shop Stock Warranty" Margin="0,18,0,8"
-                                   FontSize="12" FontWeight="SemiBold"/>
-                        <TextBlock Text="New case: Product ID / Supplier ID / quantity" FontSize="10"
+                        <TextBlock Style="{StaticResource Text.TableHeader}" Text="Shop Stock Warranty" Margin="0,18,0,8"/>
+                        <TextBlock Text="New case: Product ID / Supplier ID / quantity" Style="{StaticResource Text.MonoHint}"
                                    Foreground="{DynamicResource Brush.Text.Muted}"/>
                         <TextBox Text="{Binding ShopProductIdText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Authoritative Product ID" Margin="0,3,0,4"/>
@@ -247,8 +242,7 @@
                                 Command="{Binding SendShopStockCommand}"
                                 Style="{StaticResource Button.Primary}" Margin="0,0,0,6"/>
 
-                        <TextBlock Text="Supplier Receive / Resolution" Margin="0,8,0,4"
-                                   FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Style="{StaticResource Text.KpiLabel}" Text="Supplier Receive / Resolution" Margin="0,8,0,4"/>
                         <TextBox Text="{Binding ShopReplacementUnitsText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="Replacement units: Serial|IMEI1|IMEI2; separate units with semicolons"
                                  Margin="0,0,0,4" TextWrapping="Wrap"/>
@@ -267,23 +261,23 @@
                         <Button Content="Record Supplier Credit" Command="{Binding ReceiveShopCreditedCommand}"
                                 Style="{StaticResource Button.Primary}"/>
 
-                        <TextBlock Text="Timeline" Margin="0,18,0,8" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock Text="Timeline" Margin="0,18,0,8" Style="{StaticResource Text.TableHeader}"/>
                         <ItemsControl ItemsSource="{Binding Timeline}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,6" Padding="8"
                                             Background="{DynamicResource Brush.Surface.Sunken}">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding EventType}" FontWeight="SemiBold" FontSize="11"/>
-                                            <TextBlock FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}">
+                                            <TextBlock Text="{Binding EventType}" Style="{StaticResource Text.PosMeta}"/>
+                                            <TextBlock Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}">
                                                 <Run Text="{Binding Status}"/>
                                                 <Run Text=" / "/>
                                                 <Run Text="{Binding Custody}"/>
                                             </TextBlock>
-                                            <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="10"
+                                            <TextBlock Text="{Binding Note}" TextWrapping="Wrap" Style="{StaticResource Text.MonoHint}"
                                                        Foreground="{DynamicResource Brush.Text.Secondary}"/>
                                             <TextBlock Text="{Binding OccurredAt, StringFormat={}{0:dd MMM yyyy HH:mm}}"
-                                                       FontSize="9" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                                       Style="{StaticResource Text.Micro}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -294,8 +288,7 @@
             </Border>
         </Grid>
 
-        <TextBlock Grid.Row="4" Margin="0,10,0,0"
-                   Text="Exact serialized identity is read from InventoryUnit provenance. UI actions call canonical warranty handlers; stock and custody are not mutated locally."
-                   FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap"/>
+        <TextBlock Style="{StaticResource Text.MonoHint}" Grid.Row="4" Margin="0,10,0,0"
+                   Text="Exact serialized identity is read from InventoryUnit provenance. UI actions call canonical warranty handlers; stock and custody are not mutated locally." Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap"/>
     </Grid>
 </UserControl>

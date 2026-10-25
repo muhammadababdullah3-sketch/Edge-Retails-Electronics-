@@ -200,16 +200,21 @@ public sealed class SequenceAuthorityRegressionTests
             }
         });
         var writing = Task.Run(() => writer.RecordDealerPrefixHighWater("AB", 20));
-        Assert.True(checkpointPublished.Wait(TimeSpan.FromSeconds(10)));
-        var reading = Task.Run(() => { readerStarted.Set(); return files.Open().GetDealerPrefixHighWater("AB"); });
+        Task<long>? reading = null;
         try
         {
+            Assert.True(checkpointPublished.Wait(TimeSpan.FromSeconds(10)));
+            reading = Task.Run(() => { readerStarted.Set(); return files.Open().GetDealerPrefixHighWater("AB"); });
             Assert.True(readerStarted.Wait(TimeSpan.FromSeconds(10)));
             Assert.NotSame(reading, await Task.WhenAny(reading, Task.Delay(100)));
         }
-        finally { publishManifest.Set(); }
-        await writing.WaitAsync(TimeSpan.FromSeconds(15));
-        Assert.Equal(20, await reading.WaitAsync(TimeSpan.FromSeconds(15)));
+        finally
+        {
+            publishManifest.Set();
+            await writing.WaitAsync(TimeSpan.FromSeconds(20));
+            if (reading is not null) { await reading.WaitAsync(TimeSpan.FromSeconds(20)); }
+        }
+        Assert.Equal(20, await reading!.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Theory]

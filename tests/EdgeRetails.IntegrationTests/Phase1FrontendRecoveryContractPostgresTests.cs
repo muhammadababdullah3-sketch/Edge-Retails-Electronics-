@@ -19,21 +19,25 @@ public sealed class Phase1FrontendRecoveryContractPostgresTests
         await using var provider = BuildOwnedProvider();
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
-        // Model fixture only. Migration SQL/triggers are deliberately not applied or certified.
-        await db.Database.EnsureCreatedAsync();
+        // The runner initializes this model-only profile before discovery/execution, irrespective of Fact order.
         Assert.True(await db.Database.CanConnectAsync());
+        _ = await db.Products.CountAsync(); // Schema is ready even when this Fact is the first case selected.
+        await db.Database.OpenConnectionAsync();
+        await using var history = new NpgsqlCommand("SELECT to_regclass('system.__ef_migrations_history') IS NULL",
+            (NpgsqlConnection)db.Database.GetDbConnection());
+        Assert.Equal(true, await history.ExecuteScalarAsync());
     }
 
     private static ServiceProvider BuildOwnedProvider()
     {
-        var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
-            ?? throw new InvalidOperationException("Owned isolated test destination is required."));
+        var profile = PostgresFixtureProfile.Resolve(PostgresFixtureKind.Phase1Model);
+        var connection = new NpgsqlConnectionStringBuilder(profile.ConnectionString);
         if (connection.Database != "edge_retails_master_test" || connection.Host != "127.0.0.1"
             || connection.Port < 55000 || connection.Port > 55999)
         {
             throw new InvalidOperationException("Only the disposable model fixture is authorized; shop databases are prohibited.");
         }
-        return Phase2PostgresTestHarness.BuildProvider();
+        return Phase2PostgresTestHarness.BuildProvider(profile);
     }
     [Theory]
     [InlineData(SupplierPaymentPurpose.Advance)]

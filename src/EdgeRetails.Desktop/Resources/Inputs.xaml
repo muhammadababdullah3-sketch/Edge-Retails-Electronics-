@@ -104,6 +104,30 @@
     </Style>
 
     <!-- Watermarks share the editable field's TextBox renderer and geometry. -->
+    <Style x:Key="Input.TextBox.Amount" TargetType="TextBox" BasedOn="{StaticResource Input.TextBox.Embedded}">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style x:Key="Input.TextBox.Quantity" TargetType="TextBox" BasedOn="{StaticResource Input.TextBox.Embedded}">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Numeric}" />
+        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="Input.CheckBox.Compact" TargetType="CheckBox">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="Input.CheckBox.Emphasis" TargetType="CheckBox" BasedOn="{StaticResource Input.CheckBox.Compact}">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
     <Style x:Key="Input.TextBox.Placeholder" TargetType="TextBox" BasedOn="{StaticResource Input.TextBox.Embedded}">
         <Setter Property="IsReadOnly" Value="True" />
         <Setter Property="IsHitTestVisible" Value="False" />
@@ -252,6 +276,12 @@
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Padding" Value="{StaticResource Padding.Input.Compact}" />
         <Setter Property="ItemContainerStyle" Value="{StaticResource Input.ComboBoxItem.Compact}" />
+    </Style>
+
+    <Style x:Key="Input.ComboBox.Micro" TargetType="ComboBox" BasedOn="{StaticResource Input.ComboBox.Compact}">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
     <Style x:Key="Input.PasswordBox" TargetType="PasswordBox">

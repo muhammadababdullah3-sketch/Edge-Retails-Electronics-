@@ -26,23 +26,19 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock Text="{Binding Title}"
-                                   FontSize="16" TextWrapping="Wrap"
-                                   FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="{Binding Title}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding ProductInfo}"
-                                   Margin="0,2,0,0"
-                                   FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding ProductInfo}"
+                                   Margin="0,2,0,0" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding PurchaseInfo}"
-                                   Margin="0,1,0,0"
-                                   FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding PurchaseInfo}"
+                                   Margin="0,1,0,0" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
-                        <TextBlock Text="{Binding TrackingPolicyInfo}"
-                                   Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding TrackingPolicyInfo}"
+                                   Margin="0,4,0,0" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding ReceiptProgressInfo}"
-                                   Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                        <TextBlock Style="{StaticResource Text.TableHeader}" Text="{Binding ReceiptProgressInfo}"
+                                   Margin="0,4,0,0" TextWrapping="Wrap"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
                     <Button Grid.Column="1"
@@ -60,16 +56,16 @@
                           VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <!-- Validation / Status Messages -->
-                    <Border Background="#FEE2E2" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="6"
+                    <Border Background="{DynamicResource Brush.Badge.Danger.Background}" BorderBrush="{DynamicResource Brush.Badge.Danger.Border}" BorderThickness="1" CornerRadius="6"
                             Padding="10,8" Margin="0,0,0,12"
                             Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="{Binding ValidationMessage}" Foreground="{DynamicResource Brush.Badge.Danger.Text}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding ValidationMessage}" Foreground="{DynamicResource Brush.Badge.Danger.Text}" TextWrapping="Wrap" />
                     </Border>
 
-                    <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="6"
+                    <Border Background="{DynamicResource Brush.Badge.Warning.Background}" BorderBrush="{DynamicResource Brush.Badge.Warning.Border}" BorderThickness="1" CornerRadius="6"
                             Padding="10,8" Margin="0,0,0,12"
                             Visibility="{Binding HasPrintStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="{Binding PrintStatusMessage}" Foreground="{DynamicResource Brush.Badge.Warning.Text}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding PrintStatusMessage}" Foreground="{DynamicResource Brush.Badge.Warning.Text}" TextWrapping="Wrap" />
                     </Border>
 
                     <!-- Intake Input Section (Visible when not completed) -->
@@ -80,18 +76,17 @@
                                 <ColumnDefinition Width="160" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Intake Quantity:"
+                            <TextBlock Style="{StaticResource Text.Body}" Text="Intake Quantity:"
                                        VerticalAlignment="Center"
-                                       FontWeight="SemiBold"
                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                        Margin="0,0,12,0" />
                             <TextBox Grid.Column="1"
+                                     Style="{StaticResource Input.TextBox}"
                                      Text="{Binding EnteredQuantity, UpdateSourceTrigger=PropertyChanged}"
                                      Height="34"
                                      VerticalContentAlignment="Center"
                                      Padding="8,0"
-                                     FontFamily="{StaticResource Font.Numeric}"
-                                     FontSize="14" />
+                                     FontFamily="{StaticResource Font.Numeric}" />
                             <TextBlock Grid.Column="2"
                                        Text="{Binding UnitDisplay}"
                                        VerticalAlignment="Center"
@@ -101,9 +96,7 @@
 
                         <!-- Serial / IMEI Rows if Serialized -->
                         <StackPanel Visibility="{Binding IsSerializedProduct, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="Serial / IMEI Identification per Unit:"
-                                       FontWeight="Bold"
-                                       FontSize="12"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Serial / IMEI Identification per Unit:"
                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                        Margin="0,0,0,6" />
                             <Border BorderBrush="{DynamicResource Brush.Border.Default}"
@@ -146,12 +139,9 @@
                     <StackPanel Visibility="{Binding HasCommittedUnits, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="COMMITTED PHYSICAL IDENTITIES"
-                                           FontSize="12"
-                                           FontWeight="Bold"
+                                <TextBlock Style="{StaticResource Text.FormLabel}" Text="COMMITTED PHYSICAL IDENTITIES"
                                            Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
-                                <TextBlock Text="{Binding CommittedUnits.Count, StringFormat=' ({0} units)'}"
-                                           FontSize="12"
+                                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding CommittedUnits.Count, StringFormat=' ({0} units)'}"
                                            Foreground="{DynamicResource Brush.Text.Muted}" />
                             </StackPanel>
 
@@ -207,8 +197,7 @@
                     BorderBrush="{DynamicResource Brush.Border.Default}"
                     BorderThickness="0,1,0,0" CornerRadius="0">
                 <Grid>
-                    <TextBlock Text="Code 128 barcode encodes full TrackingCode. Reprint preserves tracking code and never increments sequence."
-                               FontSize="10.5"
+                    <TextBlock Style="{StaticResource Text.PosMeta}" Text="Code 128 barcode encodes full TrackingCode. Reprint preserves tracking code and never increments sequence."
                                Foreground="{DynamicResource Brush.Text.Muted}"
                                VerticalAlignment="Center" />
                     <Button Content="Close"

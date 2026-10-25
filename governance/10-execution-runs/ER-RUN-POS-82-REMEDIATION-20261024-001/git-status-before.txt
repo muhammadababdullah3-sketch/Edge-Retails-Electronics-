@@ -1,0 +1,55 @@
+ M scripts/Invoke-CatalogPostgresRehearsal.ps1
+ M src/EdgeRetails.Application/Abstractions/InventoryAbstractions.cs
+ M src/EdgeRetails.Application/Features/Inventory/PackSubLedgerAllocationAuthority.cs
+ M src/EdgeRetails.Application/Features/Parties/PartyHandlers.cs
+ M src/EdgeRetails.Application/Features/Sales/CommercialExchangeHandler.cs
+ M src/EdgeRetails.Application/Features/Sales/CompleteSaleHandler.cs
+ M src/EdgeRetails.Application/Features/Sales/ReturnExchangeEligibilityAuthority.cs
+ M src/EdgeRetails.Application/Features/Thaka/ThakaHandlers.cs
+ M src/EdgeRetails.Desktop/Services/RemoteStocktakeWorkflowService.cs
+ M src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs
+ M src/EdgeRetails.Infrastructure/Services/InventoryCostAllocator.cs
+ M tests/EdgeRetails.Desktop.PerformanceTests/Phase11Wave3DesktopCutoverTests.cs
+ M tests/EdgeRetails.Desktop.PerformanceTests/Phase12Wave2JournalAndRecoveryTests.cs
+ M tests/EdgeRetails.Desktop.PerformanceTests/PosCatalogBrowsingPerformanceTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase11/GoldenLifecycleTracePostgresTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase11/ThakaPostgresTransactionIntegrationTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase3ProductionSafetyPostgresTests.cs
+ M tests/EdgeRetails.IntegrationTests/Phase7Pass4PostgresTests.cs
+ M tests/EdgeRetails.UnitTests/Phase11/PackContainerSubLedgerUnitTests.cs
+ M tests/EdgeRetails.UnitTests/Phase11ReturnExchangePackSubLedgerTests.cs
+ M tests/EdgeRetails.UnitTests/SequenceAuthorityRegressionTests.cs
+ M tests/EdgeRetails.UnitTests/StockAdjustmentHandlerBehavioralTests.cs
+?? .claude/worktrees/
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-074/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-074/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-075/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-075/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-076/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-076/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-077/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-077/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-078/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-078/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-079/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-079/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-080/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-080/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-081/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-081/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-082/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-LOCALFLOW-20261019-082/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/
+?? governance/10-execution-runs/ER-RUN-POS-NON89-EXEC-20261021-083/export/candidate_source_bundle.zip
+?? governance/10-execution-runs/ER-RUN-POS-NON89-EXEC-20261021-083/export/candidate_untracked.zip
+?? governance/10-execution-runs/ER-RUN-POS-NON89-EXEC-20261021-084/
+?? governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-001/
+?? governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/
+?? governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-003/
+?? governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-004/
+?? scripts/Invoke-DesktopTestRehearsal.ps1
+?? src/EdgeRetails.Infrastructure/Persistence/Migrations/20261024110000_Phase11LooseReturnSourceGraph.Designer.cs
+?? src/EdgeRetails.Infrastructure/Persistence/Migrations/20261024110000_Phase11LooseReturnSourceGraph.cs
+?? tests/artifacts/

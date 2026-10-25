@@ -98,13 +98,28 @@ public sealed class Phase7Pass5CommercialPostgresTests
         var (actor, session) = await ArrangeAsync(provider);
         try
         {
+            var command = new RecordManualCashMovementCommand(direction, 1.005m, actor,
+                " Verified owner float ", null, Guid.NewGuid());
             Guid movementId;
             await using (var scope = provider.CreateAsyncScope())
             {
-                var result = await scope.ServiceProvider.GetRequiredService<RecordManualCashMovementHandler>()
-                    .HandleAsync(new(direction, 1.005m, actor, " Verified owner float ", null), default);
+                var handler = scope.ServiceProvider.GetRequiredService<RecordManualCashMovementHandler>();
+                var missingId = await handler.HandleAsync(command with { ClientOperationId = null }, default);
+                Assert.False(missingId.IsSuccess);
+                Assert.Equal("cash.client_operation_id_required", missingId.Error?.Code);
+                var result = await handler.HandleAsync(command, default);
                 Assert.True(result.IsSuccess, result.Error?.Message);
                 movementId = result.Value;
+            }
+            await using (var replayScope = provider.CreateAsyncScope())
+            {
+                var handler = replayScope.ServiceProvider.GetRequiredService<RecordManualCashMovementHandler>();
+                var replay = await handler.HandleAsync(command, default);
+                Assert.True(replay.IsSuccess, replay.Error?.Message);
+                Assert.Equal(movementId, replay.Value);
+                var changed = await handler.HandleAsync(command with { Reason = "Changed intent" }, default);
+                Assert.False(changed.IsSuccess);
+                Assert.Equal("idempotency.payload_mismatch", changed.Error?.Code);
             }
             await using var read = provider.CreateAsyncScope();
             var db = read.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
@@ -136,8 +151,12 @@ public sealed class Phase7Pass5CommercialPostgresTests
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
-                var handler = ActivatorUtilities.CreateInstance<RecordManualCashMovementHandler>(scope.ServiceProvider, new FlushThenThrow(db));
-                await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(new(CashMovementDirection.In, 5m, actor, "Rollback proof", null), default));
+                var fault = new FlushThenThrow(db);
+                var handler = ActivatorUtilities.CreateInstance<RecordManualCashMovementHandler>(scope.ServiceProvider, fault);
+                var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(
+                    new(CashMovementDirection.In, 5m, actor, "Rollback proof", null, Guid.NewGuid()), default));
+                Assert.True(fault.WasReached);
+                Assert.Equal("Owned test fault after provisional SQL flush.", exception.Message);
             }
             await using var read = provider.CreateAsyncScope();
             var persisted = read.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
@@ -160,7 +179,7 @@ public sealed class Phase7Pass5CommercialPostgresTests
             await using (var scope = provider.CreateAsyncScope())
             {
                 var result = await scope.ServiceProvider.GetRequiredService<RecordManualCashMovementHandler>()
-                    .HandleAsync(new(CashMovementDirection.In, decimal.Parse(amountText, System.Globalization.CultureInfo.InvariantCulture), actor, reason, null), default);
+                    .HandleAsync(new(CashMovementDirection.In, decimal.Parse(amountText, System.Globalization.CultureInfo.InvariantCulture), actor, reason, null, Guid.NewGuid()), default);
                 Assert.False(result.IsSuccess);
             }
             await using var read = provider.CreateAsyncScope();
@@ -199,10 +218,13 @@ public sealed class Phase7Pass5CommercialPostgresTests
 
     private sealed class FlushThenThrow(EdgeRetailsDbContext db) : IUnitOfWork
     {
+        public bool WasReached { get; private set; }
+
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
         {
             await db.SaveChangesAsync(cancellationToken);
             Assert.True(await db.CashMovements.AnyAsync(x => x.Reason == "Rollback proof", cancellationToken));
+            WasReached = true;
             throw new InvalidOperationException("Owned test fault after provisional SQL flush.");
         }
     }
@@ -417,7 +439,7 @@ public sealed class Phase7Pass5CommercialPostgresTests
                     legitimateSaleId,
                     "RETURN_MISSING",
                     "Testing missing return refusal",
-                    RefundMethod.Other,
+                    RefundMethod.Bank,
                     actorId,
                     returnMissingOpId,
                     [new SaleReturnLineInput(legitimateSaleItemId, 1m, SaleReturnDisposition.RestockSellable, [missingUnitId])]),
@@ -425,6 +447,14 @@ public sealed class Phase7Pass5CommercialPostgresTests
 
             Assert.False(refusedReturn.IsSuccess);
             Assert.Contains(refusedReturn.Error?.Code, new[] { "sales.return_serial_not_original", "sales.return_serial_not_eligible" });
+
+            // Unsupported methods retain their own early rejection and cannot mutate the sale.
+            var unsupported = await returnHandler.HandleAsync(new CreateSaleReturnCommand(
+                legitimateSaleId, "UNSUPPORTED_REFUND", "Unsupported method is a separate precondition",
+                RefundMethod.Other, actorId, Guid.NewGuid(),
+                [new SaleReturnLineInput(legitimateSaleItemId, 1m, SaleReturnDisposition.RestockSellable, [soldUnitId])]), default);
+            Assert.False(unsupported.IsSuccess);
+            Assert.Equal("sales.unsupported_refund_method", unsupported.Error?.Code);
         }
 
         // 7. Verify final invariant: DB facts remain perfectly intact

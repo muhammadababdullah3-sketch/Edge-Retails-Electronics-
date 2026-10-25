@@ -1,3 +1,4 @@
+using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Application.Features.Sales;
@@ -170,7 +171,15 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
     }
 
     [Fact]
-    public async Task SaleReturn_ContinuousCoilReturn_LeavesOriginalCoilUntouched_AndCreatesSeparateLooseUnit()
+    public Task SaleReturn_ContinuousCoilReturn_LeavesOriginalCoilUntouched_AndCreatesSeparateLooseUnit() =>
+        VerifyContinuousCoilReturnAsync(10m, 70m, 20m, 430m, false);
+
+    [Fact]
+    public Task SaleReturn_FractionalCarryingAmount_RoundTripsThroughFutureLooseSaleAndReplay() =>
+        VerifyContinuousCoilReturnAsync(33.333333m, 233.333333m, 66.666667m, 1433.333334m, true);
+
+    private async Task VerifyContinuousCoilReturnAsync(decimal rate, decimal soldCost, decimal returnedCost,
+        decimal initialCarryingCost, bool verifyFutureSale)
     {
         // 1. Setup Cable Product (50m reel)
         var (supplier, product, pu, sp) = SeedCableProduct();
@@ -185,8 +194,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             ProductId = product.Id,
             CostedQty = 43m,
-            TotalInventoryCost = 430m,
-            MovingAverageCost = 10m
+            TotalInventoryCost = initialCarryingCost,
+            MovingAverageCost = decimal.Round(initialCarryingCost / 43m, 6)
         };
         _fakes.Inventory.CostStates[product.Id] = costState;
 
@@ -203,7 +212,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             InitialBaseQuantity = 50m,
             RemainingBaseQuantity = 43m,
             PackState = PackState.Open,
-            IsLooseStock = false
+            IsLooseStock = false,
+            AcquisitionCost = initialCarryingCost + soldCost
         };
         _fakes.Inventory.Units.Add(coilUnit);
 
@@ -211,12 +221,14 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
-            OriginalUnitCost = 10m,
-            EffectiveUnitCost = 10m,
+            OriginalUnitCost = rate,
+            EffectiveUnitCost = rate,
             CreatedAt = _fakes.Clock.UtcNow
         };
+        coilUnit.InventoryLotId = lot.Id;
         _fakes.Inventory.Lots.Add(lot);
         _fakes.Inventory.LotBucketBalances.Add(new InventoryLotBucketBalance
         {
@@ -252,8 +264,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             UnitPrice = 15m,
             GrossLineTotal = 105m,
             NetLineTotal = 105m,
-            UnitCostSnapshot = 10m,
-            TotalCostSnapshot = 70m
+            UnitCostSnapshot = rate,
+            TotalCostSnapshot = soldCost
         };
         _fakes.Sales.AddSaleItem(saleItem);
 
@@ -261,14 +273,21 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             SaleItemId = saleItem.Id,
             InventoryUnitId = coilUnit.Id,
-            UnitCostSnapshot = 10m
+            UnitCostSnapshot = rate
         };
         _fakes.Sales.AddSaleItemUnit(saleItemUnit);
+        var sourceConsumptionId = Guid.CreateVersion7();
+        _fakes.Sales.SoldSourceCapacities.Add(new SoldSourceCapacity(
+            SaleConsumptionId: sourceConsumptionId,
+            OriginalLotId: lot.Id,
+            PurchaseItemId: lot.PurchaseItemId,
+            SupplierId: supplier.Id,
+            SoldQuantity: 7m,
+            RemainingQuantity: 7m));
 
         // 2. Return 2m of the 7m cut
         var returnHandler = CreateSaleReturnHandler();
-        var returnResult = await returnHandler.HandleAsync(
-            new CreateSaleReturnCommand(
+        var returnCommand = new CreateSaleReturnCommand(
                 sale.Id,
                 ReasonCode: "SURPLUS",
                 ReasonNote: "Returned 2m unused segment",
@@ -282,8 +301,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
                         BaseQuantity: 2m,
                         Disposition: SaleReturnDisposition.RestockSellable,
                         InventoryUnitIds: Array.Empty<Guid>())
-                }),
-            CancellationToken.None);
+                });
+        var returnResult = await returnHandler.HandleAsync(returnCommand, CancellationToken.None);
 
         Assert.True(returnResult.IsSuccess, returnResult.Error?.Message);
 
@@ -315,11 +334,37 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         var alloc = restockAllocations[0];
         Assert.Equal(looseUnit.Id, alloc.PackUnitId);
         Assert.Equal(2m, alloc.AllocatedBaseQuantity);
-        Assert.Equal(10m, alloc.UnitCostSnapshot);
-        Assert.Equal(20m, alloc.TotalCostSnapshot);
+        Assert.Equal(decimal.Round(returnedCost / 2m, 6, MidpointRounding.AwayFromZero), alloc.UnitCostSnapshot);
+        Assert.Equal(returnedCost, alloc.TotalCostSnapshot);
+        Assert.Equal(returnedCost, looseUnit.AcquisitionCost);
+        Assert.Equal(initialCarryingCost + returnedCost, costState.TotalInventoryCost);
 
         // Invariant D: Stock balance restored by 2m
         Assert.Equal(45m, stock.SellableQty);
+
+        var returnedSource = Assert.Single(_fakes.Sales.ReturnSourceAllocations);
+        Assert.Equal(sourceConsumptionId, returnedSource.SaleConsumptionId);
+        Assert.Equal(2m, returnedSource.BaseQuantity);
+        var restoredLot = Assert.Single(_fakes.Inventory.Lots, x => x.Id == looseUnit.InventoryLotId);
+        Assert.Equal(lot.PurchaseItemId, restoredLot.PurchaseItemId);
+        Assert.Equal(restoredLot.PurchaseItemId, looseUnit.SourcePurchaseItemId);
+        if (verifyFutureSale)
+        {
+            product.DefaultSalePrice = 100m;
+            var command = new CompleteSaleCommand(Guid.NewGuid(), customer.Id, cashierId, null, 0m,
+                SalePaymentMethod.Bank, 200m, "PRECISION-ROUNDTRIP", null,
+                [new CompleteSaleLineInput(product.Id, pu.Id, 2m, 100m, [looseUnit.Id])]);
+            var sold = await CreateSaleHandler().HandleAsync(command, default);
+            Assert.True(sold.IsSuccess, sold.Error?.Message);
+            Assert.Equal(initialCarryingCost, costState.TotalInventoryCost);
+            Assert.Equal(0m, looseUnit.RemainingBaseQuantity);
+            var replay = await CreateSaleHandler().HandleAsync(command, default);
+            Assert.True(replay.IsSuccess, replay.Error?.Message);
+            var returnReplay = await returnHandler.HandleAsync(returnCommand, default);
+            Assert.True(returnReplay.IsSuccess, returnReplay.Error?.Message);
+            Assert.Equal(initialCarryingCost, costState.TotalInventoryCost);
+            Assert.Equal(2, _fakes.Inventory.Units.Count(x => x.ProductId == product.Id));
+        }
     }
 
     [Fact]
@@ -363,6 +408,7 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
@@ -552,12 +598,14 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = cableProduct.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
             EffectiveUnitCost = 10m,
             CreatedAt = _fakes.Clock.UtcNow
         };
+        coilUnit.InventoryLotId = cableLot.Id;
         _fakes.Inventory.Lots.Add(cableLot);
         _fakes.Inventory.LotBucketBalances.Add(new InventoryLotBucketBalance
         {
@@ -605,6 +653,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             UnitCostSnapshot = 10m
         };
         _fakes.Sales.AddSaleItemUnit(saleItemUnit);
+        _fakes.Sales.SoldSourceCapacities.Add(new SoldSourceCapacity(
+            Guid.CreateVersion7(), cableLot.Id, cableLot.PurchaseItemId, supplier.Id, 7m, 7m));
 
         // 2. Perform Commercial Exchange:
         // Return 2m of cable (refund = 30m)
@@ -717,12 +767,14 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
             EffectiveUnitCost = 10m,
             CreatedAt = _fakes.Clock.UtcNow
         };
+        coilUnit.InventoryLotId = lot.Id;
         _fakes.Inventory.Lots.Add(lot);
         _fakes.Inventory.LotBucketBalances.Add(new InventoryLotBucketBalance
         {
@@ -769,7 +821,6 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             UnitCostSnapshot = 10m
         };
         _fakes.Sales.AddSaleItemUnit(saleItemUnit);
-
         // Record active warranty claim on 6m of the 7m sale item
         var claim = new WarrantyClaim
         {
@@ -1004,12 +1055,14 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
             EffectiveUnitCost = 10m,
             CreatedAt = _fakes.Clock.UtcNow
         };
+        coilUnit.InventoryLotId = lot.Id;
         _fakes.Inventory.Lots.Add(lot);
         _fakes.Inventory.LotBucketBalances.Add(new InventoryLotBucketBalance
         {
@@ -1056,6 +1109,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             UnitCostSnapshot = 10m
         };
         _fakes.Sales.AddSaleItemUnit(saleItemUnit);
+        _fakes.Sales.SoldSourceCapacities.Add(new SoldSourceCapacity(
+            Guid.CreateVersion7(), lot.Id, lot.PurchaseItemId, supplier.Id, 7m, 7m));
 
         // 2. Return 2m with Damaged disposition
         var returnHandler = CreateSaleReturnHandler();
@@ -1073,7 +1128,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
                         saleItem.Id,
                         BaseQuantity: 2m,
                         Disposition: SaleReturnDisposition.Damaged,
-                        InventoryUnitIds: Array.Empty<Guid>())
+                        InventoryUnitIds: Array.Empty<Guid>(),
+                        ConditionInspectionResult: "Sheath torn, conductors exposed")
                 }),
             CancellationToken.None);
 
@@ -1136,6 +1192,7 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
@@ -1151,6 +1208,7 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             Quantity = 50m
         });
         coilUnit.InventoryLotId = lot.Id;
+        lot.PurchaseItemId = coilUnit.SourcePurchaseItemId;
 
         // Tool product for pure quantity stock verification
         var pieceUnit = new Unit { Id = Guid.CreateVersion7(), Name = "Piece", Symbol = "pc" };
@@ -1392,6 +1450,7 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         {
             Id = Guid.CreateVersion7(),
             ProductId = product.Id,
+            PurchaseItemId = coilUnit.SourcePurchaseItemId,
             SourceMovementId = Guid.CreateVersion7(),
             ReceivedQuantity = 50m,
             OriginalUnitCost = 10m,
@@ -1446,6 +1505,8 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
             UnitCostSnapshot = 10m
         };
         _fakes.Sales.AddSaleItemUnit(saleItemUnit);
+        _fakes.Sales.SoldSourceCapacities.Add(new SoldSourceCapacity(
+            Guid.CreateVersion7(), lot.Id, lot.PurchaseItemId, supplier.Id, 10m, 10m));
 
         var returnHandler = CreateSaleReturnHandler();
 
@@ -1559,5 +1620,69 @@ public sealed class Phase11ReturnExchangePackSubLedgerTests
         Assert.False(excessResult.IsSuccess);
         Assert.Equal("sales.return_exceeds_original", excessResult.Error?.Code);
         Assert.Equal(44m, stock.SellableQty); // Zero double restock
+    }
+
+    [Fact]
+    public async Task Container_loose_return_requires_condition_inspection_when_damaged()
+    {
+        var (supplier, product, pu, _) = SeedCableProduct();
+        var customer = SeedCustomer();
+        var cashierId = Guid.CreateVersion7();
+        _ = OpenCashSession(cashierId);
+        _fakes.Inventory.Balances[product.Id] = new StockBalance { ProductId = product.Id, SellableQty = 40m };
+
+        var sale = new Sale
+        {
+            Id = Guid.CreateVersion7(),
+            InvoiceNumber = "INV-DMG",
+            CustomerId = customer.Id,
+            CashierUserId = cashierId,
+            Status = SaleStatus.Completed,
+            CompletedAt = _fakes.Clock.UtcNow
+        };
+        _fakes.Sales.AddSale(sale);
+        var saleItem = new SaleItem
+        {
+            Id = Guid.CreateVersion7(),
+            SaleId = sale.Id,
+            ProductId = product.Id,
+            ProductUnitId = pu.Id,
+            FactorToBaseSnapshot = 1m,
+            EnteredQuantity = 5m,
+            BaseQuantity = 5m,
+            UnitPrice = 15m,
+            GrossLineTotal = 75m,
+            NetLineTotal = 75m,
+            UnitCostSnapshot = 10m,
+            TotalCostSnapshot = 50m
+        };
+        _fakes.Sales.AddSaleItem(saleItem);
+        var coilUnitId = Guid.CreateVersion7();
+        _fakes.Sales.AddSaleItemUnit(new SaleItemUnit
+        {
+            SaleItemId = saleItem.Id,
+            InventoryUnitId = coilUnitId,
+            UnitCostSnapshot = 10m
+        });
+        _fakes.Sales.SoldSourceCapacities.Add(new SoldSourceCapacity(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            supplier.Id,
+            5m,
+            5m));
+
+        var input = new SaleReturnLineInput(
+            saleItem.Id,
+            BaseQuantity: 2m,
+            Disposition: SaleReturnDisposition.Damaged,
+            InventoryUnitIds: [],
+            ReturnSourceContainerId: coilUnitId,
+            ConditionInspectionResult: null);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            _fakes.Eligibility.PrepareReturnLineAsync(input, sale.Id, CancellationToken.None));
+
+        Assert.Equal("sales.return_condition_inspection_required", ex.Code);
     }
 }

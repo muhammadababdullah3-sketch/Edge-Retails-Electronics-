@@ -13,10 +13,10 @@
         <Border Padding="21,14" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="0">
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="Bold"
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.DrawerTitle}"
                                Foreground="{DynamicResource Brush.Text.Primary}"/>
-                    <TextBlock Text="Supplier profile, Khata, settlements and warranty context"
-                               Margin="0,2,0,0" FontSize="12"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Supplier profile, Khata, settlements and warranty context"
+                               Margin="0,2,0,0"
                                Foreground="{DynamicResource Brush.Text.Muted}"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -38,8 +38,8 @@
                     Background="{DynamicResource Brush.Surface.Sunken}"
                     BorderBrush="{DynamicResource Brush.Border.Default}"
                     BorderThickness="1">
-                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
-                           Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="12"/>
+                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding StatusMessage}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.Text.Secondary}"/>
             </Border>
 
             <controls:LoadingState Grid.Row="1" Margin="20,24" Message="Loading supplier account and ledger..."
@@ -56,33 +56,29 @@
                                 <Border Grid.Column="0" Padding="12" Margin="0,0,8,0"
                                         BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="Outstanding Payable" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.OutstandingPayable, StringFormat=Rs. {0:N2}}"
-                                                   FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Outstanding Payable" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Workspace.Summary.OutstandingPayable, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Padding="12" Margin="0,0,8,0"
                                         BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="Supplier Credit / Advance" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.SupplierCreditOrAdvance, StringFormat=Rs. {0:N2}}"
-                                                   FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Supplier Credit / Advance" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Workspace.Summary.SupplierCreditOrAdvance, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Padding="12" Margin="0,0,8,0"
                                         BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="Net Purchased" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.NetPurchased, StringFormat=Rs. {0:N2}}"
-                                                   FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Net Purchased" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Workspace.Summary.NetPurchased, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="3" Padding="12"
                                         BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="Net Paid" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.NetPaidToSupplier, StringFormat=Rs. {0:N2}}"
-                                                   FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Net Paid" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Workspace.Summary.NetPaidToSupplier, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -94,35 +90,35 @@
                                 <Border Grid.Column="0" Padding="10" Margin="0,0,8,0"
                                         Background="{DynamicResource Brush.Surface.Sunken}">
                                     <StackPanel>
-                                        <TextBlock Text="Gross Purchased" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.GrossPurchased, StringFormat=Rs. {0:N2}}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Gross Purchased" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Workspace.Summary.GrossPurchased, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Padding="10" Margin="0,0,8,0"
                                         Background="{DynamicResource Brush.Surface.Sunken}">
                                     <StackPanel>
-                                        <TextBlock Text="Return Credits" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.PurchaseReturnCredits, StringFormat=Rs. {0:N2}}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Return Credits" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Workspace.Summary.PurchaseReturnCredits, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Padding="10" Margin="0,0,8,0"
                                         Background="{DynamicResource Brush.Surface.Sunken}">
                                     <StackPanel>
-                                        <TextBlock Text="Warranty Credits" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.WarrantyCredits, StringFormat=Rs. {0:N2}}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Warranty Credits" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Workspace.Summary.WarrantyCredits, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="3" Padding="10"
                                         Background="{DynamicResource Brush.Surface.Sunken}">
                                     <StackPanel>
-                                        <TextBlock Text="Supplier Refunds" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                                        <TextBlock Text="{Binding Workspace.Summary.NetSupplierRefundsReceived, StringFormat=Rs. {0:N2}}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Supplier Refunds" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Workspace.Summary.NetSupplierRefundsReceived, StringFormat=Rs. {0:N2}}"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
 
                             <TextBlock Text="{Binding FinancialOperationStatus}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                            <TextBlock Text="Post Supplier Financial Event" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock Text="Post Supplier Financial Event" Style="{StaticResource Text.Body}" Margin="0,0,0,8"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="1.15*"/>
@@ -131,19 +127,19 @@
                                     <ColumnDefinition Width="1.7*"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                                    <TextBlock Text="Amount" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                    <TextBlock Text="Amount" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                                     <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding TransactionAmount, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                                    <TextBlock Text="Method" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                    <TextBlock Text="Method" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                                     <ComboBox IsEnabled="{Binding CanEditFinancialFields}" ItemsSource="{Binding SettlementMethods}" SelectedItem="{Binding SelectedMethod}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Margin="0,0,8,0">
-                                    <TextBlock Text="External Reference" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                    <TextBlock Text="External Reference" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                                     <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding ExternalReference, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="3">
-                                    <TextBlock Text="Note / Advance Reason" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                                    <TextBlock Text="Note / Advance Reason" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                                     <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding TransactionNote, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Grid>
@@ -155,7 +151,7 @@
                                 <Button Content="Receive Supplier Refund" Command="{Binding ReceiveRefundCommand}"
                                         Style="{StaticResource Button.Primary}"/>
                             </StackPanel>
-                            <TextBlock Text="Reversal reason" Margin="0,18,0,0" FontSize="11"
+                            <TextBlock Text="Reversal reason" Margin="0,18,0,0" Style="{StaticResource Text.PosMeta}"
                                        Foreground="{DynamicResource Brush.Text.Muted}"/>
                             <TextBox IsEnabled="{Binding CanEditFinancialFields}" Text="{Binding ReversalReason, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
                         </StackPanel>
@@ -283,21 +279,21 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,16,0">
                             <TextBlock Text="Customer Claims" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.CustomerClaimCount}" FontSize="22" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.CustomerClaimCount}" Style="{StaticResource Text.AmountLarge}"/>
                             <TextBlock Text="Tracked Units" Margin="0,10,0,0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.TrackedUnitCount}" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.TrackedUnitCount}" Style="{StaticResource Text.DetailTitle}"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="0,0,16,0">
                             <TextBlock Text="Shop Stock Cases" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.ShopStockCaseCount}" FontSize="22" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.ShopStockCaseCount}" Style="{StaticResource Text.AmountLarge}"/>
                             <TextBlock Text="With Supplier" Margin="0,10,0,0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.CurrentlyWithSupplier}" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.CurrentlyWithSupplier}" Style="{StaticResource Text.DetailTitle}"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Ready / Returned" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.ReadyOrReturned}" FontSize="22" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.ReadyOrReturned}" Style="{StaticResource Text.AmountLarge}"/>
                             <TextBlock Text="Closed" Margin="0,10,0,0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Workspace.Warranty.ClosedCount}" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Workspace.Warranty.ClosedCount}" Style="{StaticResource Text.DetailTitle}"/>
                         </StackPanel>
                     </Grid>
                 </TabItem>
@@ -306,17 +302,17 @@
                     <StackPanel Margin="14">
                         <Grid Margin="0,0,0,12">
                             <TextBlock Text="Phone" Width="126" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Supplier.Phone}" Margin="140,0,0,0" FontWeight="SemiBold"/>
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Supplier.Phone}" Margin="140,0,0,0"/>
                         </Grid>
                         <Grid Margin="0,0,0,12">
                             <TextBlock Text="City" Width="126" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Supplier.City}" Margin="140,0,0,0" FontWeight="SemiBold"/>
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Supplier.City}" Margin="140,0,0,0"/>
                         </Grid>
                         <Grid Margin="0,0,0,12">
                             <TextBlock Text="Address" Width="126" Foreground="{DynamicResource Brush.Text.Muted}"/>
-                            <TextBlock Text="{Binding Supplier.Address}" Margin="140,0,0,0" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Supplier.Address}" Margin="140,0,0,0" TextWrapping="Wrap"/>
                         </Grid>
-                        <TextBlock Text="Notes" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Muted}"/>
+                        <TextBlock Text="Notes" Style="{StaticResource Text.PosBadge}" Foreground="{DynamicResource Brush.Text.Muted}"/>
                         <TextBlock Text="{Binding NotesDisplay}" Margin="0,5,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </TabItem>

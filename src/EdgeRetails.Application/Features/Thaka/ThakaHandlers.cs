@@ -1006,10 +1006,10 @@ public sealed class IssueThakaMaterialHandler
                 OccurredAt = _clock.UtcNow
             });
 
-            totalCost += await _costs.RemoveCarryingValueAsync(
+            totalCost += await _costs.RemoveCarryingValueByAmountAsync(
                 line.Product.Id,
                 alloc.AllocatedBaseQuantity,
-                alloc.UnitCostSnapshot,
+                alloc.TotalCostSnapshot,
                 ct);
 
             var fromStatus = unit.Status;

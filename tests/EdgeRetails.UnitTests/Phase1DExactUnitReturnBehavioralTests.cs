@@ -818,7 +818,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             fakesA.Sales.SaleItemUnits.Single().WarrantyValidUntil = saleItem.WarrantyValidUntil;
 
             // Step 1: SaleReturn executes
-            var returnHandler = new CreateSaleReturnHandler(fakesA.Sales, fakesA.Inventory, fakesA.CostAllocator, fakesA.Cash, fakesA.OperationLock, fakesA.ResourceLock, fakesA.Audit, fakesA.Numbers, fakesA.Clock, fakesA.Transactions, fakesA.Authorization, fakesA.UnitOfWork, fakesA.Warranty);
+            var returnHandler = new CreateSaleReturnHandler(fakesA.Sales, fakesA.Inventory, fakesA.CostAllocator, fakesA.Cash, fakesA.OperationLock, fakesA.ResourceLock, fakesA.Audit, fakesA.Numbers, fakesA.Clock, fakesA.Transactions, fakesA.Authorization, fakesA.UnitOfWork, fakesA.Warranty, catalog: fakesA.Catalog, physicalUnits: fakesA.PhysicalUnits, packAllocations: fakesA.PackAllocations, traceability: fakesA.Traceability, parties: fakesA.Parties, eligibility: fakesA.Eligibility);
             var returnRes = await returnHandler.HandleAsync(new CreateSaleReturnCommand(saleRes.Value!.SaleId, "RETURN", null, RefundMethod.Cash, cashier, Guid.CreateVersion7(), [new SaleReturnLineInput(saleItem.Id, 1m, SaleReturnDisposition.RestockSellable, [invUnit.Id])]), CancellationToken.None);
             Assert.True(returnRes.IsSuccess);
 
@@ -879,7 +879,7 @@ public sealed class Phase1DExactUnitReturnBehavioralTests
             Assert.True(claimRes.IsSuccess, claimRes.Error?.Message);
 
             // Step 2: SaleReturn attempted for unit currently in active warranty claim
-            var returnHandler = new CreateSaleReturnHandler(fakesB.Sales, fakesB.Inventory, fakesB.CostAllocator, fakesB.Cash, fakesB.OperationLock, fakesB.ResourceLock, fakesB.Audit, fakesB.Numbers, fakesB.Clock, fakesB.Transactions, fakesB.Authorization, fakesB.UnitOfWork, fakesB.Warranty);
+            var returnHandler = new CreateSaleReturnHandler(fakesB.Sales, fakesB.Inventory, fakesB.CostAllocator, fakesB.Cash, fakesB.OperationLock, fakesB.ResourceLock, fakesB.Audit, fakesB.Numbers, fakesB.Clock, fakesB.Transactions, fakesB.Authorization, fakesB.UnitOfWork, fakesB.Warranty, catalog: fakesB.Catalog, physicalUnits: fakesB.PhysicalUnits, packAllocations: fakesB.PackAllocations, traceability: fakesB.Traceability, parties: fakesB.Parties, eligibility: fakesB.Eligibility);
             var returnRes = await returnHandler.HandleAsync(new CreateSaleReturnCommand(saleRes.Value.SaleId, "RETURN_WARRANTY_UNIT", null, RefundMethod.Cash, cashier, Guid.CreateVersion7(), [new SaleReturnLineInput(saleItem.Id, 1m, SaleReturnDisposition.RestockSellable, [invUnit.Id])]), CancellationToken.None);
 
             // Assert: SaleReturn rejected because unit has active warranty claim

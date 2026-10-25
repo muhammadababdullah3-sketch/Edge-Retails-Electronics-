@@ -54,7 +54,8 @@ public interface IPackSubLedgerAllocationAuthority
         decimal unitCost,
         Guid restoredLotId,
         bool isDamaged = false,
-        Guid? sourcePurchaseItemId = null);
+        Guid? sourcePurchaseItemId = null,
+        bool restockAsRemnant = false);
 
     PackMeasurementReconciliationResult ReconcileMeasurement(
         InventoryUnit unit,
@@ -237,6 +238,15 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
     private static decimal RoundCost(decimal value) =>
         decimal.Round(value, 6, MidpointRounding.AwayFromZero);
 
+    private static decimal CostReleasedBetween(InventoryUnit unit, decimal before, decimal after)
+    {
+        var initial = unit.InitialBaseQuantity ?? 1m;
+        // Difference of carrying values telescopes over every cut/measurement/scrap.
+        // Rounding each draw independently can leave value after physical exhaustion.
+        return RoundCost(unit.AcquisitionCost * before / initial) -
+               RoundCost(unit.AcquisitionCost * after / initial);
+    }
+
     private static PackAllocation CreateAllocationForUnit(
         InventoryUnit unit,
         decimal quantityToTake,
@@ -246,7 +256,12 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
 
         var initialQty = unit.InitialBaseQuantity ?? 1m;
         var unitCostSnapshot = RoundCost(unit.AcquisitionCost / initialQty);
-        var totalCostSnapshot = RoundCost(quantityToTake * unitCostSnapshot);
+        // Keep the six-place unit snapshot for display/reconciliation, but calculate
+        // the transaction amount from the exact acquisition basis. Multiplying a
+        // rounded unit rate (e.g. 100 / 90 => 1.111111) would lose carrying value
+        // when a complete pack is consumed.
+        var remainingBefore = unit.RemainingBaseQuantity ?? initialQty;
+        var totalCostSnapshot = CostReleasedBetween(unit, remainingBefore, remainingBefore - quantityToTake);
 
         // Apply consumption to domain unit (mutates unit.RemainingBaseQuantity and unit.PackState)
         unit.ConsumeFromPack(quantityToTake);
@@ -283,7 +298,8 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
         decimal unitCost,
         Guid restoredLotId,
         bool isDamaged = false,
-        Guid? sourcePurchaseItemId = null)
+        Guid? sourcePurchaseItemId = null,
+        bool restockAsRemnant = false)
     {
         var roundedQuantity = QuantityMath.RoundQuantity(returnedQuantity);
         if (roundedQuantity <= 0)
@@ -303,10 +319,10 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
             AcquisitionCost: acquisitionCost,
             InventoryLotId: restoredLotId,
             OriginType: InventoryUnitOriginType.Purchase,
-            SourcePurchaseItemId: sourcePurchaseItemId ?? Guid.CreateVersion7(),
+            SourcePurchaseItemId: sourcePurchaseItemId,
             InitialBaseQuantity: roundedQuantity,
             RemainingBaseQuantity: roundedQuantity,
-            PackState: PackState.Open,
+            PackState: restockAsRemnant ? PackState.Open : PackState.Open,
             IsLooseStock: true);
     }
 
@@ -383,7 +399,7 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
 
         var initialQty = unit.InitialBaseQuantity ?? 1m;
         var unitCost = RoundCost(unit.AcquisitionCost / initialQty);
-        var totalCost = RoundCost(delta * unitCost);
+        var totalCost = CostReleasedBetween(unit, previousRemaining, roundedMeasured);
 
         var allocation = new PackAllocation
         {
@@ -481,7 +497,7 @@ public sealed class PackSubLedgerAllocationAuthority : IPackSubLedgerAllocationA
 
         var initialQty = unit.InitialBaseQuantity ?? 1m;
         var unitCost = RoundCost(unit.AcquisitionCost / initialQty);
-        var totalCost = RoundCost(quantityToScrap * unitCost);
+        var totalCost = CostReleasedBetween(unit, quantityToScrap, 0m);
 
         var allocation = new PackAllocation
         {

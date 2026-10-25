@@ -75,8 +75,14 @@ public sealed class CreateSupplierPaymentHandler
                 "Supplier, positive amount, valid purpose, valid method, and client operation id are required.");
         }
 
+        var outcomeWasClaimed = false;
+        string? claimedFingerprint = null;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
+            // A transaction runner may retry this delegate. Ownership belongs to
+            // the current attempt, never to a rolled-back earlier invocation.
+            outcomeWasClaimed = false;
+            claimedFingerprint = null;
             var permission = command.Purpose == SupplierPaymentPurpose.Advance
                 ? PermissionKeys.SupplierAdvanceCreate
                 : PermissionKeys.SupplierPaymentCreate;
@@ -114,6 +120,7 @@ public sealed class CreateSupplierPaymentHandler
                 string.Equals(fp, versionedFingerprint, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(fp, fingerprint, StringComparison.OrdinalIgnoreCase);
 
+            var outcomeFingerprint = versionedFingerprint;
             await _operationLock.AcquireAsync(command.ClientOperationId, ct);
             if (_outcomeLedger is not null)
             {
@@ -141,6 +148,11 @@ public sealed class CreateSupplierPaymentHandler
                             "idempotency.payload_mismatch",
                             "Operation was previously submitted with different supplier payment parameters.");
                     }
+
+                    // Preserve an accepted legacy identity rather than rebinding its fingerprint.
+                    outcomeFingerprint = string.IsNullOrEmpty(outcome.PayloadFingerprint)
+                        ? versionedFingerprint
+                        : outcome.PayloadFingerprint;
                 }
             }
             var existing = await _accounts.GetPaymentByClientOperationIdAsync(command.ClientOperationId, ct);
@@ -167,12 +179,20 @@ public sealed class CreateSupplierPaymentHandler
                         existing.Id,
                         existing.PaymentNumber,
                         actorId: command.ActorId,
-                        payloadFingerprint: versionedFingerprint,
+                        payloadFingerprint: outcomeFingerprint,
                         cancellationToken: ct);
                 }
 
                 return Result<SupplierPaymentResult>.Success(
                     new(existing.Id, existing.PaymentNumber, true));
+            }
+
+            if (_outcomeLedger is not null)
+            {
+                await _outcomeLedger.RecordPendingAsync(command.ClientOperationId, "SupplierPayment",
+                    actorId: command.ActorId, payloadFingerprint: outcomeFingerprint, cancellationToken: ct);
+                claimedFingerprint = outcomeFingerprint;
+                outcomeWasClaimed = true;
             }
 
             await _resourceLock.AcquireAsync("supplier-account", command.SupplierId, ct);
@@ -271,7 +291,7 @@ public sealed class CreateSupplierPaymentHandler
                     payment.Id,
                     payment.PaymentNumber,
                     actorId: command.ActorId,
-                    payloadFingerprint: versionedFingerprint,
+                    payloadFingerprint: outcomeFingerprint,
                     cancellationToken: ct);
             }
 
@@ -280,15 +300,35 @@ public sealed class CreateSupplierPaymentHandler
                 new(payment.Id, payment.PaymentNumber, false));
         }, cancellationToken);
 
-        if (!result.IsSuccess && _outcomeLedger is not null && command.ClientOperationId != Guid.Empty)
+        if (!result.IsSuccess && outcomeWasClaimed && _outcomeLedger is not null)
         {
-            await _outcomeLedger.RecordFailureAsync(
-                command.ClientOperationId,
-                "SupplierPayment",
-                result.Error?.Code ?? "supplier.payment_failed",
-                result.Error?.Message ?? "Supplier payment failed.",
-                actorId: command.ActorId,
-                cancellationToken: cancellationToken);
+            // The rejected business transaction can roll back its pending row.
+            // Reacquire identity ownership before recording the durable failure;
+            // another request may have claimed/committed the ID in that interval.
+            await _transactions.ExecuteAsync(async ct =>
+            {
+                await _operationLock.AcquireAsync(command.ClientOperationId, ct);
+                var current = await _outcomeLedger.GetOutcomeAsync(command.ClientOperationId, ct);
+                if (current is not null &&
+                    (current.State == OperationOutcomeState.Succeeded ||
+                     !string.Equals(current.OperationType, "SupplierPayment", StringComparison.OrdinalIgnoreCase) ||
+                     (current.ActorId.HasValue && current.ActorId.Value != command.ActorId) ||
+                     (!string.IsNullOrEmpty(current.PayloadFingerprint) &&
+                      !string.Equals(current.PayloadFingerprint, claimedFingerprint, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return Result.Success();
+                }
+
+                await _outcomeLedger.RecordFailureAsync(
+                    command.ClientOperationId,
+                    "SupplierPayment",
+                    result.Error?.Code ?? "supplier.payment_failed",
+                    result.Error?.Message ?? "Supplier payment failed.",
+                    actorId: command.ActorId,
+                    payloadFingerprint: claimedFingerprint,
+                    cancellationToken: ct);
+                return Result.Success();
+            }, cancellationToken);
         }
 
         return result;

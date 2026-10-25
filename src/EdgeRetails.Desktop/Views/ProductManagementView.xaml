@@ -7,21 +7,20 @@
     <UserControl.Resources>
         <HierarchicalDataTemplate DataType="{x:Type viewModels:TaxonomyTreeNodeViewModel}" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Margin="2,2">
-                <TextBlock Text="{Binding Code}" FontWeight="Bold" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Primary}" />
+                <TextBlock Style="{StaticResource Text.Control}" Text="{Binding Code}" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Primary}" />
                 <TextBlock Text="{Binding Name}" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Border Padding="4,1" Margin="4,0,0,0" CornerRadius="3"
                         Background="{DynamicResource Brush.Badge.Warning.Background}"
                         BorderBrush="{DynamicResource Brush.Badge.Warning.Border}"
                         BorderThickness="1"
                         Visibility="{Binding IsDeprecated, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="{Binding RedirectTargetCode, StringFormat='REDIRECT: {0}'}"
-                               FontSize="10" FontWeight="SemiBold"
+                    <TextBlock Style="{StaticResource Text.MonoHint}" Text="{Binding RedirectTargetCode, StringFormat='REDIRECT: {0}'}"
                                Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
                 </Border>
                 <Border Padding="4,1" Margin="4,0,0,0" CornerRadius="3"
                         Background="{DynamicResource Brush.Surface.Subtle}"
                         Visibility="{Binding IsSellable, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                    <TextBlock Text="NON-SELLABLE" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Text="NON-SELLABLE" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}" />
                 </Border>
             </StackPanel>
         </HierarchicalDataTemplate>
@@ -187,10 +186,9 @@
                     </Grid>
                 </Border>
 
-                            <TextBlock Margin="2,12,0,0"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="2,12,0,0"
                                        Text="Stock quantities, lots, exact physical units and inventory movements are intentionally read-only from Product Management."
                                        TextWrapping="Wrap"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                         </StackPanel>
                     </TabItem>
@@ -227,13 +225,11 @@
                                     Padding="16"
                                     VerticalAlignment="Top">
                                 <StackPanel>
-                                    <TextBlock Text="TAXONOMY NODE DETAILS"
+                                    <TextBlock Style="{StaticResource Text.PosBadge}" Text="TAXONOMY NODE DETAILS"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="11" FontWeight="Bold"
                                                Foreground="{DynamicResource Brush.Text.Muted}"
                                                Margin="0,0,0,8" />
-                                    <TextBlock Text="{Binding SelectedTaxonomyNodeDisplay}"
-                                               FontSize="13.5" FontWeight="SemiBold"
+                                    <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding SelectedTaxonomyNodeDisplay}"
                                                Foreground="{DynamicResource Brush.Text.Primary}"
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,10" />
@@ -246,9 +242,8 @@
                                             BorderThickness="1"
                                             CornerRadius="4"
                                             Visibility="{Binding HasTaxonomyRedirect, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <TextBlock Text="{Binding TaxonomyRedirectNotice}"
+                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding TaxonomyRedirectNotice}"
                                                    TextWrapping="Wrap"
-                                                   FontSize="11.5" FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
                                     </Border>
 

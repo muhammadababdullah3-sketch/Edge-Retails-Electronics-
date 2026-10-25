@@ -164,6 +164,7 @@ public interface IBackendWorkflowReadService
         Guid productId,
         decimal countedSellableQty,
         string? reviewNote,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default);
 
     Task RecordSerializedStocktakeAsync(
@@ -175,10 +176,12 @@ public interface IBackendWorkflowReadService
         IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
         decimal minimumSellableIncrement = 1m,
         decimal separateLooseQuantity = 0m,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default);
 
     Task ReviewStocktakeAsync(
         Guid stocktakeId,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default);
 
     Task PostStocktakeAsync(
@@ -417,19 +420,24 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
         Guid productId,
         decimal countedSellableQty,
         string? reviewNote,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
         await EnsureInventoryManageAsync(scope.ServiceProvider, actor, cancellationToken);
         var handler = scope.ServiceProvider.GetRequiredService<RecordStocktakeCountHandler>();
+        var operationId = clientOperationId is { } supplied && supplied != Guid.Empty
+            ? supplied
+            : Guid.CreateVersion7();
         var result = await handler.HandleAsync(
             new RecordStocktakeCountCommand(
                 stocktakeId,
                 productId,
                 countedSellableQty,
                 actor,
-                string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim()),
+                string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim(),
+                operationId),
             cancellationToken);
         EnsureSuccess(result, "Stocktake count could not be recorded.");
     }
@@ -443,12 +451,16 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
         IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
         decimal minimumSellableIncrement = 1m,
         decimal separateLooseQuantity = 0m,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
         await EnsureInventoryManageAsync(scope.ServiceProvider, actor, cancellationToken);
         var handler = scope.ServiceProvider.GetRequiredService<RecordSerializedStocktakeHandler>();
+        var operationId = clientOperationId is { } supplied && supplied != Guid.Empty
+            ? supplied
+            : Guid.CreateVersion7();
         var result = await handler.HandleAsync(
             new RecordSerializedStocktakeCommand(
                 stocktakeId,
@@ -457,6 +469,7 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
                 unexpectedIdentitySnapshots,
                 actor,
                 string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim(),
+                operationId,
                 MeasuredContainerQuantities: measuredContainerQuantities,
                 MinimumSellableIncrement: minimumSellableIncrement,
                 SeparateLooseQuantity: separateLooseQuantity),
@@ -466,14 +479,18 @@ public sealed class BackendWorkflowReadService : IBackendWorkflowReadService
 
     public async Task ReviewStocktakeAsync(
         Guid stocktakeId,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
         await using var scope = _scopeFactory.CreateAsyncScope();
         await EnsureInventoryManageAsync(scope.ServiceProvider, actor, cancellationToken);
         var handler = scope.ServiceProvider.GetRequiredService<ReviewStocktakeHandler>();
+        var operationId = clientOperationId is { } supplied && supplied != Guid.Empty
+            ? supplied
+            : Guid.CreateVersion7();
         var result = await handler.HandleAsync(
-            new ReviewStocktakeCommand(stocktakeId),
+            new ReviewStocktakeCommand(stocktakeId, actor, operationId),
             cancellationToken);
         EnsureSuccess(result, "Stocktake could not enter review.");
     }

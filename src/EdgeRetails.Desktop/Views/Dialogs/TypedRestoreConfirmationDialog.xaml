@@ -3,16 +3,16 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Foreground="{DynamicResource Brush.Text.Primary}">
  <Border Width="580" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
-   <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+   <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
               Foreground="{DynamicResource Brush.Text.Primary}"/>
    <Border Margin="0,16,0,0" Padding="12"
            Background="{DynamicResource Brush.Hover.Subtle}"
            BorderBrush="{DynamicResource Brush.Border.Default}"
            BorderThickness="1" CornerRadius="8">
-    <TextBlock Text="{Binding Consequence}" TextWrapping="Wrap" FontSize="13"
+    <TextBlock Text="{Binding Consequence}" TextWrapping="Wrap" Style="{StaticResource Text.Secondary}"
                Foreground="{DynamicResource Brush.Text.Secondary}"/>
    </Border>
-   <TextBlock Text="Type this exact confirmation" Margin="0,18,0,6" FontSize="12" FontWeight="SemiBold"/>
+   <TextBlock Text="Type this exact confirmation" Margin="0,18,0,6" Style="{StaticResource Text.TableHeader}"/>
    <TextBlock Text="{Binding RequiredPhrase}" Margin="0,0,0,8" FontFamily="Consolas"
               TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Primary}"/>
    <TextBox Text="{Binding EnteredText, UpdateSourceTrigger=PropertyChanged}"

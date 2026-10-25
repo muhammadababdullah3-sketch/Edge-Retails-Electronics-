@@ -4,7 +4,7 @@
  <Border Width="560" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid>
-    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                Foreground="{DynamicResource Brush.Text.Primary}"/>
     <Button Command="{Binding CancelCommand}"
             Style="{StaticResource Button.Close}"
@@ -17,16 +17,16 @@
            BorderBrush="{DynamicResource Brush.Border.Default}"
            BorderThickness="1" CornerRadius="8">
     <StackPanel>
-     <TextBlock Text="⚠ Warning" FontSize="12" FontWeight="SemiBold"
+     <TextBlock Text="⚠ Warning" Style="{StaticResource Text.TableHeader}"
                 Foreground="{StaticResource Brush.Function.Warning}"/>
-     <TextBlock Text="{Binding Message}" Margin="0,6,0,0"
-                TextWrapping="Wrap" FontSize="12"
+     <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding Message}" Margin="0,6,0,0"
+                TextWrapping="Wrap"
                 Foreground="{DynamicResource Brush.Text.Secondary}"/>
     </StackPanel>
    </Border>
    <StackPanel Margin="0,16,0,0"
       Visibility="{Binding HasOptions, Converter={StaticResource BooleanToVisibilityConverter}}">
-    <TextBlock Text="Select backup point" Margin="0,0,0,5" FontSize="12"/>
+    <TextBlock Text="Select backup point" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
     <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding SelectedOption}"
               Style="{StaticResource Input.ComboBox}"/>
    </StackPanel>

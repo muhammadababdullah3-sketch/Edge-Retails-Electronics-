@@ -207,6 +207,243 @@ public sealed class Phase7Pass4PostgresTests(ITestOutputHelper output)
         }
     }
 
+    [Fact]
+    public async Task H3_LooseContainerReturnPersistsOriginalLotAndSaleConsumptionSourceFacts()
+    {
+        await using var f = await Fixture.CreateAsync(TrackingMode.Container, 3m, 3m, rawCost: 30m);
+        Assert.True((await f.ReceiveAsync(1m)).IsSuccess);
+        await using var scope = f.Provider.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        var db = services.GetRequiredService<EdgeRetailsDbContext>();
+        var originalUnit = await db.InventoryUnits.SingleAsync(x => x.ProductId == f.ProductId);
+        var originalLot = await db.InventoryLots.SingleAsync(x => x.Id == originalUnit.InventoryLotId);
+        var price = (await db.Products.SingleAsync(x => x.Id == f.ProductId)).DefaultSalePrice * 3m;
+        var sale = await services.GetRequiredService<CompleteSaleHandler>().HandleAsync(new CompleteSaleCommand(
+            Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank, price, "H3 loose return", null,
+            [new(f.ProductId, f.ProductUnitId, 1m, price, [originalUnit.Id])]), default);
+        Assert.True(sale.IsSuccess, sale.Error?.Message);
+        var saleId = sale.Value!.SaleId;
+        db.ChangeTracker.Clear();
+        var soldItem = await db.SaleItems.SingleAsync(x => x.SaleId == saleId);
+        var consumption = await db.InventoryLotConsumptions.SingleAsync(x => x.MovementId == soldItem.InventoryMovementId);
+
+        async Task<SaleReturnItem> ReturnOneMeterAsync()
+        {
+            var result = await services.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(
+                new CreateSaleReturnCommand(saleId, "SURPLUS", "H3 source-linked loose return",
+                    RefundMethod.Bank, f.ActorId, Guid.NewGuid(),
+                    [new(soldItem.Id, 1m, SaleReturnDisposition.RestockSellable, [])]), default);
+            Assert.True(result.IsSuccess, result.Error?.Code + ": " + result.Error?.Message);
+            db.ChangeTracker.Clear();
+            return await db.SaleReturnItems.SingleAsync(x => x.SaleReturnId == result.Value!.SaleReturnId);
+        }
+
+        var firstReturnItem = await ReturnOneMeterAsync();
+        var firstFact = await db.SaleReturnSourceAllocations.SingleAsync(x => x.SaleReturnItemId == firstReturnItem.Id);
+        var firstLooseUnit = await (from unit in db.InventoryUnits
+                                    join movementUnit in db.InventoryMovementUnits on unit.Id equals movementUnit.InventoryUnitId
+                                    join movement in db.InventoryMovements on movementUnit.MovementId equals movement.Id
+                                    where movement.Id == firstFact.ReturnMovementId
+                                    select unit).SingleAsync();
+        var firstLot = await db.InventoryLots.SingleAsync(x => x.Id == firstFact.RestoredInventoryLotId);
+        Assert.Equal(consumption.Id, firstFact.SaleConsumptionId);
+        Assert.Equal(1m, firstFact.BaseQuantity);
+        Assert.Equal(originalLot.PurchaseItemId, firstLot.PurchaseItemId);
+        Assert.Equal(firstLot.Id, firstLooseUnit.InventoryLotId);
+        Assert.Equal(firstLot.PurchaseItemId, firstLooseUnit.SourcePurchaseItemId);
+
+        // A second return must read and account for the first durable source fact.
+        var secondReturnItem = await ReturnOneMeterAsync();
+        var facts = await db.SaleReturnSourceAllocations
+            .Where(x => x.SaleReturnItemId == firstReturnItem.Id || x.SaleReturnItemId == secondReturnItem.Id)
+            .OrderBy(x => x.SaleReturnItemId).ToArrayAsync();
+        Assert.Equal(2m, facts.Sum(x => x.BaseQuantity));
+        Assert.All(facts, x => Assert.Equal(consumption.Id, x.SaleConsumptionId));
+        Assert.All(await db.InventoryLots.Where(x => x.SourceMovementId == firstFact.ReturnMovementId).ToArrayAsync(),
+            x => Assert.Equal(originalLot.PurchaseItemId, x.PurchaseItemId));
+    }
+
+    [Fact]
+    public async Task H4_LooseContainerReturnBindsEachReturnedUnitToItsExactSourceSlice()
+    {
+        await using var f = await Fixture.CreateAsync(TrackingMode.Container, 3m, 3m, rawCost: 30m);
+        var firstReceipt = await f.ReceiveAsync(1m);
+        Assert.True(firstReceipt.IsSuccess, firstReceipt.Error?.Code + ": " + firstReceipt.Error?.Message);
+        Guid secondPurchaseId;
+        Guid secondPurchaseItemId;
+        await using (var purchaseScope = f.Provider.CreateAsyncScope())
+        {
+            var services = purchaseScope.ServiceProvider;
+            var db = services.GetRequiredService<EdgeRetailsDbContext>();
+            var purchase = await services.GetRequiredService<CreatePurchaseHandler>()
+                .HandleAsync(f.Order(1m), default);
+            Assert.True(purchase.IsSuccess, purchase.Error?.Message);
+            secondPurchaseId = purchase.Value!.PurchaseId;
+            secondPurchaseItemId = await db.PurchaseItems
+                .Where(x => x.PurchaseId == secondPurchaseId)
+                .Select(x => x.Id)
+                .SingleAsync();
+            var received = await services.GetRequiredService<ReceiveProductIntakeHandler>().HandleAsync(
+                new ReceiveProductIntakeCommand(secondPurchaseId, f.ProductId, f.ProductUnitId,
+                    1m, null, [], f.ActorId, Guid.NewGuid()), default);
+            Assert.True(received.IsSuccess, received.Error?.Message);
+        }
+
+        await using var scope = f.Provider.CreateAsyncScope();
+        var serviceProvider = scope.ServiceProvider;
+        var context = serviceProvider.GetRequiredService<EdgeRetailsDbContext>();
+        var sourceUnits = await context.InventoryUnits
+            .Where(x => x.ProductId == f.ProductId && x.Status == InventoryUnitStatus.InStock)
+            .OrderBy(x => x.SourcePurchaseItemId)
+            .ToArrayAsync();
+        Assert.Equal(2, sourceUnits.Length);
+        Assert.Contains(sourceUnits, x => x.SourcePurchaseItemId == f.ItemId);
+        Assert.Contains(sourceUnits, x => x.SourcePurchaseItemId == secondPurchaseItemId);
+
+        var price = (await context.Products.SingleAsync(x => x.Id == f.ProductId)).DefaultSalePrice * 3m;
+        var sale = await serviceProvider.GetRequiredService<CompleteSaleHandler>().HandleAsync(
+            new CompleteSaleCommand(Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank,
+                price * 2m, "H4 multi-source loose return", null,
+                [new(f.ProductId, f.ProductUnitId, 2m, price, sourceUnits.Select(x => x.Id).ToArray())]), default);
+        Assert.True(sale.IsSuccess, sale.Error?.Message);
+        var saleId = sale.Value!.SaleId;
+        context.ChangeTracker.Clear();
+        var soldItem = await context.SaleItems.SingleAsync(x => x.SaleId == saleId);
+        var soldConsumptions = await (from consumption in context.InventoryLotConsumptions
+                                      join lot in context.InventoryLots on consumption.LotId equals lot.Id
+                                      where consumption.MovementId == soldItem.InventoryMovementId
+                                      select new { consumption.Id, lot.PurchaseItemId, consumption.Quantity })
+            .ToArrayAsync();
+        Assert.Equal(2, soldConsumptions.Length);
+        Assert.Equal(2, soldConsumptions.Select(x => x.PurchaseItemId).Distinct().Count());
+
+        var returned = await serviceProvider.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(
+            new CreateSaleReturnCommand(saleId, "SURPLUS", "H4 multi-source return",
+                RefundMethod.Bank, f.ActorId, Guid.NewGuid(),
+                [new(soldItem.Id, 4m, SaleReturnDisposition.RestockSellable, [])]), default);
+        Assert.True(returned.IsSuccess, returned.Error?.Code + ": " + returned.Error?.Message);
+        context.ChangeTracker.Clear();
+
+        var returnItem = await context.SaleReturnItems.SingleAsync(x => x.SaleReturnId == returned.Value!.SaleReturnId);
+        var allocations = await context.SaleReturnSourceAllocations
+            .Where(x => x.SaleReturnItemId == returnItem.Id)
+            .ToArrayAsync();
+        Assert.Equal(2, allocations.Length);
+        Assert.Equal(4m, allocations.Sum(x => x.BaseQuantity));
+        foreach (var allocation in allocations)
+        {
+            var consumedSource = Assert.Single(soldConsumptions, x => x.Id == allocation.SaleConsumptionId);
+            var restoredLot = await context.InventoryLots.SingleAsync(x => x.Id == allocation.RestoredInventoryLotId);
+            var returnedUnit = await (from unit in context.InventoryUnits
+                                      join movementUnit in context.InventoryMovementUnits
+                                          on unit.Id equals movementUnit.InventoryUnitId
+                                      where movementUnit.MovementId == allocation.ReturnMovementId &&
+                                            unit.InventoryLotId == allocation.RestoredInventoryLotId
+                                      select unit).SingleAsync();
+            Assert.Equal(consumedSource.PurchaseItemId, restoredLot.PurchaseItemId);
+            Assert.Equal(consumedSource.PurchaseItemId, returnedUnit.SourcePurchaseItemId);
+            Assert.Equal(allocation.BaseQuantity, returnedUnit.InitialBaseQuantity);
+        }
+
+        var returnPackCost = await context.PackAllocations
+            .Where(x => x.SaleReturnItemId == returnItem.Id)
+            .SumAsync(x => x.TotalCostSnapshot);
+        Assert.Equal(returnItem.CostReversalAmount, returnPackCost);
+    }
+
+    [Fact]
+    public async Task H5_FractionalLooseReturnPreservesExactCostAcrossRollbackResaleAndReplay()
+    {
+        await using var f = await Fixture.CreateAsync(TrackingMode.Container, 3m, 1m, rawCost: 100m);
+        Assert.True((await f.ReceiveAsync(1m)).IsSuccess);
+        Guid soldItemId;
+        Guid originalUnitId;
+        decimal basePrice;
+        Guid saleId;
+        await using (var scope = f.Provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+            originalUnitId = await db.InventoryUnits.Where(x => x.ProductId == f.ProductId).Select(x => x.Id).SingleAsync();
+            basePrice = (await db.Products.SingleAsync(x => x.Id == f.ProductId)).DefaultSalePrice;
+            var sold = await scope.ServiceProvider.GetRequiredService<CompleteSaleHandler>().HandleAsync(
+                new CompleteSaleCommand(Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank,
+                    basePrice * 3m, "H5 original", null,
+                    [new(f.ProductId, f.ProductUnitId, 1m, basePrice * 3m, [originalUnitId])]), default);
+            Assert.True(sold.IsSuccess, sold.Error?.Message);
+            saleId = sold.Value!.SaleId;
+            soldItemId = await db.SaleItems.Where(x => x.SaleId == saleId).Select(x => x.Id).SingleAsync();
+        }
+        var command = new CreateSaleReturnCommand(saleId, "SURPLUS", "H5 exact fractional carrying amount",
+            RefundMethod.Bank, f.ActorId, Guid.NewGuid(),
+            [new(soldItemId, 2m, SaleReturnDisposition.RestockSellable, [])]);
+        await using (var fail = f.Provider.CreateAsyncScope())
+        {
+            var db = fail.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+            var fault = new ThrowAfterReturnFlush(db);
+            var handler = ActivatorUtilities.CreateInstance<CreateSaleReturnHandler>(fail.ServiceProvider, fault);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(command, default));
+            Assert.True(fault.Flushed);
+        }
+        await using (var check = f.Provider.CreateAsyncScope())
+        {
+            var db = check.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+            Assert.False(await db.SaleReturns.AnyAsync(x => x.ClientOperationId == command.ClientOperationId));
+            Assert.False(await db.InventoryUnits.AnyAsync(x => x.ProductId == f.ProductId && x.IsLooseStock));
+            Assert.Equal(0m, (await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost);
+        }
+        Guid looseId;
+        Guid returnId;
+        await using (var scope = f.Provider.CreateAsyncScope())
+        {
+            var services = scope.ServiceProvider;
+            var result = await services.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(command, default);
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            returnId = result.Value!.SaleReturnId;
+            var db = services.GetRequiredService<EdgeRetailsDbContext>();
+            db.ChangeTracker.Clear();
+            var loose = await db.InventoryUnits.SingleAsync(x => x.ProductId == f.ProductId && x.IsLooseStock);
+            looseId = loose.Id;
+            Assert.Equal(2m, loose.RemainingBaseQuantity);
+            Assert.Equal(66.666667m, loose.AcquisitionCost);
+            Assert.Equal(66.666667m, (await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost);
+            Assert.Equal(66.666667m, await db.PackAllocations.Where(x => x.PackUnitId == looseId).SumAsync(x => x.TotalCostSnapshot));
+        }
+        var resale = new CompleteSaleCommand(Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank,
+            basePrice * 2m, "H5 loose resale", null,
+            [new(f.ProductId, f.BaseProductUnitId, 2m, basePrice, [looseId])]);
+        await using (var scope = f.Provider.CreateAsyncScope())
+        {
+            var services = scope.ServiceProvider;
+            var handler = services.GetRequiredService<CompleteSaleHandler>();
+            var result = await handler.HandleAsync(resale, default);
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            Assert.True((await handler.HandleAsync(resale, default)).Value!.WasExisting);
+            var returned = await services.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(command, default);
+            Assert.True(returned.IsSuccess, returned.Error?.Message);
+            Assert.Equal(returnId, returned.Value!.SaleReturnId);
+        }
+        await using var finalScope = f.Provider.CreateAsyncScope();
+        var final = finalScope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+        var state = await final.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId);
+        Assert.Equal(0m, state.TotalInventoryCost);
+        Assert.Equal(0m, state.CostedQty);
+        Assert.Equal(0m, (await final.StockBalances.SingleAsync(x => x.ProductId == f.ProductId)).SellableQty);
+        Assert.Equal(PackState.Consumed, (await final.InventoryUnits.SingleAsync(x => x.Id == looseId)).PackState);
+        Assert.Equal(2, await final.InventoryUnits.CountAsync(x => x.ProductId == f.ProductId));
+        Assert.Single(await final.SaleReturns.Where(x => x.ClientOperationId == command.ClientOperationId).ToArrayAsync());
+    }
+
+    private sealed class ThrowAfterReturnFlush(EdgeRetailsDbContext db) : IUnitOfWork
+    {
+        public bool Flushed { get; private set; }
+        public async Task<int> SaveChangesAsync(CancellationToken ct)
+        {
+            await db.SaveChangesAsync(ct);
+            Flushed = true;
+            throw new InvalidOperationException("H5 owned fault after the actual SQL flush.");
+        }
+    }
+
     [Theory]
     [InlineData(true, 1, false, false)]
     [InlineData(false, 1, false, false)]
@@ -260,19 +497,26 @@ public sealed class Phase7Pass4PostgresTests(ITestOutputHelper output)
         }
         var unitIds = units.Select(x => x.Id).ToArray();
         var price = (await db.Products.SingleAsync(x => x.Id == f.ProductId)).DefaultSalePrice * 90m;
-        var sale = await services.GetRequiredService<CompleteSaleHandler>().HandleAsync(new CompleteSaleCommand(
-            Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank, price * count, "H1", null,
-            [new(f.ProductId, f.ProductUnitId, count, price, unitIds)]), default);
-        Assert.True(sale.IsSuccess, sale.Error?.Message);
-        db.ChangeTracker.Clear();
-        var soldItem = await db.SaleItems.SingleAsync(x => x.SaleId == sale.Value!.SaleId);
-        Assert.Equal(100m * count, soldItem.TotalCostSnapshot);
+        var soldItems = new List<(SaleItem Item, Guid UnitId)>();
+        foreach (var unitId in unitIds)
+        {
+            var sale = await services.GetRequiredService<CompleteSaleHandler>().HandleAsync(new CompleteSaleCommand(
+                Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank, price, "H1", null,
+                [new(f.ProductId, f.ProductUnitId, 1m, price, [unitId])]), default);
+            Assert.True(sale.IsSuccess, sale.Error?.Message);
+            db.ChangeTracker.Clear();
+            soldItems.Add((await db.SaleItems.SingleAsync(x => x.SaleId == sale.Value!.SaleId), unitId));
+        }
+        Assert.Equal(100m * count, soldItems.Sum(x => x.Item.TotalCostSnapshot));
         Assert.Equal(0m, (await db.StockBalances.SingleAsync(x => x.ProductId == f.ProductId)).SellableQty);
         Assert.Equal(0m, (await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost);
-        var returned = await services.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(new CreateSaleReturnCommand(
-            sale.Value!.SaleId, "DEFECTIVE", "H1 intact pack", RefundMethod.Bank, f.ActorId, Guid.NewGuid(),
-            [new(soldItem.Id, 90m * count, SaleReturnDisposition.RestockSellable, unitIds)]), default);
-        Assert.True(returned.IsSuccess, returned.Error?.Message);
+        foreach (var sold in soldItems)
+        {
+            var returned = await services.GetRequiredService<CreateSaleReturnHandler>().HandleAsync(new CreateSaleReturnCommand(
+                sold.Item.SaleId, "DEFECTIVE", "H1 intact pack", RefundMethod.Bank, f.ActorId, Guid.NewGuid(),
+                [new(sold.Item.Id, 90m, SaleReturnDisposition.RestockSellable, [sold.UnitId])]), default);
+            Assert.True(returned.IsSuccess, returned.Error?.Message);
+        }
         db.ChangeTracker.Clear();
         Assert.Equal(100m * count, (await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost);
         var returnedUnits = await db.InventoryUnits.Where(x => x.ProductId == f.ProductId).ToListAsync();

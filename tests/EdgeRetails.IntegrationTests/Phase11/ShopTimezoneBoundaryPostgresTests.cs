@@ -228,6 +228,29 @@ public sealed class ShopTimezoneBoundaryPostgresTests
         var connStr = GetConnectionString();
         await using var db = CreateDbContext(connStr);
 
+        var clock = new ShopClock(KarachiZone);
+        var boundaryService = new ShopPeriodBoundaryService(clock);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
+        var selectedShopDate = new DateOnly(2026, 10, 10);
+        var dailyBefore = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Daily,
+            selectedShopDate,
+            selectedMonth: 10,
+            selectedYear: 2026,
+            CancellationToken.None);
+        var monthlyBefore = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Monthly,
+            selectedShopDate,
+            selectedMonth: 10,
+            selectedYear: 2026,
+            CancellationToken.None);
+        var yearlyBefore = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Yearly,
+            selectedShopDate,
+            selectedMonth: 10,
+            selectedYear: 2026,
+            CancellationToken.None);
+
         var (product, productUnit, actorId) = await SeedProductAndActorAsync(db, defaultPrice: 2500m);
 
         // Seed InventoryMovement for the sale
@@ -281,10 +304,6 @@ public sealed class ShopTimezoneBoundaryPostgresTests
         db.SaleItems.Add(saleItem);
         await db.SaveChangesAsync();
 
-        var clock = new ShopClock(KarachiZone);
-        var boundaryService = new ShopPeriodBoundaryService(clock);
-        var reportingService = new ReportingReadService(db, boundaryService);
-
         // Oct 10 Daily Snapshot MUST include the sale (since 19:30 UTC Oct 9 is 00:30 PKT Oct 10)
         var oct10Snapshot = await reportingService.GetSnapshotAsync(
             ReportingPeriodKind.Daily,
@@ -294,6 +313,44 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             CancellationToken.None);
 
         Assert.True(oct10Snapshot.NetSales >= 2500m, "Oct 10 snapshot must include the 00:30 PKT sale.");
+        Assert.Equal(oct10Snapshot.NetSales, oct10Snapshot.Trend.Sum(point => point.Sales));
+        Assert.Equal(oct10Snapshot.GrossProfit, oct10Snapshot.Trend.Sum(point => point.Profit));
+        Assert.Equal(2500m, oct10Snapshot.Trend[0].Sales - dailyBefore.Trend[0].Sales);
+        Assert.Equal(1000m, oct10Snapshot.Trend[0].Profit - dailyBefore.Trend[0].Profit);
+        Assert.Equal(0m, oct10Snapshot.Trend.Skip(1).Sum(point => point.Sales) - dailyBefore.Trend.Skip(1).Sum(point => point.Sales));
+        Assert.Equal(0m, oct10Snapshot.Trend.Skip(1).Sum(point => point.Profit) - dailyBefore.Trend.Skip(1).Sum(point => point.Profit));
+
+        var octoberSnapshot = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Monthly,
+            selectedDate: new DateOnly(2026, 10, 10),
+            selectedMonth: 10,
+            selectedYear: 2026,
+            CancellationToken.None);
+        Assert.Equal(octoberSnapshot.NetSales, octoberSnapshot.Trend.Sum(point => point.Sales));
+        Assert.Equal(octoberSnapshot.NetProfit, octoberSnapshot.Trend.Sum(point => point.Profit));
+        Assert.Equal(octoberSnapshot.Expenses, octoberSnapshot.Trend.Sum(point => point.Expenses));
+        Assert.Equal(2500m, octoberSnapshot.Trend[9].Sales - monthlyBefore.Trend[9].Sales);
+        Assert.Equal(1000m, octoberSnapshot.Trend[9].Profit - monthlyBefore.Trend[9].Profit);
+        Assert.Equal(0m, octoberSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Sales) -
+            monthlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Sales));
+        Assert.Equal(0m, octoberSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Profit) -
+            monthlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Profit));
+
+        var yearSnapshot = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Yearly,
+            selectedDate: new DateOnly(2026, 10, 10),
+            selectedMonth: 10,
+            selectedYear: 2026,
+            CancellationToken.None);
+        Assert.Equal(yearSnapshot.NetSales, yearSnapshot.Trend.Sum(point => point.Sales));
+        Assert.Equal(yearSnapshot.NetProfit, yearSnapshot.Trend.Sum(point => point.Profit));
+        Assert.Equal(yearSnapshot.Expenses, yearSnapshot.Trend.Sum(point => point.Expenses));
+        Assert.Equal(2500m, yearSnapshot.Trend[9].Sales - yearlyBefore.Trend[9].Sales);
+        Assert.Equal(1000m, yearSnapshot.Trend[9].Profit - yearlyBefore.Trend[9].Profit);
+        Assert.Equal(0m, yearSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Sales) -
+            yearlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Sales));
+        Assert.Equal(0m, yearSnapshot.Trend.Where((_, index) => index != 9).Sum(point => point.Profit) -
+            yearlyBefore.Trend.Where((_, index) => index != 9).Sum(point => point.Profit));
 
         // Oct 9 Daily Snapshot MUST exclude the sale
         var oct9Snapshot = await reportingService.GetSnapshotAsync(
@@ -328,7 +385,7 @@ public sealed class ShopTimezoneBoundaryPostgresTests
 
         var clock = new ShopClock(KarachiZone);
         var boundaryService = new ShopPeriodBoundaryService(clock);
-        var reportingService = new ReportingReadService(db, boundaryService);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
 
         var snapshot = await reportingService.GetSnapshotAsync(
             ReportingPeriodKind.Daily,
@@ -349,6 +406,69 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             // In Pakistan (UTC+5), hour 0 (00:00 PKT) starts at 19:00 UTC previous day
             var expectedStartHourUtc = (hour - 5 + 24) % 24;
             Assert.Equal(expectedStartHourUtc, startUtc.Hour);
+        }
+    }
+
+    [Theory]
+    [InlineData(2026, 3, 8, 23)]
+    [InlineData(2026, 11, 1, 25)]
+    public async Task Postgres_DailyTrend_UsesActualHoursAcrossDaylightSavingTransitions(
+        int year, int month, int day, int expectedHours)
+    {
+        var connStr = GetConnectionString();
+        await using var db = CreateDbContext(connStr);
+        var eastern = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var clock = new ShopClock(eastern);
+        var boundaryService = new ShopPeriodBoundaryService(clock);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
+        var selectedDate = new DateOnly(year, month, day);
+        var before = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Daily, selectedDate, month, year, CancellationToken.None);
+        var (cashier, _) = await SeedSupervisorUserAsync(db);
+        var eventTimes = month == 3
+            ? new[]
+            {
+                new DateTimeOffset(2026, 3, 8, 6, 59, 59, TimeSpan.Zero), // 01:59:59 EST
+                new DateTimeOffset(2026, 3, 8, 7, 0, 0, TimeSpan.Zero)   // 03:00:00 EDT
+            }
+            : new[]
+            {
+                new DateTimeOffset(2026, 11, 1, 5, 30, 0, TimeSpan.Zero), // first 01:30 EDT
+                new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero)  // second 01:30 EST
+            };
+        var amounts = new[] { 11m, 13m };
+        for (var index = 0; index < eventTimes.Length; index++)
+        {
+            db.Sales.Add(new Sale
+            {
+                InvoiceNumber = "DST-" + Guid.NewGuid().ToString("N"),
+                CashierUserId = cashier.Id,
+                CompletedAt = eventTimes[index],
+                CreatedAt = eventTimes[index],
+                Subtotal = amounts[index],
+                GrandTotal = amounts[index],
+                Status = SaleStatus.Completed,
+                PaymentStatus = SalePaymentStatus.Paid,
+                ClientOperationId = Guid.NewGuid()
+            });
+        }
+        await db.SaveChangesAsync();
+
+        var snapshot = await reportingService.GetSnapshotAsync(
+            ReportingPeriodKind.Daily,
+            selectedDate,
+            month,
+            year,
+            CancellationToken.None);
+
+        Assert.Equal(expectedHours, snapshot.Trend.Count);
+        Assert.Equal(11m, snapshot.Trend[1].Sales - before.Trend[1].Sales);
+        Assert.Equal(13m, snapshot.Trend[2].Sales - before.Trend[2].Sales);
+        Assert.Equal(24m, snapshot.NetSales - before.NetSales);
+        if (month == 11)
+        {
+            Assert.Equal("1am¹", snapshot.Trend[1].Label);
+            Assert.Equal("1am²", snapshot.Trend[2].Label);
         }
     }
 
@@ -1075,7 +1195,7 @@ public sealed class ShopTimezoneBoundaryPostgresTests
         await db.SaveChangesAsync();
 
         // Query reporting snapshot via ReportingReadService
-        var reportingService = new ReportingReadService(db, boundaryService);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
         var snapshot = await reportingService.GetSnapshotAsync(
             ReportingPeriodKind.Daily,
             selectedDate: targetDate,

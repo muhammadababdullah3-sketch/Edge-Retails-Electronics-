@@ -687,6 +687,33 @@ public sealed class OperationStatusQueryHandler
                     PayloadFingerprint: query.PayloadFingerprint,
                     Status: "Succeeded"));
             }
+
+            var creditRefund = await _thaka.GetCreditRefundByOperationIdAsync(query.ClientOperationId, cancellationToken);
+            if (creditRefund is not null)
+            {
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        query.ClientOperationId,
+                        "ThakaCreditRefund",
+                        creditRefund.Id,
+                        creditRefund.RefundNumber,
+                        actorId: query.ActorId,
+                        terminalId: query.TerminalId,
+                        payloadFingerprint: query.PayloadFingerprint,
+                        cancellationToken: cancellationToken);
+                }
+
+                return Result<OperationStatusResult>.Success(new OperationStatusResult(
+                    ClientOperationId: query.ClientOperationId,
+                    Found: true,
+                    OperationType: "ThakaCreditRefund",
+                    EntityId: creditRefund.Id,
+                    DocumentNumber: creditRefund.RefundNumber,
+                    WasCommitted: true,
+                    PayloadFingerprint: query.PayloadFingerprint,
+                    Status: "Succeeded"));
+            }
         }
 
         return Result<OperationStatusResult>.Success(new OperationStatusResult(

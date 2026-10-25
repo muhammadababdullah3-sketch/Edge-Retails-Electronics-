@@ -264,6 +264,38 @@ public sealed class PackContainerSubLedgerUnitTests
         Assert.Equal(PackState.Open, sealedPack.PackState);
     }
 
+    [Fact]
+    public void Pack_Allocation_PreservesExactAcquisitionCost_WhenUnitRateCannotBeRepresentedAtSixPlaces()
+    {
+        var authority = new PackSubLedgerAllocationAuthority();
+        var productId = Guid.NewGuid();
+        var pack = new InventoryUnit
+        {
+            Id = Guid.NewGuid(),
+            ProductId = productId,
+            InventoryLotId = Guid.NewGuid(),
+            Status = InventoryUnitStatus.InStock,
+            InitialBaseQuantity = 90m,
+            RemainingBaseQuantity = 90m,
+            PackState = PackState.Sealed,
+            AcquisitionCost = 100m
+        };
+
+        var result = authority.Allocate([pack], new AppPackAllocationRequest(
+            ProductId: productId,
+            RequestedBaseQuantity: 90m,
+            MovementId: Guid.NewGuid(),
+            OperationType: PackAllocationOperationTypes.Sale,
+            ActorId: Guid.NewGuid(),
+            OccurredAt: DateTimeOffset.UtcNow));
+
+        var allocation = Assert.Single(result.Allocations);
+        Assert.Equal(1.111111m, allocation.UnitCostSnapshot);
+        Assert.Equal(100m, allocation.TotalCostSnapshot);
+        Assert.Equal(0m, pack.RemainingBaseQuantity);
+        Assert.Equal(PackState.Consumed, pack.PackState);
+    }
+
     // =========================================================================
     // P11-PLAN-PACK-09: Cut Length Reduces Remaining Meters Correctly
     // =========================================================================
@@ -355,6 +387,7 @@ public sealed class PackContainerSubLedgerUnitTests
         Assert.Equal(PackState.Open, looseEntry.PackState);
         Assert.Equal(2m, looseEntry.InitialBaseQuantity);
         Assert.Equal(2m, looseEntry.RemainingBaseQuantity);
+        Assert.Null(looseEntry.SourcePurchaseItemId);
 
         // Assert original pack remains unchanged
         Assert.Equal(43m, originalPack.RemainingBaseQuantity);
@@ -478,22 +511,40 @@ public sealed class PackContainerSubLedgerUnitTests
     [Fact]
     public void Fractional_Cost_And_Final_Exhaustion_Conserve_Value()
     {
-        decimal initialQty = 3m;
-        decimal acquisitionCost = 100m;
+        var authority = new PackSubLedgerAllocationAuthority();
+        var unit = new InventoryUnit { Id = Guid.NewGuid(), ProductId = Guid.NewGuid(), InventoryLotId = Guid.NewGuid(),
+            Status = InventoryUnitStatus.InStock, InitialBaseQuantity = 3m, RemainingBaseQuantity = 3m,
+            PackState = PackState.Sealed, AcquisitionCost = 100m };
+        var costs = new List<decimal>();
+        for (var i = 0; i < 3; i++)
+        {
+            var result = authority.Allocate([unit], new AppPackAllocationRequest(unit.ProductId, 1m,
+                Guid.NewGuid(), PackAllocationOperationTypes.Sale, Guid.NewGuid(), DateTimeOffset.UtcNow));
+            var allocation = Assert.Single(result.Allocations);
+            Assert.Equal(33.333333m, allocation.UnitCostSnapshot);
+            costs.Add(allocation.TotalCostSnapshot);
+        }
+        Assert.Equal(new[] { 33.333333m, 33.333334m, 33.333333m }, costs);
+        Assert.Equal(100m, costs.Sum());
+        Assert.Equal(0m, unit.RemainingBaseQuantity);
+        Assert.Equal(PackState.Consumed, unit.PackState);
+    }
 
-        var unitCostSnapshot = decimal.Round(acquisitionCost / initialQty, 6, MidpointRounding.AwayFromZero);
-        var firstDrawCost = decimal.Round(1m * unitCostSnapshot, 6, MidpointRounding.AwayFromZero);
-        var secondDrawCost = decimal.Round(1m * unitCostSnapshot, 6, MidpointRounding.AwayFromZero);
-
-        // Final exhaustion releases exact remaining carrying cost basis
-        var remainingCostBasis = acquisitionCost - (firstDrawCost + secondDrawCost);
-        var thirdDrawCost = remainingCostBasis;
-
-        Assert.Equal(33.333333m, unitCostSnapshot);
-        Assert.Equal(33.333333m, firstDrawCost);
-        Assert.Equal(33.333333m, secondDrawCost);
-        Assert.Equal(33.333334m, thirdDrawCost);
-        Assert.Equal(acquisitionCost, firstDrawCost + secondDrawCost + thirdDrawCost);
+    [Fact]
+    public void Fractional_Cut_Measurement_And_Scrap_Release_Exact_Carrying_Value()
+    {
+        var authority = new PackSubLedgerAllocationAuthority();
+        var unit = new InventoryUnit { Id = Guid.NewGuid(), ProductId = Guid.NewGuid(), InventoryLotId = Guid.NewGuid(),
+            Status = InventoryUnitStatus.InStock, InitialBaseQuantity = 3m, RemainingBaseQuantity = 3m,
+            PackState = PackState.Sealed, AcquisitionCost = 100m };
+        var cut = authority.Allocate([unit], new AppPackAllocationRequest(unit.ProductId, 1m,
+            Guid.NewGuid(), PackAllocationOperationTypes.Sale, Guid.NewGuid(), DateTimeOffset.UtcNow));
+        var measurement = authority.ReconcileMeasurement(unit, 1m, movementId: Guid.NewGuid(),
+            actorId: Guid.NewGuid(), occurredAt: DateTimeOffset.UtcNow);
+        var scrap = authority.ScrapRemnant(unit, Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow);
+        Assert.Equal(100m, cut.TotalCostDerecognized + measurement.Allocation!.TotalCostSnapshot + scrap.TotalCostSnapshot);
+        Assert.Equal(0m, unit.RemainingBaseQuantity);
+        Assert.Equal(PackState.Consumed, unit.PackState);
     }
 
     // =========================================================================

@@ -162,14 +162,11 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="Complete Sale"
+                    <TextBlock Style="{StaticResource Text.SectionTitle}" Text="Complete Sale"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="20"
-                               FontWeight="Bold"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Text="Select payment method and verify amount received"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Select payment method and verify amount received"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="12"
                                Foreground="{DynamicResource Brush.Text.Muted}"
                                Margin="0,2,0,0" />
                 </StackPanel>
@@ -228,29 +225,22 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="RECIPIENT"
+                        <TextBlock Style="{StaticResource Text.PosBadge}" Text="RECIPIENT"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="11"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    Margin="0,0,0,4" />
-                        <TextBlock Text="{Binding RecipientName}"
+                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding RecipientName}"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="13.5"
-                                   FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding RecipientSubtitle}"
+                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding RecipientSubtitle}"
                                    Margin="0,2,0,0"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="11"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
 
-                    <TextBlock Grid.Column="1"
+                    <TextBlock Style="{StaticResource Text.AmountDialog}" Grid.Column="1"
                                Text="{Binding TotalToPayDisplay}"
                                FontFamily="{StaticResource Font.Numeric}"
-                               FontSize="32"
-                               FontWeight="Bold"
                                Foreground="{DynamicResource Brush.Text.Primary}"
                                VerticalAlignment="Center" />
                 </Grid>
@@ -259,10 +249,8 @@
             <!-- ROW 2: PAYMENT METHOD CARDS (Cash, Bank, Other) -->
             <StackPanel Grid.Row="2" Margin="0,0,0,18"
                         IsEnabled="{Binding IsPaymentEditable}">
-                <TextBlock Text="Payment Method"
+                <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="Payment Method"
                            FontFamily="{StaticResource Font.Primary}"
-                           FontSize="13"
-                           FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.Text.Secondary}"
                            Margin="0,0,0,8" />
 
@@ -322,11 +310,9 @@
                                                   Stretch="Uniform"
                                                   HorizontalAlignment="Center"
                                                   Margin="0,0,0,6" />
-                                            <TextBlock x:Name="CardText"
+                                            <TextBlock Style="{StaticResource Text.PosLineTitle}" x:Name="CardText"
                                                        Text="Cash"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13.5"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Secondary}"
                                                        HorizontalAlignment="Center" />
                                         </StackPanel>
@@ -395,11 +381,9 @@
                                                   Stretch="Uniform"
                                                   HorizontalAlignment="Center"
                                                   Margin="0,0,0,6" />
-                                            <TextBlock x:Name="CardText"
+                                            <TextBlock Style="{StaticResource Text.PosLineTitle}" x:Name="CardText"
                                                        Text="Bank"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13.5"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Secondary}"
                                                        HorizontalAlignment="Center" />
                                         </StackPanel>
@@ -467,11 +451,9 @@
                                                   Stretch="Uniform"
                                                   HorizontalAlignment="Center"
                                                   Margin="0,0,0,6" />
-                                            <TextBlock x:Name="CardText"
+                                            <TextBlock Style="{StaticResource Text.PosLineTitle}" x:Name="CardText"
                                                        Text="Other"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13.5"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Secondary}"
                                                        HorizontalAlignment="Center" />
                                         </StackPanel>
@@ -505,11 +487,9 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0"
+                    <TextBlock Style="{StaticResource Text.Body.Secondary}" Grid.Column="0"
                                Text="Amount Received"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="13"
-                               FontWeight="SemiBold"
                                Foreground="{DynamicResource Brush.Text.Secondary}" />
 
                     <!-- Quick Exact Shortcut Link -->
@@ -547,11 +527,9 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- "Rs." Prefix (Space Grotesk Bold) -->
-                        <TextBlock Grid.Column="0"
+                        <TextBlock Style="{StaticResource Text.SectionTitle}" Grid.Column="0"
                                    Text="Rs."
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="18"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    Margin="14,0,6,0"
                                    VerticalAlignment="Center" />
@@ -559,11 +537,8 @@
                         <!-- Numeric Amount TextBox -->
                         <TextBox x:Name="AmountReceivedTextBox"
                                  Grid.Column="1"
-                                 Style="{StaticResource Input.TextBox.Embedded}"
+                                 Style="{StaticResource Input.TextBox.Amount}"
                                  Text="{Binding AmountReceivedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 FontFamily="{StaticResource Font.Numeric}"
-                                 FontSize="18"
-                                 FontWeight="Bold"
                                  Foreground="{DynamicResource Brush.Text.Primary}"
                                  Padding="0,0,14,0"
                                  VerticalAlignment="Center"
@@ -573,10 +548,8 @@
 
                 <!-- Quick Cash Presets Bar -->
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <TextBlock Text="Quick:"
+                    <TextBlock Style="{StaticResource Text.KpiLabel}" Text="Quick:"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="11"
-                               FontWeight="SemiBold"
                                Foreground="{DynamicResource Brush.Text.Muted}"
                                VerticalAlignment="Center"
                                Margin="0,0,8,0" />
@@ -603,12 +576,10 @@
             </StackPanel>
 
             <StackPanel Visibility="{Binding IsBank, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <TextBlock Text="Bank Transfer"
-                           FontSize="13" FontWeight="SemiBold"
+                <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="Bank Transfer"
                            Foreground="{DynamicResource Brush.Text.Secondary}"/>
-                <TextBlock Text="{Binding PaymentGuidance}"
+                <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding PaymentGuidance}"
                            Margin="0,4,0,10"
-                           FontSize="11.5"
                            Foreground="{DynamicResource Brush.Text.Muted}"
                            TextWrapping="Wrap"/>
                 <Border Padding="12"
@@ -624,28 +595,24 @@
                         <TextBlock Text="Exact Amount"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Style="{StaticResource Text.SectionTitle}" Grid.Column="1"
                                    Text="{Binding TotalToPayDisplay}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="18" FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Primary}"/>
                     </Grid>
                 </Border>
-                <TextBlock Text="{Binding PaymentReferenceLabel}"
+                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding PaymentReferenceLabel}"
                            Margin="0,10,0,5"
-                           FontSize="12"
                            Foreground="{DynamicResource Brush.Text.Secondary}"/>
                 <TextBox Text="{Binding PaymentReference, UpdateSourceTrigger=PropertyChanged}"
                          Style="{StaticResource Input.TextBox}"/>
             </StackPanel>
 
             <StackPanel Visibility="{Binding IsOther, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <TextBlock Text="Other Payment"
-                           FontSize="13" FontWeight="SemiBold"
+                <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="Other Payment"
                            Foreground="{DynamicResource Brush.Text.Secondary}"/>
-                <TextBlock Text="{Binding PaymentGuidance}"
+                <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding PaymentGuidance}"
                            Margin="0,4,0,10"
-                           FontSize="11.5"
                            Foreground="{DynamicResource Brush.Text.Muted}"
                            TextWrapping="Wrap"/>
                 <Border Padding="12"
@@ -661,16 +628,14 @@
                         <TextBlock Text="Exact Amount"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Style="{StaticResource Text.SectionTitle}" Grid.Column="1"
                                    Text="{Binding TotalToPayDisplay}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="18" FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Primary}"/>
                     </Grid>
                 </Border>
-                <TextBlock Text="{Binding PaymentReferenceLabel}"
+                <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding PaymentReferenceLabel}"
                            Margin="0,10,0,5"
-                           FontSize="12"
                            Foreground="{DynamicResource Brush.Text.Secondary}"/>
                 <TextBox Text="{Binding PaymentReference, UpdateSourceTrigger=PropertyChanged}"
                          Style="{StaticResource Input.TextBox}"/>
@@ -695,23 +660,18 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="CHANGE TO RETURN"
+                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="CHANGE TO RETURN"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Badge.Success.Text}" />
-                            <TextBlock Text="Return cash balance to customer"
+                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="Return cash balance to customer"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11.5"
                                        Foreground="{DynamicResource Brush.Badge.Success.Text}"
                                        Opacity="0.85" />
                         </StackPanel>
 
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Style="{StaticResource Text.AmountLarge}" Grid.Column="1"
                                    Text="{Binding ChangeReturnedDisplay}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="22"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Badge.Success.Text}"
                                    VerticalAlignment="Center" />
                     </Grid>
@@ -731,23 +691,18 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="REMAINING DUE"
+                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="REMAINING DUE"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
-                            <TextBlock Text="Amount received is less than total"
+                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="Amount received is less than total"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11.5"
                                        Foreground="{DynamicResource Brush.Badge.Warning.Text}"
                                        Opacity="0.85" />
                         </StackPanel>
 
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Style="{StaticResource Text.SectionTitle}" Grid.Column="1"
                                    Text="{Binding RemainingDueDisplay}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="20"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Badge.Warning.Text}"
                                    VerticalAlignment="Center" />
                     </Grid>
@@ -780,11 +735,9 @@
                           VerticalAlignment="Center"
                           Margin="0,0,8,0" />
 
-                    <TextBlock Grid.Column="1"
+                    <TextBlock Style="{StaticResource Text.TableHeader}" Grid.Column="1"
                                Text="{Binding ValidationMessage}"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="12"
-                               FontWeight="SemiBold"
                                Foreground="{DynamicResource Brush.Badge.Danger.Text}"
                                VerticalAlignment="Center"
                                TextWrapping="Wrap" />
@@ -848,10 +801,8 @@
                                               Stretch="Uniform"
                                               Margin="0,0,8,0"
                                               VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding CompleteActionLabel}"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CompleteActionLabel}"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="15"
-                                                   FontWeight="Bold"
                                                    Foreground="{StaticResource Brush.White}"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>
@@ -886,10 +837,8 @@
                                                 </EventTrigger>
                                             </Border.Triggers>
                                         </Border>
-                                        <TextBlock Text="Processing Payment…"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="Processing Payment…"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{StaticResource Brush.White}"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>

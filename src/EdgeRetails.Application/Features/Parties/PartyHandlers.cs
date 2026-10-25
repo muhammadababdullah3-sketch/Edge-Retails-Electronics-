@@ -85,6 +85,7 @@ public sealed class SaveCustomerHandler
         {
             fingerprint = OperationPayloadFingerprint.ComputeSha256("Customer.Save.PreserveStatus.v1", fingerprint);
         }
+        var outcomeWasClaimed = false;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -112,6 +113,7 @@ public sealed class SaveCustomerHandler
             {
                 await _outcomeLedger!.RecordPendingAsync(operationId, "Customer.Save.v1", command.ActorId,
                     command.TerminalId, command.SessionId, fingerprint, ct);
+                outcomeWasClaimed = true;
             }
 
             Customer customer;
@@ -169,7 +171,7 @@ public sealed class SaveCustomerHandler
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(customer.Id);
         }, cancellationToken);
-        if (!result.IsSuccess && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
+        if (!result.IsSuccess && outcomeWasClaimed && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
         {
             await _outcomeLedger.RecordFailureAsync(failedOperationId, "Customer.Save.v1",
                 result.Error?.Code ?? "customer.save_failed", result.Error?.Message ?? "Customer could not be saved.",
@@ -273,6 +275,7 @@ public sealed class SaveSupplierHandler
             "Supplier.Save.v1", command.SupplierId?.ToString("D"), command.Name.Trim(),
             Normalize(command.Phone), Normalize(command.City), Normalize(command.Address), command.IsActive.ToString(),
             Normalize(command.Notes), Normalize(command.ExplicitDealerPrefix));
+        var outcomeWasClaimed = false;
         var result = await _transactions.ExecuteAsync(async ct =>
         {
             var authorization = await _authorization.AuthorizeAsync(
@@ -299,6 +302,7 @@ public sealed class SaveSupplierHandler
             {
                 await _outcomeLedger!.RecordPendingAsync(operationId, "Supplier.Save.v1", command.ActorId,
                     command.TerminalId, command.SessionId, fingerprint, ct);
+                outcomeWasClaimed = true;
             }
 
             Supplier supplier;
@@ -352,7 +356,7 @@ public sealed class SaveSupplierHandler
             await _unitOfWork.SaveChangesAsync(ct);
             return Result<Guid>.Success(supplier.Id);
         }, cancellationToken);
-        if (!result.IsSuccess && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
+        if (!result.IsSuccess && outcomeWasClaimed && command.ClientOperationId is Guid failedOperationId && _outcomeLedger is not null)
         {
             await _outcomeLedger.RecordFailureAsync(failedOperationId, "Supplier.Save.v1",
                 result.Error?.Code ?? "supplier.save_failed", result.Error?.Message ?? "Supplier could not be saved.",

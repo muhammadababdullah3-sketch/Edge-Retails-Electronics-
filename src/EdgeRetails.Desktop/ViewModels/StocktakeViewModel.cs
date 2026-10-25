@@ -212,11 +212,16 @@ public sealed class StocktakeViewModel : ViewModelBase
         IsProcessing = true;
         try
         {
+            var operationKey = $"stocktake:count:{_snapshot.StocktakeId:D}:{line.ProductId:D}";
+            var operationPayload = FormattableString.Invariant($"{_snapshot.StocktakeId:D}|{line.ProductId:D}|{quantity:G29}");
+            var operationId = _operationIntents.GetOrCreate(operationKey, operationPayload);
             await _service.RecordStocktakeCountAsync(
                 _snapshot.StocktakeId,
                 line.ProductId,
                 quantity,
-                null);
+                null,
+                operationId);
+            _operationIntents.Complete(operationKey, operationId);
             await ReloadWithoutGuardAsync();
         }
         catch (Exception ex)

@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "status": "REVIEW",
+  "plan_id": "R82-REMEDIATION-001",
+  "authority": {
+    "observed_utc": "2026-10-25T08:39:18.672841+05:00",
+    "user_instruction_verbatim": "ye corrected goal ha start implementation",
+    "attachment": "C:\\Users\\muham\\.codex\\attachments\\7367354d-c7da-4a06-a6a9-b20d7448a891\\pasted-text-1.txt",
+    "attachment_sha256": "d531e191efd84f0e92b4ff6dda7feae5550e68e4ea24c6b1f3215fa33e1c8088",
+    "thread_id": "01a16647-b3d8-7a30-b1cd-c42f1da47ef8",
+    "writer": "current root integrator",
+    "assignment_basis": "Current explicit owner instruction authorizes this task to implement the corrected handoff. It supersedes the previous planning-only scope; no historical handoff or expired lease is claimed verified.",
+    "capacity": {
+      "limit": 4,
+      "includes_coordinator": true,
+      "observed_active": [
+        "/root"
+      ],
+      "proof": "collaboration.list_agents returned only root before this assignment"
+    },
+    "resource_owner": "root only; workers cannot run builds/tests/DB operations",
+    "publication": "not authorized"
+  },
+  "phase_wave": "82 historical failures; Phase11 formal closure separate",
+  "workspace": "C:\\Users\\muham\\OneDrive\\Desktop\\Point of Sale",
+  "baseline_proof": "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/BASELINE.json",
+  "capacity_proof": "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/CAPACITY_AND_AUTHORITY.json",
+  "capacity_limit": 4,
+  "capacity_scope": "all_actors",
+  "coordinator_slots": 1,
+  "other_active_slots": 0,
+  "requested_parallelism": 0,
+  "integrator_id": "root",
+  "integrator_runtime_id": "01a16647-b3d8-7a30-b1cd-c42f1da47ef8",
+  "integrator_write_paths": [
+    "tests/EdgeRetails.IntegrationTests/Phase2PostgresTestHarness.cs",
+    "tests/EdgeRetails.IntegrationTests/PostgresFixtureProfile.cs",
+    "tests/EdgeRetails.IntegrationTests/MasterSupplierProductSequencePostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/MasterCashierCreationPostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase1FrontendRecoveryContractPostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/TrackingMigrationRehearsalPostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase7Pass5WarrantyMigrationPostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase7Pass5R1MultilotExactWarrantyPostgresTests.cs",
+    "scripts/Invoke-IntegrationFailureRemediation.ps1",
+    "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001",
+    "tests/EdgeRetails.IntegrationTests/PostgresFixtureProfileSafetyTests.cs",
+    "src/EdgeRetails.Application/Features/Inventory/PackSubLedgerAllocationAuthority.cs",
+    "tests/EdgeRetails.UnitTests/Phase11/PackContainerSubLedgerUnitTests.cs",
+    "src/EdgeRetails.Application/Abstractions/InventoryAbstractions.cs",
+    "src/EdgeRetails.Infrastructure/Services/InventoryCostAllocator.cs",
+    "src/EdgeRetails.Application/Features/Sales/ReturnExchangeEligibilityAuthority.cs",
+    "tests/EdgeRetails.UnitTests/StockAdjustmentHandlerBehavioralTests.cs",
+    "tests/EdgeRetails.UnitTests/Phase11ReturnExchangePackSubLedgerTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase11/GoldenLifecycleTracePostgresTests.cs",
+    "tests/EdgeRetails.IntegrationTests/Phase7Pass4PostgresTests.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Configurations/InventoryConfigurations.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Migrations/EdgeRetailsDbContextModelSnapshot.cs",
+    "src/EdgeRetails.Infrastructure/Persistence/Migrations/20261025-new-pack-cost-precision"
+  ],
+  "test_coordinator_id": "root",
+  "resource_owners": {
+    "builds": "root",
+    "test_outputs": "root",
+    "PostgreSQL": "root",
+    "backup_restore": "root"
+  },
+  "workers": [
+    {
+      "id": "environment",
+      "runtime_id": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "role": "bounded implementation",
+      "status": "RELEASED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "original_task_ids": [
+        "R82_ORIGINAL_82"
+      ],
+      "criterion_bindings": [
+        "E3 absolute SDK/current Release child binary",
+        "E4 real 40P01 deadlock without privileged timing override"
+      ],
+      "completion_criteria": [
+        "E3 absolute SDK/current Release child binary",
+        "E4 real 40P01 deadlock without privileged timing override"
+      ],
+      "deliverable": "Implement assigned paths and return exact causal explanation/source locations; do not build/test/access DB",
+      "depends_on": [],
+      "read_only": false,
+      "read_paths": [
+        "src",
+        "tests",
+        "scripts",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/FAILURE_REGISTER.json"
+      ],
+      "write_paths": [
+        "tests/EdgeRetails.IntegrationTests/IntegrationChildHost.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase12Wave3PostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase3CrashRestartIntegrationTests.cs"
+      ],
+      "resources": [],
+      "can_run_tests": false,
+      "proof_paths": [
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/reviews/ENVIRONMENT_RETURN.md",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/NATIVE_ACTIVITY.json"
+      ]
+    },
+    {
+      "id": "behavior",
+      "runtime_id": "01a17124-7c7d-75a0-a9f6-2172d79cac09",
+      "role": "bounded implementation",
+      "status": "RELEASED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "original_task_ids": [
+        "R82_ORIGINAL_82"
+      ],
+      "criterion_bindings": [
+        "B1 supplier claimed-outcome ownership",
+        "B3-B9 original behavioral invariants and fixture repair"
+      ],
+      "completion_criteria": [
+        "B1 supplier claimed-outcome ownership",
+        "B3-B9 original behavioral invariants and fixture repair"
+      ],
+      "deliverable": "Implement assigned paths and return exact causal explanation/source locations; do not build/test/access DB",
+      "depends_on": [],
+      "read_only": false,
+      "read_paths": [
+        "src",
+        "tests",
+        "scripts",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/FAILURE_REGISTER.json"
+      ],
+      "write_paths": [
+        "src/EdgeRetails.Application/Features/Finance/SupplierAccountHandlers.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase7Pass5CommercialPostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase7Pass5WarrantyReportingPostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase7BackendFinancialSafetyPostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase7Pass3PostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/Phase234KhataTimestampPostgresTests.cs",
+        "tests/EdgeRetails.IntegrationTests/MasterLabelSourcePostgresTests.cs"
+      ],
+      "resources": [],
+      "can_run_tests": false,
+      "proof_paths": [
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/reviews/BEHAVIOR_RETURN.md",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/NATIVE_ACTIVITY.json"
+      ]
+    },
+    {
+      "id": "independent-review",
+      "runtime_id": "01a1712f-9572-70d2-9af2-67f630391034",
+      "role": "independent causal/source/evidence review",
+      "status": "RELEASED",
+      "required": true,
+      "completion_outcome": "DONE",
+      "original_task_ids": [
+        "R82_ORIGINAL_82"
+      ],
+      "depends_on": [
+        "environment",
+        "behavior"
+      ],
+      "read_only": true,
+      "read_paths": [
+        "src",
+        "tests",
+        "scripts",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001"
+      ],
+      "write_paths": [],
+      "resources": [],
+      "can_run_tests": false,
+      "proof_paths": [
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/NATIVE_REVIEW_ASSIGNMENT.json",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/NATIVE_ACTIVITY.json",
+        "governance/10-execution-runs/ER-RUN-POS-82-REMEDIATION-20261024-001/reviews/PRE_RUNTIME_REVIEW.md"
+      ],
+      "deliverable": "Report material defects in corrected 82-failure wave and final evidence; no source edits/tests/DB"
+    }
+  ],
+  "independent_review": "Assign a separate native read-only reviewer after integration and candidate/result freeze; no D05 acceptance inferred",
+  "efficiency": {
+    "started_utc": "2026-10-25T08:39:18.692541+05:00",
+    "speedup": "not_measured"
+  }
+}

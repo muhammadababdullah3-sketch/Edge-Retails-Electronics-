@@ -10,9 +10,7 @@
             </Grid.RowDefinitions>
 
             <Grid>
-                <TextBlock Text="{Binding Title}"
-                           FontSize="20"
-                           FontWeight="Bold"
+                <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Title}"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Button Command="{Binding CancelCommand}"
                         Style="{StaticResource Button.Close}"
@@ -33,11 +31,11 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Product Name" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Product Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="SKU (Master Product Code)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="SKU (Master Product Code)" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsSkuReadOnly}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                     </Grid>
@@ -49,13 +47,13 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Company / Manufacturer" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Company / Manufacturer" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <ComboBox ItemsSource="{Binding Companies}"
                                       SelectedItem="{Binding SelectedCompany}"
                                       Height="36" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Category" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Category" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <ComboBox ItemsSource="{Binding Categories}"
                                       SelectedItem="{Binding SelectedCategory}"
                                       Height="36" />
@@ -69,11 +67,11 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Model (Display)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Model (Display)" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Model Code (Identity Token, e.g. DLX56)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Model Code (Identity Token, e.g. DLX56)" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding ModelCode, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                     </Grid>
@@ -85,11 +83,11 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Brand (Optional)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Brand (Optional)" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding Brand, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Base Unit" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Base Unit" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <ComboBox ItemsSource="{Binding Units}"
                                       SelectedItem="{Binding SelectedBaseUnit}"
                                       IsEnabled="{Binding IsBaseUnitEditable}"
@@ -104,7 +102,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Tracking Mode" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Tracking Mode" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <ComboBox ItemsSource="{Binding TrackingModes}"
                                       SelectedItem="{Binding SelectedTrackingMode}"
                                       Height="36" />
@@ -129,15 +127,15 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Reference Purchase Cost" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Reference Purchase Cost" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding ReferencePurchaseCostText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Default Sale Price" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Default Sale Price" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding SalePriceText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="4">
-                            <TextBlock Text="Minimum Stock" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Minimum Stock" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding MinimumStockText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                     </Grid>
@@ -149,11 +147,11 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Default Warranty (months)" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Default Warranty (months)" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding WarrantyMonthsText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Attributes Schema Version" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Attributes Schema Version" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding AttributesSchemaVersionText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
                     </Grid>
@@ -166,8 +164,7 @@
                             BorderThickness="1"
                             CornerRadius="{StaticResource Radius.Control}"
                             Visibility="{Binding IsTaxonomyUnmapped, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="{Binding TaxonomyMappingNotice}"
-                                   FontSize="11.5"
+                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding TaxonomyMappingNotice}"
                                    FontStyle="Italic"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </Border>
@@ -181,9 +178,8 @@
                             CornerRadius="{StaticResource Radius.Control}"
                             Visibility="{Binding HasAttributeItems, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <StackPanel>
-                            <TextBlock Text="CATALOG ATTRIBUTES (TAXONOMY V3 TYPED VALIDATION)"
+                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="CATALOG ATTRIBUTES (TAXONOMY V3 TYPED VALIDATION)"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11" FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                        Margin="0,0,0,8" />
                             <ItemsControl ItemsSource="{Binding AttributeItems}">
@@ -196,13 +192,13 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
                                                 <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Text.TableHeader}" TextTrimming="CharacterEllipsis" />
                                                     <TextBlock Text="*" Foreground="{DynamicResource Brush.Status.Danger}"
                                                                Visibility="{Binding IsRequired, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                                Margin="2,0,0,0" />
                                                 </StackPanel>
-                                                <TextBlock Text="{Binding ValueType}" FontSize="10" Foreground="{DynamicResource Brush.Text.Muted}" />
-                                                <TextBlock Text="{Binding ValidationError}" FontSize="10.5" Foreground="{DynamicResource Brush.Status.Danger}"
+                                                <TextBlock Text="{Binding ValueType}" Style="{StaticResource Text.MonoHint}" Foreground="{DynamicResource Brush.Text.Muted}" />
+                                                <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding ValidationError}" Foreground="{DynamicResource Brush.Status.Danger}"
                                                            TextWrapping="Wrap"
                                                            Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                             </StackPanel>
@@ -232,9 +228,8 @@
                                                                  Height="30"
                                                                  VerticalContentAlignment="Center"
                                                                  Style="{StaticResource Input.TextBox}" />
-                                                        <TextBlock Grid.Column="1"
+                                                        <TextBlock Style="{StaticResource Text.PosMeta}" Grid.Column="1"
                                                                    Text="{Binding UnitSymbol}"
-                                                                   FontSize="11"
                                                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                                                    VerticalAlignment="Center"
                                                                    Margin="6,0,0,0" />
@@ -248,16 +243,15 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Text="Catalog Attributes JSON (Advanced)" Margin="0,14,0,5" FontSize="12" />
+                    <TextBlock Text="Catalog Attributes JSON (Advanced)" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}" />
                     <TextBox Text="{Binding AttributesJson, UpdateSourceTrigger=PropertyChanged}"
                              Style="{StaticResource Input.TextBox}"
                              Height="72"
                              AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto" />
 
-                    <TextBlock Text="Product Units"
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Product Units"
                                Margin="0,18,0,8"
-                               FontWeight="SemiBold"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                     <ItemsControl ItemsSource="{Binding UnitConfigurations}">
                         <ItemsControl.ItemTemplate>
@@ -285,9 +279,8 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock Text="Supplier Links"
+                    <TextBlock Style="{StaticResource Text.Body}" Text="Supplier Links"
                                Margin="0,18,0,8"
-                               FontWeight="SemiBold"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                     <TextBox Text="{Binding SupplierSearchText, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="Search suppliers" Style="{StaticResource Input.TextBox}" Margin="0,0,0,8" />
@@ -320,10 +313,9 @@
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
                     </Border>
 
-                    <TextBlock Margin="0,14,0,0"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,14,0,0"
                                Text="Current stock, inventory value, lots and exact physical-unit state are not editable here."
                                TextWrapping="Wrap"
-                               FontSize="12"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
             </ScrollViewer>

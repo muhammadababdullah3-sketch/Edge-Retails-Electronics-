@@ -21,7 +21,7 @@ public sealed class Phase234KhataTimestampPostgresTests
     [Fact]
     public async Task EmptyDetail_InNonUtcReadOnlyTransaction_ReturnsEmptyListsWithoutMutation()
     {
-        await using var provider = Phase2PostgresTestHarness.BuildProvider();
+        await using var provider = Phase2PostgresTestHarness.BuildProvider(new Phase2PostgresTestHarness.ScenarioClock(Timestamp));
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
@@ -40,7 +40,7 @@ public sealed class Phase234KhataTimestampPostgresTests
     [Fact]
     public async Task MaterialAndPayment_PublicDapperMappingPreservesMicrosecondsInNonUtcReadOnlySession()
     {
-        await using var provider = Phase2PostgresTestHarness.BuildProvider();
+        await using var provider = Phase2PostgresTestHarness.BuildProvider(new Phase2PostgresTestHarness.ScenarioClock(Timestamp));
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);

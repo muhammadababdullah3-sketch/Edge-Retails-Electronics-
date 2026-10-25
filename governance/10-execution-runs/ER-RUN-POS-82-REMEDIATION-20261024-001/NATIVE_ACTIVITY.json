@@ -1,0 +1,84 @@
+{
+  "source": "mcp__codex_app__read_thread",
+  "threadId": "01a16647-b3d8-7a30-b1cd-c42f1da47ef8",
+  "scope": "Platform-reported native sub-agent activity from current turn; UUIDs are observed, not authored actor labels",
+  "items": [
+    {
+      "type": "subAgentActivity",
+      "id": "call_ef9312bcae7c49e0b3fe36fc16328d66",
+      "kind": "started",
+      "agentThreadId": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "agentPath": "/root/r82_environment"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_b50eb4cdeee645c38c23553b2f18ff27",
+      "kind": "started",
+      "agentThreadId": "01a17124-7c7d-75a0-a9f6-2172d79cac09",
+      "agentPath": "/root/r82_behavior"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_bdbf4e28c5c7439489f66f2895bac687",
+      "kind": "interacted",
+      "agentThreadId": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "agentPath": "/root/r82_environment"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "subagent-completed-01a17124-5845-7de2-b427-7fe459e11735",
+      "kind": "completed",
+      "agentThreadId": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "agentPath": "/root/r82_environment"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_4e74797952c54346b068e135d96bc96a",
+      "kind": "interacted",
+      "agentThreadId": "01a17124-7c7d-75a0-a9f6-2172d79cac09",
+      "agentPath": "/root/r82_behavior"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "subagent-completed-01a17124-809b-7f52-b76a-508e2b0c41cb",
+      "kind": "completed",
+      "agentThreadId": "01a17124-7c7d-75a0-a9f6-2172d79cac09",
+      "agentPath": "/root/r82_behavior"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_cc7f69d78e074f7081557e50be23636d",
+      "kind": "started",
+      "agentThreadId": "01a1712f-9572-70d2-9af2-67f630391034",
+      "agentPath": "/root/r82_independent_review"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_4aa0f9b3013a4c3c87d319451f83a10a",
+      "kind": "interacted",
+      "agentThreadId": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "agentPath": "/root/r82_environment"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "subagent-completed-01a17130-33a0-7331-bd2d-86c2db29c9c3",
+      "kind": "completed",
+      "agentThreadId": "01a17124-551e-7690-8b76-ba9687eef4ac",
+      "agentPath": "/root/r82_environment"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "call_6523e130ec5844d7919a687b03010079",
+      "kind": "interacted",
+      "agentThreadId": "01a1712f-9572-70d2-9af2-67f630391034",
+      "agentPath": "/root/r82_independent_review"
+    },
+    {
+      "type": "subAgentActivity",
+      "id": "subagent-completed-01a1712f-c91b-7db1-b30b-db4d8f06dc3e",
+      "kind": "completed",
+      "agentThreadId": "01a1712f-9572-70d2-9af2-67f630391034",
+      "agentPath": "/root/r82_independent_review"
+    }
+  ]
+}

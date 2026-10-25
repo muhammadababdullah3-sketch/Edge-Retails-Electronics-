@@ -49,6 +49,16 @@ Generated\ Files/
 .audit-results*/
 scratch/
 scratch_*
+
+# Agent / IDE ephemeral checkouts (canonical tree is repo root only)
+.claude/worktrees/
+
+# Governance run exports (regenerate from scripts; keep markdown/json evidence)
+governance/**/export/candidate_*.zip
+governance/**/evidence/before/
+
+# Local test output
+tests/artifacts/
 failed_tests*.txt
 master_prompt*.txt
 *.trx

@@ -733,19 +733,6 @@ public sealed class CommercialExchangeHandler
                     command.ClientOperationId,
                     $"Exchange: Sale {replacementSale.InvoiceNumber} (Total: {replacementGrandTotal:0.00}) vs Return {saleReturn.ReturnNumber} (Credit: {totalReturnRefund:0.00}). Net Difference: {netDifference:0.00}.");
 
-                if (_outcomeLedger is not null)
-                {
-                    await _outcomeLedger.RecordSuccessAsync(
-                        command.ClientOperationId,
-                        "CommercialExchange",
-                        replacementSale.Id,
-                        replacementSale.InvoiceNumber,
-                        actorId: command.CashierUserId,
-                        sessionId: command.SessionId,
-                        payloadFingerprint: currentFingerprint,
-                        cancellationToken: ct);
-                }
-
                 if (_postingValidation is not null)
                 {
                     var postingDate = command.PostingDate ?? _clock.ShopDate;
@@ -765,6 +752,37 @@ public sealed class CommercialExchangeHandler
                             postingValidationResult.Error!.Code,
                             postingValidationResult.Error.Message);
                     }
+
+                    // Exchange embeds a sale return leg; retail RefundMethod.Other here is internal netting only (not store credit).
+                    var returnPostingValidation = await _postingValidation.ValidateAndAuditPostingAsync(new PostingValidationCommand(
+                        OperationType: PostingOperationTypes.SaleReturn,
+                        EntityId: saleReturn.Id,
+                        EntityNumber: saleReturn.ReturnNumber,
+                        ActorId: command.CashierUserId,
+                        PostingDate: postingDate,
+                        SupplierDocumentDate: null,
+                        SupervisorApproval: command.SupervisorApproval,
+                        CallerSuppliedBooleanOverride: command.CallerSuppliedBooleanOverride), ct);
+
+                    if (!returnPostingValidation.IsSuccess)
+                    {
+                        return Result<CommercialExchangeResult>.Failure(
+                            returnPostingValidation.Error!.Code,
+                            returnPostingValidation.Error.Message);
+                    }
+                }
+
+                if (_outcomeLedger is not null)
+                {
+                    await _outcomeLedger.RecordSuccessAsync(
+                        command.ClientOperationId,
+                        "CommercialExchange",
+                        replacementSale.Id,
+                        replacementSale.InvoiceNumber,
+                        actorId: command.CashierUserId,
+                        sessionId: command.SessionId,
+                        payloadFingerprint: currentFingerprint,
+                        cancellationToken: ct);
                 }
 
                 await _unitOfWork.SaveChangesAsync(ct);
@@ -880,9 +898,7 @@ public sealed class CommercialExchangeHandler
             }
             else if (product.TrackingMode == TrackingMode.Container)
             {
-                var isCable = product.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase) ||
-                              product.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) ||
-                              product.AttributesJson?.Contains("Length", StringComparison.OrdinalIgnoreCase) == true;
+                var isCable = ProductPackBehaviorAuthority.IsCableOrLengthProduct(product);
 
                 if (!isCable && !QuantityMath.IsWhole(quantity.BaseQuantity))
                 {
@@ -1020,10 +1036,10 @@ public sealed class CommercialExchangeHandler
                 OccurredAt = _clock.UtcNow
             });
 
-            totalCost += await _costs.RemoveCarryingValueAsync(
+            totalCost += await _costs.RemoveCarryingValueByAmountAsync(
                 line.Product.Id,
                 alloc.AllocatedBaseQuantity,
-                alloc.UnitCostSnapshot,
+                alloc.TotalCostSnapshot,
                 ct);
 
             var fromStatus = unit.Status;

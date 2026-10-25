@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -1559,6 +1560,66 @@ public sealed class Phase11Wave3DesktopCutoverTests
         }
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.Conflict)]
+    [InlineData((HttpStatusCode)429)]
+    public async Task Imp103_RemoteStocktake_RetryableHttpStatus_PreservesOperationId(HttpStatusCode statusCode)
+    {
+        var stocktakeId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var tempPath = Path.Combine(Path.GetTempPath(), $"stocktake_retry_{Guid.NewGuid():N}.json");
+        var postedOperationIds = new List<Guid>();
+        try
+        {
+            var store = new FileClientOperationIntentStore(tempPath);
+            var handler = new DelegatingHandlerStub(async request =>
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+                    postedOperationIds.Add(body.RootElement.GetProperty("clientOperationId").GetGuid());
+                    return new HttpResponseMessage(statusCode)
+                    {
+                        Content = new StringContent("{\"error\":\"outcome unknown\"}")
+                    };
+                }
+
+                // The service cannot confirm whether the failed POST committed. Preserve its ID.
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("{\"error\":\"status unavailable\"}")
+                };
+            });
+            var apiClient = new DesktopApiClient(new HttpClient(handler)
+            {
+                BaseAddress = new Uri("http://127.0.0.1:5000")
+            });
+            var service = new RemoteStocktakeWorkflowService(apiClient, store);
+
+            var first = await Assert.ThrowsAsync<BackendOperationException>(() =>
+                service.RecordStocktakeCountAsync(stocktakeId, productId, 12m, "retry proof"));
+            Assert.Equal("inventory.stocktake_outcome_unknown", first.Code);
+            var pendingAfterFirst = Assert.Single(store.FindPendingByPrefix($"count:{stocktakeId:D}:"));
+            Assert.Single(postedOperationIds);
+            Assert.Equal(postedOperationIds[0], pendingAfterFirst.OperationId);
+
+            var second = await Assert.ThrowsAsync<BackendOperationException>(() =>
+                service.RecordStocktakeCountAsync(stocktakeId, productId, 12m, "retry proof"));
+            Assert.Equal("inventory.stocktake_outcome_unknown", second.Code);
+            Assert.Equal(2, postedOperationIds.Count);
+            Assert.Equal(postedOperationIds[0], postedOperationIds[1]);
+            Assert.Equal(pendingAfterFirst.OperationId, Assert.Single(store.FindPendingByPrefix($"count:{stocktakeId:D}:")).OperationId);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
     // =========================================================================
     // MON-W3R3-007: Product Management TaxonomyTree & Dynamic Typed Validation
     // =========================================================================
@@ -1990,7 +2051,7 @@ public sealed class Phase11Wave3DesktopCutoverTests
         public Task<BackendStocktakeSnapshot> StartFullShopStocktakeAsync(string? note, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
 
-        public Task RecordStocktakeCountAsync(Guid stocktakeId, Guid productId, decimal countedSellableQty, string? reviewNote, CancellationToken cancellationToken = default) =>
+        public Task RecordStocktakeCountAsync(Guid stocktakeId, Guid productId, decimal countedSellableQty, string? reviewNote, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
         public Task RecordSerializedStocktakeAsync(
@@ -2002,13 +2063,14 @@ public sealed class Phase11Wave3DesktopCutoverTests
             IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
             decimal minimumSellableIncrement = 1m,
             decimal separateLooseQuantity = 0m,
+            Guid? clientOperationId = null,
             CancellationToken cancellationToken = default)
         {
             OnRecordSerialized?.Invoke(stocktakeId, productId, foundInventoryUnitIds, unexpectedIdentitySnapshots, reviewNote, measuredContainerQuantities, minimumSellableIncrement, separateLooseQuantity);
             return Task.CompletedTask;
         }
 
-        public Task ReviewStocktakeAsync(Guid stocktakeId, CancellationToken cancellationToken = default) =>
+        public Task ReviewStocktakeAsync(Guid stocktakeId, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
         public Task PostStocktakeAsync(Guid stocktakeId, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>

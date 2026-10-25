@@ -4,7 +4,7 @@
  <Border Width="460" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid>
-    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                Foreground="{DynamicResource Brush.Text.Primary}"/>
     <Button Command="{Binding CloseCommand}"
             Style="{StaticResource Button.Close}"
@@ -15,15 +15,15 @@
            Background="{DynamicResource Brush.Selection.Subtle}"
            CornerRadius="8">
     <StackPanel>
-     <TextBlock Text="Access blocked" FontSize="12" FontWeight="SemiBold"
+     <TextBlock Text="Access blocked" Style="{StaticResource Text.TableHeader}"
                 Foreground="{DynamicResource Brush.Badge.Brand.Text}"/>
-     <TextBlock Text="{Binding Message}" Margin="0,6,0,0"
-                TextWrapping="Wrap" FontSize="12"
+     <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding Message}" Margin="0,6,0,0"
+                TextWrapping="Wrap"
                 Foreground="{DynamicResource Brush.Text.Secondary}"/>
     </StackPanel>
    </Border>
-   <TextBlock Text="No manager override is available in V1."
-              Margin="0,10,0,0" FontSize="11"
+   <TextBlock Style="{StaticResource Text.PosMeta}" Text="No manager override is available in V1."
+              Margin="0,10,0,0"
               Foreground="{DynamicResource Brush.Text.Muted}"/>
    <Button Content="Close" Command="{Binding CloseCommand}"
            Style="{StaticResource Button.Primary}"

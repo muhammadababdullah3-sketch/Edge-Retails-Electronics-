@@ -10,6 +10,7 @@ public static class PostingOperationTypes
     public const string SaleReturn = "SaleReturn";
     public const string Expense = "Expense";
     public const string Thaka = "Thaka";
+    public const string ThakaCreditRefund = "ThakaCreditRefund";
     public const string StockAdjustment = "StockAdjustment";
     public const string SupplierPayment = "SupplierPayment";
     public const string ProductIntake = "ProductIntake";

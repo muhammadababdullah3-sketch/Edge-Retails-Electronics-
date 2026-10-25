@@ -14,14 +14,12 @@
             Style="{StaticResource Card.Raised}">
      <StackPanel>
       <StackPanel HorizontalAlignment="Center">
-       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Image Source="{StaticResource Brand.Mark}" Width="40" Height="40"/><TextBlock Text="Edge Retails" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}"/></StackPanel>
-       <TextBlock Text="EdgeRetails POS" Margin="0,7,0,0"
-                  FontSize="18" FontWeight="Bold"
+       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Image Source="{StaticResource Brand.Mark}" Width="40" Height="40"/><TextBlock Text="Edge Retails" Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.PageTitle}" Foreground="{DynamicResource Brush.Text.Primary}"/></StackPanel>
+       <TextBlock Style="{StaticResource Text.SectionTitle}" Text="EdgeRetails POS" Margin="0,7,0,0"
                   Foreground="{DynamicResource Brush.Text.Primary}"
                   HorizontalAlignment="Center"/>
-       <TextBlock Text="First Setup / License"
+       <TextBlock Style="{StaticResource Text.Secondary}" Text="First Setup / License"
                   Margin="0,4,0,0"
-                  FontSize="13"
                   Foreground="{DynamicResource Brush.Text.Muted}"
                   HorizontalAlignment="Center"/>
       </StackPanel>
@@ -35,29 +33,26 @@
        <StackPanel Grid.Column="0" HorizontalAlignment="Center">
         <Border Width="30" Height="30" CornerRadius="15"
                 Background="{StaticResource Brush.Brand.Primary}">
-         <TextBlock Text="1" Foreground="{StaticResource Brush.White}"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    FontWeight="SemiBold"/>
+         <TextBlock Style="{StaticResource Text.Body}" Text="1" Foreground="{StaticResource Brush.White}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <TextBlock Text="License" Margin="0,5,0,0" FontSize="12"/>
+        <TextBlock Text="License" Margin="0,5,0,0" Style="{StaticResource Text.FormLabel}"/>
        </StackPanel>
        <StackPanel Grid.Column="1" HorizontalAlignment="Center">
         <Border Width="30" Height="30" CornerRadius="15"
                 Background="{DynamicResource Brush.Selection.Subtle}">
-         <TextBlock Text="2" Foreground="{DynamicResource Brush.Badge.Brand.Text}"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    FontWeight="SemiBold"/>
+         <TextBlock Style="{StaticResource Text.Body}" Text="2" Foreground="{DynamicResource Brush.Badge.Brand.Text}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <TextBlock Text="Shop Setup" Margin="0,5,0,0" FontSize="12"/>
+        <TextBlock Text="Shop Setup" Margin="0,5,0,0" Style="{StaticResource Text.FormLabel}"/>
        </StackPanel>
        <StackPanel Grid.Column="2" HorizontalAlignment="Center">
         <Border Width="30" Height="30" CornerRadius="15"
                 Background="{DynamicResource Brush.Selection.Subtle}">
-         <TextBlock Text="3" Foreground="{DynamicResource Brush.Badge.Brand.Text}"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    FontWeight="SemiBold"/>
+         <TextBlock Style="{StaticResource Text.Body}" Text="3" Foreground="{DynamicResource Brush.Badge.Brand.Text}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <TextBlock Text="Ready" Margin="0,5,0,0" FontSize="12"/>
+        <TextBlock Text="Ready" Margin="0,5,0,0" Style="{StaticResource Text.FormLabel}"/>
        </StackPanel>
       </Grid>
 
@@ -69,12 +64,10 @@
               CornerRadius="10"
               Visibility="{Binding IsLicenseStep, Converter={StaticResource BooleanToVisibilityConverter}}">
        <StackPanel>
-        <TextBlock Text="Import License File"
-                   FontSize="18" FontWeight="SemiBold"
+        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="Import License File"
                    Foreground="{DynamicResource Brush.Text.Primary}"/>
-        <TextBlock Text="Select the signed Edge Retails license package for this installation."
+        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Select the signed Edge Retails license package for this installation."
                    Margin="0,6,0,0"
-                   FontSize="12"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource Brush.Text.Secondary}"/>
         <Grid Margin="0,16,0,0">
@@ -89,12 +82,10 @@
                  BorderThickness="1"
                  CornerRadius="8">
           <StackPanel>
-           <TextBlock Text="{Binding LicenseFileName}"
-                      FontWeight="SemiBold"
+           <TextBlock Style="{StaticResource Text.Body}" Text="{Binding LicenseFileName}"
                       TextTrimming="CharacterEllipsis"/>
-           <TextBlock Text="{Binding LicenseStatus}"
+           <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding LicenseStatus}"
                       Margin="0,4,0,0"
-                      FontSize="11"
                       Foreground="{DynamicResource Brush.Text.Muted}"/>
           </StackPanel>
          </Border>
@@ -108,21 +99,18 @@
                 Padding="12"
                 Background="{DynamicResource Brush.Selection.Subtle}"
                 CornerRadius="8">
-         <TextBlock Text="Frontend preview validates file selection only. Signature verification remains a backend licensing responsibility."
-                    FontSize="11"
+         <TextBlock Style="{StaticResource Text.PosMeta}" Text="Frontend preview validates file selection only. Signature verification remains a backend licensing responsibility."
                     TextWrapping="Wrap"
                     Foreground="{DynamicResource Brush.Text.Secondary}"/>
         </Border>
         <Border Margin="0,14,0,0"
                 Padding="12"
-                Background="#1AEF4444"
-                BorderBrush="#EF4444"
+                Background="{DynamicResource Brush.Badge.Success.Background}"
+                BorderBrush="{DynamicResource Brush.Badge.Danger.Border}"
                 BorderThickness="1"
                 CornerRadius="8"
                 Visibility="{Binding HasLicenseError, Converter={StaticResource BooleanToVisibilityConverter}}">
-         <TextBlock Text="{Binding LicenseErrorMessage}"
-                    FontSize="12"
-                    FontWeight="SemiBold"
+         <TextBlock Style="{StaticResource Text.TableHeader}" Text="{Binding LicenseErrorMessage}"
                     Foreground="{DynamicResource Brush.Badge.Danger.Text}"
                     TextWrapping="Wrap"/>
         </Border>
@@ -137,20 +125,19 @@
               CornerRadius="10"
               Visibility="{Binding IsShopStep, Converter={StaticResource BooleanToVisibilityConverter}}">
        <StackPanel>
-        <TextBlock Text="Shop Setup"
-                   FontSize="18" FontWeight="SemiBold"
+        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="Shop Setup"
                    Foreground="{DynamicResource Brush.Text.Primary}"/>
         <Grid Margin="0,16,0,0">
          <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
          </Grid.ColumnDefinitions>
          <StackPanel>
-          <TextBlock Text="Shop Name" Margin="0,0,0,5" FontSize="12"/>
+          <TextBlock Text="Shop Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
           <TextBox Text="{Binding ShopName, UpdateSourceTrigger=PropertyChanged}"
                    Style="{StaticResource Input.TextBox}"/>
          </StackPanel>
          <StackPanel Grid.Column="2">
-          <TextBlock Text="Owner Name" Margin="0,0,0,5" FontSize="12"/>
+          <TextBlock Text="Owner Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
           <TextBox Text="{Binding OwnerName, UpdateSourceTrigger=PropertyChanged}"
                    Style="{StaticResource Input.TextBox}"/>
          </StackPanel>
@@ -160,31 +147,23 @@
           <ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
          </Grid.ColumnDefinitions>
          <StackPanel>
-          <TextBlock Text="Phone" Margin="0,0,0,5" FontSize="12"/>
+          <TextBlock Text="Phone" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
           <TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"
                    Style="{StaticResource Input.TextBox}"/>
          </StackPanel>
          <StackPanel Grid.Column="2">
-          <TextBlock Text="Address" Margin="0,0,0,5" FontSize="12"/>
+          <TextBlock Text="Address" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
           <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
                    Style="{StaticResource Input.TextBox}"/>
          </StackPanel>
         </Grid>
-        <TextBlock Text="Owner PIN" Margin="0,14,0,5" FontSize="12"/>
+        <TextBlock Text="Owner PIN" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
         <PasswordBox x:Name="OwnerPinInput"
                      PasswordChanged="OnOwnerPinChanged"
-                     Height="{StaticResource Dimension.Control.Standard}"
-                     Padding="{StaticResource Padding.Input.Standard}"
-                     Background="{DynamicResource Brush.Input.Background}"
-                     Foreground="{DynamicResource Brush.Text.Primary}"
-                     BorderBrush="{DynamicResource Brush.Border.Default}"
-                     BorderThickness="1"
-                     FontFamily="{StaticResource Font.Primary}"
-                     FontSize="14"
+                     Style="{StaticResource Input.PasswordBox}"
                      MaxLength="4"/>
-        <TextBlock Text="4 numeric digits. The demo identity layer hashes this PIN in memory and never stores it as plaintext."
+        <TextBlock Style="{StaticResource Text.PosMeta}" Text="4 numeric digits. The demo identity layer hashes this PIN in memory and never stores it as plaintext."
                    Margin="0,5,0,0"
-                   FontSize="11"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource Brush.Text.Muted}"/>
        </StackPanel>
@@ -198,12 +177,10 @@
               CornerRadius="10"
               Visibility="{Binding IsReadyStep, Converter={StaticResource BooleanToVisibilityConverter}}">
        <StackPanel>
-        <TextBlock Text="Ready"
-                   FontSize="18" FontWeight="SemiBold"
+        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="Ready"
                    Foreground="{DynamicResource Brush.Text.Primary}"/>
-        <TextBlock Text="Frontend setup flow is complete for this session. Backend activation and database initialization remain pending."
+        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Frontend setup flow is complete for this session. Backend activation and database initialization remain pending."
                    Margin="0,6,0,16"
-                   FontSize="12"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource Brush.Text.Secondary}"/>
         <Grid>
@@ -215,9 +192,9 @@
           <RowDefinition Height="34"/><RowDefinition Height="34"/>
          </Grid.RowDefinitions>
          <TextBlock Text="License" Grid.Row="0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-         <TextBlock Text="{Binding ReadyLicenseStatus}" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold"/>
+         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding ReadyLicenseStatus}" Grid.Row="0" Grid.Column="1"/>
          <TextBlock Text="Database" Grid.Row="1" Foreground="{DynamicResource Brush.Text.Muted}"/>
-         <TextBlock Text="{Binding DatabaseStatus}" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold"/>
+         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding DatabaseStatus}" Grid.Row="1" Grid.Column="1"/>
          <TextBlock Text="Module" Grid.Row="2" Foreground="{DynamicResource Brush.Text.Muted}"/>
          <TextBlock Text="{Binding ModuleName}" Grid.Row="2" Grid.Column="1"/>
          <TextBlock Text="Shop" Grid.Row="3" Foreground="{DynamicResource Brush.Text.Muted}"/>

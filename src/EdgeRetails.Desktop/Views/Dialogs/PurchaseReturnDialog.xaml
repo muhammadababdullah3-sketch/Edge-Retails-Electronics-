@@ -21,17 +21,12 @@
                     BorderThickness="0,0,0,1" CornerRadius="0">
                 <Grid>
                     <StackPanel>
-                        <TextBlock Text="Purchase Return"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
+                        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="Purchase Return"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding HeaderDisplay}"
+                        <TextBlock Style="{StaticResource Text.Secondary}" Text="{Binding HeaderDisplay}"
                                    Margin="0,3,0,0"
-                                   FontSize="13"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding MetaDisplay}"
-                                   FontSize="11.5"
+                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding MetaDisplay}"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
                     <Button Command="{Binding CancelCommand}"
@@ -59,9 +54,8 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <StackPanel>
-                                                <TextBlock Text="{Binding ProductName}" FontWeight="SemiBold" />
-                                                <TextBlock Text="{Binding ProductMeta}"
-                                                           FontSize="11"
+                                                <TextBlock Style="{StaticResource Text.Body}" Text="{Binding ProductName}" />
+                                                <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding ProductMeta}"
                                                            Foreground="{DynamicResource Brush.Text.Muted}" />
                                             </StackPanel>
                                         </DataTemplate>
@@ -97,18 +91,16 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="Reason"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Reason"
                                        Margin="0,0,0,5"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Secondary}" />
                             <TextBox Text="{Binding Reason, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Height="35"
                                      Padding="10,6" />
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Note"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Note"
                                        Margin="0,0,0,5"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Secondary}" />
                             <TextBox Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Height="35"
@@ -125,12 +117,9 @@
                 <Grid>
                     <StackPanel Orientation="Horizontal"
                                 VerticalAlignment="Center">
-                        <TextBlock Text="Return Value: "
-                                   FontSize="13"
+                        <TextBlock Style="{StaticResource Text.Secondary}" Text="Return Value: "
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
-                        <TextBlock Text="{Binding ReturnTotalDisplay}"
-                                   FontSize="16"
-                                   FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="{Binding ReturnTotalDisplay}"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal"

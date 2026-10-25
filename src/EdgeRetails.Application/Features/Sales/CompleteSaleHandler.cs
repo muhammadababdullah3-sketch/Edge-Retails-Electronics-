@@ -1079,9 +1079,7 @@ public sealed class CompleteSaleHandler
             }
             else if (product.TrackingMode == TrackingMode.Container)
             {
-                var isCable = product.Name.Contains("Cable", StringComparison.OrdinalIgnoreCase) ||
-                              product.Name.Contains("Wire", StringComparison.OrdinalIgnoreCase) ||
-                              product.AttributesJson?.Contains("Length", StringComparison.OrdinalIgnoreCase) == true;
+                var isCable = ProductPackBehaviorAuthority.IsCableOrLengthProduct(product);
 
                 if (!isCable && !QuantityMath.IsWhole(quantity.BaseQuantity))
                 {
@@ -1431,10 +1429,10 @@ public sealed class CompleteSaleHandler
                 OccurredAt = _clock.UtcNow
             });
 
-            totalCost += await _costs.RemoveCarryingValueAsync(
+            totalCost += await _costs.RemoveCarryingValueByAmountAsync(
                 line.Product.Id,
                 alloc.AllocatedBaseQuantity,
-                alloc.UnitCostSnapshot,
+                alloc.TotalCostSnapshot,
                 ct);
 
             var fromStatus = unit.Status;

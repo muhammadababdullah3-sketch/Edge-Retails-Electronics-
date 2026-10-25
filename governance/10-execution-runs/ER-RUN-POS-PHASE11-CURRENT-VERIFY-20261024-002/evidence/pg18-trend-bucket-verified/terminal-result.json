@@ -1,0 +1,78 @@
+{
+  "provider": "PostgreSQL 18 / Npgsql",
+  "dotnet": "C:\\Users\\muham\\.dotnet\\dotnet.exe",
+  "provider_verified": true,
+  "status": "PASS",
+  "cleanup_pass": true,
+  "port": 55437,
+  "database": "edgeretails_test_cat107",
+  "role": "er_provisioner",
+  "records": [
+    {
+      "Step": "initdb-owned-cluster",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:40.3997854Z"
+    },
+    {
+      "Step": "pgctl-start-owned-cluster",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:40.8121838Z"
+    },
+    {
+      "Step": "create-owned-database",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:41.3535016Z"
+    },
+    {
+      "Step": "create-test-role",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:42.3492791Z"
+    },
+    {
+      "Step": "apply-ef-migrations-owned-db",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:52.3773369Z"
+    },
+    {
+      "Step": "verify-ef-model-sync",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:58.1624861Z"
+    },
+    {
+      "Step": "grant-test-role-migrated-schemas",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:49:58.4898062Z"
+    },
+    {
+      "Step": "run-catalog-postgres-integration",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:51:26.4436370Z"
+    },
+    {
+      "Step": "pgctl-stop-owned-cluster",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:51:28.7805573Z"
+    },
+    {
+      "Step": "verify-cluster-stopped",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:51:28.8985818Z"
+    },
+    {
+      "Step": "redact-generated-credential-file",
+      "ExitCode": 0,
+      "Status": "PASS",
+      "Utc": "2026-10-24T09:51:28.9152625Z"
+    }
+  ]
+}

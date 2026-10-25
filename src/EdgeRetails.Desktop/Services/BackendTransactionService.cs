@@ -1080,6 +1080,30 @@ public sealed class BackendTransactionService : ITransactionService
             Items = items
         };
     }
+
+    public async Task<CommercialExchangeResult> ExecuteCommercialExchangeAsync(
+        CommercialExchangeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.ClientOperationId == Guid.Empty)
+        {
+            throw new BackendOperationException(
+                "sales.exchange_operation_id_required",
+                "Client operation id is required for a commercial exchange.");
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var gateway = scope.ServiceProvider.GetRequiredService<IApplicationGateway>();
+        var result = await gateway.ExecuteCommercialExchangeAsync(command, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new BackendOperationException(
+                result.Error?.Code ?? "sales.exchange_failed",
+                result.Error?.Message ?? "Commercial exchange could not be completed.");
+        }
+
+        return result.Value!;
+    }
 }
 
 public sealed class SafeSaleReplayEnvelope

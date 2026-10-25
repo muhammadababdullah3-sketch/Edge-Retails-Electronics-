@@ -48,7 +48,7 @@ public sealed class Phase7Pass3PostgresTests
         var purchaseRes = await purchaseHandler.HandleAsync(new CreatePurchaseCommand(
             fixture.SupplierId,
             "PO-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
-            DateOnly.FromDateTime(DateTime.UtcNow),
+            services.GetRequiredService<IClock>().ShopDate,
             "Test cash purchase",
             0m,
             PurchaseSettlementMode.CashDrawer,
@@ -247,7 +247,7 @@ public sealed class Phase7Pass3PostgresTests
         var purchaseRes = await purchaseHandler.HandleAsync(new CreatePurchaseCommand(
             fixture.SupplierId,
             "PO-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
-            DateOnly.FromDateTime(DateTime.UtcNow),
+            services.GetRequiredService<IClock>().ShopDate,
             null,
             0m,
             PurchaseSettlementMode.External,
@@ -390,7 +390,7 @@ public sealed class Phase7Pass3PostgresTests
         await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
 
         var fixture = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db, defaultSalePrice: 500m);
-        await using var ownedCashSession = await CreateOwnedCashSessionAsync(db, fixture.ActorId);
+        await using var ownedCashSession = await CreateOwnedCashSessionAsync(db, fixture.ActorId, clock);
         var session = ownedCashSession.Session;
         await SeedStockViaPurchaseAsync(services, fixture, 10m, 300m);
 
@@ -490,7 +490,7 @@ public sealed class Phase7Pass3PostgresTests
         public DateOnly ShopDate => DateOnly.FromDateTime(UtcNow.UtcDateTime);
     }
 
-    private static async Task<OwnedCashSession> CreateOwnedCashSessionAsync(EdgeRetailsDbContext db, Guid actorId)
+    private static async Task<OwnedCashSession> CreateOwnedCashSessionAsync(EdgeRetailsDbContext db, Guid actorId, IClock? clock = null)
     {
         await SessionLock.WaitAsync();
         try
@@ -498,7 +498,13 @@ public sealed class Phase7Pass3PostgresTests
             Assert.False(await db.CashSessions.AnyAsync(x => x.Status == CashSessionStatus.Open),
                 "Cash-session fixture requires a clean singleton scope; an earlier fixture left its session open.");
             var session = await Phase2PostgresTestHarness.SeedOpenCashSessionAsync(db, actorId, openingCash: 10000m);
-            return new OwnedCashSession(db, session);
+            if (clock is not null)
+            {
+                session.BusinessDate = clock.ShopDate;
+                session.OpenedAt = clock.UtcNow;
+                await db.SaveChangesAsync();
+            }
+            return new OwnedCashSession(db, session, clock);
         }
         finally
         {
@@ -506,16 +512,17 @@ public sealed class Phase7Pass3PostgresTests
         }
     }
 
-    private sealed class OwnedCashSession(EdgeRetailsDbContext db, CashSession session) : IAsyncDisposable
+    private sealed class OwnedCashSession(EdgeRetailsDbContext db, CashSession session, IClock? clock) : IAsyncDisposable
     {
         public CashSession Session { get; } = session;
 
         public async ValueTask DisposeAsync()
         {
+            var closedAt = clock?.UtcNow ?? DateTimeOffset.UtcNow;
             await db.CashSessions.Where(x => x.Id == Session.Id && x.Status == CashSessionStatus.Open)
                 .ExecuteUpdateAsync(update => update
                     .SetProperty(x => x.Status, CashSessionStatus.Closed)
-                    .SetProperty(x => x.ClosedAt, DateTimeOffset.UtcNow));
+                    .SetProperty(x => x.ClosedAt, closedAt));
         }
     }
 
@@ -529,7 +536,7 @@ public sealed class Phase7Pass3PostgresTests
         var res = await purchaseHandler.HandleAsync(new CreatePurchaseCommand(
             fixture.SupplierId,
             "PO-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
-            DateOnly.FromDateTime(DateTime.UtcNow),
+            services.GetRequiredService<IClock>().ShopDate,
             null,
             0m,
             PurchaseSettlementMode.External,

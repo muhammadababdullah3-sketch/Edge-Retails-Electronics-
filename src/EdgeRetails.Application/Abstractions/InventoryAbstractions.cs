@@ -17,6 +17,12 @@ public interface IInventoryCostAllocator
         decimal? exactCost,
         CancellationToken cancellationToken);
 
+    Task<decimal> RemoveCarryingValueByAmountAsync(
+        Guid productId,
+        decimal baseQuantity,
+        decimal exactAmount,
+        CancellationToken cancellationToken);
+
     Task AddCarryingValueAndLotAsync(
         Guid productId,
         decimal baseQuantity,
@@ -44,6 +50,15 @@ public interface IInventoryCostAllocator
         Guid productId,
         decimal baseQuantity,
         decimal unitCost,
+        Guid sourceMovementId,
+        Guid? sourcePurchaseItemId,
+        InventoryBucket initialBucket,
+        CancellationToken cancellationToken);
+
+    Task<Guid> AddCarryingValueAndLotByAmountAsync(
+        Guid productId,
+        decimal baseQuantity,
+        decimal exactAmount,
         Guid sourceMovementId,
         Guid? sourcePurchaseItemId,
         InventoryBucket initialBucket,

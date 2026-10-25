@@ -265,15 +265,15 @@ public sealed class MasterCashierCreationPostgresTests
 
     private static async Task<ServiceProvider> OwnedProviderAsync()
     {
-        var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
-            ?? throw new InvalidOperationException("The approved owned PostgreSQL fixture is required."));
+        var profile = PostgresFixtureProfile.Resolve(PostgresFixtureKind.Master);
+        profile.Attest();
+        var connection = new NpgsqlConnectionStringBuilder(profile.ConnectionString);
         if (connection.Host != "127.0.0.1" || connection.Port is < 55000 or > 55999 ||
             !(connection.Database?.StartsWith("edge_retails_", StringComparison.Ordinal) ?? false))
         {
             throw new InvalidOperationException("Cashier tests require the owned isolated loopback PostgreSQL fixture.");
         }
-        var root = Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT")
-            ?? throw new InvalidOperationException("The approved runner must attest the owned PostgreSQL root.");
+        var root = profile.OwnedRoot;
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
         var prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) +
             Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
@@ -292,7 +292,7 @@ public sealed class MasterCashierCreationPostgresTests
         Assert.Equal(0, (int)(File.GetAttributes(expectedDirectory) & FileAttributes.ReparsePoint));
         await using var version = new NpgsqlCommand("SHOW server_version_num", pg);
         Assert.InRange(int.Parse((string)(await version.ExecuteScalarAsync())!), 180000, 189999);
-        var provider = Phase2PostgresTestHarness.BuildProvider();
+        var provider = Phase2PostgresTestHarness.BuildProvider(profile);
         await using var scope = provider.CreateAsyncScope();
         Assert.Contains("Npgsql", scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>().Database.ProviderName);
         return provider;

@@ -1,0 +1,54 @@
+{
+  "run_id": "ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002",
+  "created_utc": "2026-10-24T04:42:30.1025012Z",
+  "candidate_head": "6b5bbd04f35aa1bce3362751185b60d3cabfc8e6",
+  "branch": "feat/phase11-subledger-implementation",
+  "starting_tracked_diff": false,
+  "protected_database_environment_variables_cleared": true,
+  "files": [
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/ThakaPostgresTransactionIntegrationTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__ThakaPostgresTransactionIntegrationTests.cs",
+      "before_sha256": "b9bb1304733fdfe900336748fa5b0ce162c28c7f21921d8fb251d893c062f9af"
+    },
+    {
+      "path": "scripts/Invoke-CatalogPostgresRehearsal.ps1",
+      "before_copy": "evidence/before/scripts__Invoke-CatalogPostgresRehearsal.ps1",
+      "before_sha256": "fbebca64750f1546d1d0491e9ea0e9f1ae8a8d5a79806ce97ee95dfb73204d77"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__CatalogV3SeedLifecyclePostgresTests.cs",
+      "before_sha256": "6a179e492d388fdb988c2b07753cf396a4d54f2e8e921c2686124b131b7c46c2"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/PosCatalogBrowsingPerformanceTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__PosCatalogBrowsingPerformanceTests.cs",
+      "before_sha256": "d448a889ad18e1048a665fccd93a53768776d34d44adeb7dbd67c24a70ee12bc"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase12Wave2JournalAndRecoveryTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__Phase12Wave2JournalAndRecoveryTests.cs",
+      "before_sha256": "8bb1532041212598c2f9eca834f454e3516286c36a1cf2d879b168452067a209"
+    },
+    {
+      "path": "scripts/Invoke-DesktopTestRehearsal.ps1",
+      "before_state": "ABSENT"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteStocktakeWorkflowService.cs",
+      "before_copy": "evidence/before/src__EdgeRetails.Desktop__Services__RemoteStocktakeWorkflowService.cs",
+      "before_sha256": "b8b3211a8e91f3cd557a9aa72fa398545fd996d14015880af8f3fb6ef39ed4d8"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase11Wave3DesktopCutoverTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__Phase11Wave3DesktopCutoverTests.cs",
+      "before_sha256": "d7bba82bfbc84a9e14f1da3384793b8736b6c2e316df5f589970767e11007c8d"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/GoldenLifecycleTracePostgresTests.cs",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__GoldenLifecycleTracePostgresTests.cs",
+      "before_sha256": "6faa40c4216d776c883b352f4d7427531169546c5c434eaa5b71f32b96eaff82"
+    }
+  ]
+}

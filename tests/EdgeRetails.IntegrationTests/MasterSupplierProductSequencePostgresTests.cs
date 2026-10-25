@@ -223,8 +223,7 @@ public sealed class MasterSupplierProductSequencePostgresTests
             File.WriteAllText(fixture.Manifest, "corrupted owned authority");
         }
         var restoredName = "edge_retails_master_restore_" + Guid.NewGuid().ToString("N");
-        await using var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(fixture.Connection.ConnectionString) { Database = "postgres" }.ConnectionString);
-        await admin.OpenAsync();
+        await using var admin = fixture.Profile.OpenMaintenance();
         await using (var create = new NpgsqlCommand($"CREATE DATABASE {restoredName}", admin))
         {
             await create.ExecuteNonQueryAsync();
@@ -232,6 +231,7 @@ public sealed class MasterSupplierProductSequencePostgresTests
         try
         {
             await fixture.RunPgToolAsync("pg_restore.exe", restoredName, "--no-owner", "--no-privileges", "--exit-on-error", dump);
+            fixture.Profile.GrantWriteAccess(restoredName);
             Assert.Equal(dumpHash, SHA256.HashData(await File.ReadAllBytesAsync(dump)));
             var restoredConnection = new NpgsqlConnectionStringBuilder(fixture.Connection.ConnectionString) { Database = restoredName };
             await using (var restoredMetadata = new NpgsqlConnection(restoredConnection.ConnectionString))
@@ -276,7 +276,8 @@ public sealed class MasterSupplierProductSequencePostgresTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        public string Root { get; } = Directory.CreateTempSubdirectory("edge-master-sequence-").FullName;
+        public string Root { get; private set; } = string.Empty;
+        public PostgresFixtureProfile Profile { get; private set; } = null!;
         public string Manifest => Path.Combine(Root, "highwater.manifest");
         public ServiceProvider Provider { get; private set; } = null!;
         public NpgsqlConnectionStringBuilder Connection { get; private set; } = null!;
@@ -288,8 +289,11 @@ public sealed class MasterSupplierProductSequencePostgresTests
             var fixture = new Fixture();
             try
             {
-                fixture.Connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB")
-                    ?? throw new InvalidOperationException("An owned isolated PostgreSQL connection is required."));
+                fixture.Profile = PostgresFixtureProfile.Resolve(PostgresFixtureKind.Master);
+                fixture.Profile.Attest();
+                fixture.Root = Directory.CreateDirectory(Path.Combine(fixture.Profile.OwnedRoot,
+                    "sequence-" + Guid.NewGuid().ToString("N"))).FullName;
+                fixture.Connection = new NpgsqlConnectionStringBuilder(fixture.Profile.ConnectionString);
                 if (fixture.Connection.Host != "127.0.0.1" || fixture.Connection.Port < 55000
                     || !(fixture.Connection.Database?.StartsWith("edge_retails_", StringComparison.Ordinal) ?? false))
                 {
@@ -297,8 +301,7 @@ public sealed class MasterSupplierProductSequencePostgresTests
                 }
                 await using var pg = new NpgsqlConnection(fixture.Connection.ConnectionString);
                 await pg.OpenAsync();
-                var ownedRoot = Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT")
-                    ?? throw new InvalidOperationException("The approved runner must attest its owned PostgreSQL root.");
+                var ownedRoot = fixture.Profile.OwnedRoot;
                 var safePrefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
                     + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
                 if (!Path.GetFullPath(ownedRoot).StartsWith(safePrefix, StringComparison.OrdinalIgnoreCase))
@@ -392,12 +395,14 @@ public sealed class MasterSupplierProductSequencePostgresTests
         public async Task RunPgToolAsync(string name, string database, params string[] extra)
         {
             var bin = Environment.GetEnvironmentVariable("EDGE_RETAILS_PG_BIN") ?? @"C:\Program Files\PostgreSQL\18\bin";
+            var toolConnection = new NpgsqlConnectionStringBuilder(name == "pg_dump.exe"
+                ? Profile.BackupConnectionString : Profile.MaintenanceForDatabase(database));
             var start = new ProcessStartInfo(Path.Combine(bin, name)) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true };
-            foreach (var arg in new[] { "-h", Connection.Host!, "-p", Connection.Port.ToString(), "-U", Connection.Username!, "-d", database }.Concat(extra))
+            foreach (var arg in new[] { "-h", toolConnection.Host!, "-p", toolConnection.Port.ToString(), "-U", toolConnection.Username!, "-d", database }.Concat(extra))
             {
                 start.ArgumentList.Add(arg);
             }
-            start.Environment["PGPASSWORD"] = Connection.Password;
+            start.Environment["PGPASSWORD"] = toolConnection.Password;
             using var process = Process.Start(start)!;
             var output = process.StandardOutput.ReadToEndAsync();
             var errors = process.StandardError.ReadToEndAsync();

@@ -10,9 +10,7 @@
             </Grid.RowDefinitions>
 
             <Grid>
-                <TextBlock Text="{Binding Title}"
-                           FontSize="20"
-                           FontWeight="Bold"
+                <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding Title}"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Button Command="{Binding CloseCommand}"
                         Style="{StaticResource Button.Close}"
@@ -58,8 +56,7 @@
                         CornerRadius="{StaticResource Radius.Card}">
                     <StackPanel>
                         <Grid Margin="0,0,0,12">
-                            <TextBlock Text="{Binding EditorTitle}"
-                                       FontWeight="SemiBold"
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding EditorTitle}"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
                             <Button Content="New"
                                     Command="{Binding NewCommand}"
@@ -67,20 +64,20 @@
                                     HorizontalAlignment="Right" />
                         </Grid>
 
-                        <TextBlock Text="Name" Margin="0,0,0,5" FontSize="12" />
+                        <TextBlock Text="Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                         <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource Input.TextBox}" />
 
                         <StackPanel Margin="0,12,0,0"
                                     Visibility="{Binding HasSymbol, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="{Binding SymbolLabel}" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="{Binding SymbolLabel}" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding Symbol, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource Input.TextBox}" />
                         </StackPanel>
 
                         <StackPanel Margin="0,12,0,0"
                                     Visibility="{Binding IsUnitMode, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="Display decimal places" Margin="0,0,0,5" FontSize="12" />
+                            <TextBlock Text="Display decimal places" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}" />
                             <TextBox Text="{Binding DecimalPlacesText, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource Input.TextBox}" />
                         </StackPanel>

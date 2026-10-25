@@ -130,19 +130,15 @@
                                         Height="24"
                                         CornerRadius="12"
                                         Background="{StaticResource Gradient.Brand.Primary}">
-                                    <TextBlock Text="{Binding CashierInitials}"
+                                    <TextBlock Style="{StaticResource Text.PosBadge}" Text="{Binding CashierInitials}"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="11"
-                                               FontWeight="Bold"
                                                Foreground="{StaticResource Brush.White}"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center" />
                                 </Border>
-                                <TextBlock Margin="8,0,0,0"
+                                <TextBlock Style="{StaticResource Text.Body.Secondary}" Margin="8,0,0,0"
                                            Text="{Binding CashierDisplay}"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                            VerticalAlignment="Center" />
                             </StackPanel>
@@ -366,11 +362,9 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
-                                        <TextBlock Grid.Column="0"
+                                        <TextBlock Style="{StaticResource Text.DetailTitle}" Grid.Column="0"
                                                    Text="{Binding ProjectName}"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="16"
-                                                   FontWeight="Bold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}"
                                                    TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" />
@@ -381,12 +375,10 @@
                                     </Grid>
 
                                     <!-- Customer Name -->
-                                    <TextBlock Grid.Row="1"
+                                    <TextBlock Style="{StaticResource Text.PosLineTitle}" Grid.Row="1"
                                                Margin="0,3,0,0"
                                                Text="{Binding CustomerName}"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="13.5"
-                                               FontWeight="Medium"
                                                Foreground="{DynamicResource Brush.Text.Secondary}" />
 
                                     <!-- Divider -->
@@ -402,16 +394,13 @@
                                                 <ColumnDefinition Width="70" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                                        Text="Phone:"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                                            <TextBlock Grid.Column="1"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="1"
                                                        Text="{Binding Phone}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
-                                                       FontWeight="Medium"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
                                         </Grid>
 
@@ -420,15 +409,13 @@
                                                 <ColumnDefinition Width="70" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                                        Text="Location:"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                                            <TextBlock Grid.Column="1"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="1"
                                                        Text="{Binding Location}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </Grid>
@@ -438,15 +425,13 @@
                                                 <ColumnDefinition Width="70" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                                        Text="Started:"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                                            <TextBlock Grid.Column="1"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="1"
                                                        Text="{Binding StartDateFormatted}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
                                         </Grid>
 
@@ -463,43 +448,34 @@
 
                                                 <!-- Material Value -->
                                                 <StackPanel Grid.Column="0">
-                                                    <TextBlock Text="Material"
+                                                    <TextBlock Style="{StaticResource Text.PosMeta}" Text="Material"
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontSize="10.5"
                                                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                                                    <TextBlock Margin="0,2,0,0"
+                                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,2,0,0"
                                                                Text="{Binding MaterialValueFormatted}"
                                                                FontFamily="{StaticResource Font.Numeric}"
-                                                               FontSize="12.5"
-                                                               FontWeight="SemiBold"
                                                                Foreground="{DynamicResource Brush.Text.Primary}" />
                                                 </StackPanel>
 
                                                 <!-- Paid -->
                                                 <StackPanel Grid.Column="1">
-                                                    <TextBlock Text="Paid"
+                                                    <TextBlock Style="{StaticResource Text.PosMeta}" Text="Paid"
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontSize="10.5"
                                                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                                                    <TextBlock Margin="0,2,0,0"
+                                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,2,0,0"
                                                                Text="{Binding PaidFormatted}"
                                                                FontFamily="{StaticResource Font.Numeric}"
-                                                               FontSize="12.5"
-                                                               FontWeight="SemiBold"
                                                                Foreground="{StaticResource Brush.Function.Success}" />
                                                 </StackPanel>
 
                                                 <!-- Balance -->
                                                 <StackPanel Grid.Column="2">
-                                                    <TextBlock Text="Balance"
+                                                    <TextBlock Style="{StaticResource Text.PosMeta}" Text="Balance"
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontSize="10.5"
                                                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                                                    <TextBlock Margin="0,2,0,0"
+                                                    <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,2,0,0"
                                                                Text="{Binding BalanceFormatted}"
                                                                FontFamily="{StaticResource Font.Numeric}"
-                                                               FontSize="12.5"
-                                                               FontWeight="Bold"
                                                                Foreground="{StaticResource Brush.Function.Warning}" />
                                                 </StackPanel>
                                             </Grid>

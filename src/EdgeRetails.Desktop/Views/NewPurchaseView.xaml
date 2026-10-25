@@ -24,7 +24,7 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <TextBlock Text="Supplier" Margin="0,0,0,5" FontSize="12"
+                        <TextBlock Text="Supplier" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
                         <controls:SearchBox Text="{Binding SupplierSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                             IsCompact="True" Placeholder="Search supplier..." />
@@ -32,17 +32,17 @@
                         <ComboBox ItemsSource="{Binding Suppliers}" SelectedItem="{Binding SelectedSupplier}"
                                   VerticalContentAlignment="Center" />
                     </StackPanel>                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Invoice Number" Margin="0,0,0,5" FontSize="12"
+                        <TextBlock Text="Invoice Number" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
                         <TextBox Text="{Binding InvoiceNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
                     <StackPanel Grid.Column="4">
-                        <TextBlock Text="Date" Margin="0,0,0,5" FontSize="12"
+                        <TextBlock Text="Date" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
                         <DatePicker SelectedDate="{Binding PurchaseDate}" />
                     </StackPanel>
                     <StackPanel Grid.Column="6">
-                        <TextBlock Text="Note" Margin="0,0,0,5" FontSize="12"
+                        <TextBlock Text="Note" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"
                                    Foreground="{DynamicResource Brush.Text.Secondary}" />
                         <TextBox Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
@@ -113,8 +113,8 @@
                         <ColumnDefinition Width="360" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                    <TextBlock Text="Save creates a purchase order. Receive stock from Purchase Detail."
-                               VerticalAlignment="Center" FontSize="12.5"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Save creates a purchase order. Receive stock from Purchase Detail."
+                               VerticalAlignment="Center"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                     <TextBlock Text="{Binding CommitStatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
@@ -124,8 +124,7 @@
                     <StackPanel Grid.Column="1">
                         <Grid Margin="0,0,0,8">
                             <TextBlock Text="Subtotal" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                            <TextBlock Text="{Binding SubtotalDisplay}" HorizontalAlignment="Right"
-                                       FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Primary}" />
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SubtotalDisplay}" HorizontalAlignment="Right" Foreground="{DynamicResource Brush.Text.Primary}" />
                         </Grid>                        <Grid Margin="0,0,0,8">
                             <TextBlock Text="Other Charges" Foreground="{DynamicResource Brush.Text.Secondary}" />
                             <TextBox Text="{Binding OtherChargesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -133,10 +132,10 @@
                                      TextAlignment="Right" />
                         </Grid>
                         <Grid Margin="0,0,0,14">
-                            <TextBlock Text="TOTAL" FontWeight="Bold"
+                            <TextBlock Style="{StaticResource Text.Control}" Text="TOTAL"
                                        Foreground="{DynamicResource Brush.Text.Secondary}" />
-                            <TextBlock Text="{Binding TotalDisplay}" HorizontalAlignment="Right"
-                                       FontFamily="{StaticResource Font.Numeric}" FontSize="24" FontWeight="Bold"
+                            <TextBlock Style="{StaticResource Text.PageTitle}" Text="{Binding TotalDisplay}" HorizontalAlignment="Right"
+                                       FontFamily="{StaticResource Font.Numeric}"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
                         </Grid>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

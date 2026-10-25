@@ -122,17 +122,14 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="Return Items"
+                    <TextBlock Style="{StaticResource Text.SectionTitle}" Text="Return Items"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="18"
-                               FontWeight="Bold"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Margin="0,3,0,0"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,3,0,0"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="12.5"
                                Foreground="{DynamicResource Brush.Text.Muted}">
                         <Run Text="Select items to return from " />
-                        <Run Text="{Binding InvoiceDisplay, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Primary}" />
+                        <Run Style="{StaticResource Text.Run.Body}" Text="{Binding InvoiceDisplay, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Primary}" />
                         <Run Text=" · " />
                         <Run Text="{Binding CustomerName, Mode=OneWay}" />
                     </TextBlock>
@@ -158,10 +155,8 @@
                       Padding="20,16">
             <StackPanel>
                 <!-- Section: Returnable Items -->
-                <TextBlock Text="SELECT ITEMS TO RETURN"
+                <TextBlock Style="{StaticResource Text.PosBadge}" Text="SELECT ITEMS TO RETURN"
                            FontFamily="{StaticResource Font.Primary}"
-                           FontSize="11.5"
-                           FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Muted}"
                            Margin="0,0,0,10" />
 
@@ -190,15 +185,12 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding ProductName}"
+                                            <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding ProductName}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="13.5"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Margin="0,2,0,0"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Margin="0,2,0,0"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="11.5"
                                                        Foreground="{DynamicResource Brush.Text.Muted}">
                                                 <Run Text="{Binding Brand, Mode=OneWay}" />
                                                 <Run Text=" · SKU: " />
@@ -206,11 +198,9 @@
                                             </TextBlock>
                                         </StackPanel>
 
-                                        <TextBlock Grid.Column="1"
+                                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Grid.Column="1"
                                                    Text="{Binding UnitPriceDisplay}"
                                                    FontFamily="{StaticResource Font.Numeric}"
-                                                   FontSize="13.5"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}"
                                                    VerticalAlignment="Top" />
                                     </Grid>
@@ -228,11 +218,10 @@
                                                     Background="{DynamicResource Brush.Surface.Subtle}"
                                                     CornerRadius="4"
                                                     Margin="0,0,6,0">
-                                                <TextBlock FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="11"
+                                                <TextBlock Style="{StaticResource Text.PosMeta}" FontFamily="{StaticResource Font.Primary}"
                                                            Foreground="{DynamicResource Brush.Text.Secondary}">
                                                     <Run Text="Sold: " />
-                                                    <Run Text="{Binding SoldQuantity, Mode=OneWay, StringFormat={}{0:0.##}}" FontWeight="SemiBold" />
+                                                    <Run Style="{StaticResource Text.Run.Body}" Text="{Binding SoldQuantity, Mode=OneWay, StringFormat={}{0:0.##}}" />
                                                 </TextBlock>
                                             </Border>
 
@@ -241,10 +230,8 @@
                                                     BorderBrush="{DynamicResource Brush.Badge.Warning.Border}"
                                                     BorderThickness="1"
                                                     CornerRadius="4">
-                                                <TextBlock Text="{Binding MaxEligibleDisplay}"
+                                                <TextBlock Style="{StaticResource Text.KpiLabel}" Text="{Binding MaxEligibleDisplay}"
                                                            FontFamily="{StaticResource Font.Primary}"
-                                                           FontSize="11"
-                                                           FontWeight="SemiBold"
                                                            Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
                                             </Border>
                                         </StackPanel>
@@ -277,13 +264,9 @@
                                                     </Style>
                                                 </Border.Style>
                                                 <TextBox x:Name="ReturnQuantityTextBox"
-                                                         Style="{StaticResource Input.TextBox.Embedded}"
+                                                         Style="{StaticResource Input.TextBox.Quantity}"
                                                          Text="{Binding ReturnQuantityText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                          Foreground="{DynamicResource Brush.Text.Primary}"
-                                                         FontFamily="{StaticResource Font.Numeric}"
-                                                         FontSize="13.5"
-                                                         FontWeight="Bold"
-                                                         TextAlignment="Center"
                                                          VerticalAlignment="Center"
                                                          VerticalContentAlignment="Center" />
                                             </Border>
@@ -301,17 +284,17 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Condition:" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                            <TextBlock Text="Condition:" Style="{StaticResource Text.PosMeta}" Foreground="{DynamicResource Brush.Text.Muted}" VerticalAlignment="Center" Margin="0,0,6,0" />
                                             <ComboBox ItemsSource="{x:Static viewModels:SalesReturnItemViewModel.InspectionConditions}"
                                                       SelectedItem="{Binding ConditionInspectionResult, Mode=TwoWay}"
-                                                      Height="26" Width="100" FontSize="11" VerticalContentAlignment="Center" />
+                                                      Style="{StaticResource Input.ComboBox.Micro}"
+                                                      Width="100" />
                                         </StackPanel>
                                         <CheckBox Grid.Column="1"
                                                   Content="Restock as Remnant"
                                                   IsChecked="{Binding IsRestockAsRemnant, Mode=TwoWay}"
-                                                  FontSize="11"
-                                                  VerticalAlignment="Center"
-                                                  Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                                  Style="{StaticResource Input.CheckBox.Compact}"
+                                                  VerticalAlignment="Center" />
                                     </Grid>
 
                                     <!-- Row 3: Item refund total impact banner -->
@@ -324,16 +307,12 @@
                                             CornerRadius="4"
                                             Visibility="{Binding HasReturnQuantity, Converter={StaticResource BoolToVis}}">
                                         <Grid>
-                                            <TextBlock Text="Item Refund Value:"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="Item Refund Value:"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="11.5"
-                                                       FontWeight="Medium"
                                                        Foreground="{DynamicResource Brush.Badge.Success.Text}"
                                                        HorizontalAlignment="Left" />
-                                            <TextBlock Text="{Binding ReturnLineTotalDisplay}"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding ReturnLineTotalDisplay}"
                                                        FontFamily="{StaticResource Font.Numeric}"
-                                                       FontSize="12"
-                                                       FontWeight="Bold"
                                                        Foreground="{DynamicResource Brush.Badge.Success.Text}"
                                                        HorizontalAlignment="Right" />
                                         </Grid>
@@ -345,10 +324,8 @@
                 </ItemsControl>
 
                 <!-- Section: Return Disposition / Reason -->
-                <TextBlock Text="RETURN REASON &amp; DISPOSITION"
+                <TextBlock Style="{StaticResource Text.PosBadge}" Text="RETURN REASON &amp; DISPOSITION"
                            FontFamily="{StaticResource Font.Primary}"
-                           FontSize="11.5"
-                           FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Muted}"
                            Margin="0,14,0,10" />
 
@@ -382,14 +359,11 @@
                                         Background="{DynamicResource Brush.Surface.Default}"
                                         Cursor="Hand">
                                     <StackPanel>
-                                        <TextBlock Text="Restock (Sellable)"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="Restock (Sellable)"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="12.5"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                                        <TextBlock Text="Customer changed mind"
+                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="Customer changed mind"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="11"
                                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                                     </StackPanel>
                                 </Border>
@@ -421,14 +395,11 @@
                                         Background="{DynamicResource Brush.Surface.Default}"
                                         Cursor="Hand">
                                     <StackPanel>
-                                        <TextBlock Text="Defective Stock"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="Defective Stock"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="12.5"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                                        <TextBlock Text="Non-sellable / Vendor return"
+                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="Non-sellable / Vendor return"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="11"
                                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                                     </StackPanel>
                                 </Border>
@@ -459,14 +430,11 @@
                                         Background="{DynamicResource Brush.Surface.Default}"
                                         Cursor="Hand">
                                     <StackPanel>
-                                        <TextBlock Text="Damaged Stock"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="Damaged Stock"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="12.5"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                                        <TextBlock Text="Non-sellable / Loss write-off"
+                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="Non-sellable / Loss write-off"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="11"
                                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                                     </StackPanel>
                                 </Border>
@@ -497,14 +465,11 @@
                                         Background="{DynamicResource Brush.Surface.Default}"
                                         Cursor="Hand">
                                     <StackPanel>
-                                        <TextBlock Text="Other Reason"
+                                        <TextBlock Style="{StaticResource Text.Body}" Text="Other Reason"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="12.5"
-                                                   FontWeight="SemiBold"
                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                                        <TextBlock Text="Custom disposition notes"
+                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="Custom disposition notes"
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="11"
                                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                                     </StackPanel>
                                 </Border>
@@ -526,10 +491,8 @@
                          Margin="0,4,0,14" />
 
                 <!-- Section: Refund Method -->
-                <TextBlock Text="REFUND METHOD"
+                <TextBlock Style="{StaticResource Text.PosBadge}" Text="REFUND METHOD"
                            FontFamily="{StaticResource Font.Primary}"
-                           FontSize="11.5"
-                           FontWeight="Bold"
                            Foreground="{DynamicResource Brush.Text.Muted}"
                            Margin="0,4,0,8" />
 
@@ -592,14 +555,10 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
-                                <TextBlock Text="POSTING DATE &amp; SUPERVISOR"
+                                <TextBlock Style="{StaticResource Text.MonoHint}" Text="POSTING DATE &amp; SUPERVISOR"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="10.5"
-                                           FontWeight="Bold"
                                            Foreground="{DynamicResource Brush.Text.Muted}" />
-                                <TextBlock Text="{Binding PostingDateText, StringFormat='Posting Date: {0}'}"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
+                                <TextBlock Style="{StaticResource Text.TableHeader}" Text="{Binding PostingDateText, StringFormat='Posting Date: {0}'}"
                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                            Margin="0,2,0,0" />
                             </StackPanel>
@@ -621,15 +580,12 @@
                                 CornerRadius="4"
                                 Visibility="{Binding HasSupervisorApproval, Converter={StaticResource BoolToVis}}">
                             <Grid>
-                                <TextBlock Text="{Binding SupervisorApprovalDisplay}"
-                                           FontSize="11"
-                                           FontWeight="SemiBold"
+                                <TextBlock Style="{StaticResource Text.KpiLabel}" Text="{Binding SupervisorApprovalDisplay}"
                                            Foreground="{DynamicResource Brush.Badge.Brand.Text}"
                                            VerticalAlignment="Center" />
                                 <Button Content="Clear"
                                         Command="{Binding ClearSupervisorApprovalCommand}"
                                         Style="{StaticResource Button.Text.Borderless}"
-                                        FontSize="11"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Center" />
                             </Grid>
@@ -644,10 +600,9 @@
                         BorderBrush="{DynamicResource Brush.Badge.Warning.Border}"
                         BorderThickness="1"
                         Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="{Binding ValidationMessage}"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding ValidationMessage}"
                                TextWrapping="Wrap"
                                FontFamily="{StaticResource Font.Primary}"
-                               FontSize="12"
                                Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
                 </Border>
 
@@ -664,23 +619,18 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="TOTAL RETURN AMOUNT"
+                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="TOTAL RETURN AMOUNT"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                            <TextBlock Margin="0,2,0,0"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,2,0,0"
                                        Text="{Binding TotalReturnQuantityDisplay}"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12.5"
                                        Foreground="{DynamicResource Brush.Text.Secondary}" />
                         </StackPanel>
 
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Style="{StaticResource Text.AmountLarge}" Grid.Column="1"
                                    Text="{Binding TotalReturnAmountDisplay}"
                                    FontFamily="{StaticResource Font.Numeric}"
-                                   FontSize="22"
-                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Function.Expense}"
                                    VerticalAlignment="Center" />
                     </Grid>

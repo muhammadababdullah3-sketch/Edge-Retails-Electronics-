@@ -15,11 +15,9 @@
                 BorderThickness="0,0,0,1" CornerRadius="0">
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="{Binding Title}" FontFamily="{StaticResource Font.Primary}"
-                               FontSize="16" FontWeight="Bold"
+                    <TextBlock Style="{StaticResource Text.DetailTitle}" Text="{Binding Title}" FontFamily="{StaticResource Font.Primary}"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Text="{Binding Supplier}" Margin="0,2,0,0"
-                               FontSize="12" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding Supplier}" Margin="0,2,0,0" Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
                 <Button Command="{Binding CloseCommand}"
                         Style="{StaticResource Button.Close}"
@@ -36,17 +34,15 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <TextBlock Text="PURCHASE ID" FontSize="10.5" FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.MonoHint}" Text="PURCHASE ID"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding PurchaseId}" Margin="0,3,0,0"
-                                   FontSize="13.5" FontWeight="SemiBold"
+                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding PurchaseId}" Margin="0,3,0,0"
                                    Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
-                        <TextBlock Text="SUPPLIER INVOICE" FontSize="10.5" FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.MonoHint}" Text="SUPPLIER INVOICE"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding SupplierInvoice}" Margin="0,3,0,0"
-                                   FontSize="13.5" FontWeight="SemiBold"
+                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding SupplierInvoice}" Margin="0,3,0,0"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
                 </Grid>
@@ -58,31 +54,27 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <TextBlock Text="DATE" FontSize="10.5" FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.MonoHint}" Text="DATE"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding DateDisplay}" Margin="0,3,0,0"
-                                   FontSize="13.5" FontWeight="SemiBold"
+                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding DateDisplay}" Margin="0,3,0,0"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
-                        <TextBlock Text="ENTERED BY" FontSize="10.5" FontWeight="Bold"
+                        <TextBlock Style="{StaticResource Text.MonoHint}" Text="ENTERED BY"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
-                        <TextBlock Text="{Binding EnteredBy}" Margin="0,3,0,0"
-                                   FontSize="13.5" FontWeight="SemiBold"
+                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding EnteredBy}" Margin="0,3,0,0"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
                     </StackPanel>
                 </Grid>
 
                 <StackPanel Margin="0,0,0,16">
-                    <TextBlock Text="NOTE" FontSize="10.5" FontWeight="Bold"
+                    <TextBlock Style="{StaticResource Text.MonoHint}" Text="NOTE"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                    <TextBlock Text="{Binding NoteDisplay}" Margin="0,3,0,0"
-                               FontSize="13.5" TextWrapping="Wrap"
+                    <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding NoteDisplay}" Margin="0,3,0,0" TextWrapping="Wrap"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                 </StackPanel>
 
-                <TextBlock Text="ITEMS RECEIVED" Margin="0,0,0,7"
-                           FontSize="10.5" FontWeight="Bold"
+                <TextBlock Style="{StaticResource Text.MonoHint}" Text="ITEMS RECEIVED" Margin="0,0,0,7"
                            Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
                 <Border BorderBrush="{DynamicResource Brush.Border.Default}"
                         BorderThickness="1" CornerRadius="8" Margin="0,0,0,16">
@@ -107,10 +99,7 @@
                                         <Button Content="Receive / Stickers"
                                                 Command="{Binding DataContext.OpenPhysicalIntakeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding}"
-                                                Style="{StaticResource Button.Neutral}"
-                                                Height="26"
-                                                Padding="6,0"
-                                                FontSize="11" />
+                                                Style="{StaticResource Button.Neutral.Micro}" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -122,19 +111,17 @@
                     <StackPanel>
                         <Grid Margin="0,0,0,8">
                             <TextBlock Text="Subtotal" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                            <TextBlock Text="{Binding SubtotalDisplay}" HorizontalAlignment="Right"
-                                       FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SubtotalDisplay}" HorizontalAlignment="Right" />
                         </Grid>
                         <Grid Margin="0,0,0,8">
                             <TextBlock Text="Other Charges" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                            <TextBlock Text="{Binding OtherChargesDisplay}" HorizontalAlignment="Right"
-                                       FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding OtherChargesDisplay}" HorizontalAlignment="Right" />
                         </Grid>
                         <Border Height="1" Background="{DynamicResource Brush.Border.Default}" Margin="0,2,0,10"  CornerRadius="0"/>
                         <Grid>
-                            <TextBlock Text="TOTAL" FontWeight="Bold" />
-                            <TextBlock Text="{Binding TotalDisplay}" HorizontalAlignment="Right"
-                                       FontFamily="{StaticResource Font.Numeric}" FontSize="20" FontWeight="Bold"
+                            <TextBlock Style="{StaticResource Text.Control}" Text="TOTAL" />
+                            <TextBlock Style="{StaticResource Text.SectionTitle}" Text="{Binding TotalDisplay}" HorizontalAlignment="Right"
+                                       FontFamily="{StaticResource Font.Numeric}"
                                        Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
                         </Grid>
                     </StackPanel>

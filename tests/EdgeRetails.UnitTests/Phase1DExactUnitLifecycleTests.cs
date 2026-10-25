@@ -64,7 +64,13 @@ public sealed class Phase1DExactUnitLifecycleTests
         _fakes.Transactions,
         _fakes.Authorization,
         _fakes.UnitOfWork,
-        _fakes.Warranty);
+        warranty: _fakes.Warranty,
+        catalog: _fakes.Catalog,
+        physicalUnits: _fakes.PhysicalUnits,
+        packAllocations: _fakes.PackAllocations,
+        traceability: _fakes.Traceability,
+        parties: _fakes.Parties,
+        eligibility: _fakes.Eligibility);
 
     private CreatePurchaseReturnHandler CreatePurchaseReturnHandler() => new(
         _fakes.Purchasing,

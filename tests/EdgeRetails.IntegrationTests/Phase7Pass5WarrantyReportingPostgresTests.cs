@@ -84,8 +84,17 @@ public sealed class Phase7Pass5WarrantyReportingPostgresTests
         Assert.Equal(2, row.ActiveThakaCount);
         Assert.Equal(65m, row.CurrentThakaBalance);
         Assert.Equal(0m, row.NetSales);
-        var canonical = await read.ServiceProvider.GetRequiredService<IThakaReadService>().GetProjectsAsync(default);
-        Assert.Equal(canonical.Where(x => x.CustomerId == customer.Id && x.Status == ThakaProjectStatus.Active).Sum(x => x.Balance), row.CurrentThakaBalance);
+        var thaka = read.ServiceProvider.GetRequiredService<IThakaReadService>();
+        var activeProject = (await thaka.GetProjectAsync(active.Id, default))!.Project;
+        var overpaidProject = (await thaka.GetProjectAsync(overpaid.Id, default))!.Project;
+        Assert.Equal(90m, activeProject.MaterialValue); // 100 issued - 10 material reversal.
+        Assert.Equal(20m, activeProject.Paid); // 40 collected - 20 payment reversal.
+        Assert.Equal(5m, activeProject.SettlementDiscount);
+        Assert.Equal(65m, activeProject.Balance);
+        Assert.Equal(-10m, overpaidProject.Balance);
+        // Directory debt is nonnegative per project. A different project's
+        // overpayment must not reduce this project's collectible balance.
+        Assert.Equal(Math.Max(0m, activeProject.Balance) + Math.Max(0m, overpaidProject.Balance), row.CurrentThakaBalance);
     }
 
     // NEW_COVERAGE D13: canonical PostgreSQL writers establish every sold/claimed/returned source.

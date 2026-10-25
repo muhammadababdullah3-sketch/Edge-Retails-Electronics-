@@ -859,7 +859,7 @@ public sealed class GoldenLifecycleTracePostgresTests
         await db.SaveChangesAsync();
 
         // 5. Query Reporting Snapshot
-        var reportingService = new ReportingReadService(db, boundaryService);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
         var snapshot = await reportingService.GetSnapshotAsync(
             ReportingPeriodKind.Daily,
             selectedDate: targetDate,
@@ -1201,7 +1201,7 @@ public sealed class GoldenLifecycleTracePostgresTests
         db.Sales.AddRange(sale1, sale2);
         await db.SaveChangesAsync();
 
-        var reportingService = new ReportingReadService(db, boundaryService);
+        var reportingService = new ReportingReadService(db, boundaryService, clock);
 
         var snapshotDay1 = await reportingService.GetSnapshotAsync(
             ReportingPeriodKind.Daily, selectedDate: day1, selectedMonth: day1.Month, selectedYear: day1.Year, CancellationToken.None);
@@ -1213,5 +1213,81 @@ public sealed class GoldenLifecycleTracePostgresTests
 
         Assert.True(sale2.CompletedAt >= day2Start && sale2.CompletedAt < day2End);
         Assert.False(sale2.CompletedAt >= day1Start && sale2.CompletedAt < day1End);
+    }
+
+    [Fact]
+    public async Task LF14_Reporting_Postgres_IncludesReversalOnlyPeriodActivityRow()
+    {
+        var connStr = GetConnectionString();
+        await using var db = CreateDbContext(connStr);
+        var (_, _, actorId) = await SeedProductAndActorAsync(db, TrackingMode.Quantity);
+        var customer = await SeedCustomerAsync(db);
+        var selectedDay = new DateOnly(2031, 4, 12);
+        var shopClock = new ShopClock(KarachiZone);
+        var boundaries = new ShopPeriodBoundaryService(shopClock);
+        var (periodStart, periodEnd) = boundaries.GetDailyUtcBoundary(selectedDay);
+        var reversalAt = periodStart.AddHours(4);
+        var priorIssueAt = periodStart.AddDays(-2);
+
+        var project = new ThakaProject
+        {
+            ProjectNumber = "LF14-" + Guid.NewGuid().ToString("N")[..8],
+            CustomerId = customer.Id,
+            ProjectName = "LF14-Reversal-Only-" + Guid.NewGuid().ToString("N")[..8],
+            StartedOn = selectedDay.AddDays(-30),
+            Status = ThakaProjectStatus.Active,
+            CreatedBy = actorId,
+            CreatedAt = priorIssueAt,
+            Version = 1
+        };
+        db.ThakaProjects.Add(project);
+        await db.SaveChangesAsync();
+
+        var historicalIssue = new ThakaMaterialIssue
+        {
+            ProjectId = project.Id,
+            ChallanNumber = "LF14-CH-" + Guid.NewGuid().ToString("N")[..8],
+            ClientOperationId = Guid.NewGuid(),
+            TotalCharge = 20000m,
+            TotalCost = 12000m,
+            GrossProfit = 8000m,
+            IssuedBy = actorId,
+            IssuedAt = priorIssueAt
+        };
+        db.ThakaMaterialIssues.Add(historicalIssue);
+        await db.SaveChangesAsync();
+
+        db.ThakaMaterialReversals.Add(new ThakaMaterialReversal
+        {
+            ProjectId = project.Id,
+            MaterialIssueId = historicalIssue.Id,
+            ReversalNumber = "LF14-REV-" + Guid.NewGuid().ToString("N")[..8],
+            ClientOperationId = Guid.NewGuid(),
+            ReversedCharge = 5000m,
+            RestoredCost = 3000m,
+            Reason = "Current-period return of a prior-period issue",
+            ReversedBy = actorId,
+            ReversedAt = reversalAt
+        });
+        await db.SaveChangesAsync();
+
+        var reporting = new ReportingReadService(db, boundaries, shopClock);
+        var snapshot = await reporting.GetSnapshotAsync(
+            ReportingPeriodKind.Daily,
+            selectedDate: selectedDay,
+            selectedMonth: selectedDay.Month,
+            selectedYear: selectedDay.Year,
+            CancellationToken.None);
+
+        Assert.InRange(reversalAt, periodStart, periodEnd.AddTicks(-1));
+        var activity = Assert.Single(snapshot.ThakaActivity, x => x.ProjectName == project.ProjectName);
+        Assert.Equal(0, activity.IssueCount);
+        Assert.Equal(0m, activity.MaterialValue);
+        Assert.Equal(1, activity.ReversalCount);
+        Assert.Equal(5000m, activity.ReversalAmount);
+        Assert.Equal(-5000m, activity.NetMaterialValue);
+        // Option B keeps the headline KPI non-negative while the activity row
+        // preserves the signed reversal-only period detail.
+        Assert.Equal(0m, snapshot.ThakaMaterial);
     }
 }

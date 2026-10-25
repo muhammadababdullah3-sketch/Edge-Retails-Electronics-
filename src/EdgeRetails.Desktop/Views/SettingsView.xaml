@@ -90,7 +90,7 @@
         <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
        </StackPanel>
       </Grid>
-      <TextBlock Text="Logo" Margin="0,14,0,5" FontSize="12"/>
+      <TextBlock Text="Logo" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
       <Grid>
        <TextBox Text="{Binding LogoPath}" Style="{StaticResource Input.TextBox}" Margin="0,0,130,0" IsReadOnly="True"/>
        <Button Content="Upload Logo" Command="{Binding UploadLogoCommand}" Style="{StaticResource Button.Neutral}"
@@ -120,12 +120,12 @@
       <TextBlock Text="{Binding PrinterSettingsError}" Margin="0,8,0,0" TextWrapping="Wrap"
                  Foreground="{StaticResource Brush.Function.Warning}"
                  Visibility="{Binding HasPrinterSettingsError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-      <TextBlock Text="Printer choices are the Windows printers installed on this workstation. The selected printer and receipt width are stored locally for this workstation."
-                 Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+      <TextBlock Style="{StaticResource Text.PosMeta}" Text="Printer choices are the Windows printers installed on this workstation. The selected printer and receipt width are stored locally for this workstation."
+                 Margin="0,6,0,0" TextWrapping="Wrap"
                  Foreground="{DynamicResource Brush.Text.Muted}"/>
-      <TextBlock Text="Header Text" Margin="0,14,0,5" FontSize="12"/>
+      <TextBlock Text="Header Text" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
       <TextBox Text="{Binding HeaderText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
-      <TextBlock Text="Footer Text" Margin="0,14,0,5" FontSize="12"/>
+      <TextBlock Text="Footer Text" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
       <TextBox Text="{Binding FooterText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
       <WrapPanel Margin="0,16,0,0">
        <CheckBox Content="Show Customer" IsChecked="{Binding ShowCustomer}" Margin="0,0,24,0"/>
@@ -252,16 +252,16 @@
         <ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/>
        </Grid.ColumnDefinitions>
        <Border Grid.Column="0" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="DB Health" FontSize="11"/><TextBlock Text="{Binding DatabaseStatus}" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="DB Health" Style="{StaticResource Text.PosMeta}"/><TextBlock Text="{Binding DatabaseStatus}"/></StackPanel>
        </Border>
        <Border Grid.Column="2" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Last Backup" FontSize="11"/><TextBlock Text="{Binding LastBackupDisplay}" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Last Backup" Style="{StaticResource Text.PosMeta}"/><TextBlock Text="{Binding LastBackupDisplay}"/></StackPanel>
        </Border>
        <Border Grid.Column="4" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Storage" FontSize="11"/><TextBlock Text="Encrypted local" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Storage" Style="{StaticResource Text.PosMeta}"/><TextBlock Text="Encrypted local"/></StackPanel>
        </Border>
        <Border Grid.Column="6" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-        <StackPanel><TextBlock Text="Automatic Backup" FontSize="11"/><TextBlock Text="Server worker" FontWeight="SemiBold"/></StackPanel>
+        <StackPanel><TextBlock Text="Automatic Backup" Style="{StaticResource Text.PosMeta}"/><TextBlock Text="Server worker"/></StackPanel>
        </Border>
       </Grid>
       <Grid Margin="0,0,0,16">
@@ -270,13 +270,10 @@
         <ColumnDefinition Width="Auto"/>
        </Grid.ColumnDefinitions>
        <StackPanel VerticalAlignment="Center">
-        <TextBlock Text="Scheduled backups are managed by the local Server worker." FontWeight="SemiBold"/>
-        <TextBlock Text="{Binding BackupOperationStatus}" Margin="0,5,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
-        <TextBlock Text="{Binding BackupVerificationStatus}" Margin="0,4,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
-        <TextBlock Text="{Binding RestoreStatusDisplay}" Margin="0,4,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+        <TextBlock Style="{StaticResource Text.Body}" Text="Scheduled backups are managed by the local Server worker."/>
+        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding BackupOperationStatus}" Margin="0,5,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Muted}"/>
+        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding BackupVerificationStatus}" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding RestoreStatusDisplay}" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}"/>
        </StackPanel>
        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
         <Button Content="Refresh" Command="{Binding RefreshBackupHistoryCommand}"
@@ -293,7 +290,7 @@
                 Style="{StaticResource Button.Primary}"/>
        </StackPanel>
       </Grid>
-      <TextBlock Text="Recent Backup History" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10"/>
+      <TextBlock Text="Recent Backup History" Style="{StaticResource Text.Body}" Margin="0,0,0,10"/>
       <DataGrid ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}"
                 Style="{StaticResource Table.DataGrid}" Height="180" IsReadOnly="True">
        <DataGrid.Columns>
@@ -303,8 +300,8 @@
         <DataGridTextColumn Header="Size" Binding="{Binding Size}" Width="120"/>
        </DataGrid.Columns>
       </DataGrid>
-      <TextBlock Text="Restore validates an isolated staging database before requiring an exact typed confirmation for cutover. Backup files and credentials remain under Server-side control."
-                 Margin="0,12,0,0" TextWrapping="Wrap" FontSize="11"
+      <TextBlock Style="{StaticResource Text.PosMeta}" Text="Restore validates an isolated staging database before requiring an exact typed confirmation for cutover. Backup files and credentials remain under Server-side control."
+                 Margin="0,12,0,0" TextWrapping="Wrap"
                  Foreground="{DynamicResource Brush.Text.Muted}"/>
      </StackPanel>
     </Border>
@@ -326,7 +323,7 @@
         <RowDefinition Height="34"/><RowDefinition Height="34"/><RowDefinition Height="34"/>
        </Grid.RowDefinitions>
        <TextBlock Text="License ID" Grid.Row="0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-       <TextBlock Text="{Binding LicenseId}" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold"/>
+       <TextBlock Style="{StaticResource Text.Body}" Text="{Binding LicenseId}" Grid.Row="0" Grid.Column="1"/>
        <TextBlock Text="Store" Grid.Row="1" Foreground="{DynamicResource Brush.Text.Muted}"/>
        <TextBlock Text="{Binding LicenseStore}" Grid.Row="1" Grid.Column="1"/>
        <TextBlock Text="Module" Grid.Row="2" Foreground="{DynamicResource Brush.Text.Muted}"/>
@@ -336,7 +333,7 @@
        <TextBlock Text="Terminals" Grid.Row="4" Foreground="{DynamicResource Brush.Text.Muted}"/>
        <TextBlock Text="{Binding LicensedTerminals}" Grid.Row="4" Grid.Column="1"/>
        <TextBlock Text="Status" Grid.Row="5" Foreground="{DynamicResource Brush.Text.Muted}"/>
-       <TextBlock Text="{Binding LicenseStatus}" Grid.Row="5" Grid.Column="1" FontWeight="SemiBold"
+       <TextBlock Style="{StaticResource Text.Body}" Text="{Binding LicenseStatus}" Grid.Row="5" Grid.Column="1"
                   Foreground="{StaticResource Brush.Function.Warning}"/>
       </Grid>
      </StackPanel>
@@ -345,11 +342,11 @@
             Visibility="{Binding IsAppearance, Converter={StaticResource BooleanToVisibilityConverter}}">
      <StackPanel>
       <TextBlock Text="Appearance" Style="{StaticResource Settings.SectionTitle}"/>
-      <TextBlock Text="Theme" Margin="0,18,0,5" FontSize="12"/>
+      <TextBlock Text="Theme" Margin="0,18,0,5" Style="{StaticResource Text.FormLabel}"/>
       <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding SelectedTheme}"
                 Style="{StaticResource Input.ComboBox}" Width="260" HorizontalAlignment="Left"/>
-      <TextBlock Text="Light, Dark and System themes use the existing application theme service."
-                 Margin="0,10,0,0" FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}"/>
+      <TextBlock Style="{StaticResource Text.PosMeta}" Text="Light, Dark and System themes use the existing application theme service."
+                 Margin="0,10,0,0" Foreground="{DynamicResource Brush.Text.Muted}"/>
       <Button Content="Apply" Command="{Binding ApplyThemeCommand}" Style="{StaticResource Button.Primary}"
               HorizontalAlignment="Right" Margin="0,18,0,0" Padding="18,0"/>
      </StackPanel>
@@ -370,9 +367,9 @@
         <RowDefinition Height="38"/><RowDefinition Height="38"/><RowDefinition Height="38"/>
        </Grid.RowDefinitions>
        <TextBlock Text="PostgreSQL" Grid.Row="0" Foreground="{DynamicResource Brush.Text.Muted}"/>
-       <TextBlock Text="{Binding DatabaseStatus}" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold"/>
+       <TextBlock Style="{StaticResource Text.Body}" Text="{Binding DatabaseStatus}" Grid.Row="0" Grid.Column="1"/>
        <TextBlock Text="Connection" Grid.Row="1" Foreground="{DynamicResource Brush.Text.Muted}"/>
-       <TextBlock Text="{Binding ConnectionStatus}" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold"/>
+       <TextBlock Style="{StaticResource Text.Body}" Text="{Binding ConnectionStatus}" Grid.Row="1" Grid.Column="1"/>
        <TextBlock Text="Database" Grid.Row="2" Foreground="{DynamicResource Brush.Text.Muted}"/>
        <TextBlock Text="{Binding DatabaseName}" Grid.Row="2" Grid.Column="1"/>
        <TextBlock Text="Size" Grid.Row="3" Foreground="{DynamicResource Brush.Text.Muted}"/>
@@ -383,8 +380,8 @@
        <TextBlock Text="{Binding LastBackupDisplay}" Grid.Row="5" Grid.Column="1"/>
       </Grid>
       <Border Margin="0,14,0,0" Padding="12" Background="{DynamicResource Brush.Hover.Subtle}" CornerRadius="8">
-       <TextBlock Text="Database diagnostics are read-only. PostgreSQL host, port, passwords and connection strings are intentionally not exposed."
-                  TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+       <TextBlock Style="{StaticResource Text.PosMeta}" Text="Database diagnostics are read-only. PostgreSQL host, port, passwords and connection strings are intentionally not exposed."
+                  TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}"/>
       </Border>
      </StackPanel>
     </Border>

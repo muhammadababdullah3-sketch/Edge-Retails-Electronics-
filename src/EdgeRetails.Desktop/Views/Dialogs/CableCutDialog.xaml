@@ -8,10 +8,10 @@
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
                 <Grid>
                     <StackPanel>
-                        <TextBlock Text="Cable Cutting &amp; Continuous Measurement" FontSize="20" FontWeight="Bold"
+                        <TextBlock Text="Cable Cutting &amp; Continuous Measurement" Style="{StaticResource Text.SectionTitle}"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Margin="0,4,0,0" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Muted}">
-                            <Run Text="{Binding ProductName, Mode=OneWay}" FontWeight="SemiBold"/>
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0" Foreground="{DynamicResource Brush.Text.Muted}">
+                            <Run Style="{StaticResource Text.Run.Body}" Text="{Binding ProductName, Mode=OneWay}"/>
                             <Run Text=" · Cut Length: "/>
                             <Run Text="{Binding RequestedCutLength, Mode=OneWay}"/>
                             <Run Text=" "/>
@@ -28,25 +28,22 @@
                     <CheckBox x:Name="SplitCutCheckBox"
                               IsChecked="{Binding AllowSplitCuts, Mode=TwoWay}"
                               Content="Allow Segmented / Split Cuts across multiple pieces"
-                              FontWeight="SemiBold"
+                              Style="{StaticResource Input.CheckBox.Emphasis}"
                               VerticalAlignment="Center" />
                 </Grid>
 
-                <TextBlock x:Name="SplitCutNoticeAlert"
+                <TextBlock Style="{StaticResource Text.FormLabel}" x:Name="SplitCutNoticeAlert"
                            Text="{Binding SplitCutNotice}" Margin="0,6,0,0"
-                           Foreground="{DynamicResource Brush.Function.Warning}"
-                           FontSize="12" TextWrapping="Wrap" />
+                           Foreground="{DynamicResource Brush.Function.Warning}" TextWrapping="Wrap" />
 
                 <!-- Remnant Warning Alert (< 5m remaining) -->
-                <TextBlock x:Name="RemnantWarningAlert"
+                <TextBlock Style="{StaticResource Text.TableHeader}" x:Name="RemnantWarningAlert"
                            Text="{Binding RemnantWarning}" Margin="0,4,0,0"
-                           Foreground="{DynamicResource Brush.Status.Danger}"
-                           FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
+                           Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
 
-                <TextBlock x:Name="ErrorMessageAlert"
+                <TextBlock Style="{StaticResource Text.FormLabel}" x:Name="ErrorMessageAlert"
                            Text="{Binding ErrorMessage}" Margin="0,4,0,0"
-                           Foreground="{DynamicResource Brush.Status.Danger}"
-                           FontSize="12" TextWrapping="Wrap" />
+                           Foreground="{DynamicResource Brush.Status.Danger}" TextWrapping="Wrap" />
             </StackPanel>
 
             <!-- Bottom Actions -->

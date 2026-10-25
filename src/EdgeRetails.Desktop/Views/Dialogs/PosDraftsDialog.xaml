@@ -5,9 +5,9 @@
         <DockPanel>
             <Grid DockPanel.Dock="Top" Margin="0,0,0,14">
                 <StackPanel>
-                    <TextBlock Text="Recent POS Drafts" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="Recent POS Drafts" Style="{StaticResource Text.SectionTitle}"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Text="Resume or cancel authoritative backend drafts." Margin="0,4,0,0" FontSize="12.5"
+                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Resume or cancel authoritative backend drafts." Margin="0,4,0,0"
                                Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
                 <Button HorizontalAlignment="Right" Command="{Binding CloseCommand}"

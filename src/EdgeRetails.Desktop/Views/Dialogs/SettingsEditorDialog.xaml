@@ -5,7 +5,7 @@
  <Border Width="520" Padding="22" Style="{StaticResource Card.Raised}">
   <StackPanel>
    <Grid>
-    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                Foreground="{DynamicResource Brush.Text.Primary}"/>
     <Button Command="{Binding CancelCommand}"
             Style="{StaticResource Button.Close}"
@@ -14,7 +14,7 @@
 
    <StackPanel Margin="0,18,0,0"
       Visibility="{Binding IsUser, Converter={StaticResource BooleanToVisibilityConverter}}">
-    <TextBlock Text="Name" Margin="0,0,0,5" FontSize="12"/>
+    <TextBlock Text="Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
              IsEnabled="{Binding IsUserFieldsEnabled}" Style="{StaticResource Input.TextBox}"/>
     <Grid Margin="0,14,0,0">
@@ -24,31 +24,24 @@
       <ColumnDefinition Width="*"/>
      </Grid.ColumnDefinitions>
      <StackPanel>
-      <TextBlock Text="Role" Margin="0,0,0,5" FontSize="12"/>
+      <TextBlock Text="Role" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
       <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding Role}"
                 IsEnabled="{Binding IsUserFieldsEnabled}"
                 Style="{StaticResource Input.ComboBox}"/>
      </StackPanel>
      <StackPanel Grid.Column="2">
-      <TextBlock Text="Status" Margin="0,0,0,5" FontSize="12"/>
+      <TextBlock Text="Status" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
       <ComboBox ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}"
                 IsEnabled="{Binding IsUserFieldsEnabled}"
                 Style="{StaticResource Input.ComboBox}"/>
      </StackPanel>
     </Grid>
-    <TextBlock Text="{Binding PinLabel}"
-               Margin="0,14,0,5" FontSize="12"/>
+    <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding PinLabel}"
+               Margin="0,14,0,5"/>
     <PasswordBox x:Name="PinInput" PasswordChanged="OnPinPasswordChanged" IsEnabled="{Binding IsPinEnabled}" MaxLength="4"
-                 Height="{StaticResource Dimension.Control.Standard}"
-                 Padding="{StaticResource Padding.Input.Standard}"
-                 Background="{DynamicResource Brush.Input.Background}"
-                 Foreground="{DynamicResource Brush.Text.Primary}"
-                 BorderBrush="{DynamicResource Brush.Border.Default}"
-                 BorderThickness="1"
-                 FontFamily="{StaticResource Font.Primary}"
-                 FontSize="14"/>
-    <TextBlock Text="Enter a four-digit PIN. The Server stores a salted credential; the PIN is cleared after submission."
-               Margin="0,5,0,0" FontSize="11"
+                 Style="{StaticResource Input.PasswordBox}"/>
+    <TextBlock Style="{StaticResource Text.PosMeta}" Text="Enter a four-digit PIN. The Server stores a salted credential; the PIN is cleared after submission."
+               Margin="0,5,0,0"
                Foreground="{DynamicResource Brush.Text.Muted}"/>
     <TextBlock Text="{Binding UserOperationMessage}" TextWrapping="Wrap" Margin="0,8,0,0"
                Foreground="{DynamicResource Brush.Text.Secondary}"/>
@@ -59,27 +52,27 @@
 
    <StackPanel Margin="0,18,0,0"
       Visibility="{Binding IsCategory, Converter={StaticResource BooleanToVisibilityConverter}}">
-    <TextBlock Text="Category Name" Margin="0,0,0,5" FontSize="12"/>
+    <TextBlock Text="Category Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
              Style="{StaticResource Input.TextBox}"/>
    </StackPanel>
 
    <StackPanel Margin="0,18,0,0"
       Visibility="{Binding IsUnit, Converter={StaticResource BooleanToVisibilityConverter}}">
-    <TextBlock Text="Unit Name" Margin="0,0,0,5" FontSize="12"/>
+    <TextBlock Text="Unit Name" Margin="0,0,0,5" Style="{StaticResource Text.FormLabel}"/>
     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
              Style="{StaticResource Input.TextBox}"/>
-    <TextBlock Text="Symbol" Margin="0,14,0,5" FontSize="12"/>
+    <TextBlock Text="Symbol" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
     <TextBox Text="{Binding Symbol, UpdateSourceTrigger=PropertyChanged}"
              Style="{StaticResource Input.TextBox}"/>
    </StackPanel>
 
    <StackPanel Margin="0,18,0,0"
       Visibility="{Binding IsLicenseImport, Converter={StaticResource BooleanToVisibilityConverter}}">
-    <TextBlock Text="Select your license file (.lic or .key) to import and activate."
-               TextWrapping="Wrap" FontSize="12"
+    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Select your license file (.lic or .key) to import and activate."
+               TextWrapping="Wrap"
                Foreground="{DynamicResource Brush.Text.Secondary}"/>
-    <TextBlock Text="License File" Margin="0,14,0,5" FontSize="12"/>
+    <TextBlock Text="License File" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
     <Grid>
      <TextBox Text="{Binding FilePath}"
               Style="{StaticResource Input.TextBox}" Margin="0,0,100,0"
@@ -88,13 +81,13 @@
              Style="{StaticResource Button.Neutral}" Width="92"
              HorizontalAlignment="Right"/>
     </Grid>
-    <TextBlock Text=".lic or .key format" Margin="0,5,0,0" FontSize="11"
+    <TextBlock Text=".lic or .key format" Margin="0,5,0,0" Style="{StaticResource Text.PosMeta}"
                Foreground="{DynamicResource Brush.Text.Muted}"/>
     <Border Margin="0,14,0,0" Padding="12"
             Background="{DynamicResource Brush.Selection.Subtle}"
             CornerRadius="8">
-     <TextBlock Text="License verification and activation remain backend responsibilities. This dialog validates only the frontend workflow."
-                TextWrapping="Wrap" FontSize="11"
+     <TextBlock Style="{StaticResource Text.PosMeta}" Text="License verification and activation remain backend responsibilities. This dialog validates only the frontend workflow."
+                TextWrapping="Wrap"
                 Foreground="{DynamicResource Brush.Text.Secondary}"/>
     </Border>
    </StackPanel>

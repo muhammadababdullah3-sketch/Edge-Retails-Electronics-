@@ -191,6 +191,15 @@ public sealed class DemoTransactionService : ITransactionService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (request.Items.Any(item =>
+                item.ReturnSourceContainerId.HasValue ||
+                (item.InventoryUnitIds?.Count ?? 0) > 0 ||
+                item.IsRestockAsRemnant))
+        {
+            throw new InvalidOperationException(
+                "Pack, container, and provenance returns require the shop server. Preview mode cannot process this return.");
+        }
+
         if (request.Items.Count == 0 || request.TotalRefundAmount <= 0m)
         {
             throw new InvalidOperationException("Return must contain at least one item and a positive refund amount.");

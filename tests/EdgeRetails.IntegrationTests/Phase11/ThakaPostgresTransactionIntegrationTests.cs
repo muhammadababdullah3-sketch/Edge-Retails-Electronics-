@@ -278,11 +278,33 @@ public sealed class ThakaPostgresTransactionIntegrationTests(ITestOutputHelper o
         var db = verifyScope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
         var readService = verifyScope.ServiceProvider.GetRequiredService<IThakaReadService>();
 
-        var refundsSum = await db.ThakaCreditRefunds.Where(x => x.ProjectId == fixture.ProjectId).SumAsync(x => x.Amount);
+        var materialIssued = await db.ThakaMaterialIssues
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.TotalCharge);
+        var materialReversed = await db.ThakaMaterialReversals
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.ReversedCharge);
+        var settlementDiscounts = await db.ThakaSettlements
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.SettlementDiscount);
+        var payments = await db.ThakaPayments
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.Amount);
+        var paymentReversals = await db.ThakaPaymentReversals
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.Amount);
+        var refundsSum = await db.ThakaCreditRefunds
+            .Where(x => x.ProjectId == fixture.ProjectId)
+            .SumAsync(x => x.Amount);
         var detail = (await readService.GetProjectAsync(fixture.ProjectId, CancellationToken.None))!;
 
-        // Conservation equation: Balance = MaterialValue - (Paid - Refunded)
-        var expectedBalance = detail.Project.MaterialValue - (detail.Project.Paid - refundsSum);
+        // Derive the read model from persisted ledgers. Paid is already net of credit refunds,
+        // so subtracting refunds from the DTO's Paid value again would double-count them.
+        var expectedMaterialValue = materialIssued - materialReversed;
+        var expectedPaid = payments - paymentReversals - refundsSum;
+        var expectedBalance = expectedMaterialValue - settlementDiscounts - expectedPaid;
+        Assert.Equal(expectedMaterialValue, detail.Project.MaterialValue);
+        Assert.Equal(expectedPaid, detail.Project.Paid);
         Assert.Equal(expectedBalance, detail.Project.Balance);
         output.WriteLine($"[PASS] C2b Competing refund/material-issue preserved signed liability: Balance={detail.Project.Balance}, Expected={expectedBalance}.");
     }

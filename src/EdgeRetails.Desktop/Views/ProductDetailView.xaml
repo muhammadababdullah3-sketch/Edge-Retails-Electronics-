@@ -54,7 +54,7 @@
             <Border Style="{StaticResource Card.Default}">
                 <Grid MinHeight="360">
                     <StackPanel Visibility="{Binding IsOverview, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="Operational Profile" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" />
+                        <TextBlock Text="Operational Profile" Style="{StaticResource Text.DetailTitle}" Margin="0,0,0,12" />
                         <TextBlock Text="Current stock is calculated from controlled inventory movements and cannot be edited directly." TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Muted}" />
                     </StackPanel>
                     <DataGrid ItemsSource="{Binding Movements}" Style="{StaticResource Table.DataGrid}" IsReadOnly="True" BorderThickness="0"

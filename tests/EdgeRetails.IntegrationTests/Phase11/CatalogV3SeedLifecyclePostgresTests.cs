@@ -9,6 +9,7 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Infrastructure.Persistence;
 using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
@@ -36,6 +37,7 @@ public sealed class CatalogV3SeedLifecyclePostgresTests
     {
         var options = new DbContextOptionsBuilder<EdgeRetailsDbContext>()
             .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", "system"))
+            .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning))
             .Options;
         return new EdgeRetailsDbContext(options);
     }
@@ -84,6 +86,50 @@ public sealed class CatalogV3SeedLifecyclePostgresTests
               AND c.confdeltype='r'
             """, connection);
         Assert.Equal(1, Convert.ToInt32(await fk.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task Phase11LooseReturnSourceGraphMigration_DownRestoresPriorFunctionAndUpReinstallsGraph()
+    {
+        var connectionString = GetConnectionString();
+        await using var db = CreateDb(connectionString);
+        var migrator = db.GetService<IMigrator>();
+        const string previousMigration = "20261021160100_Phase11CatalogV3RelationalIntegrity";
+        const string currentMigration = "20261024110000_Phase11LooseReturnSourceGraph";
+
+        var migrations = db.Database.GetMigrations().ToArray();
+        Assert.Equal(currentMigration, migrations[^1]);
+        Assert.Contains(previousMigration, migrations);
+
+        await migrator.MigrateAsync(previousMigration);
+        await db.Database.OpenConnectionAsync();
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        await using (var priorFunction = new NpgsqlCommand(
+            "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
+        {
+            var definition = (string)(await priorFunction.ExecuteScalarAsync())!;
+            Assert.DoesNotContain("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
+        }
+        await using (var removedHelper = new NpgsqlCommand(
+            "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NULL", connection))
+        {
+            Assert.True((bool)(await removedHelper.ExecuteScalarAsync())!);
+        }
+
+        await migrator.MigrateAsync();
+        await using (var restoredHelper = new NpgsqlCommand(
+            "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NOT NULL", connection))
+        {
+            Assert.True((bool)(await restoredHelper.ExecuteScalarAsync())!);
+        }
+        await using (var restoredFunction = new NpgsqlCommand(
+            "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
+        {
+            var definition = (string)(await restoredFunction.ExecuteScalarAsync())!;
+            Assert.Contains("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(migrations, (await db.Database.GetAppliedMigrationsAsync()).ToArray());
     }
 
     /// <summary>

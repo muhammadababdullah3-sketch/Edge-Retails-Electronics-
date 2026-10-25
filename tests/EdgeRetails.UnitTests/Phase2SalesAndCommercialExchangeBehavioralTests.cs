@@ -46,7 +46,14 @@ public sealed class Phase2SalesAndCommercialExchangeBehavioralTests
             _fakes.Clock,
             _fakes.Transactions,
             _fakes.Authorization,
-            _fakes.UnitOfWork);
+            _fakes.UnitOfWork,
+            warranty: _fakes.Warranty,
+            catalog: _fakes.Catalog,
+            physicalUnits: _fakes.PhysicalUnits,
+            packAllocations: _fakes.PackAllocations,
+            traceability: _fakes.Traceability,
+            parties: _fakes.Parties,
+            eligibility: _fakes.Eligibility);
 
     private CommercialExchangeHandler CreateCommercialExchangeHandler() =>
         new(

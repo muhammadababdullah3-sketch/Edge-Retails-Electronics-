@@ -1,0 +1,171 @@
+# Copy-ready handoff: investigate and resolve the 82 integration-test failures
+
+## 1. Objective, working tree and verified starting facts
+
+Investigate the causes of the historical 82 failed executions, preserve valid existing repairs, correct confirmed source or test defects, and produce complete verification against one identifiable candidate.
+
+**Working locations**
+
+- POS repository: `C:\Users\muham\OneDrive\Desktop\Point of Sale`
+- Governance documentation: `C:\Users\muham\OneDrive\Desktop\Edge Retails Goverence Body`
+- Last verified branch: `feat/phase11-subledger-implementation`
+- Last verified base commit: `6b5bbd04f35aa1bce3362751185b60d3cabfc8e6`
+
+The working tree contains additional changes. **The commit alone is not the candidate.** Inspect and preserve the cumulative working tree before making changes.
+
+**Evidence to inspect first**
+
+Under the POS repository:
+
+```text
+governance/10-execution-runs/
+  ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-004/
+    evidence/pg18-full-integration-final/full-integration-release.trx
+    evidence/pg18-focused-final-rerun/
+```
+
+The broad result contains **1,094 executions: 1,012 passed and 82 failed**. The later focused result contains **165 passes**, but covers only **eight of those original failures**:
+
+- Three supplier-prefix `G13` cases.
+- Five container-residual `H1` cases.
+
+The other **74 original failures are absent from that focused selection**. Those eight later passes still need binding to the final candidate.
+
+This assignment resolves the test-failure wave. Whole-Phase-11 closure additionally requires its original 125 tasks, 16 capability gates, Final21 and accepting distinct D05 review.
+
+## 2. Establish ownership and a complete failure register
+
+Before source execution, identify the actual writer, obtain the necessary ownership handoff, and reserve an explicit write set. Preserve unrelated work; do not reset, clean, switch branches or copy another worktree over this candidate.
+
+Create one register with **exactly the original 82 failed cases**, identified by fully qualified test name and theory parameters. Each row must contain:
+
+```text
+Original result → current source/test hashes → later evidence, if any
+→ causal trace → approved invariant → repair or justified no-change
+→ affected tests → final result and evidence reference
+```
+
+Use separate dispositions for:
+
+- Confirmed product defect.
+- Invalid test precondition.
+- Fixture/runner incompatibility.
+- Existing repair awaiting verification.
+- Unresolved contract conflict.
+
+Do not begin by rerunning the entire failing suite. First use the existing errors and source to eliminate known setup incompatibilities.
+
+Use the owner’s eight stages throughout: known findings; related-path scan; foundation lock; exact criteria; numbered assignments; implementation; consolidated regression; independent review.
+
+## 3. Repair the environment without weakening guards
+
+### E1 — Introduce three explicit fixture profiles
+
+The previous plan’s single-master-fixture proposal was incorrect. Source inspection found incompatible database, schema and custody requirements.
+
+| Profile | Required identity and initialization | Consumers |
+|---|---|---|
+| Migrated Phase11 | Dedicated port `55437` or `55438`; database `edgeretails_test_<run>`; approved write-fixture identity; migrations applied | Default integration harness, Phase11 and Phase12 crash tests |
+| Migrated Master | Separate cluster/root; default dedicated port `55640`; database `edge_retails_master_test`; migrations and history present | Master supplier sequence/restore and cashier tests |
+| Model-only Phase1 | Separate cluster/root; dedicated port `55641`; database `edge_retails_master_test`; `EnsureCreated`, without migration history | Phase1 frontend recovery characterization |
+
+Validate every selected port is vacant and permitted by the relevant guards. An occupied port is not permission to terminate its owner.
+
+**Separate roots are mandatory:** sequence authority binds a custody directory to one database identity. Do not delete or rebind its manifest to make another profile work.
+
+Implement an internal immutable fixture-profile abstraction carrying the explicit connection, maintenance connection, owned root and expected identity. Extend `Phase2PostgresTestHarness` with an explicit-profile provider entry point while preserving default callers.
+
+Update these family entry points to use their named profile throughout provider construction, seeding, helper queries and sequence custody:
+
+- `MasterSupplierProductSequencePostgresTests.Fixture.CreateAsync`
+- `MasterCashierCreationPostgresTests.OwnedProviderAsync`
+- `Phase1FrontendRecoveryContractPostgresTests.BuildOwnedProvider`
+
+Do not switch process-wide connection variables between tests.
+
+Initialize the model-only profile before any Phase1 case runs. Its bootstrap Fact should verify readiness, not act as an unordered prerequisite. Verify migration history remains absent.
+
+### E2 — Separate maintenance, application-write and backup-read authority
+
+Do not route write tests through `er_master_runtime`: that existing role is deliberately SELECT-only for backup.
+
+Use three distinct responsibilities:
+
+- Maintenance: cluster/database initialization, migrations, restore destinations and role provisioning.
+- Approved write-fixture identity: application handlers and fixture data.
+- Backup-read identity: its existing restricted backup contract.
+
+Inspect actual role memberships as well as role attributes. The Catalog runner grants administrator membership despite declaring restricted attributes.
+
+Move privileged lifecycle work to the attested maintenance connection, including:
+
+- Tracking migration rehearsal database creation/deletion.
+- Master supplier restore-database creation.
+- Warranty migration test role provisioning.
+
+Keep every operation confined to generated, owned resources on its attested endpoint. Require explicit configuration; prevent the shared harness from falling back to a historical credential file.
+
+### E3 — Repair child executable and binary selection
+
+`Phase12Wave3PostgresTests` has seven hard-coded `FileName = "dotnet"` launch sites, producing eight failed executions.
+
+Create one internal child-host resolver that:
+
+- Resolves and validates the SDK required by `global.json`.
+- Supplies the absolute executable path to every child launch.
+- Uses the freshly built Release CrashTestHost DLL, dependencies and runtime configuration from the same candidate.
+- Rejects stale copied or Debug fallback binaries as final verification evidence.
+
+Preserve the actual crash, readiness, before/after-commit and replay assertions.
+
+### E4 — Retain real deadlock and cutover coverage
+
+For the `deadlock_timeout` permission failure, use the verified server detection interval and suitable bounded coordination/timeouts. Preserve actual SQLSTATE `40P01` evidence; a serialization failure is not equivalent.
+
+Run the existing cutover test only after its disposable-only prerequisites and authorization are established. Do not disable its guard, silently skip it or implement unrelated Phase8/9 features.
+
+## 4. Resolve the 20 behavioral failures from their actual causes
+
+| Task | Source-supported finding | Required change and proof |
+|---|---|---|
+| B1 — Supplier replay | `CreateSupplierPaymentHandler` returns an actor-context rejection, then attempts `RecordFailureAsync` against the original operation. Immutable-identity validation throws. | Record failure only for an outcome owned by this attempt. Rejected actor/type/payload collisions must preserve the original succeeded outcome and return the authoritative typed rejection. Prove exact replay has one payment/account/cash effect. |
+| B2 — Existing supplier-prefix repair | Current `SaveSupplierHandler` already tracks whether it claimed the outcome. Three original failures pass later. | Preserve the repair; verify its transaction/error-path ownership and bind the three results to current bytes. |
+| B3 — Manual cash and rollback | Two manual-cash cases and the rollback case omit a required operation ID. The rollback injection is never reached. | Supply a valid stable ID. Assert the injected post-flush failure was reached, retain the expected exception, and verify rollback through a fresh database scope. Preserve missing-ID rejection and replay checks. |
+| B4 — Missing-unit scenario | The test submits `RefundMethod.Other`, so refund-method validation rejects before unit eligibility. | Use an approved refund method for the missing-unit scenario. Separately retain unsupported-method rejection and zero business mutation. |
+| B5 — Container carrying value | Current source already calculates allocation amounts directly and removes carrying value by amount. Five original residual cases pass later. | Preserve this work. Verify the commercial-exchange case, complete-pack conservation, repeated partial cuts exhausting a pack, replay, returns and rollback. Do not widen decimal tolerances or clamp unexplained differences. |
+| B6 — Customer balance | The old test expected 55; current test expects 65. Seed arithmetic is `100−10−5−40+20=65`; another overpaid project contributes zero under per-project non-netting. | Bind the oracle to the approved policy and rerun the exact current case. Verify the actual DTO and per-project facts; do not change production arithmetic merely to restore the old 55 expectation. |
+| B7 — Error-code assertions | Historical tests expect generic payload mismatch where current handlers distinguish operation type and actor context. | Resolve expected codes from the controlling API/original contract. Preserve rejection and unchanged original outcomes whichever diagnostic code is authoritative. Do not collapse errors solely to satisfy old strings. |
+| B8 — Posting dates | One fixture injects 2037 while purchase setup uses today. Another uses fixed purchase date 2026-10-08 with a live clock. | Align setup with an explicit fixture clock. Preserve the posting window and timestamp/microsecond/non-UTC assertions. Do not change the OS clock or production date limits. |
+| B9 — Label uniqueness | The label test renames a uniquely seeded unit to `Piece`, conflicting with `ix_units_name`. | Isolate or safely reuse canonical fixture data while retaining meaningful label text, identity/provenance and overflow checks. Preserve uniqueness constraints. |
+
+Scan related callers for each confirmed causal pattern. Add newly exposed failures as supplemental rows linked to their cause; never remove an original row or substitute a passing test.
+
+Protect historical migration bytes. A genuine schema defect requires the normal additive migration process and authority, not editing an old migration to satisfy a test.
+
+## 5. Assign work and verify one final candidate
+
+Use actual native workers with recorded IDs and nonoverlapping ownership:
+
+- **Integrator:** shared harness, fixture-profile interfaces, source integration and candidate identity.
+- **Environment investigator/worker:** runner, maintenance and child-host changes within its assigned files.
+- **Behavior investigator/worker:** independently assigned behavioral paths and tests.
+- **Independent reviewer:** causal reasoning, approved contracts and final evidence; no competing source edits.
+
+Exactly one coordinator owns builds, test outputs, clusters and backup/restore resources. Serialize shared files and database execution. Preserve the assembly’s existing test-parallelization policy.
+
+Verification order:
+
+1. Validate each profile’s live process, data directory, database, role, schema mode and custody binding.
+2. Prove swapped roots/connections, wrong roles and operational routing fail closed.
+3. Verify representative cases for each shared cause.
+4. Run every original failed case against the corrected candidate, including the eight previously passing focused cases.
+5. Run one complete unfiltered Release IntegrationTests gate using the explicit profiles.
+6. Reconcile the discovered/executed inventory against the original 1,094 cases. Explain additions; required failures, skips, omissions or unexecuted gates prevent acceptance.
+7. Run affected unit/Desktop regressions and required solution builds. Bind source, test binaries, CrashTestHost, harness, configuration, schema and raw results to the final candidate.
+8. Obtain independent review of every failure-register disposition and all newly exposed findings.
+
+**Storage and delivery:** create no temporary data in the Governance Body. Keep disposable clusters, WAL, backups and child staging in explicitly owned external roots. Measure their combined reservation against the existing storage limit before execution; insufficient budget remains an explicit blocker. Retain compact sanitized raw evidence and changed-file before/after proof, without repeated workspace archives.
+
+Deliver a unique durable evidence package containing the 82-row register, source changes, causal explanations, profile/role attestations, commands and exit codes, raw results, manifest/readback, remaining blockers and independent review.
+
+**Completion requires proven resolution of the original 82 cases and a passing complete integration gate on the final candidate.** Formal Phase11 closure remains a separate original-scope acceptance decision. This handoff plan performs no implementation and requires a separately authorized POS writer before execution.

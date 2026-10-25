@@ -156,7 +156,7 @@ public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBack
 
     public Task RecordStocktakeCountAsync(
         Guid stocktakeId, Guid productId, decimal countedSellableQty,
-        string? reviewNote, CancellationToken cancellationToken = default) =>
+        string? reviewNote, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>
         UnsupportedStocktake();
 
     public Task RecordSerializedStocktakeAsync(
@@ -167,11 +167,12 @@ public sealed class RemotePosWorkflowService(DesktopApiClient apiClient) : IBack
         IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
         decimal minimumSellableIncrement = 1m,
         decimal separateLooseQuantity = 0m,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default) =>
         UnsupportedStocktake();
 
     public Task ReviewStocktakeAsync(
-        Guid stocktakeId, CancellationToken cancellationToken = default) =>
+        Guid stocktakeId, Guid? clientOperationId = null, CancellationToken cancellationToken = default) =>
         UnsupportedStocktake();
 
     public Task PostStocktakeAsync(

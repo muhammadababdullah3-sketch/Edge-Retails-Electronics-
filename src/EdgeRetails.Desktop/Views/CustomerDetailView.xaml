@@ -7,20 +7,20 @@
         <Border Padding="21,14" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="0">
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Primary}" />
-                    <TextBlock Text="Customer information" Margin="0,2,0,0" FontSize="12" Foreground="{DynamicResource Brush.Text.Muted}" />
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.DrawerTitle}" Foreground="{DynamicResource Brush.Text.Primary}" />
+                    <TextBlock Text="Customer information" Margin="0,2,0,0" Style="{StaticResource Text.FormLabel}" Foreground="{DynamicResource Brush.Text.Muted}" />
                 </StackPanel>
                 <Button Command="{Binding CloseCommand}" Style="{StaticResource Button.Close}" HorizontalAlignment="Right"/>
             </Grid>
         </Border>
         <ScrollViewer Grid.Row="1" Padding="21,16">
             <StackPanel>
-                <Grid Margin="0,0,0,12"><TextBlock Text="Phone" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.Phone}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
-                <Grid Margin="0,0,0,12"><TextBlock Text="Address" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.Address}" Margin="126,0,0,0" TextWrapping="Wrap" FontWeight="SemiBold"/></Grid>
-                <Grid Margin="0,0,0,12"><TextBlock Text="Active Thaka" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.ActiveThaka}" Margin="126,0,0,0" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Badge.Brand.Text}"/></Grid>
-                <Grid Margin="0,0,0,12"><TextBlock Text="Local Sales" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.LocalSalesDisplay}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
-                <Grid Margin="0,0,0,18"><TextBlock Text="Last Sale" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Text="{Binding Customer.LastSaleDisplay}" Margin="126,0,0,0" FontWeight="SemiBold"/></Grid>
-                <TextBlock Text="Notes" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Muted}" />
+                <Grid Margin="0,0,0,12"><TextBlock Text="Phone" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Style="{StaticResource Text.Body}" Text="{Binding Customer.Phone}" Margin="126,0,0,0"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Address" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Style="{StaticResource Text.Body}" Text="{Binding Customer.Address}" Margin="126,0,0,0" TextWrapping="Wrap"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Active Thaka" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Style="{StaticResource Text.Body}" Text="{Binding Customer.ActiveThaka}" Margin="126,0,0,0" Foreground="{DynamicResource Brush.Badge.Brand.Text}"/></Grid>
+                <Grid Margin="0,0,0,12"><TextBlock Text="Local Sales" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Style="{StaticResource Text.Body}" Text="{Binding Customer.LocalSalesDisplay}" Margin="126,0,0,0"/></Grid>
+                <Grid Margin="0,0,0,18"><TextBlock Text="Last Sale" Width="112" Foreground="{DynamicResource Brush.Text.Muted}"/><TextBlock Style="{StaticResource Text.Body}" Text="{Binding Customer.LastSaleDisplay}" Margin="126,0,0,0"/></Grid>
+                <TextBlock Text="Notes" Style="{StaticResource Text.PosBadge}" Foreground="{DynamicResource Brush.Text.Muted}" />
                 <TextBlock Text="{Binding NotesDisplay}" Margin="0,5,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Primary}"/>
             </StackPanel>
         </ScrollViewer>

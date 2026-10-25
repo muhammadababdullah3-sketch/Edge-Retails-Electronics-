@@ -259,6 +259,30 @@ public sealed class ReturnExchangeEligibilityAuthority : IReturnExchangeEligibil
                     "Container partial returns do not take multiple unit ids.");
             }
 
+            ValidateContainerReturnMetadata(input, product);
+
+            if (input.InventoryUnitIds.Count == 0 &&
+                !input.ReturnSourceContainerId.HasValue &&
+                saleItemUnits.Count == 0)
+            {
+                throw new BusinessRuleException(
+                    "sales.return_source_container_required",
+                    "Container loose return requires a return source container id when no inventory unit id is supplied.");
+            }
+
+            if (input.InventoryUnitIds.Count == 0 && input.ReturnSourceContainerId is { } sourceContainerId)
+            {
+                await ValidateReturnSourceContainerOnSaleAsync(item, sourceContainerId, saleItemUnits, ct);
+            }
+            else if (input.ReturnSourceContainerId is { } declaredContainerId &&
+                     input.InventoryUnitIds.Count == 1 &&
+                     input.InventoryUnitIds[0] != declaredContainerId)
+            {
+                throw new BusinessRuleException(
+                    "sales.return_source_container_mismatch",
+                    "Return source container id must match the returned inventory unit when both are supplied.");
+            }
+
             if (input.InventoryUnitIds.Count == 1 && _warranty is not null)
             {
                 var unitId = input.InventoryUnitIds[0];
@@ -276,6 +300,28 @@ public sealed class ReturnExchangeEligibilityAuthority : IReturnExchangeEligibil
                 }
             }
 
+            var containerOrigins = SoldSourceAllocationAuthority.Select(
+                await _sales.GetSoldSourceCapacityForUpdateAsync(item.Id, ct),
+                baseQuantity);
+            if (containerOrigins.Any(x => !x.PurchaseItemId.HasValue || !x.SupplierId.HasValue))
+            {
+                throw new BusinessRuleException(
+                    "sales.return_source_provenance_required",
+                    "Container return requires purchase-item and supplier provenance for every sold-source allocation.");
+            }
+
+            var containerSuppliers = containerOrigins
+                .Where(x => x.SupplierId.HasValue)
+                .Select(x => x.SupplierId!.Value)
+                .Distinct()
+                .ToArray();
+            if (containerSuppliers.Length > 1)
+            {
+                throw new BusinessRuleException(
+                    "sales.return_source_supplier_ambiguous",
+                    "Return source supplier is ambiguous across sold-source allocations.");
+            }
+
             return new PreparedReturnLine(
                 Item: item,
                 Input: input,
@@ -286,7 +332,7 @@ public sealed class ReturnExchangeEligibilityAuthority : IReturnExchangeEligibil
                 OriginalCostAmount: originalCostAmount,
                 Kind: ReturnLineKind.ContainerLoose,
                 SerializedUnits: Array.Empty<(InventoryUnit, SaleItemUnit)>(),
-                OriginAllocations: Array.Empty<OriginalLotReturnAllocation>());
+                OriginAllocations: containerOrigins);
         }
 
         // Path C: Standard Quantity / Length tracking
@@ -430,130 +476,7 @@ public sealed class ReturnExchangeEligibilityAuthority : IReturnExchangeEligibil
 
             case ReturnLineKind.ContainerLoose:
             {
-                var unitCost = Cost(prepared.OriginalCostAmount / prepared.BaseQuantity);
-                Guid lotId;
-
-                if (prepared.Input.Disposition == SaleReturnDisposition.Scrap)
-                {
-                    lotId = await _costs.AddZeroCarryingLotAsync(
-                        prepared.Item.ProductId,
-                        prepared.BaseQuantity,
-                        unitCost,
-                        movement.Id,
-                        null,
-                        InventoryBucket.Scrap,
-                        ct);
-                }
-                else
-                {
-                    lotId = await _costs.AddCarryingValueAndLotWithIdAsync(
-                        prepared.Item.ProductId,
-                        prepared.BaseQuantity,
-                        unitCost,
-                        movement.Id,
-                        null,
-                        destination,
-                        ct);
-
-                    var costState = await _inventory.GetCostStateForUpdateAsync(prepared.Item.ProductId, ct)
-                        ?? throw new BusinessRuleException("inventory.cost_state_missing", "Inventory cost state is required.");
-                    var represented = Cost(prepared.BaseQuantity * unitCost);
-                    costState.TotalInventoryCost = Cost(costState.TotalInventoryCost + prepared.OriginalCostAmount - represented);
-                    costState.MovingAverageCost = Cost(costState.TotalInventoryCost / costState.CostedQty);
-                }
-
-                var soldUnits = await _sales.GetSaleItemUnitsAsync(prepared.Item.Id, ct);
-                Guid? sourcePurchaseItemId = null;
-                if (soldUnits.Count > 0)
-                {
-                    var originalUnits = await _inventory.GetInventoryUnitsForUpdateAsync(
-                        prepared.Item.ProductId,
-                        new[] { soldUnits[0].InventoryUnitId },
-                        ct);
-                    if (originalUnits.Count > 0)
-                    {
-                        sourcePurchaseItemId = originalUnits[0].SourcePurchaseItemId;
-                    }
-                }
-                if (sourcePurchaseItemId is null)
-                {
-                    var soldSources = await _sales.GetSoldSourceCapacityForUpdateAsync(prepared.Item.Id, ct);
-                    sourcePurchaseItemId = soldSources.FirstOrDefault(x => x.PurchaseItemId.HasValue)?.PurchaseItemId;
-                }
-
-                var entry = _packAllocations.CreateLooseReturnEntry(
-                    returnedQuantity: prepared.BaseQuantity,
-                    unitCost: unitCost,
-                    restoredLotId: lotId,
-                    isDamaged: prepared.Input.Disposition == SaleReturnDisposition.Damaged,
-                    sourcePurchaseItemId: sourcePurchaseItemId);
-
-                if (prepared.Input.Disposition == SaleReturnDisposition.Defective)
-                {
-                    entry = entry with { Status = InventoryUnitStatus.Defective };
-                }
-                else if (prepared.Input.Disposition == SaleReturnDisposition.Scrap)
-                {
-                    entry = entry with { Status = InventoryUnitStatus.Scrapped };
-                }
-
-                if (_physicalUnits is null)
-                {
-                    throw new BusinessRuleException(
-                        "inventory.physical_unit_authority_unavailable",
-                        "Physical-unit creation authority is unavailable.");
-                }
-
-                var supplierId = await ResolveSupplierIdAsync(prepared.Item, soldUnits, ct);
-
-                var creation = await _physicalUnits.CreateAsync(
-                    supplierId,
-                    prepared.Item.ProductId,
-                    new[] { entry },
-                    ct);
-
-                if (!creation.IsSuccess || creation.Value is null || creation.Value.Count == 0)
-                {
-                    throw new BusinessRuleException(
-                        creation.Error?.Code ?? "inventory.loose_return_failed",
-                        creation.Error?.Message ?? "Failed to create loose return unit.");
-                }
-
-                var looseUnit = creation.Value[0];
-
-                var alloc = new PackAllocation
-                {
-                    Id = Guid.CreateVersion7(),
-                    PackUnitId = looseUnit.Id,
-                    MovementId = movement.Id,
-                    LotId = lotId,
-                    OperationType = PackAllocationOperationTypes.ReturnRestock,
-                    SaleReturnItemId = returnItemId,
-                    AllocatedBaseQuantity = prepared.BaseQuantity,
-                    UnitCostSnapshot = unitCost,
-                    TotalCostSnapshot = prepared.OriginalCostAmount,
-                    RemainingQuantityAfter = looseUnit.RemainingBaseQuantity ?? prepared.BaseQuantity,
-                    PackStateAfter = looseUnit.PackState ?? PackState.Open,
-                    ActorId = actorId,
-                    OccurredAt = _clock.UtcNow,
-                    CreatedAt = _clock.UtcNow
-                };
-                alloc.ValidateInvariants();
-                _inventory.AddPackAllocation(alloc);
-
-                _inventory.AddMovementUnit(new InventoryMovementUnit
-                {
-                    MovementId = movement.Id,
-                    InventoryUnitId = looseUnit.Id,
-                    FromStatus = null,
-                    ToStatus = looseUnit.Status
-                });
-
-                _sales.AddReturnItemUnit(new SaleReturnItemUnit
-                {
-                    SaleReturnItemId = returnItemId,
-                    InventoryUnitId = looseUnit.Id
-                });
+                await RestoreLooseContainerReturnAsync(prepared, returnItemId, movement, actorId, ct);
                 break;
             }
 
@@ -577,48 +500,201 @@ public sealed class ReturnExchangeEligibilityAuthority : IReturnExchangeEligibil
         }
     }
 
-    private async Task<Guid> ResolveSupplierIdAsync(
+    private static void ValidateContainerReturnMetadata(SaleReturnLineInput input, Product product)
+    {
+        if (product.TrackingMode != TrackingMode.Container)
+        {
+            return;
+        }
+
+        if (input.Disposition is SaleReturnDisposition.Damaged or SaleReturnDisposition.Defective &&
+            string.IsNullOrWhiteSpace(input.ConditionInspectionResult))
+        {
+            throw new BusinessRuleException(
+                "sales.return_condition_inspection_required",
+                "Damaged or defective container returns require a condition inspection result.");
+        }
+    }
+
+    private async Task ValidateReturnSourceContainerOnSaleAsync(
         SaleItem item,
-        IReadOnlyList<SaleItemUnit> soldUnits,
+        Guid containerUnitId,
+        IReadOnlyList<SaleItemUnit> saleItemUnits,
         CancellationToken ct)
     {
-        if (soldUnits.Count > 0)
+        if (saleItemUnits.Any(x => x.InventoryUnitId == containerUnitId))
         {
-            var units = await _inventory.GetInventoryUnitsForUpdateAsync(
-                item.ProductId,
-                new[] { soldUnits[0].InventoryUnitId },
-                ct);
+            return;
+        }
 
-            if (units.Count > 0 && units[0].SupplierProductId.HasValue && _traceability is not null)
-            {
-                var sp = await _traceability.GetSupplierProductByIdForUpdateAsync(
-                    units[0].SupplierProductId!.Value,
-                    ct);
-                if (sp is not null)
-                {
-                    return sp.SupplierId;
-                }
-            }
+        var units = await _inventory.GetInventoryUnitsForUpdateAsync(item.ProductId, new[] { containerUnitId }, ct);
+        if (units.Count != 1)
+        {
+            throw new BusinessRuleException(
+                "sales.return_source_container_invalid",
+                "Return source container was not found for this product.");
         }
 
         var soldSources = await _sales.GetSoldSourceCapacityForUpdateAsync(item.Id, ct);
-        var sourceSupplier = soldSources.FirstOrDefault(x => x.SupplierId is not null)?.SupplierId;
-        if (sourceSupplier.HasValue)
+        if (soldSources.Count == 0)
         {
-            return sourceSupplier.Value;
+            throw new BusinessRuleException(
+                "sales.return_source_provenance_required",
+                "Container return requires purchase-item and supplier provenance for every sold-source allocation.");
         }
 
-        if (_parties is not null)
+        var distinctSuppliers = soldSources
+            .Where(x => x.SupplierId.HasValue)
+            .Select(x => x.SupplierId!.Value)
+            .Distinct()
+            .ToArray();
+        if (distinctSuppliers.Length > 1)
         {
-            var suppliers = await _parties.GetSuppliersAsync(false, ct);
-            var active = suppliers.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.DealerCode));
-            if (active is not null)
+            throw new BusinessRuleException(
+                "sales.return_source_supplier_ambiguous",
+                "Return source supplier is ambiguous across sold-source allocations.");
+        }
+    }
+
+    private async Task RestoreLooseContainerReturnAsync(
+        PreparedReturnLine prepared,
+        Guid returnItemId,
+        InventoryMovement movement,
+        Guid actorId,
+        CancellationToken ct)
+    {
+        if (_physicalUnits is null)
+        {
+            throw new BusinessRuleException(
+                "inventory.physical_unit_authority_unavailable",
+                "Physical-unit creation authority is unavailable.");
+        }
+        if (prepared.OriginAllocations.Count == 0 ||
+            prepared.OriginAllocations.Any(x => !x.PurchaseItemId.HasValue || !x.SupplierId.HasValue))
+        {
+            throw new BusinessRuleException(
+                "sales.return_source_provenance_required",
+                "Container return requires purchase-item and supplier provenance for every sold-source allocation.");
+        }
+
+        var restored = new List<(OriginalLotReturnAllocation Source, Guid LotId, decimal Cost, PhysicalUnitCreationEntry Entry)>();
+        decimal remainingCost = prepared.OriginalCostAmount;
+        for (var index = 0; index < prepared.OriginAllocations.Count; index++)
+        {
+            var source = prepared.OriginAllocations[index];
+            var sourceCost = index == prepared.OriginAllocations.Count - 1
+                ? remainingCost
+                : Cost(prepared.OriginalCostAmount * source.Quantity / prepared.BaseQuantity);
+            remainingCost = Cost(remainingCost - sourceCost);
+            var sourceUnitCost = Cost(sourceCost / source.Quantity);
+            var lotId = prepared.Input.Disposition == SaleReturnDisposition.Scrap
+                ? await _costs.AddZeroCarryingLotAsync(
+                    prepared.Item.ProductId, source.Quantity, sourceUnitCost, movement.Id,
+                    source.PurchaseItemId, InventoryBucket.Scrap, ct)
+                : await _costs.AddCarryingValueAndLotByAmountAsync(
+                    prepared.Item.ProductId, source.Quantity, sourceCost, movement.Id,
+                    source.PurchaseItemId, SaleMath.ToInventoryBucket(prepared.Input.Disposition), ct);
+
+            var entry = _packAllocations.CreateLooseReturnEntry(
+                returnedQuantity: source.Quantity,
+                unitCost: sourceUnitCost,
+                restoredLotId: lotId,
+                isDamaged: prepared.Input.Disposition == SaleReturnDisposition.Damaged,
+                sourcePurchaseItemId: source.PurchaseItemId,
+                restockAsRemnant: prepared.Input.IsRestockAsRemnant);
+            entry = entry with { AcquisitionCost = sourceCost };
+            if (prepared.Input.Disposition == SaleReturnDisposition.Defective)
+                entry = entry with { Status = InventoryUnitStatus.Defective };
+            else if (prepared.Input.Disposition == SaleReturnDisposition.Scrap)
+                entry = entry with { Status = InventoryUnitStatus.Scrapped };
+
+            if (prepared.Input.IsRestockAsRemnant &&
+                prepared.Input.Disposition == SaleReturnDisposition.RestockSellable)
             {
-                return active.Id;
+                var remnant = _packAllocations.EvaluateRemnant(source.Quantity);
+                if (!remnant.IsUsable)
+                {
+                    throw new BusinessRuleException(
+                        "sales.return_remnant_not_sellable",
+                        remnant.WarningMessage ?? "Returned remnant quantity is not sellable.");
+                }
+            }
+
+            restored.Add((source, lotId, sourceCost, entry));
+        }
+
+        // Physical-unit creation takes one supplier per batch. Keep each source slice's
+        // purchase provenance intact and acquire supplier-product locks in stable order.
+        foreach (var supplierGroup in restored.GroupBy(x => x.Source.SupplierId!.Value).OrderBy(x => x.Key))
+        {
+            var batch = supplierGroup.ToArray();
+            var creation = await _physicalUnits.CreateAsync(
+                supplierGroup.Key, prepared.Item.ProductId, batch.Select(x => x.Entry).ToArray(), ct);
+            if (!creation.IsSuccess || creation.Value is null || creation.Value.Count != batch.Length)
+            {
+                throw new BusinessRuleException(
+                    creation.Error?.Code ?? "inventory.loose_return_failed",
+                    creation.Error?.Message ?? "Failed to create all source-linked loose return units.");
+            }
+
+            for (var index = 0; index < batch.Length; index++)
+            {
+                var row = batch[index];
+                var looseUnit = creation.Value[index];
+                var packAllocation = new PackAllocation
+                {
+                    Id = Guid.CreateVersion7(),
+                    PackUnitId = looseUnit.Id,
+                    MovementId = movement.Id,
+                    LotId = row.LotId,
+                    OperationType = PackAllocationOperationTypes.ReturnRestock,
+                    SaleReturnItemId = returnItemId,
+                    AllocatedBaseQuantity = row.Source.Quantity,
+                    UnitCostSnapshot = Cost(row.Cost / row.Source.Quantity),
+                    TotalCostSnapshot = row.Cost,
+                    RemainingQuantityAfter = looseUnit.RemainingBaseQuantity ?? row.Source.Quantity,
+                    PackStateAfter = looseUnit.PackState ?? PackState.Open,
+                    ActorId = actorId,
+                    OccurredAt = movement.OccurredAt,
+                    CreatedAt = _clock.UtcNow
+                };
+                packAllocation.ValidateInvariants();
+                _inventory.AddPackAllocation(packAllocation);
+                _inventory.AddMovementUnit(new InventoryMovementUnit
+                {
+                    MovementId = movement.Id,
+                    InventoryUnitId = looseUnit.Id,
+                    FromStatus = null,
+                    ToStatus = looseUnit.Status
+                });
+                _sales.AddReturnItemUnit(new SaleReturnItemUnit
+                {
+                    SaleReturnItemId = returnItemId,
+                    InventoryUnitId = looseUnit.Id
+                });
+                _sales.AddReturnSourceAllocation(new SaleReturnSourceAllocation
+                {
+                    SaleReturnItemId = returnItemId,
+                    SaleConsumptionId = row.Source.SaleConsumptionId,
+                    ReturnMovementId = movement.Id,
+                    RestoredInventoryLotId = row.LotId,
+                    BaseQuantity = row.Source.Quantity,
+                    ClientOperationId = movement.CorrelationId,
+                    ActorId = actorId,
+                    OccurredAt = movement.OccurredAt
+                });
             }
         }
 
-        return Guid.Empty;
+        if (prepared.Input.Disposition != SaleReturnDisposition.Scrap)
+        {
+            var representedCost = Cost(restored.Sum(x => x.Entry.AcquisitionCost));
+            if (representedCost != prepared.OriginalCostAmount)
+            {
+                throw new BusinessRuleException("inventory.return_cost_provenance_mismatch",
+                    "Restored physical units must represent the exact source carrying amount.");
+            }
+        }
     }
 
     private async Task<IReadOnlyList<(InventoryUnit Unit, SaleItemUnit Snapshot)>> PrepareSerializedUnitsAsync(

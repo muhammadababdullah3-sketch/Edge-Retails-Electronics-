@@ -31,20 +31,17 @@
 
                     <StackPanel Grid.Column="1">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding ProjectName}"
+                            <TextBlock Style="{StaticResource Text.PageTitle}" Text="{Binding ProjectName}"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="24"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
                             <controls:StatusBadge Margin="10,2,0,0"
                                                   Text="{Binding StatusDisplay}"
                                                   Tone="{Binding StatusTone}"
                                                   VerticalAlignment="Top" />
                         </StackPanel>
-                        <TextBlock Margin="0,5,0,0"
+                        <TextBlock Style="{StaticResource Text.Secondary}" Margin="0,5,0,0"
                                    Text="{Binding ContactSubtitle}"
                                    FontFamily="{StaticResource Font.Primary}"
-                                   FontSize="13"
                                    Foreground="{DynamicResource Brush.Text.Muted}" />
                         <TextBlock Text="Loading workspace…" Margin="0,6,0,0" Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding LoadError}" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="{DynamicResource Brush.Badge.Danger.Text}" Visibility="{Binding HasLoadError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
@@ -87,12 +84,10 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
+                            <TextBlock Style="{StaticResource Text.Body.Secondary}" Grid.Column="0"
                                        VerticalAlignment="Center"
                                        Text="This Thaka project is settled and finalized. Records are read-only."
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="13"
-                                       FontWeight="SemiBold"
                                        Foreground="{DynamicResource Brush.Badge.Neutral.Text}" />
                             <Button Grid.Column="1"
                                     Content="Reopen Project"
@@ -118,21 +113,16 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Customer Credit Balance: "
+                                        <TextBlock Style="{StaticResource Text.Control}" Text="Customer Credit Balance: "
                                                    FontFamily="{StaticResource Font.Primary}"
-                                                   FontSize="14"
-                                                   FontWeight="Bold"
                                                    Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
-                                        <TextBlock Text="{Binding CustomerCreditFormatted}"
+                                        <TextBlock Style="{StaticResource Text.Control}" Text="{Binding CustomerCreditFormatted}"
                                                    FontFamily="{StaticResource Font.Numeric}"
-                                                   FontSize="14"
-                                                   FontWeight="Bold"
                                                    Foreground="{DynamicResource Brush.Badge.Warning.Text}" />
                                     </StackPanel>
-                                    <TextBlock Margin="0,4,0,0"
+                                    <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0"
                                                Text="Payments collected exceed net material charges. Operator choice: retain credit in this project to automatically absorb future material charges, or issue an authorized cash drawer refund."
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="12"
                                                TextWrapping="Wrap"
                                                Foreground="{DynamicResource Brush.Text.Primary}" />
                                 </StackPanel>
@@ -156,10 +146,8 @@
                                     BorderThickness="1"
                                     Visibility="{Binding IsRefundPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <StackPanel>
-                                    <TextBlock Text="Authorize Cash Drawer Refund"
+                                    <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="Authorize Cash Drawer Refund"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="13"
-                                               FontWeight="SemiBold"
                                                Foreground="{DynamicResource Brush.Text.Primary}"
                                                Margin="0,0,0,10" />
 
@@ -173,9 +161,8 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock Text="Refund Amount (Rs.)"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="Refund Amount (Rs.)"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                                        Margin="0,0,0,4" />
                                             <TextBox Text="{Binding RefundAmountInput, UpdateSourceTrigger=PropertyChanged, StringFormat=N2}"
@@ -183,9 +170,8 @@
                                         </StackPanel>
 
                                         <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Reason / Authorization Reference"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="Reason / Authorization Reference"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="11"
                                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                                        Margin="0,0,0,4" />
                                             <TextBox Text="{Binding RefundReasonInput, UpdateSourceTrigger=PropertyChanged}"
@@ -203,16 +189,14 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <TextBlock Text="Processing cash refund from drawer…"
+                                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="Processing cash refund from drawer…"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="12"
                                                Foreground="{DynamicResource Brush.Text.Muted}"
                                                Margin="0,8,0,0"
                                                Visibility="{Binding IsRefundingCredit, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                                    <TextBlock Text="{Binding RefundErrorMessage}"
+                                    <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding RefundErrorMessage}"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="12"
                                                TextWrapping="Wrap"
                                                Foreground="{DynamicResource Brush.Badge.Danger.Text}"
                                                Margin="0,8,0,0"
@@ -234,60 +218,48 @@
 
                     <Border Grid.Column="0" Style="{StaticResource Card.Raised}">
                         <StackPanel>
-                            <TextBlock Text="Material Value"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Material Value"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                            <TextBlock Margin="0,6,0,0"
+                            <TextBlock Style="{StaticResource Text.PageTitle}" Margin="0,6,0,0"
                                        Text="{Binding MaterialValueFormatted}"
                                        FontFamily="{StaticResource Font.Numeric}"
-                                       FontSize="24"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                            <TextBlock Margin="0,4,0,0"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0"
                                        Text="Total goods issued"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Subtle}" />
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="2" Style="{StaticResource Card.Raised}">
                         <StackPanel>
-                            <TextBlock Text="Total Paid"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Total Paid"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                            <TextBlock Margin="0,6,0,0"
+                            <TextBlock Style="{StaticResource Text.PageTitle}" Margin="0,6,0,0"
                                        Text="{Binding TotalPaidFormatted}"
                                        FontFamily="{StaticResource Font.Numeric}"
-                                       FontSize="24"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                            <TextBlock Margin="0,4,0,0"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0"
                                        Text="Payments received"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Subtle}" />
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="4" Style="{StaticResource Card.Raised}">
                         <StackPanel>
-                            <TextBlock Text="Outstanding Balance"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Text="Outstanding Balance"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Muted}" />
-                            <TextBlock Margin="0,6,0,0"
+                            <TextBlock Style="{StaticResource Text.PageTitle}" Margin="0,6,0,0"
                                        Text="{Binding BalanceFormatted}"
                                        FontFamily="{StaticResource Font.Numeric}"
-                                       FontSize="24"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                            <TextBlock Margin="0,4,0,0"
+                            <TextBlock Style="{StaticResource Text.FormLabel}" Margin="0,4,0,0"
                                        Text="Payable by client"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="12"
                                        Foreground="{DynamicResource Brush.Text.Subtle}" />
                         </StackPanel>
                     </Border>

@@ -895,7 +895,7 @@ public sealed class Phase12Wave3PostgresTests
         // Launch owned test child process executing production CompleteSaleHandler with CrashBeforeCommitInterceptor
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = IntegrationChildHost.DotnetExecutable,
             Arguments = $"\"{hostDll}\" --scenario crash-before-commit --db \"{dbConn}\" --op-id \"{opId}\" --user-id \"{product.ActorId}\" --product-id \"{product.ProductId}\" --unit-id \"{product.ProductUnitId}\" --terminal-id \"{terminalId}\" --qty 1 --amount 200",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1032,7 +1032,7 @@ public sealed class Phase12Wave3PostgresTests
         // Launch owned test child process configured to commit then crash before returning HTTP response
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = IntegrationChildHost.DotnetExecutable,
             Arguments = $"\"{hostDll}\" --scenario crash-after-commit --db \"{dbConn}\" --op-id \"{opId}\" --user-id \"{product.ActorId}\" --product-id \"{product.ProductId}\" --terminal-id \"{terminalId}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1238,6 +1238,23 @@ public sealed class Phase12Wave3PostgresTests
         var (p1, terminalId) = await SetupStockAndTerminalAsync(provider, initialStock: 10m);
         var (p2, _) = await SetupStockAndTerminalAsync(provider, initialStock: 10m);
 
+        // The runtime role cannot change deadlock_timeout. Observe the owned server's
+        // real detector interval and allow enough time for its 40P01 decision instead.
+        double detectionSeconds;
+        using (var probeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(Phase2PostgresTestHarness.ResolveConnectionString());
+            await connection.OpenAsync(probeTimeout.Token);
+            await using var interval = new Npgsql.NpgsqlCommand(
+                "SELECT EXTRACT(EPOCH FROM current_setting('deadlock_timeout')::interval)::double precision", connection);
+            detectionSeconds = Convert.ToDouble(await interval.ExecuteScalarAsync(probeTimeout.Token),
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+        Assert.InRange(detectionSeconds, 0.001d, 10d);
+        var deadlockBudget = TimeSpan.FromSeconds(Math.Max(15d, detectionSeconds * 6d + 5d));
+        using var deadlockTimeout = new CancellationTokenSource(deadlockBudget);
+        var deadlockToken = deadlockTimeout.Token;
+
         var id1 = p1.ProductId;
         var id2 = p2.ProductId;
         var opId1 = Guid.NewGuid();
@@ -1283,25 +1300,25 @@ public sealed class Phase12Wave3PostgresTests
             await using var s = provider.CreateAsyncScope();
             var ctx = s.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
             var saleHandler = s.ServiceProvider.GetRequiredService<CompleteSaleHandler>();
+            ctx.Database.SetCommandTimeout((int)Math.Ceiling(deadlockBudget.TotalSeconds));
 
             try
             {
-                await using var tx = await ctx.Database.BeginTransactionAsync();
-                await ctx.Database.ExecuteSqlRawAsync("SET LOCAL deadlock_timeout = '50ms';");
+                await using var tx = await ctx.Database.BeginTransactionAsync(deadlockToken);
                 await ctx.Database.ExecuteSqlRawAsync(
-                    "SELECT * FROM inventory.stock_balances WHERE product_id = {0} FOR UPDATE", id1);
+                    "SELECT * FROM inventory.stock_balances WHERE product_id = {0} FOR UPDATE", [id1], deadlockToken);
                 t1AcquiredFirst.TrySetResult();
 
-                await t2AcquiredFirst.Task;
-                await Task.Delay(50);
+                await t2AcquiredFirst.Task.WaitAsync(deadlockToken);
+                await Task.Delay(50, deadlockToken);
 
-                var res = await saleHandler.HandleAsync(saleCmd2, default);
+                var res = await saleHandler.HandleAsync(saleCmd2, deadlockToken);
                 if (res.IsSuccess)
                 {
-                    await tx.CommitAsync();
+                    await tx.CommitAsync(deadlockToken);
                     return (Success: true, OpId: opId2, Cmd: saleCmd2);
                 }
-                await tx.RollbackAsync();
+                await tx.RollbackAsync(deadlockToken);
                 return (Success: false, OpId: opId2, Cmd: saleCmd2);
             }
             catch (Exception ex) when (IsDeadlockException(ex))
@@ -1318,26 +1335,26 @@ public sealed class Phase12Wave3PostgresTests
             await using var s = provider.CreateAsyncScope();
             var ctx = s.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
             var saleHandler = s.ServiceProvider.GetRequiredService<CompleteSaleHandler>();
+            ctx.Database.SetCommandTimeout((int)Math.Ceiling(deadlockBudget.TotalSeconds));
 
-            await t1AcquiredFirst.Task;
+            await t1AcquiredFirst.Task.WaitAsync(deadlockToken);
 
             try
             {
-                await using var tx = await ctx.Database.BeginTransactionAsync();
-                await ctx.Database.ExecuteSqlRawAsync("SET LOCAL deadlock_timeout = '50ms';");
+                await using var tx = await ctx.Database.BeginTransactionAsync(deadlockToken);
                 await ctx.Database.ExecuteSqlRawAsync(
-                    "SELECT * FROM inventory.stock_balances WHERE product_id = {0} FOR UPDATE", id2);
+                    "SELECT * FROM inventory.stock_balances WHERE product_id = {0} FOR UPDATE", [id2], deadlockToken);
                 t2AcquiredFirst.TrySetResult();
 
-                await Task.Delay(50);
+                await Task.Delay(50, deadlockToken);
 
-                var res = await saleHandler.HandleAsync(saleCmd1, default);
+                var res = await saleHandler.HandleAsync(saleCmd1, deadlockToken);
                 if (res.IsSuccess)
                 {
-                    await tx.CommitAsync();
+                    await tx.CommitAsync(deadlockToken);
                     return (Success: true, OpId: opId1, Cmd: saleCmd1);
                 }
-                await tx.RollbackAsync();
+                await tx.RollbackAsync(deadlockToken);
                 return (Success: false, OpId: opId1, Cmd: saleCmd1);
             }
             catch (Exception ex) when (IsDeadlockException(ex))
@@ -1347,7 +1364,8 @@ public sealed class Phase12Wave3PostgresTests
             }
         });
 
-        var (r1, r2) = (await task1, await task2);
+        var results = await Task.WhenAll(task1, task2);
+        var (r1, r2) = (results[0], results[1]);
         Assert.True(deadlockEncountered, "PostgreSQL 40P01 deadlock must be detected by engine inside CompleteSaleHandler.");
         Assert.True(r1.Success ^ r2.Success, "Exactly one transaction must succeed and one must be rolled back by 40P01 deadlock.");
 
@@ -1406,7 +1424,7 @@ public sealed class Phase12Wave3PostgresTests
 
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = IntegrationChildHost.DotnetExecutable,
             Arguments = $"\"{hostDll}\" --scenario server-http-crash-after-commit --port {port} --db \"{dbConn}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1559,7 +1577,7 @@ public sealed class Phase12Wave3PostgresTests
             // 1. Desktop process records intent to FileClientOperationIntentStore, sends request to PostgreSQL, commits, and crashes before journal completion
             var psi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = IntegrationChildHost.DotnetExecutable,
                 Arguments = $"\"{hostDll}\" --scenario desktop-journal-crash-after-submit --state-dir \"{tempStateDir}\" --op-id \"{opId}\" --db \"{dbConn}\" --user-id \"{product.ActorId}\" --product-id \"{product.ProductId}\" --unit-id \"{product.ProductUnitId}\" --terminal-id \"{terminalId}\" --qty 1 --amount 200",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1598,7 +1616,7 @@ public sealed class Phase12Wave3PostgresTests
             // verifies durable existing result (WasExisting == true), and ONLY THEN marks journal intent complete
             var recoverPsi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = IntegrationChildHost.DotnetExecutable,
                 Arguments = $"\"{hostDll}\" --scenario desktop-journal-recover --state-dir \"{tempStateDir}\" --op-id \"{opId}\" --db \"{dbConn}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1684,7 +1702,7 @@ public sealed class Phase12Wave3PostgresTests
             // 1. Desktop process records intent to FileClientOperationIntentStore, sends request to PostgreSQL, commits, and crashes on readback before journal completion
             var psi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = IntegrationChildHost.DotnetExecutable,
                 Arguments = $"\"{hostDll}\" --scenario desktop-expense-crash-after-submit --state-dir \"{tempStateDir}\" --op-id \"{opId}\" --db \"{dbConn}\" --user-id \"{actorId}\" --category \"{category.Name}\" --subcategory \"{subcategory.Name}\" --amount {amount.ToString(System.Globalization.CultureInfo.InvariantCulture)} --payment-method CASH --note \"Crash test expense {opId:N}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1740,7 +1758,7 @@ public sealed class Phase12Wave3PostgresTests
             // verifies durable existing result (WasExisting == true), and ONLY THEN marks journal intent complete
             var recoverPsi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = IntegrationChildHost.DotnetExecutable,
                 Arguments = $"\"{hostDll}\" --scenario desktop-expense-recover --state-dir \"{tempStateDir}\" --op-id \"{opId}\" --db \"{dbConn}\" --user-id \"{actorId}\" --category \"{category.Name}\" --subcategory \"{subcategory.Name}\" --amount {amount.ToString(System.Globalization.CultureInfo.InvariantCulture)} --payment-method CASH --note \"Crash test expense {opId:N}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1850,29 +1868,7 @@ public sealed class Phase12Wave3PostgresTests
         return (actorId, category, subcategory, openResult.Value);
     }
 
-    private static string FindCrashHostDll()
-    {
-        var baseDir = AppContext.BaseDirectory;
-        var candidates = new[]
-        {
-            Path.Combine(baseDir, "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Release", "net10.0-windows", "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Release", "net10.0", "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Debug", "net10.0-windows", "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Debug", "net10.0", "EdgeRetails.CrashTestHost.dll")
-        };
-
-        foreach (var c in candidates)
-        {
-            var fullPath = Path.GetFullPath(c);
-            if (File.Exists(fullPath))
-            {
-                return fullPath;
-            }
-        }
-
-        throw new FileNotFoundException($"Could not locate EdgeRetails.CrashTestHost.dll in any expected location from {baseDir}");
-    }
+    private static string FindCrashHostDll() => IntegrationChildHost.CrashHostDll;
 
     private sealed class ThrowingPrintHandler : IOutboxEffectHandler
     {

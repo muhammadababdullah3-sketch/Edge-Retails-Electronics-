@@ -1,0 +1,52 @@
+[
+  {
+    "path": "src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs",
+    "sha256": "652120f401a7dff94b30959c2e1b259fd20b559c7877927635c56a857ba5c8a5",
+    "bytes": 36952
+  },
+  {
+    "path": "tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs",
+    "sha256": "1733d02b5ee688374231625d406092f299447b42d095847a427727d4e0a7a8f3",
+    "bytes": 50787
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/pg18-trend-bucket-verified/muham_ALI_2026-10-24_14_50_14_net10.0.trx",
+    "sha256": "bf255256fcfec28ef85e9556554f68753de53a2d773b6be62212dad5d048563c",
+    "bytes": 357672
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/pg18-trend-bucket-verified/terminal-result.json",
+    "sha256": "c371a4f9fc0f37febe4f48cce51018cd5dd6a79524148c22dad5824a8ff33c8a",
+    "bytes": 1944
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/solution-debug-trend-verified.log",
+    "sha256": "1332a05d8896caa3cf43528b7967613a345f0abae014efac6056fa04990d8707",
+    "bytes": 1936
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/solution-release-trend-verified.log",
+    "sha256": "7bd135fda074c0a2d6f5e7ff0604ac8ca754b7a1c8180701257dfa7c78f014b5",
+    "bytes": 1960
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/unit-trend-verified/muham_ALI_2026-10-24_14_52_03_net10.0.trx",
+    "sha256": "b26e6abe01a2e84bdcfef84d514978da8e272e0e0ceea4f57104a6b56779f9c8",
+    "bytes": 2102483
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/desktop-perf-trend-isolated-final/desktop-current.trx",
+    "sha256": "e29c80aec236123f245e3e6ecf6b902ab252d9ba0ad7ea2191f7bde005ee8cf4",
+    "bytes": 805431
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/desktop-perf-trend-isolated-final/desktop-test-result.json",
+    "sha256": "0c4ea2e8c5135fe19b940ce1aa83d4ad5bdc1e5d7ff09f480105e06b36377a2a",
+    "bytes": 637
+  },
+  {
+    "path": "governance/10-execution-runs/ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002/evidence/trend-bucket-fix/source.diff",
+    "sha256": "8dcbbf152b7f95f12fec7f42b7ea0d1edafe3f1a3df64feefd41ed79e185978c",
+    "bytes": 19881
+  }
+]

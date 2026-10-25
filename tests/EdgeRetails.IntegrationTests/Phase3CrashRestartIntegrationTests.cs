@@ -12,27 +12,7 @@ namespace EdgeRetails.IntegrationTests;
 [Collection("Phase2PostgresIntegration")]
 public sealed class Phase3CrashRestartIntegrationTests
 {
-    private static string FindCrashHostDll()
-    {
-        var baseDir = AppContext.BaseDirectory;
-        var candidates = new[]
-        {
-            Path.Combine(baseDir, "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Release", "net10.0", "EdgeRetails.CrashTestHost.dll"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "EdgeRetails.CrashTestHost", "bin", "Debug", "net10.0", "EdgeRetails.CrashTestHost.dll")
-        };
-
-        foreach (var c in candidates)
-        {
-            var fullPath = Path.GetFullPath(c);
-            if (File.Exists(fullPath))
-            {
-                return fullPath;
-            }
-        }
-
-        throw new FileNotFoundException($"Could not locate EdgeRetails.CrashTestHost.dll in any expected location from {baseDir}");
-    }
+    private static string FindCrashHostDll() => IntegrationChildHost.CrashHostDll;
 
     [Fact]
     public async Task CRASH_01_ProcessDiesBeforeCommit_ZeroPartialAuthoritativeEffect()
@@ -59,7 +39,7 @@ public sealed class Phase3CrashRestartIntegrationTests
 
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = IntegrationChildHost.DotnetExecutable,
             Arguments = $"\"{hostDll}\" --scenario crash-before-commit --db \"{dbConn}\" --op-id \"{opId}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -155,7 +135,7 @@ public sealed class Phase3CrashRestartIntegrationTests
 
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = IntegrationChildHost.DotnetExecutable,
             Arguments = $"\"{hostDll}\" --scenario crash-after-commit --db \"{dbConn}\" --op-id \"{opId}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -288,7 +268,7 @@ public sealed class Phase3CrashRestartIntegrationTests
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = IntegrationChildHost.DotnetExecutable,
                 Arguments = $"\"{hostDll}\" --scenario worker-active --db \"{dbConn}\" --state-dir \"{tempState}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

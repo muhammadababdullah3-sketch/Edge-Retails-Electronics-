@@ -32,37 +32,25 @@ internal static class Phase2PostgresTestHarness
 
     public static string ResolveConnectionString()
     {
-        var connectionString = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            var clusterDir = @"C:\Users\muham\EdgeRetailsDisposable\ER-RUN-20261011-005";
-            var credFile = Path.Combine(clusterDir, "provpw.tmp");
-            if (File.Exists(credFile))
-            {
-                var pw = File.ReadAllText(credFile).Trim();
-                if (!string.IsNullOrWhiteSpace(pw))
-                {
-                    connectionString = $"Host=127.0.0.1;Port=55437;Database=edgeretails_test_run20261012_001;Username=er_provisioner;Password={pw}";
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "FAIL-CLOSED: EDGE_RETAILS_TEST_DB must point to an isolated PostgreSQL integration-test database.");
-        }
-
-        return connectionString;
+        return PostgresFixtureProfile.Resolve().ConnectionString;
     }
 
     public static ServiceProvider BuildProvider(IClock? clock = null, Action<IServiceCollection>? configure = null)
-    {
-        var connectionString = ResolveConnectionString();
+        => BuildProvider(PostgresFixtureProfile.Resolve(), clock, configure);
 
+    public static ServiceProvider BuildProvider(PostgresFixtureProfile profile, IClock? clock = null,
+        Action<IServiceCollection>? configure = null)
+    {
+        profile.Attest();
+        var connectionString = profile.ConnectionString;
         var services = new ServiceCollection();
         services.AddEdgeRetailsInfrastructure(connectionString);
-        services.AddGuardedTestSequenceAuthority(connectionString);
+        var connection = new NpgsqlConnectionStringBuilder(connectionString);
+        var (_, runId) = AttestOwnedPostgresRoot(connectionString, profile.OwnedRoot);
+        VerifyOrCreateCustodyBinding(profile.CustodyRoot, profile.OwnedRoot, runId, connection.Port, profile.Database);
+        services.RemoveAll<ISequenceHighWaterService>();
+        services.AddSingleton<ISequenceHighWaterService>(new MachineSequenceHighWaterService(
+            Path.Combine(profile.CustodyRoot, "highwater.manifest"), new OwnedSequenceAuthorityCustody(profile.CustodyRoot)));
         if (clock is not null)
         {
             services.RemoveAll<IClock>();

@@ -138,6 +138,55 @@ public sealed class InventoryCostAllocator : IInventoryCostAllocator
         return amount;
     }
 
+    public async Task<decimal> RemoveCarryingValueByAmountAsync(
+        Guid productId,
+        decimal baseQuantity,
+        decimal exactAmount,
+        CancellationToken cancellationToken)
+    {
+        var quantity = RequirePositiveQuantity(baseQuantity);
+        var amount = decimal.Round(exactAmount, 6, MidpointRounding.AwayFromZero);
+        if (amount < 0m)
+        {
+            throw new BusinessRuleException(
+                "inventory.cost_negative",
+                "Inventory carrying value cannot be negative.");
+        }
+
+        var state = await _inventory.GetCostStateForUpdateAsync(productId, cancellationToken)
+            ?? throw new BusinessRuleException(
+                "inventory.cost_state_missing",
+                "Inventory cost state was not found.");
+
+        if (quantity > state.CostedQty)
+        {
+            throw new BusinessRuleException(
+                "inventory.cost_pool_insufficient",
+                "Inventory cost pool does not contain enough quantity.");
+        }
+        if (amount > state.TotalInventoryCost)
+        {
+            throw new BusinessRuleException(
+                "inventory.cost_value_insufficient",
+                "Inventory carrying value is insufficient for this removal.");
+        }
+
+        state.CostedQty = QuantityMath.RoundQuantity(state.CostedQty - quantity);
+        state.TotalInventoryCost = decimal.Round(
+            state.TotalInventoryCost - amount,
+            6,
+            MidpointRounding.AwayFromZero);
+        state.MovingAverageCost = state.CostedQty == 0m
+            ? 0m
+            : decimal.Round(
+                state.TotalInventoryCost / state.CostedQty,
+                6,
+                MidpointRounding.AwayFromZero);
+        state.Version++;
+
+        return amount;
+    }
+
     public Task AddCarryingValueAndLotAsync(
         Guid productId,
         decimal baseQuantity,
@@ -185,13 +234,31 @@ public sealed class InventoryCostAllocator : IInventoryCostAllocator
             InventoryBucket.Sellable,
             cancellationToken);
 
-    public async Task<Guid> AddCarryingValueAndLotWithIdAsync(
+    public Task<Guid> AddCarryingValueAndLotWithIdAsync(
         Guid productId,
         decimal baseQuantity,
         decimal unitCost,
         Guid sourceMovementId,
         Guid? sourcePurchaseItemId,
         InventoryBucket initialBucket,
+        CancellationToken cancellationToken) => AddCarryingValueAndLotCoreAsync(
+            productId, baseQuantity, unitCost, null, sourceMovementId, sourcePurchaseItemId, initialBucket, cancellationToken);
+
+    public Task<Guid> AddCarryingValueAndLotByAmountAsync(Guid productId, decimal baseQuantity, decimal exactAmount,
+        Guid sourceMovementId, Guid? sourcePurchaseItemId, InventoryBucket initialBucket, CancellationToken cancellationToken)
+    {
+        var quantity = RequirePositiveQuantity(baseQuantity);
+        if (exactAmount < 0m)
+        {
+            throw new BusinessRuleException("inventory.cost_negative", "Inventory carrying amount cannot be negative.");
+        }
+        var amount = decimal.Round(exactAmount, 6, MidpointRounding.AwayFromZero);
+        return AddCarryingValueAndLotCoreAsync(productId, quantity, amount / quantity, amount,
+            sourceMovementId, sourcePurchaseItemId, initialBucket, cancellationToken);
+    }
+
+    private async Task<Guid> AddCarryingValueAndLotCoreAsync(Guid productId, decimal baseQuantity, decimal unitCost,
+        decimal? exactAmount, Guid sourceMovementId, Guid? sourcePurchaseItemId, InventoryBucket initialBucket,
         CancellationToken cancellationToken)
     {
         var quantity = RequirePositiveQuantity(baseQuantity);
@@ -214,7 +281,7 @@ public sealed class InventoryCostAllocator : IInventoryCostAllocator
 
         state.CostedQty = QuantityMath.RoundQuantity(state.CostedQty + quantity);
         state.TotalInventoryCost = decimal.Round(
-            state.TotalInventoryCost + (quantity * normalizedCost),
+            state.TotalInventoryCost + (exactAmount ?? quantity * normalizedCost),
             6,
             MidpointRounding.AwayFromZero);
         state.MovingAverageCost = decimal.Round(

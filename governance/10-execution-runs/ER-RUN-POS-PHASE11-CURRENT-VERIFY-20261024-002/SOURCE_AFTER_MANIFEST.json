@@ -1,0 +1,83 @@
+{
+  "candidate_base": "6b5bbd04f35aa1bce3362751185b60d3cabfc8e6",
+  "branch": "feat/phase11-subledger-implementation",
+  "working_tree_code_items": [
+    {
+      "path": "scripts/Invoke-CatalogPostgresRehearsal.ps1",
+      "change": "modified",
+      "before_copy": "evidence/before/scripts__Invoke-CatalogPostgresRehearsal.ps1",
+      "before_sha256": "fbebca64750f1546d1d0491e9ea0e9f1ae8a8d5a79806ce97ee95dfb73204d77",
+      "after_sha256": "3b07af532016e5bfafd1bcebfad5275c12eaa6e48e8de3a98fafc7a0d09c27f9"
+    },
+    {
+      "path": "src/EdgeRetails.Desktop/Services/RemoteStocktakeWorkflowService.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/src__EdgeRetails.Desktop__Services__RemoteStocktakeWorkflowService.cs",
+      "before_sha256": "b8b3211a8e91f3cd557a9aa72fa398545fd996d14015880af8f3fb6ef39ed4d8",
+      "after_sha256": "2b5333b25e02f26b27a51e050c04577cf209a962329de3e8623a52656371c113"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase11Wave3DesktopCutoverTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__Phase11Wave3DesktopCutoverTests.cs",
+      "before_sha256": "d7bba82bfbc84a9e14f1da3384793b8736b6c2e316df5f589970767e11007c8d",
+      "after_sha256": "8358c69e1d5c8dded74e878b128cca390ffc7cc7670eeed9b432eddaacab529c"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/Phase12Wave2JournalAndRecoveryTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__Phase12Wave2JournalAndRecoveryTests.cs",
+      "before_sha256": "8bb1532041212598c2f9eca834f454e3516286c36a1cf2d879b168452067a209",
+      "after_sha256": "8cad80a02c505383e017d4e710518760275d1b4abae7703c3aa5bd3ebfb7f526"
+    },
+    {
+      "path": "tests/EdgeRetails.Desktop.PerformanceTests/PosCatalogBrowsingPerformanceTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.Desktop.PerformanceTests__PosCatalogBrowsingPerformanceTests.cs",
+      "before_sha256": "d448a889ad18e1048a665fccd93a53768776d34d44adeb7dbd67c24a70ee12bc",
+      "after_sha256": "ff9835e7e3d1349d8709182253bcf8fac8163f723fa9a09947bd3efe700f18a9"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/CatalogV3SeedLifecyclePostgresTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__CatalogV3SeedLifecyclePostgresTests.cs",
+      "before_sha256": "6a179e492d388fdb988c2b07753cf396a4d54f2e8e921c2686124b131b7c46c2",
+      "after_sha256": "d2435737dd2cbdd202625fc8569c73700d18552d999e6512a9240789c2eeaa5c"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/GoldenLifecycleTracePostgresTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__GoldenLifecycleTracePostgresTests.cs",
+      "before_sha256": "6faa40c4216d776c883b352f4d7427531169546c5c434eaa5b71f32b96eaff82",
+      "after_sha256": "9097e8557a3d02813ec0f6e0a8bf0747f3779ffbf23ef91708f906081be2d1cc"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/ThakaPostgresTransactionIntegrationTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/tests__EdgeRetails.IntegrationTests__Phase11__ThakaPostgresTransactionIntegrationTests.cs",
+      "before_sha256": "b9bb1304733fdfe900336748fa5b0ce162c28c7f21921d8fb251d893c062f9af",
+      "after_sha256": "9379b7cc481ca1a0f6c9f30878cc773ff43ced3d850e77c66624d1620252ab0f"
+    },
+    {
+      "path": "scripts/Invoke-DesktopTestRehearsal.ps1",
+      "change": "added",
+      "before_state": "ABSENT at baseline",
+      "after_copy": "evidence/after/scripts__Invoke-DesktopTestRehearsal.ps1",
+      "after_sha256": "a73b3baecb874a6ecea262615b95798761aad0fd48ce8425c0c46236b08bdb10"
+    },
+    {
+      "path": "src/EdgeRetails.Infrastructure/Services/BusinessOperationsReadServices.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/batch3/BusinessOperationsReadServices.cs",
+      "before_sha256": "f8eb80059e81e69aed02eed9c6e01ef0f3e5ab7fc978cea033285e3a500fb4ce",
+      "after_sha256": "652120f401a7dff94b30959c2e1b259fd20b559c7877927635c56a857ba5c8a5"
+    },
+    {
+      "path": "tests/EdgeRetails.IntegrationTests/Phase11/ShopTimezoneBoundaryPostgresTests.cs",
+      "change": "modified",
+      "before_copy": "evidence/before/batch3/ShopTimezoneBoundaryPostgresTests.cs",
+      "before_sha256": "4a700746d8647615d3f6effc11b0ba7e70d2f1ab00aacc399f00f368585f7da1",
+      "after_sha256": "1733d02b5ee688374231625d406092f299447b42d095847a427727d4e0a7a8f3"
+    }
+  ]
+}

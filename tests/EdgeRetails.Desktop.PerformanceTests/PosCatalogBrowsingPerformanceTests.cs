@@ -120,7 +120,7 @@ public sealed class PosCatalogBrowsingPerformanceTests
             posCatalogGateway: gateway);
 
         vm.SearchText = "Product 0015";
-        await Task.Delay(350);
+        await gateway.WaitForCallAsync("Product 0015", "All", "All", TimeSpan.FromSeconds(5));
 
         Assert.Contains(gateway.Calls, call => call.search == "Product 0015");
     }
@@ -137,7 +137,7 @@ public sealed class PosCatalogBrowsingPerformanceTests
         vm.SelectedBrand = "Sony";
         vm.SelectedCategory = "Audio";
         vm.SearchText = "Product";
-        await Task.Delay(350);
+        await gateway.WaitForCallAsync("Product", "Audio", "Sony", TimeSpan.FromSeconds(5));
 
         Assert.Contains(gateway.Calls, call =>
             call.search == "Product" && call.brand == "Sony" && call.category == "Audio");
@@ -366,6 +366,7 @@ public sealed class PosCatalogBrowsingPerformanceTests
     private sealed class RecordingPosCatalogGateway : IPosCatalogGateway
     {
         private readonly object _lock = new();
+        private readonly SemaphoreSlim _callAdded = new(0);
         private readonly List<PosCatalogGatewayItem> _allProducts;
         private readonly List<(string? search, string? category, string? brand, int pageSize, string? afterName, Guid? afterId)> _calls = [];
         public IReadOnlyList<(string? search, string? category, string? brand, int pageSize, string? afterName, Guid? afterId)> Calls
@@ -379,6 +380,19 @@ public sealed class PosCatalogBrowsingPerformanceTests
             }
         }
         public int DelayMilliseconds { get; set; }
+
+        public async Task WaitForCallAsync(
+            string? search,
+            string? category,
+            string? brand,
+            TimeSpan timeout)
+        {
+            using var timeoutSource = new CancellationTokenSource(timeout);
+            while (!Calls.Any(call => call.search == search && call.category == category && call.brand == brand))
+            {
+                await _callAdded.WaitAsync(timeoutSource.Token);
+            }
+        }
 
         public RecordingPosCatalogGateway(IEnumerable<PosCatalogGatewayItem>? products = null)
         {
@@ -404,6 +418,7 @@ public sealed class PosCatalogBrowsingPerformanceTests
             {
                 _calls.Add((search, category, brand, pageSize, afterName, afterId));
             }
+            _callAdded.Release();
             if (DelayMilliseconds > 0)
             {
                 await Task.Delay(DelayMilliseconds, cancellationToken);

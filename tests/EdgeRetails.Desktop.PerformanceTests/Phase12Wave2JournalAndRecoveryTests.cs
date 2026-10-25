@@ -56,11 +56,25 @@ public sealed class Phase12Wave2JournalAndRecoveryTests : IDisposable
     }
 
     [Fact]
-    public void P12_W2_006_Canonical_Path_Resolves_To_Machine_Root_CommonApplicationData()
+    public void P12_W2_006_Canonical_Path_Honors_Explicit_CommonApplicationData_Root()
     {
-        var resolved = FileClientOperationIntentStore.ResolveCanonicalPath(null);
-        Assert.False(string.IsNullOrWhiteSpace(resolved));
-        Assert.EndsWith(Path.Combine("EdgeRetails", "Desktop", "operation-intents.json"), resolved);
+        var commonAppData = Path.Combine(Path.GetTempPath(), $"EdgeRetails-P12-W2-006-{Guid.NewGuid():N}");
+        try
+        {
+            var resolved = FileClientOperationIntentStore.ResolveCanonicalPath(
+                null,
+                commonAppDataOverride: commonAppData);
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(commonAppData, "EdgeRetails", "Desktop", "operation-intents.json")),
+                Path.GetFullPath(resolved));
+        }
+        finally
+        {
+            if (Directory.Exists(commonAppData))
+            {
+                Directory.Delete(commonAppData, recursive: true);
+            }
+        }
     }
 
     [Fact]

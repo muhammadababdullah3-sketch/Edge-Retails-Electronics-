@@ -179,7 +179,6 @@
                                          Foreground="{DynamicResource Brush.Text.Primary}"
                                          BorderThickness="0"
                                          FontFamily="{StaticResource Font.Primary}"
-                                         FontSize="14"
                                          VerticalContentAlignment="Center"
                                          CaretBrush="{StaticResource Brush.Brand.Primary}">
                                     <TextBox.InputBindings>
@@ -191,7 +190,6 @@
                                            Text="Search name or SKU; scan barcode, tracking code, serial or IMEI…"
                                            Foreground="{DynamicResource Brush.Text.Subtle}"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="14"
                                            VerticalAlignment="Center">
                                     <TextBox.Style>
                                         <Style TargetType="TextBox" BasedOn="{StaticResource Input.TextBox.Placeholder}">
@@ -267,8 +265,8 @@
                                        Style="{StaticResource Text.Secondary}"
                                        VerticalAlignment="Center" Margin="0,0,8,0" />
                             <TextBlock Text="{Binding FilteredProductCountText}"
-                                       Style="{StaticResource Text.Secondary}"
-                                       VerticalAlignment="Center" FontWeight="SemiBold" />
+                                       Style="{StaticResource Text.Body.Secondary}"
+                                       VerticalAlignment="Center" />
                         </StackPanel>
 
                         <!-- Row 1: Operational Action Buttons (Wrappable, Never Clipped) -->
@@ -333,14 +331,11 @@
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <StackPanel VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding Name}"
+                                                    <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding Name}"
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontSize="13.5"
-                                                               FontWeight="SemiBold"
                                                                Foreground="{DynamicResource Brush.Text.Primary}" />
-                                                    <TextBlock Text="{Binding Sku}"
+                                                    <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding Sku}"
                                                                FontFamily="{StaticResource Font.Primary}"
-                                                               FontSize="11"
                                                                Foreground="{DynamicResource Brush.Text.Muted}"
                                                                Margin="0,2,0,0" />
                                                 </StackPanel>
@@ -381,10 +376,8 @@
                                         </DataGridTemplateColumn.CellStyle>
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding PriceDisplay}"
+                                                <TextBlock Style="{StaticResource Text.Control}" Text="{Binding PriceDisplay}"
                                                            FontFamily="{StaticResource Font.Numeric}"
-                                                           FontSize="14"
-                                                           FontWeight="Bold"
                                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                                            HorizontalAlignment="Right"
                                                            VerticalAlignment="Center" />
@@ -450,7 +443,7 @@
                         <!-- Row 3: Cart Totals & Checkout Actions -->
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Border Grid.Row="0" Padding="14,9" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="12,12,0,0" Background="{DynamicResource Brush.Surface.Subtle}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="LOCAL SALE" FontFamily="{StaticResource Font.Primary}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.Badge.Brand.Text}" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="{Binding CartItemCountText}" FontFamily="{StaticResource Font.Primary}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid></Border>
+                    <Border Grid.Row="0" Padding="14,9" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,0,0,1" CornerRadius="12,12,0,0" Background="{DynamicResource Brush.Surface.Subtle}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="LOCAL SALE" FontFamily="{StaticResource Font.Primary}" Style="{StaticResource Text.PosBadge}" Foreground="{DynamicResource Brush.Badge.Brand.Text}" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="{Binding CartItemCountText}" FontFamily="{StaticResource Font.Primary}" Style="{StaticResource Text.TableHeader}" Foreground="{DynamicResource Brush.Text.Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid></Border>
 
 
 
@@ -478,10 +471,8 @@
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Text="CURRENT SALE"
+                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="CURRENT SALE"
                                        FontFamily="{StaticResource Font.Primary}"
-                                       FontSize="11"
-                                       FontWeight="Bold"
                                        Foreground="{DynamicResource Brush.Badge.Brand.Text}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
@@ -516,14 +507,11 @@
                                                     </Grid.ColumnDefinitions>
 
                                                     <StackPanel Grid.Column="0">
-                                                        <TextBlock Text="{Binding Name}"
+                                                        <TextBlock Style="{StaticResource Text.PosLineTitle}" Text="{Binding Name}"
                                                                    FontFamily="{StaticResource Font.Primary}"
-                                                                   FontSize="13.5"
-                                                                   FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                                                        <TextBlock Text="{Binding Brand}"
+                                                        <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding Brand}"
                                                                    FontFamily="{StaticResource Font.Primary}"
-                                                                   FontSize="11"
                                                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                                                    Margin="0,1,0,0" />
                                                     </StackPanel>
@@ -554,11 +542,9 @@
                                                                     Content="−"
                                                                     Style="{StaticResource Pos.StepperButton}"
                                                                     BorderThickness="0,0,1,0" />
-                                                            <TextBlock Text="{Binding QuantityDisplay}"
+                                                            <TextBlock Style="{StaticResource Text.Body.Secondary}" Text="{Binding QuantityDisplay}"
                                                                        Width="34"
                                                                        FontFamily="{StaticResource Font.Primary}"
-                                                                       FontSize="13"
-                                                                       FontWeight="SemiBold"
                                                                        Foreground="{DynamicResource Brush.Text.Primary}"
                                                                        TextAlignment="Center"
                                                                        VerticalAlignment="Center" />
@@ -573,15 +559,12 @@
                                                     <StackPanel Grid.Column="1"
                                                                 HorizontalAlignment="Right"
                                                                 VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding UnitPriceCalculationDisplay}"
+                                                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding UnitPriceCalculationDisplay}"
                                                                    FontFamily="{StaticResource Font.Primary}"
-                                                                   FontSize="12"
                                                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                                                    HorizontalAlignment="Right" />
-                                                        <TextBlock Text="{Binding LineTotalDisplay}"
+                                                        <TextBlock Style="{StaticResource Text.Control}" Text="{Binding LineTotalDisplay}"
                                                                    FontFamily="{StaticResource Font.Numeric}"
-                                                                   FontSize="14"
-                                                                   FontWeight="Bold"
                                                                    Foreground="{DynamicResource Brush.Text.Primary}"
                                                                    HorizontalAlignment="Right" />
                                                     </StackPanel>
@@ -613,15 +596,12 @@
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center" />
                                 </Border>
-                                <TextBlock Text="Cart is empty"
+                                <TextBlock Style="{StaticResource Text.Body}" Text="Cart is empty"
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
                                            Foreground="{DynamicResource Brush.Text.Primary}"
                                            TextAlignment="Center" />
-                                <TextBlock Text="Click products from the catalog to add items."
+                                <TextBlock Style="{StaticResource Text.FormLabel}" Text="Click products from the catalog to add items."
                                            FontFamily="{StaticResource Font.Primary}"
-                                           FontSize="12.5"
                                            Foreground="{DynamicResource Brush.Text.Muted}"
                                            TextAlignment="Center"
                                            Margin="0,4,0,0" />
@@ -653,16 +633,13 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding ActivePostingDateDisplay}"
-                                                       FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
-                                            <TextBlock Text="{Binding ActiveSupervisorSummary}"
-                                                       FontSize="10.5" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,1,0,0" />
+                                            <TextBlock Style="{StaticResource Text.PosBadge}" Text="{Binding ActivePostingDateDisplay}" Foreground="{DynamicResource Brush.Badge.Brand.Text}" />
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding ActiveSupervisorSummary}" Foreground="{DynamicResource Brush.Text.Muted}" Margin="0,1,0,0" />
                                         </StackPanel>
                                         <Button Grid.Column="1"
                                                 Content="Clear"
                                                 Command="{Binding ClearSupervisorApprovalCommand}"
                                                 Style="{StaticResource Button.Text.Borderless}"
-                                                FontSize="11"
                                                 VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
@@ -696,15 +673,12 @@
 
                                         <!-- Customer identity -->
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding CustomerName}"
+                                            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CustomerName}"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12.5"
-                                                       FontWeight="SemiBold"
                                                        Foreground="{DynamicResource Brush.Text.Primary}" />
-                                            <TextBlock Text="{Binding CustomerSubtitle}"
+                                            <TextBlock Style="{StaticResource Text.PosMeta}" Text="{Binding CustomerSubtitle}"
                                                        Margin="0,1,0,0"
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="10.5"
                                                        Foreground="{DynamicResource Brush.Text.Muted}" />
                                         </StackPanel>
 
@@ -715,7 +689,7 @@
                                                 VerticalAlignment="Center">
                                             <TextBlock>
                                                 <Run Text="Change " />
-                                                <Run Text="F4" FontFamily="{StaticResource Font.Mono}" FontSize="10" />
+                                                <Run Text="F4" Style="{StaticResource Text.Run.Mono}" />
                                             </TextBlock>
                                         </Button>
                                     </Grid>
@@ -728,10 +702,9 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
-                                    <TextBlock Grid.Column="0"
+                                    <TextBlock Style="{StaticResource Text.Secondary}" Grid.Column="0"
                                            Text="Sale discount"
                                                 FontFamily="{StaticResource Font.Primary}"
-                                                FontSize="13"
                                                 Foreground="{DynamicResource Brush.Text.Secondary}"
                                                 VerticalAlignment="Center" />
 
@@ -763,18 +736,16 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
+                                            <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                                        Text="Rs."
                                                        FontFamily="{StaticResource Font.Primary}"
-                                                       FontSize="12"
                                                        Foreground="{DynamicResource Brush.Text.Muted}"
                                                        VerticalAlignment="Center" />
                                             <TextBox x:Name="DiscountAmountTextBox"
                                                      Grid.Column="1"
-                                                     Style="{StaticResource Input.TextBox.Embedded}"
+                                                     Style="{StaticResource Input.TextBox.Compact}"
                                                      Text="{Binding DiscountAmountText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      FontFamily="{StaticResource Font.Primary}"
-                                                     FontSize="13"
                                                      TextAlignment="Right"
                                                      VerticalAlignment="Center"
                                                      VerticalContentAlignment="Center" />
@@ -782,9 +753,8 @@
                                     </Border>
                                 </Grid>
 
-                                <TextBlock Text="Sale discount does not change item price. Item price overrides require separate authorization."
-                                           TextWrapping="Wrap" Margin="0,0,0,8"
-                                           FontSize="11" Foreground="{DynamicResource Brush.Text.Muted}" />
+                                <TextBlock Style="{StaticResource Text.PosMeta}" Text="Sale discount does not change item price. Item price overrides require separate authorization."
+                                           TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource Brush.Text.Muted}" />
 
                                 <!-- Subtotal Row -->
                                 <Grid Margin="0,0,0,8">
@@ -792,16 +762,13 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0"
+                                    <TextBlock Style="{StaticResource Text.Secondary}" Grid.Column="0"
                                                Text="Subtotal"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="13"
                                                Foreground="{DynamicResource Brush.Text.Muted}" />
-                                    <TextBlock Grid.Column="1"
+                                    <TextBlock Style="{StaticResource Text.Secondary}" Grid.Column="1"
                                                Text="{Binding SubtotalDisplay}"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="13"
-                                               FontWeight="Medium"
                                                Foreground="{DynamicResource Brush.Text.Secondary}" />
                                 </Grid>
 
@@ -816,19 +783,15 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0"
+                                    <TextBlock Style="{StaticResource Text.FormLabel}" Grid.Column="0"
                                                Text="TOTAL"
                                                FontFamily="{StaticResource Font.Primary}"
-                                               FontSize="12"
-                                               FontWeight="Bold"
                                                Foreground="{DynamicResource Brush.Text.Secondary}"
                                                VerticalAlignment="Bottom"
                                                Margin="0,0,0,4" />
-                                    <TextBlock Grid.Column="1"
+                                    <TextBlock Style="{StaticResource Text.AmountHero}" Grid.Column="1"
                                                Text="{Binding TotalDisplay}"
                                                FontFamily="{StaticResource Font.Numeric}"
-                                               FontSize="28"
-                                               FontWeight="Bold"
                                                Foreground="{DynamicResource Brush.Text.Primary}" />
                                 </Grid>
 
@@ -867,10 +830,8 @@
                                                                           Stretch="Uniform"
                                                                           Margin="0,0,8,0"
                                                                           VerticalAlignment="Center" />
-                                                                    <TextBlock Text="Complete Sale"
+                                                                    <TextBlock Style="{StaticResource Text.Control}" Text="Complete Sale"
                                                                                FontFamily="{StaticResource Font.Primary}"
-                                                                               FontSize="14"
-                                                                               FontWeight="Bold"
                                                                                Foreground="{StaticResource Brush.White}"
                                                                                VerticalAlignment="Center" />
                                                                 </StackPanel>

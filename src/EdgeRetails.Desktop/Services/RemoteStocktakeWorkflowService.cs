@@ -114,7 +114,7 @@ public sealed class RemoteStocktakeWorkflowService(
         {
             stocktakeId = await RecoverCreatedStocktakeAsync(operationId, normalizedNote, cancellationToken);
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex))
         {
             _operationIntents.Complete(createKey, operationId);
             throw;
@@ -136,15 +136,19 @@ public sealed class RemoteStocktakeWorkflowService(
         Guid productId,
         decimal countedSellableQty,
         string? reviewNote,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var key = $"count:{stocktakeId:D}:{productId:D}";
         var payload = FormattableString.Invariant(
             $"{stocktakeId:D}|{productId:D}|{countedSellableQty:G29}|{Normalize(reviewNote)}");
+        var operationId = clientOperationId is { } supplied && supplied != Guid.Empty
+            ? GetOperationId(key, payload, supplied)
+            : GetOperationId(key, payload);
         await PostSuccessAsync(
             $"/api/inventory/stocktake/{stocktakeId:D}/counts",
             key, "Stocktake.Count", payload,
-            new StocktakeCountRequest(productId, countedSellableQty, Normalize(reviewNote), GetOperationId(key, payload)), cancellationToken);
+            new StocktakeCountRequest(productId, countedSellableQty, Normalize(reviewNote), operationId), cancellationToken);
     }
 
     public async Task RecordSerializedStocktakeAsync(
@@ -156,6 +160,7 @@ public sealed class RemoteStocktakeWorkflowService(
         IReadOnlyDictionary<Guid, decimal>? measuredContainerQuantities = null,
         decimal minimumSellableIncrement = 1m,
         decimal separateLooseQuantity = 0m,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var measuredPayload = measuredContainerQuantities is { Count: > 0 }
@@ -165,6 +170,9 @@ public sealed class RemoteStocktakeWorkflowService(
         var loosePayload = FormattableString.Invariant($"{QuantityMath.RoundQuantity(separateLooseQuantity)}");
         var key = $"serialized-count:{stocktakeId:D}:{productId:D}";
         var payload = $"{stocktakeId:D}|{productId:D}|{string.Join(',', foundInventoryUnitIds.Order())}|{string.Join('|', unexpectedIdentitySnapshots.Order(StringComparer.Ordinal))}|{Normalize(reviewNote)}|{measuredPayload}|{incrementPayload}|{loosePayload}";
+        var serializedOperationId = clientOperationId is { } suppliedSerialized && suppliedSerialized != Guid.Empty
+            ? GetOperationId(key, payload, suppliedSerialized)
+            : GetOperationId(key, payload);
         await PostSuccessAsync(
             $"/api/inventory/stocktake/{stocktakeId:D}/serialized-counts",
             key, "Stocktake.SerializedCount", payload,
@@ -173,7 +181,7 @@ public sealed class RemoteStocktakeWorkflowService(
                 foundInventoryUnitIds,
                 unexpectedIdentitySnapshots,
                 Normalize(reviewNote),
-                GetOperationId(key, payload),
+                serializedOperationId,
                 measuredContainerQuantities,
                 minimumSellableIncrement,
                 separateLooseQuantity), cancellationToken);
@@ -181,14 +189,18 @@ public sealed class RemoteStocktakeWorkflowService(
 
     public async Task ReviewStocktakeAsync(
         Guid stocktakeId,
+        Guid? clientOperationId = null,
         CancellationToken cancellationToken = default)
     {
         var key = $"review:{stocktakeId:D}";
         var payload = stocktakeId.ToString("D");
+        var reviewOperationId = clientOperationId is { } suppliedReview && suppliedReview != Guid.Empty
+            ? GetOperationId(key, payload, suppliedReview)
+            : GetOperationId(key, payload);
         await PostSuccessAsync(
             $"/api/inventory/stocktake/{stocktakeId:D}/review",
             key, "Stocktake.Review", payload,
-            new StocktakeActionRequest(GetOperationId(key, payload)), cancellationToken);
+            new StocktakeActionRequest(reviewOperationId), cancellationToken);
     }
 
     public async Task PostStocktakeAsync(
@@ -261,7 +273,7 @@ public sealed class RemoteStocktakeWorkflowService(
                 {
                     return await CreateStocktakeAsync(operationId, note, cancellationToken);
                 }
-                catch (DesktopApiException definitiveException) when (IsDefinitiveRejection(definitiveException.StatusCode))
+                catch (DesktopApiException definitiveException) when (IsDefinitiveRejection(definitiveException))
                 {
                     _operationIntents.Complete("stocktake:create", operationId);
                     throw;
@@ -330,7 +342,7 @@ public sealed class RemoteStocktakeWorkflowService(
             }
             _operationIntents.Complete(operationKey, operationId);
         }
-        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex.StatusCode))
+        catch (DesktopApiException ex) when (IsDefinitiveRejection(ex))
         {
             _operationIntents.Complete(operationKey, operationId);
             throw;
@@ -356,7 +368,7 @@ public sealed class RemoteStocktakeWorkflowService(
                             return;
                         }
                     }
-                    catch (DesktopApiException definitiveReplayException) when (IsDefinitiveRejection(definitiveReplayException.StatusCode))
+                    catch (DesktopApiException definitiveReplayException) when (IsDefinitiveRejection(definitiveReplayException))
                     {
                         _operationIntents.Complete(operationKey, operationId);
                         throw;
@@ -387,11 +399,11 @@ public sealed class RemoteStocktakeWorkflowService(
         }
     }
 
-    private static bool IsDefinitiveRejection(System.Net.HttpStatusCode? status) =>
-        status is >= System.Net.HttpStatusCode.BadRequest and < System.Net.HttpStatusCode.InternalServerError;
+    private static bool IsDefinitiveRejection(DesktopApiException exception) =>
+        DesktopOperationRejectionClassifier.IsAuthoritativeDeterministicBusinessRejection(exception);
 
     private static bool IsAmbiguous(DesktopApiException exception) =>
-        IsTransportFailure(exception.Code) || exception.StatusCode >= System.Net.HttpStatusCode.InternalServerError;
+        !IsDefinitiveRejection(exception);
 
     private async Task<IReadOnlyList<BackendExactUnit>> LoadExactUnitsAsync(
         Guid productId,
@@ -490,10 +502,6 @@ public sealed class RemoteStocktakeWorkflowService(
 
     private static string? Normalize(string? text) =>
         string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-
-    private static bool IsTransportFailure(string code) =>
-        code.StartsWith("network.", StringComparison.OrdinalIgnoreCase) ||
-        code.StartsWith("gateway.communication", StringComparison.OrdinalIgnoreCase);
 
     private sealed record SuccessResponse(bool Success);
     private sealed record OpenStocktakeApiResponse(StocktakeSnapshotDto? Stocktake);

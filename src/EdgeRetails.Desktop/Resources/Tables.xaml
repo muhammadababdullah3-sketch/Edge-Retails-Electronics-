@@ -92,6 +92,16 @@
 
     </Style>
 
+    <Style x:Key="Table.TextCell.Emphasis" TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style x:Key="Table.TextCell.Standard" TargetType="TextBlock" BasedOn="{StaticResource Table.TextCell}">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+    </Style>
+
     <Style x:Key="Table.Cell" TargetType="DataGridCell">
 
         <Setter Property="Padding" Value="14,0" />

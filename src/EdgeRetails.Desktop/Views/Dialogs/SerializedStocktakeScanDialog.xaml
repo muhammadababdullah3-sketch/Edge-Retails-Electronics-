@@ -5,7 +5,7 @@
         <StackPanel>
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                                Foreground="{DynamicResource Brush.Text.Primary}" />
                     <TextBlock Text="{Binding ExpectedDisplay}" Margin="0,4,0,0"
                                Foreground="{DynamicResource Brush.Text.Muted}" />

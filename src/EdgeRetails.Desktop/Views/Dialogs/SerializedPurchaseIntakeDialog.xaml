@@ -6,9 +6,9 @@
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
                 <Grid>
                     <StackPanel>
-                        <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="Bold"
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource Text.SectionTitle}"
                                    Foreground="{DynamicResource Brush.Text.Primary}" />
-                        <TextBlock Text="{Binding RequirementDisplay}" Margin="0,4,0,0" FontSize="12.5"
+                        <TextBlock Style="{StaticResource Text.FormLabel}" Text="{Binding RequirementDisplay}" Margin="0,4,0,0"
                                    Foreground="{DynamicResource Brush.Text.Muted}" TextWrapping="Wrap" />
                     </StackPanel>
                     <Button HorizontalAlignment="Right" Command="{Binding CancelCommand}"

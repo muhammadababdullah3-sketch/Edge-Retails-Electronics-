@@ -8,7 +8,7 @@
     <Border Width="520" Padding="22" Style="{StaticResource Card.Raised}">
         <StackPanel>
             <Grid>
-                <TextBlock Text="Price Check" FontSize="20" FontWeight="Bold"
+                <TextBlock Text="Price Check" Style="{StaticResource Text.SectionTitle}"
                            Foreground="{DynamicResource Brush.Text.Primary}" />
                 <Button Grid.Column="1" HorizontalAlignment="Right" Command="{Binding CloseCommand}"
                         Style="{StaticResource Button.Close}"
@@ -20,12 +20,11 @@
             <Button Content="Check price" Command="{Binding CheckCommand}" HorizontalAlignment="Left" IsDefault="True" Style="{StaticResource Button.Primary}"/>
             <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource Brush.Text.Muted}"/>
             <StackPanel Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
-            <TextBlock Text="{Binding ProductName}" Margin="0,18,0,2" FontSize="18" FontWeight="SemiBold"
+            <TextBlock Text="{Binding ProductName}" Margin="0,18,0,2" Style="{StaticResource Text.DetailTitle}"
                        Foreground="{DynamicResource Brush.Text.Primary}" />
-            <TextBlock Text="{Binding Sku, StringFormat=SKU: {0}}" FontSize="12"
+            <TextBlock Text="{Binding Sku, StringFormat=SKU: {0}}" Style="{StaticResource Text.FormLabel}"
                        Foreground="{DynamicResource Brush.Text.Muted}" />
-            <TextBlock Text="{Binding PriceDisplay}" Margin="0,18,0,12" FontSize="30" FontWeight="Bold"
-                       FontFamily="{StaticResource Font.Numeric}"
+            <TextBlock Text="{Binding PriceDisplay}" Margin="0,18,0,12" Style="{StaticResource Text.PriceHero}"
                        Foreground="{DynamicResource Brush.Brand.Primary}" />
             <Grid Margin="0,4">
                 <TextBlock Text="Availability" Foreground="{DynamicResource Brush.Text.Secondary}" />
