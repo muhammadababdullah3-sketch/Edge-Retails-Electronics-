@@ -567,6 +567,10 @@ public class CentralDbContext : DbContext, ICentralDbContext
             b.HasKey(e => e.Id);
             b.Property(e => e.ReportedMachineFingerprint).HasMaxLength(128).IsRequired();
             b.Property(e => e.StoredMachineFingerprint).HasMaxLength(128);
+            b.Property(e => e.ReportedMachineFingerprintId).IsRequired();
+            b.Property(e => e.StoredMachineFingerprintId).IsRequired();
+            b.Property(e => e.ContractDecision).HasMaxLength(32);
+            b.Property(e => e.VerificationEvidenceId);
             b.Property(e => e.DiscrepancyReason).HasMaxLength(512);
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
             b.Property(e => e.RowVersion).IsConcurrencyToken();
@@ -582,6 +586,9 @@ public class CentralDbContext : DbContext, ICentralDbContext
             b.HasKey(e => e.Id);
             b.Property(e => e.TransferReason).HasMaxLength(512);
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ContractDecision).HasMaxLength(32);
+            b.Property(e => e.RecoveryType).HasMaxLength(32);
+            b.Property(e => e.VerificationEvidenceId);
             b.Property(e => e.RowVersion).IsConcurrencyToken();
 
             b.HasIndex(e => e.ShopId);

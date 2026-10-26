@@ -153,7 +153,8 @@ public class ProtectedSigningEngine : IProtectedSigningEngine
                     KeyId = existingRequest.KeyId,
                     KeyVersion = existingRequest.KeyVersion,
                     AlgorithmProfileId = DefaultAlgorithm,
-                    SignedAtUtc = existingRequest.CreatedAtUtc
+                    SignedAtUtc = existingRequest.SignedAtUtc ?? throw new CentralDomainException(
+                        "SIGNING_RECORD_INCOMPLETE", "signing.record_incomplete", "A completed signing record must contain its signing timestamp.")
                 };
             }
 
@@ -183,7 +184,12 @@ public class ProtectedSigningEngine : IProtectedSigningEngine
 
         // 6. Record signing request
         var record = existingRequest!;
-        record.CompleteSigning(signatureBase64, now);
+        // PostgreSQL timestamps retain microseconds. Return the same precision as
+        // the durable value so a response replayed after restart is identical.
+        var signingTime = DateTimeOffset.UtcNow;
+        var signedAtUtc = new DateTimeOffset(
+            signingTime.Ticks - signingTime.Ticks % TimeSpan.TicksPerMicrosecond, TimeSpan.Zero);
+        record.CompleteSigning(signatureBase64, signedAtUtc);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -194,7 +200,7 @@ public class ProtectedSigningEngine : IProtectedSigningEngine
             KeyId = record.KeyId,
             KeyVersion = record.KeyVersion,
             AlgorithmProfileId = DefaultAlgorithm,
-            SignedAtUtc = now
+            SignedAtUtc = signedAtUtc
         };
     }
 

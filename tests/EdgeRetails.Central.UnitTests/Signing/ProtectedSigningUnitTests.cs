@@ -112,11 +112,23 @@ public class ProtectedSigningUnitTests : IDisposable
         };
 
         await _engine.AuthorizeTestRequestAsync(request);
+        var authorized = await _dbContext.CentralSigningRequests.SingleAsync(x => x.Id == reqId);
+        _dbContext.Entry(authorized).Property(x => x.CreatedAtUtc).CurrentValue = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await _dbContext.SaveChangesAsync();
         var response1 = await _engine.SignAsync(request);
         var response2 = await _engine.SignAsync(request);
 
         Assert.Equal(response1.Signature, response2.Signature);
         Assert.Equal(response1.SigningRequestId, response2.SigningRequestId);
+        Assert.Equal(response1.SignedAtUtc, response2.SignedAtUtc);
+        Assert.Equal(authorized.SignedAtUtc, response1.SignedAtUtc);
+        Assert.NotEqual(authorized.CreatedAtUtc, response1.SignedAtUtc);
+        Assert.Equal(0, response1.SignedAtUtc.Ticks % TimeSpan.TicksPerMicrosecond);
+
+        _dbContext.Entry(authorized).Property(x => x.SignedAtUtc).CurrentValue = null;
+        await _dbContext.SaveChangesAsync();
+        var incomplete = await Assert.ThrowsAsync<CentralDomainException>(() => _engine.SignAsync(request));
+        Assert.Equal("SIGNING_RECORD_INCOMPLETE", incomplete.Code);
     }
 
     [Fact]

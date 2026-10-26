@@ -207,7 +207,7 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         var hasPermission = session.Capabilities.Any(c => string.Equals(c, requiredPermission, StringComparison.OrdinalIgnoreCase));
 
         // Key rotate/revoke can also be satisfied by security.manage
-        if (!hasPermission && (requiredPermission == "signer.rotate" || requiredPermission == "signer.revoke"))
+        if (!hasPermission && (requiredPermission == AdminCapabilities.SignerRotate || requiredPermission == AdminCapabilities.SignerRevoke))
         {
             hasPermission = session.Capabilities.Any(c => string.Equals(c, "security.manage", StringComparison.OrdinalIgnoreCase));
         }
@@ -496,7 +496,7 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         // 18. Audit
         if (method == "GET" && path.Equals("/api/admin/v1/audit", StringComparison.OrdinalIgnoreCase))
         {
-            return AdminCapabilities.AuditRead;
+            return AdminCapabilities.AuditView;
         }
 
         // 19. Sessions
@@ -560,11 +560,11 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         // 23. Key rotate and revoke
         if (method == "POST" && Regex.IsMatch(path, @"^/internal/v1/keys/[^/]+/rotate$", RegexOptions.IgnoreCase))
         {
-            return "signer.rotate";
+            return AdminCapabilities.SignerRotate;
         }
         if (method == "POST" && Regex.IsMatch(path, @"^/internal/v1/keys/[^/]+/revoke$", RegexOptions.IgnoreCase))
         {
-            return "signer.revoke";
+            return AdminCapabilities.SignerRevoke;
         }
 
         // 24. Action Preview

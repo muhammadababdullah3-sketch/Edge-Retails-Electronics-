@@ -102,7 +102,14 @@ public sealed class HostedOutboxTests
                 return;
             }
 
-            await Task.Delay(50, cancellation.Token);
+            try
+            {
+                await Task.Delay(50, cancellation.Token);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                throw new TimeoutException("Expected durable worker effect was not observed before the configured timeout.");
+            }
         }
         throw new TimeoutException("Expected durable worker effect was not observed.");
     }
@@ -159,6 +166,69 @@ public sealed class HostedOutboxTests
         var notice = await verify.AdminNotifications.SingleAsync(n => n.Id == id);
         Assert.Equal(HardwareReview.StatusPending, (await verify.HardwareReviews.SingleAsync(r => r.Id == notice.TargetId)).Status);
         Assert.Equal(1, await verify.CentralConsumerEffects.CountAsync(e => e.MessageId == id));
+    }
+
+    [Fact]
+    public async Task HostedWorker_ExternalProcessCrashWindow_PreservesSingleNotification()
+    {
+        var mode = Environment.GetEnvironmentVariable("CENTRAL_OUTBOX_CRASH_WINDOW_MODE") ?? "normal";
+        Guid messageId;
+        if (mode == "seed")
+        {
+            var markerPath = Environment.GetEnvironmentVariable("CENTRAL_OUTBOX_CRASH_WINDOW_MARKER")
+                ?? throw new InvalidOperationException("Explicit crash-window marker path required.");
+            messageId = await Seed();
+            await using var crashHost = new Host();
+            using var crashClient = crashHost.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            await WaitFor(async db =>
+                await db.CentralConsumerEffects.AnyAsync(e => e.MessageId == messageId) &&
+                await db.AdminNotifications.AnyAsync(n => n.Id == messageId));
+            await File.WriteAllTextAsync(markerPath, messageId.ToString("D"));
+
+            // An external runner kills this test-host process while PostgreSQL
+            // holds the outbox ACK update in a trigger after the sink committed.
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        if (mode == "recover")
+        {
+            messageId = Guid.Parse(Environment.GetEnvironmentVariable("CENTRAL_OUTBOX_CRASH_WINDOW_MESSAGE_ID")
+                ?? throw new InvalidOperationException("Explicit crashed message ID required."));
+        }
+        else if (mode == "normal")
+        {
+            messageId = await Seed();
+        }
+        else
+        {
+            throw new InvalidOperationException("CENTRAL_OUTBOX_CRASH_WINDOW_MODE must be normal, seed, or recover.");
+        }
+
+        await using var host = new Host();
+        using var client = host.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        await WaitFor(async db =>
+            await db.CentralOutboxMessages.AnyAsync(m => m.Id == messageId && m.Status == OutboxStatus.DISPATCHED) &&
+            await db.CentralConsumerEffects.CountAsync(e => e.MessageId == messageId) == 1 &&
+            await db.AdminNotifications.CountAsync(n => n.Id == messageId) == 1,
+            TimeSpan.FromSeconds(60));
+
+        client.DefaultRequestHeaders.Add("X-Session-Id", (await SeedAdminSession("notifications.view")).ToString());
+        using var health = await client.GetAsync("/api/admin/v1/notifications/status");
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        using var healthJson = JsonDocument.Parse(await health.Content.ReadAsStringAsync());
+        await using var healthReadback = Open();
+        var hasOutstandingDeliveryFailure = await healthReadback.CentralOutboxMessages.AsNoTracking()
+            .AnyAsync(m => m.Status == OutboxStatus.FAILED || m.Status == OutboxStatus.DEAD_LETTER);
+        var healthStatus = healthJson.RootElement.GetProperty("status").GetString();
+        Assert.Contains(healthStatus, hasOutstandingDeliveryFailure
+            ? new[] { "degraded", "unknown" }
+            : new[] { "healthy", "unknown" });
+
+        await using var final = Open();
+        Assert.Equal(OutboxStatus.DISPATCHED, (await final.CentralOutboxMessages.SingleAsync(m => m.Id == messageId)).Status);
+        Assert.Equal(1, await final.CentralConsumerEffects.CountAsync(e => e.MessageId == messageId));
+        Assert.Equal(1, await final.AdminNotifications.CountAsync(n => n.Id == messageId));
     }
 
     [Fact]

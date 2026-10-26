@@ -5,6 +5,7 @@ using EdgeRetails.Central.Domain.Commercial;
 using EdgeRetails.Central.Domain.Common;
 using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Domain.Licensing;
+using EdgeRetails.Central.Domain.Storage;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using System.Buffers.Binary;
@@ -459,6 +460,8 @@ public class Wave4DashboardAndPortalService
                     EntityId = redemption.Id,
                     QueueType = "ACTIVATION_REVIEW",
                     ShopId = license.ShopId,
+                    ShopName = _dbContext.Shops.Where(s => s.Id == license.ShopId).Select(s => s.ShopName).FirstOrDefault(),
+                    CustomerName = _dbContext.Shops.Where(s => s.Id == license.ShopId).Join(_dbContext.Customers, s => s.CustomerId, c => c.Id, (s, c) => c.LegalName).FirstOrDefault(),
                     Title = "Pending activation review",
                     Status = redemption.Status,
                     CreatedAtUtc = redemption.RedeemedAtUtc,
@@ -472,6 +475,8 @@ public class Wave4DashboardAndPortalService
                 .Select(e => new QueueItemDto
                 {
                     EntityId = e.Id, QueueType = "PAYMENT_REVIEW", ShopId = e.ShopId,
+                    ShopName = _dbContext.Shops.Where(s => s.Id == e.ShopId).Select(s => s.ShopName).FirstOrDefault(),
+                    CustomerName = _dbContext.Shops.Where(s => s.Id == e.ShopId).Join(_dbContext.Customers, s => s.CustomerId, c => c.Id, (s, c) => c.LegalName).FirstOrDefault(),
                     OrderId = includePaymentReviewDetails ? e.OrderId : null,
                     ResourceVersion = includePaymentReviewDetails ? e.RowVersion : null,
                     Title = $"Payment Proof Review - {e.MimeType}", Status = e.ReviewStatus,
@@ -483,19 +488,27 @@ public class Wave4DashboardAndPortalService
                 .Select(h => new QueueItemDto
                 {
                     EntityId = h.Id, QueueType = "HARDWARE_REVIEW", ShopId = h.ShopId,
+                    ShopName = _dbContext.Shops.Where(s => s.Id == h.ShopId).Select(s => s.ShopName).FirstOrDefault(),
+                    CustomerName = _dbContext.Shops.Where(s => s.Id == h.ShopId).Join(_dbContext.Customers, s => s.CustomerId, c => c.Id, (s, c) => c.LegalName).FirstOrDefault(),
                     Title = $"Hardware Change Review - Machine {h.ReportedMachineFingerprint}", Status = h.Status,
                     CreatedAtUtc = h.CreatedAtUtc, ReasonOrSummary = h.DiscrepancyReason,
                     RequiresDualApproval = true,
-                    ResourceVersion = h.RowVersion
+                    ResourceVersion = h.RowVersion,
+                    InstallationId = h.InstallationId,
+                    PreviousFingerprintId = h.StoredMachineFingerprintId,
+                    CurrentFingerprintId = h.ReportedMachineFingerprintId
                 }),
             "PRIMARY_TRANSFER" => _dbContext.PrimaryTransfers.AsNoTracking()
                 .Where(t => t.Status == PrimaryTransfer.StatusPendingApproval || t.Status == PrimaryTransfer.StatusApproved)
                 .Select(t => new QueueItemDto
                 {
                     EntityId = t.Id, QueueType = "PRIMARY_TRANSFER", ShopId = t.ShopId,
+                    ShopName = _dbContext.Shops.Where(s => s.Id == t.ShopId).Select(s => s.ShopName).FirstOrDefault(),
+                    CustomerName = _dbContext.Shops.Where(s => s.Id == t.ShopId).Join(_dbContext.Customers, s => s.CustomerId, c => c.Id, (s, c) => c.LegalName).FirstOrDefault(),
                     Title = $"Primary transfer {t.SourceInstallationId:D} to {t.TargetInstallationId:D}",
                     Status = t.Status, CreatedAtUtc = t.CreatedAtUtc, ReasonOrSummary = t.TransferReason,
-                    RequiresDualApproval = true, ResourceVersion = t.RowVersion
+                    RequiresDualApproval = true, ResourceVersion = t.RowVersion,
+                    OldInstallationId = t.SourceInstallationId, NewInstallationId = t.TargetInstallationId
                 }),
             "DUAL_APPROVAL" => _dbContext.SensitiveApprovalRequests.AsNoTracking()
                 .Where(a => a.Status == SensitiveApprovalRequest.StatusPending)
@@ -517,6 +530,8 @@ public class Wave4DashboardAndPortalService
                 .Select(t => new QueueItemDto
                 {
                     EntityId = t.Id, QueueType = "SUPPORT_INBOX", ShopId = t.ShopId,
+                    ShopName = _dbContext.Shops.Where(s => s.Id == t.ShopId).Select(s => s.ShopName).FirstOrDefault(),
+                    CustomerName = _dbContext.Shops.Where(s => s.Id == t.ShopId).Join(_dbContext.Customers, s => s.CustomerId, c => c.Id, (s, c) => c.LegalName).FirstOrDefault(),
                     Title = t.Subject, Status = t.Status, CreatedAtUtc = t.CreatedAtUtc,
                     ReasonOrSummary = t.Summary, RequiresDualApproval = false
                 }),
@@ -570,13 +585,37 @@ public class Wave4DashboardAndPortalService
 
             case "TRANSFER_PRIMARY":
             {
+                var proposedDecision = PreviewString(parameters, "decision", "APPROVE");
+                if (proposedDecision is not ("REQUEST" or "APPROVE" or "REJECT" or "CANCEL" or "COMPLETE"))
+                {
+                    throw InvalidPreviewParameters();
+                }
                 var transfer = await _dbContext.PrimaryTransfers.AsNoTracking().SingleOrDefaultAsync(t => t.Id == request.TargetEntityId, cancellationToken)
                     ?? throw new CentralDomainException("TRANSFER_NOT_FOUND", "transfer.not_found", "The transfer case does not exist.");
                 ValidatePreviewShop(transfer.ShopId, shop.Id);
                 ValidatePreviewVersion(parameters, "expectedVersion", transfer.RowVersion);
-                if (transfer.Status is not (PrimaryTransfer.StatusPendingApproval or PrimaryTransfer.StatusApproved))
+                var completionPreview = proposedDecision == "COMPLETE";
+                if (completionPreview
+                    ? transfer.Status != PrimaryTransfer.StatusApproved || transfer.ContractDecision != "APPROVE" ||
+                      transfer.RecoveryType is not ("STANDARD_TRANSFER" or "LOST_HARDWARE_RECOVERY") || transfer.VerificationEvidenceId is not Guid evidenceId || evidenceId == Guid.Empty
+                    : transfer.Status != PrimaryTransfer.StatusPendingApproval)
                 {
-                    throw new CentralDomainException("INVALID_STATE_TRANSITION", "transfer.not_pending", "Only a pending or approved transfer can be previewed for execution.");
+                    throw new CentralDomainException("INVALID_STATE_TRANSITION", completionPreview ? "transfer.not_ready" : "transfer.not_pending",
+                        completionPreview ? "Transfer completion preview requires a persisted, evidence-backed APPROVE decision." : "A transfer decision can only be previewed while the transfer is pending approval.");
+                }
+                if (!completionPreview && proposedDecision == "REQUEST" && transfer.ContractDecision is not null)
+                {
+                    throw new CentralDomainException("INVALID_STATE_TRANSITION", "transfer.request_already_recorded", "The transfer request has already been recorded.");
+                }
+                if (completionPreview)
+                {
+                    var evidence = await _dbContext.EncryptedObjects.AsNoTracking()
+                        .SingleOrDefaultAsync(x => x.Id == transfer.VerificationEvidenceId, cancellationToken)
+                        ?? throw new CentralDomainException("EVIDENCE_NOT_FOUND", "support.evidence_not_found", "Primary transfer verification evidence was not found.");
+                    if (evidence.ShopId != shop.Id || evidence.Purpose != EncryptedObjectRecord.PurposeSupportAttachment || evidence.IsTombstoned)
+                    {
+                        throw new CentralDomainException("EVIDENCE_SCOPE_INVALID", "support.evidence_scope_invalid", "Primary transfer evidence must be an active support attachment for the same shop.");
+                    }
                 }
                 var source = await _dbContext.Installations.AsNoTracking().SingleOrDefaultAsync(i => i.Id == transfer.SourceInstallationId, cancellationToken)
                     ?? throw new CentralDomainException("SOURCE_NOT_FOUND", "transfer.source_not_found", "The transfer source does not exist.");
@@ -595,17 +634,35 @@ public class Wave4DashboardAndPortalService
                 var license = await PreviewLicenseAsync(source.LicenseId, shop.Id, cancellationToken);
                 ValidatePreviewVersion(parameters, "authorityRevision", license.AuthorityRevision);
                 await ValidatePreviewPolicyVersionAsync(parameters, license, cancellationToken);
+                if (completionPreview && (license.Status != CommercialLicense.StatusActive || license.ValidFromUtc > DateTimeOffset.UtcNow ||
+                    (license.ValidUntilUtc.HasValue && license.ValidUntilUtc.Value <= DateTimeOffset.UtcNow)))
+                {
+                    throw new CentralDomainException("LICENSE_NOT_ELIGIBLE", "transfer.not_eligible", "Primary transfer completion preview requires a currently active, commercially valid license.");
+                }
                 response.AffectedInstallationsCount = 2;
                 response.IsDestructive = true;
-                response.RequiresStepUp = true;
-                response.RequiresDualApproval = true;
-                response.ConsequenceSummary = $"Transfer case {transfer.Id:D} is {transfer.Status} at version {transfer.RowVersion}. After its required independent approval, completion retires source installation {source.Id:D}, revokes its active certificates, and activates target installation {target.Id:D} for the same shop and license.";
-                response.Warnings.Add("Approval and completion are separate persisted actions. Current commercial eligibility, installation identities and versions must be checked again before execution; this preview grants no certificate or transaction authority.");
+                response.RequiresStepUp = proposedDecision is "APPROVE" or "COMPLETE";
+                response.RequiresDualApproval = proposedDecision == "APPROVE";
+                response.ConsequenceSummary = completionPreview
+                    ? $"Completing approved transfer case {transfer.Id:D} at version {transfer.RowVersion} retires source installation {source.Id:D}, revokes its active certificates, and activates target installation {target.Id:D} for the same shop and currently valid license."
+                    : proposedDecision == "APPROVE"
+                    ? $"Approving transfer case {transfer.Id:D} at version {transfer.RowVersion} authorizes later completion, which retires source installation {source.Id:D}, revokes its active certificates, and activates target installation {target.Id:D} for the same shop and license."
+                    : $"Recording {proposedDecision} for transfer case {transfer.Id:D} at version {transfer.RowVersion} changes the persisted transfer decision; it does not complete a transfer or issue a certificate.";
+                response.Warnings.Add("The actual command revalidates current commercial eligibility, installation identities and versions. Preview grants no certificate or transaction authority.");
+                if (completionPreview)
+                {
+                    response.Warnings.Add("Completion is a separate mutation after the persisted independent approval; a fresh execution-session MFA grant is still required for this exact completion.");
+                }
                 break;
             }
 
             case "REPLACE_HARDWARE":
             {
+                var proposedDecision = PreviewString(parameters, "decision", "APPROVE_REBIND");
+                if (proposedDecision is not ("APPROVE_REBIND" or "RECOMMEND_TRANSFER" or "REQUEST_INFORMATION" or "REJECT"))
+                {
+                    throw InvalidPreviewParameters();
+                }
                 var review = await _dbContext.HardwareReviews.AsNoTracking().SingleOrDefaultAsync(h => h.Id == request.TargetEntityId, cancellationToken)
                     ?? throw new CentralDomainException("HARDWARE_REVIEW_NOT_FOUND", "hw.review_not_found", "The hardware review does not exist.");
                 ValidatePreviewShop(review.ShopId, shop.Id);
@@ -621,10 +678,13 @@ public class Wave4DashboardAndPortalService
                 ValidatePreviewVersion(parameters, "authorityRevision", license.AuthorityRevision);
                 response.AffectedInstallationsCount = 1;
                 response.IsDestructive = true;
-                response.RequiresStepUp = true;
-                response.RequiresDualApproval = !string.Equals(review.ReportedMachineFingerprint, review.StoredMachineFingerprint, StringComparison.Ordinal);
-                response.ConsequenceSummary = $"Hardware review {review.Id:D} is PENDING at version {review.RowVersion} for installation {installation.Id:D}. Approval authorizes the recorded hardware change through the rebind workflow; rejection preserves the current machine binding.";
-                response.Warnings.Add("The stored and reported fingerprint, current commercial authority, required approval and certificate eligibility must be revalidated by the actual decision. Preview alone does not change hardware trust.");
+                var requiresIndependentApproval = proposedDecision == "APPROVE_REBIND";
+                response.RequiresStepUp = requiresIndependentApproval;
+                response.RequiresDualApproval = requiresIndependentApproval;
+                response.ConsequenceSummary = proposedDecision == "APPROVE_REBIND"
+                    ? $"Approving hardware rebind for review {review.Id:D} at version {review.RowVersion} permits installation {installation.Id:D} to reconcile with the reported fingerprint after independent approval."
+                    : $"Recording {proposedDecision} for hardware review {review.Id:D} at version {review.RowVersion} does not change the installation's trusted fingerprint.";
+                response.Warnings.Add("The stored and reported fingerprint, current commercial authority, approval and certificate eligibility must be revalidated by the actual decision. Preview alone does not change hardware trust.");
                 break;
             }
 
@@ -777,6 +837,17 @@ public class Wave4DashboardAndPortalService
         if (!value.HasValue) { return null; }
         if (value.Value.ValueKind != JsonValueKind.String || !Guid.TryParse(value.Value.GetString(), out var id) || id == Guid.Empty) { throw InvalidPreviewParameters(); }
         return id;
+    }
+
+    private static string PreviewString(JsonElement? parameters, string name, string fallback)
+    {
+        var value = PreviewParameter(parameters, name);
+        if (!value.HasValue) { return fallback; }
+        if (value.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.Value.GetString()))
+        {
+            throw InvalidPreviewParameters();
+        }
+        return value.Value.GetString()!.Trim().ToUpperInvariant();
     }
 
     private static DateTimeOffset? PreviewDate(JsonElement? parameters, string name)

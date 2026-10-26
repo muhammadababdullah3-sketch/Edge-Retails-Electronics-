@@ -14,9 +14,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace EdgeRetails.Central.IntegrationTests.Api;
 
 /// <summary>
-/// Actual-host coverage for the source-defined granular session-management permissions.
-/// This intentionally leaves support shop scoping and response redaction out of scope:
-/// those policies are not fully specified by the current contract.
+/// Actual-host route coverage for anonymous, underprivileged, and exact-capability callers.
+/// Forged identity/shop headers are carried on authenticated probes to verify that they do
+/// not replace the persisted session authority. Resource-specific shop scope remains covered
+/// by its feature tests, not inferred from this generic route matrix.
 /// </summary>
 public sealed class CentralApiAuthorizationMatrixIntegrationTests(
     WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
@@ -203,13 +204,45 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
         Assert.True(unclassified.Length == 0,
             $"Mapped Central API routes without an explicit authorization boundary: {string.Join("; ", unclassified.Select(row => $"{row.Method} {row.Path}"))}");
 
+        var contractPath = FindEffective040ContractPath();
+        using var contractDocument = JsonDocument.Parse(File.ReadAllText(contractPath));
+        var contractRoutes = contractDocument.RootElement.GetProperty("routes").EnumerateArray().ToArray();
+        var contractObservations = new List<object>(contractRoutes.Length);
+        foreach (var contractRoute in contractRoutes)
+        {
+            var method = contractRoute.GetProperty("method").GetString()!.ToUpperInvariant();
+            var rawPath = contractRoute.GetProperty("path").GetString()!;
+            var representativePath = ToRepresentativePath(rawPath);
+            var normalizedPath = NormalizeRepresentativePath(representativePath);
+            var permission = contractRoute.GetProperty("permission").GetString()!;
+            var hostRoute = matrix.SingleOrDefault(row =>
+                row.Method == method && NormalizeRepresentativePath(row.Path)
+                    .Equals(normalizedPath, StringComparison.OrdinalIgnoreCase));
+            Assert.True(hostRoute is not null,
+                $"Effective040 route is absent from the actual host endpoint map: {method} {rawPath}.");
+
+            var expectedFilterPermission = ExpectedContractFilterPermission(method, rawPath, permission);
+            Assert.Equal(expectedFilterPermission, hostRoute!.RequiredPermission);
+            contractObservations.Add(new
+            {
+                method,
+                path = rawPath,
+                representativePath,
+                contractPermission = permission,
+                hostFilterPermission = hostRoute.RequiredPermission
+            });
+        }
+
         using var anonymous = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost")
         });
         var adminManageFixture = await CreateSessionsAsync([AdminCapabilities.AdminManage], includeTarget: false);
         using var adminManage = ClientFor(adminManageFixture.CallerSessionId);
+        var noCapabilityFixture = await CreateSessionsAsync([], includeTarget: false);
+        using var noCapabilities = ClientFor(noCapabilityFixture.CallerSessionId);
         var observations = new List<HostAuthorizationObservation>(matrix.Length);
+        var exactCapabilitySessions = new Dictionary<string, (Guid AdminUserId, Guid SessionId)>(StringComparer.Ordinal);
 
         foreach (var row in matrix)
         {
@@ -231,18 +264,81 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
                 Assert.InRange(anonymousStatus, 400, 499);
             }
 
-            int? adminManageStatus = null;
-            if ((row.Boundary == "admin-capability" && row.RequiredPermission != AdminCapabilities.AdminManage) ||
+            int? underprivilegedSessionStatus = null;
+            Guid? underprivilegedAdminUserId = null;
+            Guid? underprivilegedAdminSessionId = null;
+            var forgedIdentityShopHeadersSupplied = false;
+            if (row.Boundary == "admin-capability" ||
                 row.Boundary == "session-capability" || row.Boundary == "legacy-fail-closed")
             {
                 using var wrongCapabilityRequest = CreateProbeRequest(row.Method, row.Path);
-                using var wrongCapabilityResponse = await adminManage.SendAsync(wrongCapabilityRequest);
-                adminManageStatus = (int)wrongCapabilityResponse.StatusCode;
+                wrongCapabilityRequest.Headers.Add("X-Admin-User-Id", Guid.NewGuid().ToString("D"));
+                wrongCapabilityRequest.Headers.Add("X-Shop-Id", Guid.NewGuid().ToString("D"));
+                forgedIdentityShopHeadersSupplied = true;
+                if ((row.Method is "POST" or "PUT" or "PATCH" or "DELETE") &&
+                    !row.Path.StartsWith("/internal/", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Match the HTTPS test host origin so CSRF middleware cannot mask the
+                    // authorization boundary this probe is intended to exercise.
+                    wrongCapabilityRequest.Headers.Add("Origin", "https://localhost");
+                }
+                var useNoCapabilities = row.Boundary == "admin-capability" && row.RequiredPermission == AdminCapabilities.AdminManage;
+                var underprivilegedClient = useNoCapabilities ? noCapabilities : adminManage;
+                var underprivilegedFixture = useNoCapabilities ? noCapabilityFixture : adminManageFixture;
+                underprivilegedAdminUserId = underprivilegedFixture.CallerAdminUserId;
+                underprivilegedAdminSessionId = underprivilegedFixture.CallerSessionId;
+                using var wrongCapabilityResponse = await underprivilegedClient.SendAsync(wrongCapabilityRequest);
+                underprivilegedSessionStatus = (int)wrongCapabilityResponse.StatusCode;
                 Assert.Equal(HttpStatusCode.Forbidden, wrongCapabilityResponse.StatusCode);
+                var wrongCapabilityBody = await wrongCapabilityResponse.Content.ReadAsStringAsync();
+                Assert.True(wrongCapabilityBody.Contains("FORBIDDEN", StringComparison.Ordinal),
+                    $"Wrong-capability probe did not reach the authorization filter for {row.Method} {row.Path} ({row.Boundary}): {wrongCapabilityBody}");
+                Assert.DoesNotContain("CSRF_REJECTED", wrongCapabilityBody, StringComparison.Ordinal);
+            }
+
+            int? exactCapabilityStatus = null;
+            string? exactCapabilityErrorCode = null;
+            Guid? exactCapabilityAdminUserId = null;
+            Guid? exactCapabilityAdminSessionId = null;
+            if (row.Boundary == "admin-capability" && row.RequiredPermission is { Length: > 0 } requiredPermission)
+            {
+                if (!exactCapabilitySessions.TryGetValue(requiredPermission, out var exactIdentity))
+                {
+                    var exactFixture = await CreateSessionsAsync([requiredPermission], includeTarget: false);
+                    exactIdentity = (exactFixture.CallerAdminUserId, exactFixture.CallerSessionId);
+                    exactCapabilitySessions.Add(requiredPermission, exactIdentity);
+                }
+
+                exactCapabilityAdminUserId = exactIdentity.AdminUserId;
+                exactCapabilityAdminSessionId = exactIdentity.SessionId;
+                using var exactCapabilityClient = ClientFor(exactIdentity.SessionId);
+                using var exactCapabilityRequest = CreateProbeRequest(row.Method, row.Path);
+                exactCapabilityRequest.Headers.Add("X-Admin-User-Id", Guid.NewGuid().ToString("D"));
+                exactCapabilityRequest.Headers.Add("X-Shop-Id", Guid.NewGuid().ToString("D"));
+                forgedIdentityShopHeadersSupplied = true;
+                if ((row.Method is "POST" or "PUT" or "PATCH" or "DELETE") &&
+                    !row.Path.StartsWith("/internal/", StringComparison.OrdinalIgnoreCase))
+                {
+                    exactCapabilityRequest.Headers.Add("Origin", "https://localhost");
+                }
+                using var exactCapabilityResponse = await exactCapabilityClient.SendAsync(
+                    exactCapabilityRequest, HttpCompletionOption.ResponseHeadersRead);
+                exactCapabilityStatus = (int)exactCapabilityResponse.StatusCode;
+                var exactCapabilityBody = await exactCapabilityResponse.Content.ReadAsStringAsync();
+                exactCapabilityErrorCode = ResponseCode(exactCapabilityBody);
+                Assert.True(exactCapabilityStatus < 500,
+                    $"The exact capability reached a server failure for {row.Method} {row.Path} ({requiredPermission}); " +
+                    $"status={exactCapabilityStatus}, code={exactCapabilityErrorCode ?? "<none>"}, body={exactCapabilityBody}.");
+                var rejectedAtAuthorizationBoundary = exactCapabilityResponse.StatusCode == HttpStatusCode.Unauthorized ||
+                    (exactCapabilityResponse.StatusCode == HttpStatusCode.Forbidden && exactCapabilityErrorCode == "FORBIDDEN");
+                Assert.False(rejectedAtAuthorizationBoundary,
+                    $"The exact capability was rejected for {row.Method} {row.Path} ({requiredPermission}); status={exactCapabilityStatus}, code={exactCapabilityErrorCode ?? "<none>"}.");
             }
 
             observations.Add(new HostAuthorizationObservation(
-                row.Method, row.Path, row.RequiredPermission, row.Boundary!, anonymousStatus, adminManageStatus));
+                row.Method, row.Path, row.RequiredPermission, row.Boundary!, anonymousStatus, underprivilegedSessionStatus,
+                underprivilegedAdminUserId, underprivilegedAdminSessionId, forgedIdentityShopHeadersSupplied,
+                exactCapabilityStatus, exactCapabilityErrorCode, exactCapabilityAdminUserId, exactCapabilityAdminSessionId));
         }
 
         var evidencePath = Environment.GetEnvironmentVariable("CENTRAL_AUTHORIZATION_MATRIX_EVIDENCE_PATH");
@@ -252,9 +348,15 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
             await File.WriteAllTextAsync(fullPath, JsonSerializer.Serialize(new
             {
-                schema = "CENTRAL_ACTUAL_HOST_AUTHORIZATION_MATRIX_V1",
+                schema = "CENTRAL_ACTUAL_HOST_AUTHORIZATION_MATRIX_V2",
                 routeCount = observations.Count,
-                routes = observations
+                routes = observations,
+                effective040Contract = new
+                {
+                    routeCount = contractObservations.Count,
+                    contractSha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(contractPath))),
+                    routes = contractObservations
+                }
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
 
@@ -297,6 +399,54 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
                 ? "00000000-0000-0000-0000-000000000001"
                 : "authorization-probe";
         });
+    }
+
+    private static string NormalizeRepresentativePath(string path) =>
+        Regex.Replace(path, @"authorization-probe|00000000-0000-0000-0000-000000000001", "{}",
+            RegexOptions.IgnoreCase);
+
+    private static string FindEffective040ContractPath()
+    {
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var cursor = new DirectoryInfo(start);
+            while (cursor is not null)
+            {
+                var candidate = Path.Combine(cursor.FullName, "contracts", "central", "CONTRACT_ROUTES.json");
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                cursor = cursor.Parent;
+            }
+        }
+
+        throw new FileNotFoundException("Could not locate the source-bound effective040 Central route contract.");
+    }
+
+    private static string? ExpectedContractFilterPermission(string method, string path, string permission)
+    {
+        if ((method == "POST" && permission == "auth.login" && path == "/api/admin/v1/auth/login") ||
+            (method == "POST" && permission == "auth.mfa" && path == "/api/admin/v1/auth/mfa") ||
+            (method == "POST" && permission == "installation.bootstrap.challenge" && path == "/api/licensing/v1/bootstrap/challenge") ||
+            (method == "POST" && permission == "installation.register" && path == "/api/licensing/v1/primary/register") ||
+            (method == "POST" && permission == "activation.redeem" && path == "/api/licensing/v1/activation/redeem") ||
+            (method == "POST" && permission == "installation.reconcile" && path == "/api/licensing/v1/reconcile") ||
+            (method == "POST" && permission == "backup.upload.init" && path == "/api/licensing/v1/backups/uploads") ||
+            (method == "POST" && permission == "backup.upload.finalize" && path == "/api/licensing/v1/backups/uploads/{id}/finalize") ||
+            (method == "POST" && permission == "support.bundle" && path == "/api/licensing/v1/support/bundles") ||
+            (method == "GET" && permission == "backup.download" && path == "/api/licensing/v1/backups/{id}/download") ||
+            (method == "GET" && permission == "operation.lookup" && path == "/api/licensing/v1/operations/{id}") ||
+            (method == "GET" && permission == "activation.status" && path == "/api/licensing/v1/activation/{id}/status") ||
+            (method == "GET" && permission == "trustset.get" && path == "/api/licensing/v1/trust-set") ||
+            (method == "GET" && permission == "object.download.grant" && path == "/api/licensing/v1/backups/download-grants/{grantId}/content") ||
+            (method == "POST" && permission == "certificate.sign" && path == "/internal/v1/sign"))
+        {
+            return null;
+        }
+
+        return permission;
     }
 
     private static string? DescribeHostBoundary(string method, string path, string? permission)
@@ -371,10 +521,31 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
                               path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase))) ||
         (method == "PUT" && Regex.IsMatch(path, @"^/api/licensing/v1/uploads/[^/]+/content$", RegexOptions.IgnoreCase));
 
+    private static string? ResponseCode(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            return document.RootElement.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String
+                ? code.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private sealed record MappedApiRoute(string Method, string Path);
     private sealed record HostAuthorizationMatrixRow(string Method, string Path, string? RequiredPermission, string? Boundary);
     private sealed record HostAuthorizationObservation(string Method, string Path, string? RequiredPermission,
-        string Boundary, int AnonymousStatus, int? AdminManageStatus);
+        string Boundary, int AnonymousStatus, int? UnderprivilegedSessionStatus, Guid? UnderprivilegedAdminUserId,
+        Guid? UnderprivilegedAdminSessionId, bool ForgedIdentityShopHeadersSupplied, int? ExactCapabilityStatus,
+        string? ExactCapabilityErrorCode, Guid? ExactCapabilityAdminUserId, Guid? ExactCapabilityAdminSessionId);
 
     private async Task<HttpClient> CreateClientAsync(params string[] capabilities)
     {
@@ -382,7 +553,7 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
         return ClientFor(fixture.CallerSessionId);
     }
 
-    private async Task<(Guid CallerSessionId, Guid? TargetSessionId)> CreateSessionsAsync(
+    private async Task<(Guid CallerAdminUserId, Guid CallerSessionId, Guid? TargetSessionId)> CreateSessionsAsync(
         string[] capabilities, bool includeTarget)
     {
         await using var scope = factory.Services.CreateAsyncScope();
@@ -398,7 +569,7 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
             db.AdminSessions.Add(target);
         }
         await db.SaveChangesAsync();
-        return (caller.Id, target?.Id);
+        return (admin.Id, caller.Id, target?.Id);
     }
 
     private static AdminSession CreateSession(AdminUser admin, IEnumerable<string> capabilities, DateTimeOffset now)

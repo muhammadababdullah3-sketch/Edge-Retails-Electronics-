@@ -12,6 +12,7 @@ using EdgeRetails.Central.Domain.Audit;
 using EdgeRetails.Central.Domain.Identity;
 using EdgeRetails.Central.Domain.Licensing;
 using EdgeRetails.Central.Domain.Operations;
+using EdgeRetails.Central.Domain.Outbox;
 using EdgeRetails.Central.Domain.Support;
 using EdgeRetails.Central.Domain.Storage;
 using EdgeRetails.Central.Application.Services;
@@ -38,7 +39,7 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
 {
     private static readonly string[] RequiredCapabilities =
     [
-        "dashboard.view", "queues.view", "activation.review", "sessions.view", "sessions.revoke", "support.view", "support.create", "support.reply",
+        "dashboard.view", "queues.view", "activation.review", "hardware.review", "primary.transfer", "sessions.view", "sessions.revoke", "support.view", "support.create", "support.reply",
         "security.manage", "notifications.view", "search.masked", "customer.create", "shop.register",
         "licensing.read", "price.snapshot", "order.create", "payment.review", "license.issue", "addon.renew", "evidence.upload.init", "evidence.upload.finalize",
         "audit.view", "audit.read", "customer.view_sensitive", "license.view", "license.revoke", "sensitive.approve", "auth.stepup"
@@ -158,6 +159,7 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             {
                 "run-manifest.json", "db-before.json", "db-after.json", "browser-fixture.json",
                 "browser-events.json", "browser-result.json", "browser-run.log", "portal-trace.zip",
+                "worker-probe-trigger.json", "worker-probe-result.json", "worker-probe-database-readback.json",
                 "screenshots/01-authenticated-dashboard.png", "screenshots/02-queue-page-1.png",
                 "screenshots/03-queue-page-2.png", "screenshots/04-customer-360.png",
                 "screenshots/05-support-created.png", "screenshots/06-support-reply.png",
@@ -173,7 +175,10 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 "screenshots/24-expired-session-denied.png",
                 "screenshots/23-manual-license-issue-persisted.png", "screenshots/25-license-revocation-expired-approval-repreview.png",
                 "screenshots/26-license-revocation-pending-approval.png", "screenshots/27-license-revocation-separate-approval.png",
-                "screenshots/28-license-revocation-confirmed.png", "proxy-events.json"
+                "screenshots/28-license-revocation-confirmed.png", "screenshots/31-hardware-information-persisted.png",
+                "screenshots/32-transfer-cancellation-persisted.png", "screenshots/33-closed-preview-cancelled.png",
+                "screenshots/36-primary-transfer-completed.png", "screenshots/41-worker-degraded-after-dead-letter.png",
+                "proxy-events.json"
             }
         };
         await WriteJsonAsync(manifestPath, manifest);
@@ -221,7 +226,7 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 new PasswordHasher().HashPassword(lifecycleApproverPassword),
                 Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), lifecycleApproverMfaSecret, true, createdAt);
             var lifecycleApproverRole = AdminRole.Create($"SFR11 lifecycle approver {runId:N}",
-                "Synthetic independent lifecycle approver", ["dashboard.view", "queues.view", "sessions.view", "sensitive.approve"]);
+                "Synthetic independent lifecycle approver", ["dashboard.view", "queues.view", "sessions.view", "sensitive.approve", "hardware.review", "primary.transfer", "auth.stepup"]);
             var lifecycleApproverAssignment = new AdminUserRole(lifecycleApprover.Id, lifecycleApproverRole.Id, createdAt);
             var approvalRequester = AdminUser.Create(
                 $"sfr11_approval_requester_{runId:N}", "synthetic-browser-test-hash", "synthetic-browser-test-salt", null, false, createdAt);
@@ -281,6 +286,17 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             var browserUploadInstallation = Installation.Register(shopId, lifetimeLicense.Id,
                 $"synthetic-upload-machine-{runId:N}", browserUploadPublicKey, "browser-upload-fixture", "Windows", createdAt);
             browserUploadInstallation.Approve(createdAt);
+            var transferTarget = Installation.Register(shopId, lifetimeLicense.Id,
+                $"synthetic-transfer-target-{runId:N}", "synthetic-transfer-public-key", "fixture", "Windows", createdAt);
+            transferTarget.MoveToPendingApproval();
+            var hardwareReview = HardwareReview.Create(shopId, browserUploadInstallation.Id,
+                $"synthetic-changed-hardware-{runId:N}", browserUploadInstallation.MachineFingerprint, "Synthetic browser hardware discrepancy", createdAt);
+            var primaryTransfer = PrimaryTransfer.Initiate(shopId, browserUploadInstallation.Id, transferTarget.Id,
+                "Synthetic browser transfer cancellation", user.Id, createdAt);
+            var approvalHardwareReview = HardwareReview.Create(shopId, browserUploadInstallation.Id,
+                $"synthetic-approved-hardware-{runId:N}", browserUploadInstallation.MachineFingerprint, "Synthetic browser approved rebind", createdAt);
+            var approvalPrimaryTransfer = PrimaryTransfer.Initiate(shopId, browserUploadInstallation.Id, transferTarget.Id,
+                "Synthetic browser independently approved transfer", user.Id, createdAt);
             var activationInstallation = Installation.Register(shopId, lifetimeLicense.Id,
                 $"synthetic-activation-machine-{runId:N}", "synthetic-activation-public-key", "fixture", "Windows", createdAt);
             activationInstallation.MoveToPendingApproval();
@@ -373,7 +389,9 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             db.CommercialLicenses.AddRange(lifetimeLicense, fixedLicense);
             db.ShopEnforcementPolicies.Add(lifecyclePolicy);
             db.CommercialEntitlements.Add(expiringAddon);
-            db.Installations.AddRange(activationInstallation, browserUploadInstallation);
+            db.Installations.AddRange(activationInstallation, browserUploadInstallation, transferTarget);
+            db.HardwareReviews.AddRange(hardwareReview, approvalHardwareReview);
+            db.PrimaryTransfers.AddRange(primaryTransfer, approvalPrimaryTransfer);
             db.ActivationTokens.Add(activationToken);
             db.ActivationRedemptions.Add(pendingActivation);
             for (var index = 0; index < initialQueueIds.Length; index++)
@@ -405,6 +423,10 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 browserUploadSha256,
                 retentionPolicyId = attachmentRetentionPolicyId,
                 browserUploadInstallationId = browserUploadInstallation.Id,
+                hardwareReviewId = hardwareReview.Id,
+                primaryTransferId = primaryTransfer.Id,
+                approvalHardwareReviewId = approvalHardwareReview.Id,
+                approvalPrimaryTransferId = approvalPrimaryTransfer.Id,
                 browserUploadLicenseId = lifetimeLicense.Id,
                 browserUploadLicenseVersion = lifetimeLicense.RowVersion,
                 browserUploadLicenseAuthorityRevision = lifetimeLicense.AuthorityRevision,
@@ -433,9 +455,14 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
 
             await using var proxy = await TestServerLoopbackProxy.StartAsync(factory);
             var fixturePath = Path.Combine(evidenceDirectory, "browser-fixture.json");
+            var workerProbeTriggerPath = Path.Combine(evidenceDirectory, "worker-probe-trigger.json");
+            var workerProbeResultPath = Path.Combine(evidenceDirectory, "worker-probe-result.json");
             await WriteJsonAsync(fixturePath, new
             {
+                runId,
                 baseUrl = proxy.BaseUrl,
+                workerProbeTriggerPath,
+                workerProbeResultPath,
                 browserFixture.customerId,
                 browserFixture.shopId,
                 browserFixture.foreignShopId,
@@ -453,6 +480,10 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 browserFixture.browserUploadSha256,
                 browserFixture.retentionPolicyId,
                 browserFixture.browserUploadInstallationId,
+                browserFixture.hardwareReviewId,
+                browserFixture.primaryTransferId,
+                browserFixture.approvalHardwareReviewId,
+                browserFixture.approvalPrimaryTransferId,
                 browserFixture.browserUploadLicenseId,
                 browserFixture.browserUploadLicenseVersion,
                 browserFixture.browserUploadLicenseAuthorityRevision,
@@ -487,19 +518,91 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             var pythonScriptPath = Path.Combine(evidenceDirectory, "portal-browser-e2e.py");
             await File.WriteAllTextAsync(pythonScriptPath, BrowserScript, new UTF8Encoding(false));
 
-            var totp = new TotpService().GenerateCode(mfaSecret, DateTimeOffset.UtcNow);
-            var browserRun = await RunPythonAsync(python, pythonScriptPath, fixturePath, evidenceDirectory,
-                new Dictionary<string, string>
+            Assert.True(bool.TryParse(Environment.GetEnvironmentVariable("CENTRAL_OUTBOX_ENABLED"), out var workerEnabled) && workerEnabled,
+                "The authenticated browser worker journey requires the hosted outbox worker to be enabled.");
+            var workerMaxAttempts = int.Parse(Environment.GetEnvironmentVariable("CENTRAL_OUTBOX_MAX_ATTEMPTS") ?? "5");
+            using var workerProbeCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+            var workerProbeInjection = Task.Run(async () =>
+            {
+                while (!File.Exists(workerProbeTriggerPath))
                 {
-                    ["CENTRAL_BROWSER_TEST_USERNAME"] = username,
-                    ["CENTRAL_BROWSER_TEST_PASSWORD"] = syntheticPassword,
-                    ["CENTRAL_BROWSER_TEST_TOTP"] = totp,
-                    ["CENTRAL_BROWSER_TEST_MFA_SECRET"] = mfaSecret,
-                    ["CENTRAL_BROWSER_TEST_INSTALLATION_PKCS8"] = browserUploadPrivateKeyPkcs8Base64,
-                    ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_USERNAME"] = lifecycleApproverUsername,
-                    ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_PASSWORD"] = lifecycleApproverPassword,
-                    ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_MFA_SECRET"] = lifecycleApproverMfaSecret
-                });
+                    await Task.Delay(50, workerProbeCancellation.Token);
+                }
+
+                var poisonId = Guid.NewGuid();
+                await using (var seedScope = factory.Services.CreateAsyncScope())
+                {
+                    var seedDb = seedScope.ServiceProvider.GetRequiredService<ICentralDbContext>();
+                    seedDb.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
+                        poisonId,
+                        "activation.hardware_review_requested",
+                        "BrowserWorkerProbe",
+                        "not-a-guid",
+                        "{\"synthetic\":true}",
+                        DateTimeOffset.UtcNow));
+                    await seedDb.SaveChangesAsync(workerProbeCancellation.Token);
+                }
+
+                var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+                while (DateTimeOffset.UtcNow < deadline)
+                {
+                    await using var verifyScope = factory.Services.CreateAsyncScope();
+                    var verifyDb = verifyScope.ServiceProvider.GetRequiredService<ICentralDbContext>();
+                    var message = await verifyDb.CentralOutboxMessages.AsNoTracking()
+                        .SingleAsync(item => item.Id == poisonId, workerProbeCancellation.Token);
+                    if (message.Status == OutboxStatus.DEAD_LETTER)
+                    {
+                        Assert.Equal(workerMaxAttempts, message.RetryCount);
+                        Assert.False(await verifyDb.CentralConsumerEffects.AsNoTracking()
+                            .AnyAsync(effect => effect.MessageId == poisonId, workerProbeCancellation.Token));
+                        Assert.False(await verifyDb.AdminNotifications.AsNoTracking()
+                            .AnyAsync(notification => notification.Id == poisonId, workerProbeCancellation.Token));
+                        await WriteJsonAsync(workerProbeResultPath, new
+                        {
+                            messageId = poisonId,
+                            status = message.Status.ToString(),
+                        retryCount = message.RetryCount,
+                            maxAttempts = workerMaxAttempts,
+                            consumerEffectCount = 0,
+                            notificationCount = 0,
+                        eventType = message.EventType,
+                        aggregateType = message.AggregateType,
+                        aggregateId = message.AggregateId
+                        });
+                        return;
+                    }
+
+                    Assert.NotEqual(OutboxStatus.DISPATCHED, message.Status);
+                    await Task.Delay(100, workerProbeCancellation.Token);
+                }
+
+                throw new TimeoutException("The browser worker probe did not reach its configured dead-letter threshold.");
+            }, workerProbeCancellation.Token);
+
+            var totp = new TotpService().GenerateCode(mfaSecret, DateTimeOffset.UtcNow);
+            (int ExitCode, string Output) browserRun;
+            try
+            {
+                browserRun = await RunPythonAsync(python, pythonScriptPath, fixturePath, evidenceDirectory,
+                    new Dictionary<string, string>
+                    {
+                        ["CENTRAL_BROWSER_TEST_USERNAME"] = username,
+                        ["CENTRAL_BROWSER_TEST_PASSWORD"] = syntheticPassword,
+                        ["CENTRAL_BROWSER_TEST_TOTP"] = totp,
+                        ["CENTRAL_BROWSER_TEST_MFA_SECRET"] = mfaSecret,
+                        ["CENTRAL_BROWSER_TEST_INSTALLATION_PKCS8"] = browserUploadPrivateKeyPkcs8Base64,
+                        ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_USERNAME"] = lifecycleApproverUsername,
+                        ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_PASSWORD"] = lifecycleApproverPassword,
+                        ["CENTRAL_BROWSER_LIFECYCLE_APPROVER_MFA_SECRET"] = lifecycleApproverMfaSecret
+                    });
+                await workerProbeInjection;
+            }
+            catch
+            {
+                workerProbeCancellation.Cancel();
+                try { await workerProbeInjection; } catch (OperationCanceledException) { }
+                throw;
+            }
             await File.WriteAllTextAsync(Path.Combine(evidenceDirectory, "browser-run.log"), browserRun.Output, new UTF8Encoding(false));
             await WriteJsonAsync(Path.Combine(evidenceDirectory, "proxy-events.json"), proxy.Events);
             Assert.Equal(0, browserRun.ExitCode);
@@ -511,6 +614,48 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             Assert.Equal(username, browserResult.RootElement.GetProperty("displayedUsername").GetString());
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
                 check => check.GetString() == "recovery-worker-status");
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "recovery-worker-degraded-after-dead-letter");
+            var workerObservation = browserResult.RootElement.GetProperty("workerObservation").GetString();
+            Assert.Contains("Outbox worker: Healthy", workerObservation, StringComparison.Ordinal);
+            Assert.Contains("Last successful cycle:", workerObservation, StringComparison.Ordinal);
+            var degradedWorkerObservation = browserResult.RootElement.GetProperty("degradedWorkerObservation").GetString();
+            Assert.Contains("Outbox worker: Degraded", degradedWorkerObservation, StringComparison.Ordinal);
+            Assert.Equal("degraded", browserResult.RootElement.GetProperty("workerDegradedApiStatus").GetString());
+            Assert.Contains("no-store", browserResult.RootElement.GetProperty("workerDegradedCacheControl").GetString(), StringComparison.OrdinalIgnoreCase);
+            using var workerProbe = JsonDocument.Parse(await File.ReadAllTextAsync(workerProbeResultPath));
+            var workerProbeMessageId = Guid.Parse(workerProbe.RootElement.GetProperty("messageId").GetString()!);
+            Assert.Equal("DEAD_LETTER", workerProbe.RootElement.GetProperty("status").GetString());
+            Assert.Equal(workerMaxAttempts, workerProbe.RootElement.GetProperty("retryCount").GetInt32());
+            Assert.Equal(workerMaxAttempts, browserResult.RootElement.GetProperty("workerPoisonRetryCount").GetInt32());
+            Assert.Equal(workerMaxAttempts, browserResult.RootElement.GetProperty("workerPoisonMaxAttempts").GetInt32());
+            Assert.Equal(0, browserResult.RootElement.GetProperty("workerPoisonConsumerEffectCount").GetInt32());
+            Assert.Equal(0, browserResult.RootElement.GetProperty("workerPoisonNotificationCount").GetInt32());
+            await using (var workerProbeScope = factory.Services.CreateAsyncScope())
+            {
+                var workerProbeDb = workerProbeScope.ServiceProvider.GetRequiredService<ICentralDbContext>();
+                var persistedProbe = await workerProbeDb.CentralOutboxMessages.AsNoTracking()
+                    .SingleAsync(item => item.Id == workerProbeMessageId);
+                Assert.Equal(OutboxStatus.DEAD_LETTER, persistedProbe.Status);
+                Assert.Equal(workerMaxAttempts, persistedProbe.RetryCount);
+                Assert.False(await workerProbeDb.CentralConsumerEffects.AsNoTracking()
+                    .AnyAsync(effect => effect.MessageId == workerProbeMessageId));
+                Assert.False(await workerProbeDb.AdminNotifications.AsNoTracking()
+                    .AnyAsync(notification => notification.Id == workerProbeMessageId));
+                await WriteJsonAsync(Path.Combine(evidenceDirectory, "worker-probe-database-readback.json"), new
+                {
+                    messageId = persistedProbe.Id,
+                    persistedProbe.EventType,
+                    status = persistedProbe.Status.ToString(),
+                    persistedProbe.RetryCount,
+                    persistedProbe.LastError,
+                    consumerEffectCount = await workerProbeDb.CentralConsumerEffects.AsNoTracking()
+                        .CountAsync(effect => effect.MessageId == workerProbeMessageId),
+                    notificationCount = await workerProbeDb.AdminNotifications.AsNoTracking()
+                        .CountAsync(notification => notification.Id == workerProbeMessageId),
+                    degradedWorkerObservation
+                });
+            }
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
                 check => check.GetString() == "login-mfa-session-logout");
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
@@ -535,6 +680,20 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 check => check.GetString() == "audited-pii-reveal-injection-safe");
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
                 check => check.GetString() == "sensitive-data-cleared-on-close-and-navigation");
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "hardware-transfer-evidence-cleared-on-close");
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "hardware-information-and-transfer-cancellation-persisted");
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "hardware-command-replay-no-duplicate-effect");
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "hardware-stale-revision-denied");
+            Assert.Equal(200, browserResult.RootElement.GetProperty("hardwareCommandReplay").GetProperty("status").GetInt32());
+            Assert.Equal("SUCCEEDED", browserResult.RootElement.GetProperty("hardwareCommandReplay").GetProperty("state").GetString());
+            Assert.Equal(409, browserResult.RootElement.GetProperty("staleHardwareCommand").GetProperty("status").GetInt32());
+            Assert.Equal("CONCURRENCY_CONFLICT", browserResult.RootElement.GetProperty("staleHardwareCommand").GetProperty("code").GetString());
+            Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
+                check => check.GetString() == "closed-hardware-preview-cannot-submit");
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
                 check => check.GetString() == "authenticated-browser-session-revocation");
             Assert.Contains(browserResult.RootElement.GetProperty("checks").EnumerateArray(),
@@ -637,6 +796,57 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             Assert.True(await db.CentralAuditRecords.AsNoTracking().AnyAsync(record =>
                 record.Action == "ACTIVATION_REVIEW_DECIDED" && record.ResourceId == activationRequestId.ToString("D") &&
                 record.ActorId == user.Id.ToString("D") && record.IsSuccess));
+
+            var persistedHardware = await db.HardwareReviews.AsNoTracking().SingleAsync(x => x.Id == hardwareReview.Id);
+            Assert.Equal("REQUEST_INFORMATION", persistedHardware.Status);
+            Assert.Equal("REQUEST_INFORMATION", persistedHardware.ContractDecision);
+            Assert.Equal(attachmentObjectId, persistedHardware.VerificationEvidenceId);
+            Assert.Equal(user.Id, persistedHardware.ReviewedByAdminId);
+            Assert.Equal(2, persistedHardware.RowVersion);
+            var persistedTransfer = await db.PrimaryTransfers.AsNoTracking().SingleAsync(x => x.Id == primaryTransfer.Id);
+            Assert.Equal(PrimaryTransfer.StatusCancelled, persistedTransfer.Status);
+            Assert.Equal("CANCEL", persistedTransfer.ContractDecision);
+            Assert.Equal("STANDARD_TRANSFER", persistedTransfer.RecoveryType);
+            Assert.Equal(attachmentObjectId, persistedTransfer.VerificationEvidenceId);
+            Assert.Equal(2, persistedTransfer.RowVersion);
+            var approvedHardware = await db.HardwareReviews.AsNoTracking().SingleAsync(x => x.Id == approvalHardwareReview.Id);
+            Assert.Equal("APPROVE_REBIND", approvedHardware.ContractDecision);
+            Assert.Equal(HardwareReview.StatusApproved, approvedHardware.Status);
+            Assert.Equal(lifecycleApprover.Id, approvedHardware.ReviewedByAdminId);
+            Assert.Equal(attachmentObjectId, approvedHardware.VerificationEvidenceId);
+            var approvedTransfer = await db.PrimaryTransfers.AsNoTracking().SingleAsync(x => x.Id == approvalPrimaryTransfer.Id);
+            Assert.Equal("APPROVE", approvedTransfer.ContractDecision);
+            Assert.Equal(PrimaryTransfer.StatusCompleted, approvedTransfer.Status);
+            Assert.Equal(lifecycleApprover.Id, approvedTransfer.ApprovedByAdminId);
+            Assert.Equal(attachmentObjectId, approvedTransfer.VerificationEvidenceId);
+            Assert.Equal(3, approvedTransfer.RowVersion);
+            Assert.Equal(1, await db.CentralOperationRecords.AsNoTracking().CountAsync(x => x.TargetResource == $"transfers/{approvalPrimaryTransfer.Id}/complete" && x.State == OperationState.SUCCEEDED));
+            Assert.Equal(1, await db.CentralAuditRecords.AsNoTracking().CountAsync(x => x.Action == "PRIMARY_TRANSFER_COMPLETED" && x.ResourceId == approvalPrimaryTransfer.Id.ToString("D") && x.ActorId == lifecycleApprover.Id.ToString("D") && x.IsSuccess));
+            Assert.Equal(1, await db.CentralOutboxMessages.AsNoTracking().CountAsync(x => x.AggregateId == approvalPrimaryTransfer.Id.ToString("D") && x.EventType == "activation.primary_transfer_completed"));
+            foreach (var target in new[] { approvalHardwareReview.Id, approvalPrimaryTransfer.Id })
+            {
+                var approvedRequest = await db.SensitiveApprovalRequests.AsNoTracking().SingleAsync(x => x.TargetEntityId == target);
+                Assert.Equal(user.Id, approvedRequest.RequesterAdminId);
+                Assert.Equal(lifecycleApprover.Id, approvedRequest.ApproverAdminId);
+                Assert.Equal(SensitiveApprovalRequest.StatusConsumed, approvedRequest.Status);
+                Assert.Equal(1, await db.CentralOperationRecords.AsNoTracking().CountAsync(x =>
+                    x.ResultReference == (target == approvalHardwareReview.Id ? $"hardware_reviews/{target:D}" : $"transfers/{target:D}") &&
+                    (target == approvalHardwareReview.Id || x.TargetResource != $"transfers/{target:D}/complete") &&
+                    x.State == OperationState.SUCCEEDED));
+            }
+            foreach (var (resourceId, operationType, resultPrefix, auditAction, eventType) in new[]
+            {
+                (hardwareReview.Id, "hardware.review", "hardware_reviews", "HARDWARE_REVIEW_DECIDED", "activation.hardware_review_decided"),
+                (primaryTransfer.Id, "primary.transfer", "transfers", "PRIMARY_TRANSFER_DECIDED", "activation.primary_transfer_decided")
+            })
+            {
+                Assert.Equal(1, await db.CentralOperationRecords.AsNoTracking().CountAsync(x =>
+                    x.OperationType == operationType && x.ResultReference == $"{resultPrefix}/{resourceId:D}" && x.State == OperationState.SUCCEEDED));
+                Assert.Equal(1, await db.CentralAuditRecords.AsNoTracking().CountAsync(x =>
+                    x.Action == auditAction && x.ResourceId == resourceId.ToString("D") && x.ActorId == user.Id.ToString("D") && x.IsSuccess));
+                Assert.Equal(1, await db.CentralOutboxMessages.AsNoTracking().CountAsync(x =>
+                    x.AggregateId == resourceId.ToString("D") && x.EventType == eventType));
+            }
 
             var persistedDirectoryCustomer = await db.Customers.AsNoTracking()
                 .SingleAsync(record => record.Id == createdDirectoryCustomerId);
@@ -915,6 +1125,14 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                 runId,
                 capturedAtUtc = DateTimeOffset.UtcNow,
                 supportTicketCount = persistedTicketCount,
+                hardwareDecision = new { persistedHardware.Id, persistedHardware.Status, persistedHardware.ContractDecision,
+                    persistedHardware.VerificationEvidenceId, persistedHardware.ReviewedByAdminId, persistedHardware.RowVersion },
+                transferDecision = new { persistedTransfer.Id, persistedTransfer.Status, persistedTransfer.ContractDecision,
+                    persistedTransfer.RecoveryType, persistedTransfer.VerificationEvidenceId, persistedTransfer.RowVersion },
+                approvedHardwareDecision = new { approvedHardware.Id, approvedHardware.Status, approvedHardware.ContractDecision,
+                    approvedHardware.ReviewedByAdminId, approvedHardware.VerificationEvidenceId, approvedHardware.RowVersion },
+                approvedTransferDecision = new { approvedTransfer.Id, approvedTransfer.Status, approvedTransfer.ContractDecision,
+                    approvedTransfer.ApprovedByAdminId, approvedTransfer.VerificationEvidenceId, approvedTransfer.RowVersion },
                 commercialOrderCount = await db.Orders.CountAsync(),
                 pricingSnapshotCount = await db.PricingSnapshots.CountAsync(),
                 dashboardMetricsFromDatabase = new
@@ -1003,6 +1221,8 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
                     "ticket and reply remain visible after a full browser reload",
                     "support.create/support.reply operation outcomes persisted",
                     "security.manage admin sees live worker observation through notifications.view authorization",
+                    "authenticated recovery browser shows degraded worker after the persisted retry threshold dead-letters a recognized event with an invalid aggregate target",
+                    "dead-letter has no consumer receipt or admin notification and the health response is no-store",
                     "recovery UI distinguishes worker health from backup/restore attestation",
                     "expired persisted browser session is denied protected portal read and customer mutation without a customer row",
                     "real password login, MFA challenge consumption, secure session cookie, identity display and logout revocation",
@@ -1063,7 +1283,8 @@ public sealed class AuthenticatedPortalBrowserEndToEndTests
             "CENTRAL_OUTBOX_POLL_MS", "CENTRAL_OUTBOX_LEASE_SECONDS", "CENTRAL_OUTBOX_RETRY_BASE_MS",
             "CENTRAL_OUTBOX_RETRY_MAX_MS", "CENTRAL_STORAGE_RECONCILIATION_ENABLED",
             "CENTRAL_STORAGE_RECONCILIATION_BATCH_SIZE", "CENTRAL_STORAGE_RECONCILIATION_POLL_MS",
-            "CENTRAL_STORAGE_PENDING_GRACE_SECONDS"
+            "CENTRAL_STORAGE_PENDING_GRACE_SECONDS", "CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS",
+            "CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS"
         };
         foreach (var name in required)
         {
@@ -1309,6 +1530,16 @@ events = {"consoleErrors": [], "pageErrors": [], "requests": [], "responses": []
 result_path = evidence / "browser-result.json"
 screenshots = evidence / "screenshots"
 screenshots.mkdir(parents=True, exist_ok=True)
+async def capture_screenshot(page, path, **kwargs):
+    target = pathlib.Path(path)
+    for attempt in range(2):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            await page.screenshot(path=str(target), **kwargs)
+            return
+        except FileNotFoundError:
+            if attempt == 1:
+                raise
 
 def redact_trace():
     trace_path = evidence / 'portal-trace.zip'
@@ -1371,7 +1602,7 @@ async def main():
             }''', fixture['expiredSessionMutationMarker'])
             assert expired_session_read['status'] == 401, f"Expired session read was not denied: {expired_session_read['status']}."
             assert expired_session_mutation['status'] == 401, f"Expired session mutation was not denied: {expired_session_mutation['status']}."
-            await expired_page.screenshot(path=str(screenshots / '24-expired-session-denied.png'), full_page=True)
+            await capture_screenshot(expired_page, path=str(screenshots / '24-expired-session-denied.png'), full_page=True)
             await expired_context.close()
             context = await browser.new_context(viewport={"width": 1440, "height": 1000}, ignore_https_errors=True)
             await context.add_init_script("localStorage.setItem('central_session_id', 'synthetic-stale-session-value'); window.__seededLegacySession = localStorage.getItem('central_session_id')")
@@ -1382,6 +1613,17 @@ async def main():
             page.on('response', lambda response: events['responses'].append({"status": response.status, "url": response.url}) if '/api/admin/v1/' in response.url or '/api/commercial/v1/' in response.url or '/api/licensing/v1/uploads/' in response.url else None)
 
             await page.goto(fixture['baseUrl'], wait_until='domcontentloaded')
+            favicon_response = await page.evaluate(r'''async () => {
+                const response = await fetch('/favicon.ico', { cache: 'no-store' });
+                return {
+                    status: response.status,
+                    contentType: response.headers.get('content-type'),
+                    body: await response.text()
+                };
+            }''')
+            assert favicon_response['status'] == 200, f"/favicon.ico did not return HTTP 200: {favicon_response['status']}."
+            assert favicon_response['contentType'] == 'image/svg+xml', f"/favicon.ico returned unexpected content type: {favicon_response['contentType']}."
+            assert '<svg' in favicon_response['body'] and 'viewBox="0 0 64 64"' in favicon_response['body'] and '#55d6a6' in favicon_response['body'], 'The /favicon.ico alias did not return the branded SVG asset.'
             await context.tracing.start(screenshots=True, snapshots=True, sources=True)
             await page.locator('#auth-wrapper').wait_for(state='visible')
             await page.wait_for_function("document.querySelector('#auth-status')?.textContent?.trim() === 'Sign in to continue.'")
@@ -1403,6 +1645,38 @@ async def main():
             session_cookie = next((cookie for cookie in await context.cookies() if cookie['name'] == 'central_session'), None)
             assert session_cookie is not None, 'MFA did not create the Central browser session cookie.'
             assert session_cookie['httpOnly'] and session_cookie['secure'] and session_cookie['sameSite'] == 'Strict', 'Session cookie security attributes were not enforced.'
+            await page.evaluate(r'''() => {
+                document.querySelector('#queue-inspect-modal').classList.add('active');
+                document.querySelector('#hardware-review-controls').hidden = false;
+                document.querySelector('#transfer-review-controls').hidden = false;
+                for (const [id, value] of Object.entries({
+                    'hardware-review-evidence': '11111111-1111-4111-8111-111111111111',
+                    'hardware-review-approval': '22222222-2222-4222-8222-222222222222',
+                    'hardware-review-reason': 'synthetic hardware decision reason',
+                    'transfer-review-evidence': '33333333-3333-4333-8333-333333333333',
+                    'transfer-review-approval': '44444444-4444-4444-8444-444444444444',
+                    'transfer-review-reason': 'synthetic transfer decision reason'
+                })) document.getElementById(id).value = value;
+                document.getElementById('hardware-review-status').textContent = 'Synthetic decision status';
+                document.getElementById('transfer-review-status').textContent = 'Synthetic transfer status';
+            }''')
+            await capture_screenshot(page, path=str(screenshots / '29-hardware-transfer-data-before-close.png'), full_page=True)
+            await page.locator('#btn-close-queue-modal').click()
+            cleared_review_data = await page.evaluate(r'''() => ({
+                modalClosed: !document.querySelector('#queue-inspect-modal').classList.contains('active'),
+                hardwareHidden: document.querySelector('#hardware-review-controls').hidden,
+                transferHidden: document.querySelector('#transfer-review-controls').hidden,
+                fields: ['hardware-review-evidence', 'hardware-review-approval', 'hardware-review-reason',
+                    'transfer-review-evidence', 'transfer-review-approval', 'transfer-review-reason']
+                    .map(id => document.getElementById(id).value),
+                statuses: ['hardware-review-status', 'transfer-review-status']
+                    .map(id => document.getElementById(id).textContent.trim())
+            })''')
+            assert cleared_review_data['modalClosed'] and cleared_review_data['hardwareHidden'] and cleared_review_data['transferHidden'], \
+                f'Hardware or transfer decision controls remained visible after close: {cleared_review_data}'
+            assert not any(cleared_review_data['fields']) and not any(cleared_review_data['statuses']), \
+                f'Hardware or transfer decision data remained in the DOM after close: {cleared_review_data}'
+            await capture_screenshot(page, path=str(screenshots / '30-hardware-transfer-data-cleared-after-close.png'), full_page=True)
             step_up = await page.evaluate(r'''async (proof) => {
                 const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('synthetic step-up target'));
                 const targetPayloadSha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
@@ -1484,7 +1758,7 @@ async def main():
                 'Revoked session still offered an active revoke action.'
             assert any('/api/admin/v1/portal/sessions/revoke' in response['url'] and response['status'] == 200
                 for response in events['responses']), 'Central did not confirm the browser-triggered session revocation.'
-            await page.screenshot(path=str(screenshots / '19-admin-session-revocation.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '19-admin-session-revocation.png'), full_page=True)
 
             await page.locator('[data-view="approvals"]').click()
             approval_row = page.locator('#approvals-table-tbody tr').filter(has_text=fixture['pendingApprovalId'])
@@ -1492,7 +1766,7 @@ async def main():
             approval_text = await approval_row.inner_text()
             assert fixture['pendingApprovalOperationType'] in approval_text and 'PENDING' in approval_text, \
                 f'Pending approval was not visible with its persisted status: {approval_text}'
-            await page.screenshot(path=str(screenshots / '15-pending-approval-queue.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '15-pending-approval-queue.png'), full_page=True)
             await approval_row.get_by_role('button', name='Review approval').click()
             approval_modal = page.locator('#queue-inspect-modal')
             await approval_modal.wait_for(state='visible')
@@ -1508,10 +1782,18 @@ async def main():
             assert any('/api/admin/v1/sensitive-approvals/' + fixture['pendingApprovalId'] + '/decide' in response['url']
                 and response['status'] == 200 for response in events['responses']), \
                 'Central did not confirm the browser-triggered independent approval decision.'
-            await page.screenshot(path=str(screenshots / '21-sensitive-approval-persisted.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '21-sensitive-approval-persisted.png'), full_page=True)
 
             await page.locator('[data-view="licensing"]').click()
             await page.wait_for_function("document.querySelector('#licensing-queue-status')?.textContent?.includes('1 records')")
+            licensing_headers = await page.locator('#licensing-activations-tbody').evaluate("tbody => Array.from(tbody.closest('table').querySelectorAll('thead th')).map(cell => cell.textContent.trim())")
+            assert licensing_headers == ['Case Type', 'Case ID', 'Summary', 'Customer', 'Shop', 'Current State', 'Priority', 'Opened At (UTC)', 'Age', 'Assigned Admin', 'Risk / Attention Marker', 'Action'], \
+                f'Licensing queue common-field headers mismatch: {licensing_headers}'
+            licensing_first_row = await page.locator('#licensing-activations-tbody tr').first.locator('td').all_inner_texts()
+            assert len(licensing_first_row) == 12 and all(value.strip() for value in licensing_first_row), \
+                f'Licensing queue common fields are incomplete: {licensing_first_row}'
+            assert licensing_first_row[6] == 'Not set' and licensing_first_row[9] == 'Unassigned' and licensing_first_row[10] == 'No marker', \
+                f'Licensing queue lacks explicit unconfigured-field values: {licensing_first_row}'
             activation_rows = page.locator('#licensing-activations-tbody tr').filter(has_text='PENDING')
             await activation_rows.first.wait_for(state='visible')
             await activation_rows.first.get_by_role('button', name='Review activation').click()
@@ -1532,7 +1814,7 @@ async def main():
             activation_rows_after_decision = page.locator('#licensing-activations-tbody tr').filter(has_text='PENDING')
             assert await activation_rows_after_decision.count() == 0, \
                 'The decided activation remained in the pending review queue.'
-            await page.screenshot(path=str(screenshots / '20-activation-review-persisted.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '20-activation-review-persisted.png'), full_page=True)
 
             await page.locator('[data-view="audit"]').click()
             audit_row = page.locator('#audit-tbody tr').filter(has_text=fixture['sensitiveAuditRecordId'])
@@ -1548,14 +1830,14 @@ async def main():
             assert fixture['sensitiveCustomerEmail'] in pii_result_text, 'The synthetic contact email was not revealed.'
             assert await page.locator('#pii-unmask-result img').count() == 0, 'Contact content created an executable image element.'
             assert await page.evaluate('window.__piiInjected === true') is False, 'Untrusted contact text executed an injected handler.'
-            await page.screenshot(path=str(screenshots / '16-audited-pii-reveal.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '16-audited-pii-reveal.png'), full_page=True)
             await page.locator('#btn-close-pii-modal').click()
             await page.locator('#pii-unmask-modal').wait_for(state='hidden')
             cleared_result = await page.locator('#pii-unmask-result').evaluate("element => element.childElementCount === 0 && element.textContent === ''")
             page_text_after_close = await page.locator('body').inner_text()
             pii_cleared_on_close = cleared_result and fixture['sensitiveCustomerEmail'] not in page_text_after_close
             assert pii_cleared_on_close, 'Closing the reveal dialog retained sensitive content in the result or rendered page.'
-            await page.screenshot(path=str(screenshots / '17-pii-reveal-cleared.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '17-pii-reveal-cleared.png'), full_page=True)
             await audit_row.get_by_role('button', name='Request access').click()
             await page.locator('#pii-unmask-reason').fill('Synthetic browser reason: navigation-clear review')
             await page.locator('#btn-submit-pii-unmask').click()
@@ -1567,7 +1849,7 @@ async def main():
             navigation_body_text = await page.locator('body').inner_text()
             pii_cleared_on_navigation = navigation_result_cleared and fixture['sensitiveCustomerEmail'] not in navigation_body_text
             assert pii_cleared_on_navigation, 'Navigating away retained sensitive PII in the result or rendered page.'
-            await page.screenshot(path=str(screenshots / '18-pii-reveal-cleared-on-navigation.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '18-pii-reveal-cleared-on-navigation.png'), full_page=True)
             await page.wait_for_function("document.querySelector('#metrics-status')?.textContent?.includes('not a health attestation')")
             dashboard_api = await page.evaluate(r'''async () => {
                 const response = await fetch('/api/admin/v1/dashboard/metrics', { credentials: 'include' });
@@ -1592,19 +1874,19 @@ async def main():
             expected_metrics['pendingApprovalsCount'] = 0
             for field, expected in expected_metrics.items():
                 assert dashboard_api['body'][field] == expected, f'Expected synthetic fixture metric {field}={expected}; got {dashboard_api["body"][field]}.'
-            await page.screenshot(path=str(screenshots / '01-authenticated-dashboard.png'), full_page=True)
-            await page.screenshot(path=str(screenshots / '09-login-mfa-session.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '01-authenticated-dashboard.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '09-login-mfa-session.png'), full_page=True)
 
             await page.locator('[data-queue="SUPPORT_INBOX"]').click()
             await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('records in this snapshot; page 1.')")
-            page_one = await page.locator('#dashboard-queue-tbody tr').evaluate_all("rows => rows.map(row => row.cells[0]?.textContent?.trim()).filter(Boolean)")
+            page_one = await page.locator('#dashboard-queue-tbody tr').evaluate_all("rows => rows.map(row => row.cells[1]?.textContent?.trim()).filter(Boolean)")
             assert page_one == fixture['queueIdsPageOne'], f'Queue page 1 mismatch: {page_one}'
-            await page.screenshot(path=str(screenshots / '02-queue-page-1.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '02-queue-page-1.png'), full_page=True)
             await page.locator('#dashboard-queue-next').click()
             await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('records in this snapshot; page 2.')")
-            page_two = await page.locator('#dashboard-queue-tbody tr').evaluate_all("rows => rows.map(row => row.cells[0]?.textContent?.trim()).filter(Boolean)")
+            page_two = await page.locator('#dashboard-queue-tbody tr').evaluate_all("rows => rows.map(row => row.cells[1]?.textContent?.trim()).filter(Boolean)")
             assert page_two == fixture['queueIdsPageTwo'], f'Queue page 2 mismatch: {page_two}'
-            await page.screenshot(path=str(screenshots / '03-queue-page-2.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '03-queue-page-2.png'), full_page=True)
 
             await page.locator('[data-view="customer360"]').click()
             await page.locator('#customer-display-name').fill(fixture['directoryCustomerName'])
@@ -1615,7 +1897,7 @@ async def main():
             created_customer = re.search(r'Customer created\. ID: ([0-9a-f-]{36})', customer_create_status, re.I)
             assert created_customer, f'Customer creation did not return the persisted identity: {customer_create_status}'
             created_customer_id = created_customer.group(1)
-            await page.screenshot(path=str(screenshots / '12-customer-created.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '12-customer-created.png'), full_page=True)
 
             await page.locator('#shop-customer-id').wait_for()
             assert (await page.locator('#shop-customer-id').input_value()) == created_customer_id, 'Shop form was not bound to the customer returned by Central.'
@@ -1627,20 +1909,20 @@ async def main():
             created_shop = re.search(r'Shop registered\. ID: ([0-9a-f-]{36})', shop_create_status, re.I)
             assert created_shop, f'Shop registration did not return the persisted identity: {shop_create_status}'
             created_shop_id = created_shop.group(1)
-            await page.screenshot(path=str(screenshots / '13-shop-registered.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '13-shop-registered.png'), full_page=True)
 
             await page.locator('#directory-filter').fill(fixture['directoryShopName'])
             await page.locator('#directory-search-form button[type="submit"]').click()
             await page.locator('#directory-results').get_by_text(fixture['directoryShopName'], exact=True).wait_for()
             directory_results = await page.locator('#directory-results').inner_text()
             assert fixture['directoryCustomerName'] not in directory_results, 'Masked directory search exposed the unmasked customer name.'
-            await page.screenshot(path=str(screenshots / '14-masked-directory-search.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '14-masked-directory-search.png'), full_page=True)
             await page.locator('#directory-results').get_by_role('button', name='Open Customer 360').click()
             await page.locator('#customer-360-details').get_by_text(fixture['directoryShopName'], exact=True).wait_for()
             customer360_details = await page.locator('#customer-360-details').inner_text()
             assert fixture['directoryCustomerName'] not in customer360_details, 'Customer 360 exposed the unmasked customer name.'
 
-            await page.screenshot(path=str(screenshots / '04-customer-360.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '04-customer-360.png'), full_page=True)
 
             await page.locator('#customer-search-input').fill(fixture['shopId'])
             await page.locator('#btn-customer-search').click()
@@ -1664,7 +1946,7 @@ async def main():
             assert any('/api/admin/v1/licenses/' in response['url'] and response['status'] == 200 for response in lifecycle_responses), 'Lifecycle flow did not read persisted license detail.'
             assert any('/api/admin/v1/action-preview' in response['url'] and response['status'] == 200 for response in lifecycle_responses), 'Lifecycle flow did not obtain the server consequence preview.'
             assert not any(response['url'].endswith('/revoke') for response in lifecycle_responses), 'Preview or expired-approval recovery submitted a license mutation.'
-            await page.screenshot(path=str(screenshots / '25-license-revocation-expired-approval-repreview.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '25-license-revocation-expired-approval-repreview.png'), full_page=True)
             await page.locator('#license-lifecycle-close').click()
 
             await page.locator(f"[data-license-id='{fixture['browserUploadLicenseId']}']").get_by_role('button', name='Review revocation impact').click()
@@ -1679,7 +1961,7 @@ async def main():
             assert 'Pending independent approval' in await page.locator('#license-lifecycle-approval-state').inner_text(), 'Approval request did not remain pending before a separate approver acted.'
             lifecycle_approval_id = (await page.locator('#license-lifecycle-approval-id').input_value()).strip()
             assert re.fullmatch(r'[0-9a-fA-F-]{36}', lifecycle_approval_id), f'Central did not persist a lifecycle approval identity: {lifecycle_approval_id}'
-            await page.screenshot(path=str(screenshots / '26-license-revocation-pending-approval.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '26-license-revocation-pending-approval.png'), full_page=True)
             await page.locator('#license-lifecycle-close').click()
 
             approver_context = await browser.new_context(viewport={"width": 1440, "height": 1000}, ignore_https_errors=True)
@@ -1718,9 +2000,38 @@ async def main():
             await page.wait_for_function("document.querySelector('#recovery-worker-status')?.textContent?.includes('Outbox worker:')")
             worker_observation = await page.locator('#recovery-worker-status').inner_text()
             assert 'Observed ' in worker_observation, f'No server observation timestamp was rendered: {worker_observation}'
+            assert 'Outbox worker: Healthy' in worker_observation, f'Worker did not start with a fresh healthy cycle: {worker_observation}'
+            worker_probe_trigger = pathlib.Path(fixture['workerProbeTriggerPath'])
+            worker_probe_result_path = pathlib.Path(fixture['workerProbeResultPath'])
+            worker_probe_trigger.write_text(json.dumps({'runId': fixture['runId']}), encoding='utf-8')
+            probe_deadline = time.monotonic() + 60
+            while not worker_probe_result_path.exists() and time.monotonic() < probe_deadline:
+                await asyncio.sleep(0.05)
+            assert worker_probe_result_path.exists(), 'The server-side worker probe did not reach its persisted dead-letter readback.'
+            worker_probe_result = json.loads(worker_probe_result_path.read_text(encoding='utf-8'))
+            worker_poison_message_id = worker_probe_result['messageId']
+            assert worker_probe_result['status'] == 'DEAD_LETTER', f"Worker probe did not reach dead-letter: {worker_probe_result}"
+            assert worker_probe_result['retryCount'] == worker_probe_result['maxAttempts'], f"Worker probe retry bound differed: {worker_probe_result}"
+            assert worker_probe_result['consumerEffectCount'] == 0 and worker_probe_result['notificationCount'] == 0, \
+                f"Unsupported worker probe unexpectedly created a business effect: {worker_probe_result}"
+            async with page.expect_response(lambda response: '/api/admin/v1/notifications/status' in response.url) as degraded_worker_response:
+                await page.locator('#recovery-refresh').click()
+            degraded_worker_http = await degraded_worker_response.value
+            assert degraded_worker_http.status == 200, f'Worker health endpoint returned {degraded_worker_http.status} after dead-letter.'
+            degraded_worker_body = await degraded_worker_http.json()
+            degraded_worker_headers = await degraded_worker_http.all_headers()
+            assert degraded_worker_body['status'] == 'degraded', f"Persisted dead-letter was not reflected by worker health: {degraded_worker_body}"
+            assert degraded_worker_body.get('lastSucceededAtUtc'), f"Degraded observation omitted the last successful cycle: {degraded_worker_body}"
+            assert 'no-store' in degraded_worker_headers.get('cache-control', '').lower(), \
+                f"Worker health response was cacheable: {degraded_worker_headers.get('cache-control')}"
+            await page.wait_for_function("document.querySelector('#recovery-worker-status')?.textContent?.includes('Outbox worker: Degraded')")
+            degraded_worker_observation = await page.locator('#recovery-worker-status').inner_text()
+            assert 'Observed ' in degraded_worker_observation and 'Last successful cycle:' in degraded_worker_observation, \
+                f'Portal omitted timestamped worker degradation detail: {degraded_worker_observation}'
             recovery_scope = await page.locator('#recovery-status').inner_text()
             assert 'does not prove a backup, restore, host identity, or database target' in recovery_scope
-            await page.screenshot(path=str(screenshots / '08-recovery-worker-status.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '08-recovery-worker-status.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '41-worker-degraded-after-dead-letter.png'), full_page=True)
 
             await page.locator('[data-view="commercial"]').click()
             await page.locator(f'#commercial-plan-id option[value="{fixture["planId"]}"]').wait_for(state='attached')
@@ -1735,7 +2046,7 @@ async def main():
             order_id = order_match.group(1)
             assert 'Payment evidence must be uploaded and reviewed before license issuance.' in commercial_message, \
                 f'Commercial portal misrepresented an order as paid or issued: {commercial_message}'
-            await page.screenshot(path=str(screenshots / '11-commercial-order.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '11-commercial-order.png'), full_page=True)
 
             await page.locator('[data-view="dashboard"]').click()
             await page.locator('[data-queue="PAYMENT_REVIEW"]').click()
@@ -1753,7 +2064,7 @@ async def main():
             payment_response = await payment_review_response.value
             assert payment_response.status == 200, f'Payment review route returned {payment_response.status}.'
             await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('Central recorded approve for payment proof')")
-            await page.screenshot(path=str(screenshots / '22-payment-review-persisted.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '22-payment-review-persisted.png'), full_page=True)
 
             await page.locator('[data-view="customer360"]').click()
             await page.locator('#customer-search-input').fill(str(fixture['shopId']))
@@ -1780,7 +2091,7 @@ async def main():
             assert datetime.fromisoformat(addon_renewal_body['validUntilUtc'].replace('Z', '+00:00')) == renewal_expiry, \
                 f'Support add-on expiry did not match the operator-confirmed date: {addon_renewal_body}'
             await page.wait_for_function("entitlementId => document.querySelector('#customer-360-details')?.textContent?.includes(entitlementId)", arg=addon_entitlement_id)
-            await page.screenshot(path=str(screenshots / '12-manual-addon-renewal.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '12-manual-addon-renewal.png'), full_page=True)
 
 
             issue_order_id = str(fixture['paymentReviewOrderId'])
@@ -1805,7 +2116,7 @@ async def main():
             assert re.fullmatch(r'[0-9a-f-]{36}', manually_issued_license_id or '', re.I), f'Central returned no license id: {license_body}'
             await page.wait_for_function(
                 "document.querySelector('#customer-360-details')?.textContent?.includes('Issued:')")
-            await page.screenshot(path=str(screenshots / '23-manual-license-issue-persisted.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '23-manual-license-issue-persisted.png'), full_page=True)
 
 
             upload_result = await page.evaluate(r'''async ({ fixture, privateKeyPkcs8Base64 }) => {
@@ -1905,7 +2216,286 @@ async def main():
             assert upload_result['acceptedOffset'] == upload_result['contentLength'], 'Browser upload did not accept the full ciphertext.'
             assert upload_result['exactRetryAccepted'] and upload_result['conflictingRetryRejected'], 'Browser upload retry controls failed.'
             assert upload_result['finalizeState'] == 'SUCCEEDED', f'Browser ciphertext upload did not finalize: {upload_result}'
-            await page.screenshot(path=str(screenshots / '08-ciphertext-upload-resume.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '08-ciphertext-upload-resume.png'), full_page=True)
+
+            async def accept_case_preview(dialog):
+                assert 'Central preview' in dialog.message, f'Unexpected case decision confirmation: {dialog.message}'
+                await dialog.accept()
+
+            await page.locator('[data-view="licensing"]').click()
+            await page.locator('#licensing-hardware-queue').click()
+            hardware_row = page.locator('#licensing-activations-tbody tr').filter(has_text=fixture['hardwareReviewId'])
+            await hardware_row.get_by_role('button', name='Review hardware', exact=True).click()
+            await page.locator('#hardware-review-controls').wait_for(state='visible')
+            await page.locator('#hardware-review-evidence').fill(fixture['attachmentObjectId'])
+            await page.locator('#hardware-review-decision').select_option('REQUEST_INFORMATION')
+            await page.locator('#hardware-review-reason').fill('Synthetic browser hardware verification needs more information')
+            preview_started = asyncio.Event()
+            release_preview = asyncio.Event()
+            preview_finished = asyncio.Event()
+            unexpected_case_dialogs = []
+            async def hold_hardware_preview(route):
+                body = route.request.post_data_json
+                if body.get('targetEntityId') != fixture['hardwareReviewId']:
+                    await route.continue_()
+                    return
+                preview_response = await route.fetch()
+                preview_started.set()
+                await release_preview.wait()
+                await route.fulfill(response=preview_response)
+                preview_finished.set()
+            async def dismiss_stale_case_dialog(dialog):
+                unexpected_case_dialogs.append(dialog.message)
+                await dialog.dismiss()
+            await page.route('**/api/admin/v1/action-preview', hold_hardware_preview)
+            page.on('dialog', dismiss_stale_case_dialog)
+            await page.locator('#hardware-review-submit').click()
+            await asyncio.wait_for(preview_started.wait(), timeout=15)
+            await page.locator('#btn-close-queue-modal').click()
+            await hardware_row.get_by_role('button', name='Review hardware', exact=True).click()
+            await page.locator('#hardware-review-evidence').fill(fixture['attachmentObjectId'])
+            await page.locator('#hardware-review-decision').select_option('REQUEST_INFORMATION')
+            await page.locator('#hardware-review-reason').fill('Synthetic current selection hardware review')
+            release_preview.set()
+            await asyncio.wait_for(preview_finished.wait(), timeout=15)
+            await page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+            await page.unroute('**/api/admin/v1/action-preview', hold_hardware_preview)
+            page.remove_listener('dialog', dismiss_stale_case_dialog)
+            assert unexpected_case_dialogs == [], f'Closed preview still prompted for a prior selection: {unexpected_case_dialogs}'
+            assert not any(response['url'].endswith('/hardware-reviews/' + fixture['hardwareReviewId'] + '/decide') for response in events['responses']), 'A cancelled preview submitted a hardware decision.'
+            assert await page.locator('#hardware-review-status').inner_text() == '', 'Old preview changed the newly opened selection status.'
+            assert await page.locator('#hardware-review-reason').input_value() == 'Synthetic current selection hardware review', 'Old preview changed new selection data.'
+            await capture_screenshot(page, path=str(screenshots / '33-closed-preview-cancelled.png'), full_page=True)
+            captured_hardware_command = {}
+            hardware_command_path = '/api/admin/v1/hardware-reviews/' + fixture['hardwareReviewId'] + '/decide'
+            async def capture_hardware_command(route):
+                captured_hardware_command.update({
+                    'url': route.request.url,
+                    'method': route.request.method,
+                    'body': route.request.post_data
+                })
+                await route.continue_()
+            await page.route('**' + hardware_command_path, capture_hardware_command)
+            page.once('dialog', accept_case_preview)
+            await page.locator('#hardware-review-submit').click()
+            await page.wait_for_function("document.querySelector('#hardware-review-status')?.textContent?.startsWith('Decision saved at Central revision ')")
+            await page.unroute('**' + hardware_command_path, capture_hardware_command)
+            assert any(response['url'].endswith('/hardware-reviews/' + fixture['hardwareReviewId'] + '/decide') and response['status'] == 200 for response in events['responses']), 'Browser hardware decision was not confirmed by Central.'
+            assert captured_hardware_command.get('body'), 'The UI hardware decision request body was not captured for exact replay.'
+            hardware_command_replay = await page.evaluate('''async request => {
+                const response = await fetch(request.url, { method: request.method,
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    credentials: 'same-origin', cache: 'no-store', body: request.body });
+                const body = await response.json();
+                return { status: response.status, state: body.state, outcomeId: body.outcomeId, code: body.code };
+            }''', captured_hardware_command)
+            assert hardware_command_replay['status'] == 200 and hardware_command_replay['state'] == 'SUCCEEDED', \
+                f'Exact hardware decision replay did not return its persisted result: {hardware_command_replay}'
+            stale_hardware_command = await page.evaluate('''async request => {
+                const command = JSON.parse(request.body);
+                command.meta.clientOperationId = crypto.randomUUID();
+                const response = await fetch(request.url, { method: request.method,
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    credentials: 'same-origin', cache: 'no-store', body: JSON.stringify(command) });
+                const body = await response.json();
+                return { status: response.status, code: body.code };
+            }''', captured_hardware_command)
+            assert stale_hardware_command['status'] == 409 and stale_hardware_command['code'] == 'CONCURRENCY_CONFLICT', \
+                f'A stale hardware revision was not rejected without a mutation: {stale_hardware_command}'
+            await capture_screenshot(page, path=str(screenshots / '31-hardware-information-persisted.png'), full_page=True)
+            await page.locator('#btn-close-queue-modal').click()
+            await page.locator('#licensing-transfer-queue').click()
+            transfer_row = page.locator('#licensing-activations-tbody tr').filter(has_text=fixture['primaryTransferId'])
+            await transfer_row.get_by_role('button', name='Review transfer', exact=True).click()
+            await page.locator('#transfer-review-controls').wait_for(state='visible')
+            await page.locator('#transfer-review-evidence').fill(fixture['attachmentObjectId'])
+            await page.locator('#transfer-review-recovery').select_option('STANDARD_TRANSFER')
+            await page.locator('#transfer-review-decision').select_option('CANCEL')
+            await page.locator('#transfer-review-reason').fill('Synthetic browser operator cancels the pending transfer')
+            page.once('dialog', accept_case_preview)
+            await page.locator('#transfer-review-submit').click()
+            await page.wait_for_function("document.querySelector('#transfer-review-status')?.textContent?.startsWith('Decision saved at Central revision ')")
+            assert any(response['url'].endswith('/transfers/' + fixture['primaryTransferId'] + '/decide') and response['status'] == 200 for response in events['responses']), 'Browser transfer cancellation was not confirmed by Central.'
+            await capture_screenshot(page, path=str(screenshots / '32-transfer-cancellation-persisted.png'), full_page=True)
+            await page.locator('#btn-close-queue-modal').click()
+
+            case_approvals = []
+            for prefix, target_key, queue_button, decision, operation_type in [
+                ('hardware', 'approvalHardwareReviewId', '#licensing-hardware-queue', 'APPROVE_REBIND', 'HARDWARE_REVIEW'),
+                ('transfer', 'approvalPrimaryTransferId', '#licensing-transfer-queue', 'APPROVE', 'PRIMARY_TRANSFER')
+            ]:
+                await page.locator(queue_button).click()
+                case_row = page.locator('#licensing-activations-tbody tr').filter(has_text=fixture[target_key])
+                await case_row.get_by_role('button', name='Review hardware' if prefix == 'hardware' else 'Review transfer', exact=True).click()
+                await page.locator(f'#{prefix}-review-controls').wait_for(state='visible')
+                await page.locator(f'#{prefix}-review-evidence').fill(fixture['attachmentObjectId'])
+                await page.locator(f'#{prefix}-review-decision').select_option(decision)
+                if prefix == 'transfer':
+                    await page.locator('#transfer-review-recovery').select_option('STANDARD_TRANSFER')
+                await page.locator(f'#{prefix}-review-reason').fill(f'Synthetic browser requests independent {prefix} approval')
+                if prefix == 'hardware':
+                    request_preview_started = asyncio.Event()
+                    release_request_preview = asyncio.Event()
+                    request_preview_finished = asyncio.Event()
+                    async def hold_request_preview(route):
+                        body = route.request.post_data_json
+                        if body.get('targetEntityId') != fixture['approvalHardwareReviewId']:
+                            await route.continue_()
+                            return
+                        preview_response = await route.fetch()
+                        request_preview_started.set()
+                        await release_request_preview.wait()
+                        await route.fulfill(response=preview_response)
+                        request_preview_finished.set()
+                    await page.route('**/api/admin/v1/action-preview', hold_request_preview)
+                    step_up_count_before = sum('/auth/step-up' in response['url'] for response in events['responses'])
+                    await page.locator('#hardware-review-request-totp').fill('111111')
+                    await page.locator('#hardware-review-request-approval').click()
+                    await asyncio.wait_for(request_preview_started.wait(), timeout=15)
+                    await page.locator('#hardware-review-request-totp').fill('222222')
+                    release_request_preview.set()
+                    await asyncio.wait_for(request_preview_finished.wait(), timeout=15)
+                    await page.wait_for_timeout(100)
+                    await page.unroute('**/api/admin/v1/action-preview', hold_request_preview)
+                    assert await page.locator('#hardware-review-request-totp').input_value() == '222222', 'An older in-flight approval preview erased a newer request MFA code.'
+                    assert not await page.locator('#hardware-review-request-approval').is_disabled(), 'Changing request MFA did not restore the approval request control.'
+                    assert sum('/auth/step-up' in response['url'] for response in events['responses']) == step_up_count_before, 'A superseded approval preview submitted stale MFA.'
+                request_proof = current_totp(auth_mfa_secret)
+                secrets_to_redact.append(request_proof)
+                await page.locator(f'#{prefix}-review-request-totp').fill(request_proof)
+                page.once('dialog', accept_case_preview)
+                await page.locator(f'#{prefix}-review-request-approval').click()
+                await page.wait_for_function("prefix => document.querySelector('#'+prefix+'-review-status')?.textContent?.includes('Independent approval request saved')", arg=prefix)
+                case_approval_id = await page.locator(f'#{prefix}-review-approval').input_value()
+                assert re.fullmatch(r'[0-9a-fA-F-]{36}', case_approval_id), 'No persisted approval identity was displayed.'
+                assert 'no hardware or transfer change has occurred' in await page.locator(f'#{prefix}-approval-state').inner_text()
+                assert await page.locator(f'#{prefix}-review-request-totp').input_value() == '', 'Request MFA was retained.'
+                case_approvals.append((prefix, target_key, queue_button, decision, operation_type, case_approval_id))
+                await capture_screenshot(page, path=str(screenshots / f'34-{prefix}-approval-request-pending.png'), full_page=True)
+                await page.locator('#btn-close-queue-modal').click()
+
+            case_context = await browser.new_context(viewport={"width": 1440, "height": 1000}, ignore_https_errors=True)
+            case_page = await case_context.new_page()
+            case_page.on('pageerror', lambda error: events['pageErrors'].append(str(error)))
+            case_page.on('response', lambda response: events['responses'].append({"status": response.status, "url": response.url}) if '/api/' in response.url else None)
+            await case_page.goto(fixture['baseUrl'], wait_until='domcontentloaded')
+            await case_page.wait_for_function("document.querySelector('#auth-status')?.textContent?.trim() === 'Sign in to continue.'")
+            await case_page.locator('#login-username').fill(approver_username)
+            await case_page.locator('#login-password').fill(approver_password)
+            await case_page.locator('#login-form button[type="submit"]').click()
+            await case_page.locator('#mfa-step').wait_for(state='visible')
+            case_login_proof = current_totp(approver_mfa_secret)
+            secrets_to_redact.append(case_login_proof)
+            await case_page.locator('#mfa-totp').fill(case_login_proof)
+            await case_page.locator('#mfa-form button[type="submit"]').click()
+            await case_page.locator('#app-shell').wait_for(state='visible')
+            assert approver_username in await case_page.locator('#user-display-name').inner_text()
+            for prefix, target_key, queue_button, decision, operation_type, case_approval_id in case_approvals:
+                await case_page.locator('[data-view="approvals"]').click()
+                approval_row = case_page.locator('#approvals-table-tbody tr').filter(has_text=case_approval_id)
+                await approval_row.wait_for()
+                assert operation_type in await approval_row.inner_text()
+                await approval_row.get_by_role('button', name='Review approval', exact=True).click()
+                await case_page.locator('#sensitive-approval-decision').select_option('APPROVE')
+                await case_page.locator('#sensitive-approval-reason').fill(f'Synthetic distinct administrator authorizes exact {prefix} payload')
+                await case_page.locator('#sensitive-approval-submit').click()
+                await approval_row.wait_for(state='detached')
+                assert any('/sensitive-approvals/' + case_approval_id + '/decide' in response['url'] and response['status'] == 200 for response in events['responses'])
+                await case_page.locator('[data-view="licensing"]').click()
+                await case_page.locator(queue_button).click()
+                target_row = case_page.locator('#licensing-activations-tbody tr').filter(has_text=fixture[target_key])
+                await target_row.get_by_role('button', name='Review hardware' if prefix == 'hardware' else 'Review transfer', exact=True).click()
+                await case_page.locator(f'#{prefix}-review-evidence').fill(fixture['attachmentObjectId'])
+                await case_page.locator(f'#{prefix}-review-decision').select_option(decision)
+                if prefix == 'transfer':
+                    await case_page.locator('#transfer-review-recovery').select_option('STANDARD_TRANSFER')
+                await case_page.locator(f'#{prefix}-review-reason').fill(f'Synthetic distinct administrator executes approved {prefix} decision')
+                await case_page.locator(f'#{prefix}-review-approval').fill(case_approval_id)
+                execution_proof = current_totp(approver_mfa_secret)
+                secrets_to_redact.append(execution_proof)
+                await case_page.locator(f'#{prefix}-review-execution-totp').fill(execution_proof)
+                decision_response_start = len(events['responses'])
+                case_page.once('dialog', accept_case_preview)
+                await case_page.locator(f'#{prefix}-review-submit').click()
+                await case_page.wait_for_function("prefix => { const status = document.querySelector('#'+prefix+'-review-status')?.textContent || ''; return status.startsWith('Decision saved at Central revision ') || status.includes('Too many requests. Please retry later.'); }", arg=prefix)
+                decision_status = await case_page.locator(f'#{prefix}-review-status').inner_text()
+                if 'Too many requests. Please retry later.' in decision_status:
+                    limited_step_up = [response for response in events['responses'][decision_response_start:]
+                        if response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 429]
+                    assert limited_step_up, f'{prefix} decision showed a rate limit without a matching step-up 429.'
+                    assert not any(response['url'].endswith(f'/api/admin/v1/{"hardware-reviews" if prefix == "hardware" else "transfers"}/{fixture[target_key]}/decide')
+                        for response in events['responses'][decision_response_start:]), \
+                        f'{prefix} decision was sent despite a rate-limited execution step-up.'
+                    await case_page.wait_for_timeout((int(os.environ['CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS']) + 1) * 1000)
+                    execution_proof = current_totp(approver_mfa_secret)
+                    secrets_to_redact.append(execution_proof)
+                    await case_page.locator(f'#{prefix}-review-execution-totp').fill(execution_proof)
+                    decision_response_start = len(events['responses'])
+                    case_page.once('dialog', accept_case_preview)
+                    await case_page.locator(f'#{prefix}-review-submit').click()
+                    await case_page.wait_for_function("prefix => document.querySelector('#'+prefix+'-review-status')?.textContent?.startsWith('Decision saved at Central revision ')", arg=prefix)
+                    assert any(response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 200
+                        for response in events['responses'][decision_response_start:]), \
+                        f'{prefix} decision retry did not obtain a fresh step-up.'
+                assert await case_page.locator(f'#{prefix}-review-execution-totp').input_value() == '', 'Execution MFA was retained.'
+                await capture_screenshot(case_page, path=str(screenshots / f'35-{prefix}-independent-approval-executed.png'), full_page=True)
+                await case_page.locator('#btn-close-queue-modal').click()
+            await case_page.locator('[data-view="licensing"]').click()
+            await case_page.locator('#licensing-transfer-queue').click()
+            completed_transfer_row = case_page.locator('#licensing-activations-tbody tr').filter(has_text=fixture['approvalPrimaryTransferId'])
+            await completed_transfer_row.get_by_role('button', name='Review transfer', exact=True).click()
+            await case_page.locator('#transfer-completion-controls').wait_for(state='visible')
+            assert await case_page.locator('#transfer-review-controls').is_hidden(), 'An already approved transfer remained exposed as a decision request.'
+            await case_page.locator('#transfer-completion-reason').fill('Synthetic browser completes the separately approved, evidence-backed transfer')
+            completion_proof = current_totp(approver_mfa_secret)
+            if completion_proof == execution_proof:
+                for _ in range(70):
+                    await case_page.wait_for_timeout(500)
+                    completion_proof = current_totp(approver_mfa_secret)
+                    if completion_proof != execution_proof:
+                        break
+            assert completion_proof != execution_proof, 'Fresh completion MFA code was not available after the approval step-up.'
+            secrets_to_redact.append(completion_proof)
+            await case_page.locator('#transfer-completion-execution-totp').fill(completion_proof)
+            async def accept_completion_preview(dialog):
+                assert 'Central completion preview' in dialog.message, f'Unexpected completion confirmation: {dialog.message}'
+                await dialog.accept()
+            case_page.once('dialog', accept_completion_preview)
+            completion_response_start = len(events['responses'])
+            await case_page.locator('#transfer-completion-submit').click()
+            try:
+                await case_page.wait_for_function("() => { const status = document.querySelector('#transfer-completion-status')?.textContent || ''; return status.includes('Central completed the approved transfer') || status.includes('Too many requests. Please retry later.'); }", timeout=30000)
+            except Exception as error:
+                completion_status = await case_page.locator('#transfer-completion-status').inner_text()
+                await capture_screenshot(case_page, path=str(screenshots / '36-primary-transfer-completion-failure.png'), full_page=True)
+                raise AssertionError(f'Portal transfer completion failed: {completion_status}') from error
+            completion_status = await case_page.locator('#transfer-completion-status').inner_text()
+            if 'Too many requests. Please retry later.' in completion_status:
+                limited_step_up = [response for response in events['responses'][completion_response_start:]
+                    if response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 429]
+                assert limited_step_up, 'Transfer completion showed a rate limit without a matching step-up 429.'
+                assert not any(response['url'].endswith('/api/activation/v1/primary-transfers/' + fixture['approvalPrimaryTransferId'] + '/complete')
+                    for response in events['responses'][completion_response_start:]), \
+                    'Transfer completion was sent despite a rate-limited execution step-up.'
+                await case_page.wait_for_timeout((int(os.environ['CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS']) + 1) * 1000)
+                completion_proof = current_totp(approver_mfa_secret)
+                assert completion_proof != execution_proof, 'Fresh completion MFA code was not available after the rate-limit window.'
+                secrets_to_redact.append(completion_proof)
+                await case_page.locator('#transfer-completion-execution-totp').fill(completion_proof)
+                completion_response_start = len(events['responses'])
+                case_page.once('dialog', accept_completion_preview)
+                await case_page.locator('#transfer-completion-submit').click()
+                await case_page.wait_for_function("document.querySelector('#transfer-completion-status')?.textContent?.includes('Central completed the approved transfer')", timeout=30000)
+                assert any(response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 200
+                    for response in events['responses'][completion_response_start:]), \
+                    'Transfer completion retry did not obtain a fresh step-up.'
+                assert any(response['url'].endswith('/api/activation/v1/primary-transfers/' + fixture['approvalPrimaryTransferId'] + '/complete') and response['status'] == 200
+                    for response in events['responses'][completion_response_start:]), \
+                    'Transfer completion retry did not reach Central after the fresh step-up.'
+            assert await case_page.locator('#transfer-completion-execution-totp').input_value() == '', 'Completion MFA was retained.'
+            assert any('/api/activation/v1/primary-transfers/' + fixture['approvalPrimaryTransferId'] + '/complete' in response['url'] and response['status'] == 200 for response in events['responses']), 'Portal did not complete the separately approved transfer through the Central route.'
+            await capture_screenshot(case_page, path=str(screenshots / '36-primary-transfer-completed.png'), full_page=True)
+            await case_context.close()
 
             await page.locator('[data-view="support"]').click()
             cross_shop_result = await page.evaluate(r'''async ({ foreignShopId, attachmentObjectId }) => {
@@ -1932,7 +2522,7 @@ async def main():
             match = __import__('re').search(r'Ticket ([0-9a-f-]{36}) was saved by the server\.', create_message, __import__('re').I)
             assert match, f'No persisted ticket identity returned: {create_message}'
             ticket_id = match.group(1)
-            await page.screenshot(path=str(screenshots / '05-support-created.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '05-support-created.png'), full_page=True)
             row = page.locator('#support-tbody tr').filter(has_text=subject)
             await row.get_by_role('button', name='Open Ticket').click()
             support_markup_rendered_as_text = await page.evaluate(r'''({ subject }) => {
@@ -1949,7 +2539,7 @@ async def main():
             await page.locator('#support-reply-text').fill(reply_text)
             await page.locator('#support-reply-form').get_by_role('button', name='Save Reply').click()
             await page.get_by_text('Reply saved in the portal. No external message was sent.').wait_for()
-            await page.screenshot(path=str(screenshots / '06-support-reply.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '06-support-reply.png'), full_page=True)
 
             support_status = 'IN_PROGRESS'
             async with page.expect_response(
@@ -1978,7 +2568,7 @@ async def main():
             attachment_href = await attachment_link.get_attribute('href')
             expected_attachment_path = f"/api/admin/v1/support/tickets/{ticket_id}/attachments/{fixture['attachmentObjectId']}/download"
             assert attachment_href == expected_attachment_path, f'Portal attachment link did not preserve ticket/object identity: {attachment_href}'
-            await page.screenshot(path=str(screenshots / '07-reloaded-support-history.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '07-reloaded-support-history.png'), full_page=True)
             async with page.expect_download() as download_info:
                 await attachment_link.click()
             attachment_download = await download_info.value
@@ -2014,17 +2604,41 @@ async def main():
             lifecycle_final_totp = current_totp(auth_mfa_secret)
             secrets_to_redact.append(lifecycle_final_totp)
             await page.locator('#license-lifecycle-final-totp').fill(lifecycle_final_totp)
+            revocation_response_count_before_execute = len(events['responses'])
             await page.locator('#license-lifecycle-execute').click()
-            await page.wait_for_function("document.querySelector('#license-lifecycle-final-status')?.textContent?.includes('Central confirmed revocation')")
+            await page.wait_for_function(r'''() => {
+                const status = document.querySelector('#license-lifecycle-final-status')?.textContent || '';
+                return status.includes('Central confirmed revocation') || status.includes('Too many requests. Please retry later.');
+            }''')
+            revocation_status = await page.locator('#license-lifecycle-final-status').inner_text()
+            rate_limit_recovered = False
+            if 'Too many requests. Please retry later.' in revocation_status:
+                limited_step_up = [response for response in events['responses'][revocation_response_count_before_execute:]
+                    if response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 429]
+                assert limited_step_up, f'Portal reported a rate limit without a matching step-up 429 response: {revocation_status}'
+                assert not any(response['url'].endswith(f'/api/admin/v1/licenses/{fixture["browserUploadLicenseId"]}/revoke')
+                    for response in events['responses'][revocation_response_count_before_execute:]), \
+                    'Rate-limited step-up must have no license-revocation request or effect.'
+                await page.wait_for_timeout((int(os.environ['CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS']) + 1) * 1000)
+                lifecycle_final_totp = current_totp(auth_mfa_secret)
+                secrets_to_redact.append(lifecycle_final_totp)
+                await page.locator('#license-lifecycle-final-totp').fill(lifecycle_final_totp)
+                retry_response_count_before_execute = len(events['responses'])
+                await page.locator('#license-lifecycle-execute').click()
+                await page.wait_for_function("document.querySelector('#license-lifecycle-final-status')?.textContent?.includes('Central confirmed revocation')")
+                assert any(response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 200
+                    for response in events['responses'][retry_response_count_before_execute:]), \
+                    'Fresh step-up retry after the configured rate window did not succeed.'
+                rate_limit_recovered = True
             assert any(response['url'].endswith(f'/api/admin/v1/licenses/{fixture["browserUploadLicenseId"]}/revoke') and response['status'] == 200 for response in events['responses']), 'Approved license revocation did not reach the canonical server route.'
             await page.locator('#license-lifecycle-close').click()
             await page.locator('#customer-360-details').get_by_text('REVOKED', exact=True).wait_for()
-            await page.screenshot(path=str(screenshots / '28-license-revocation-confirmed.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '28-license-revocation-confirmed.png'), full_page=True)
 
             await page.locator('#btn-logout').click()
             await page.locator('#auth-wrapper').wait_for(state='visible')
             assert await page.locator('#app-shell').is_hidden(), 'Logout left the protected portal visible.'
-            await page.screenshot(path=str(screenshots / '10-logout-revoked.png'), full_page=True)
+            await capture_screenshot(page, path=str(screenshots / '10-logout-revoked.png'), full_page=True)
             await page.reload(wait_until='domcontentloaded')
             await page.locator('#auth-wrapper').wait_for(state='visible')
             assert await page.locator('#app-shell').is_hidden(), 'Revoked session restored portal access after reload.'
@@ -2064,12 +2678,27 @@ async def main():
             assert len(expected_401s) >= 3, f'Expected initial anonymous, invalid-password, and post-logout denials; observed {len(expected_401s)}.'
             console_statuses = [int(match.group(1)) for error in events['consoleErrors']
                 if (match := re.search(r'status of (\d+)', error))]
-            expected_console_statuses = Counter([401] * console_statuses.count(401) + [400, 404, 409])
-            assert Counter(console_statuses) == expected_console_statuses, \
-                f'Browser console failures did not match expected anonymous/invalid-auth/cross-shop/unlinked denials: {events["consoleErrors"]}'
+            rate_limited = [(index, response) for index, response in enumerate(events['responses']) if response['status'] == 429]
+            assert all(response['url'].endswith('/api/admin/v1/auth/step-up') for _, response in rate_limited), \
+                f'Unexpected API route was rate limited during the browser journey: {rate_limited}'
+            for index, _ in rate_limited:
+                retry_success_index = next((later_index for later_index, response in enumerate(events['responses'][index + 1:], start=index + 1)
+                    if response['url'].endswith('/api/admin/v1/auth/step-up') and response['status'] == 200), None)
+                assert retry_success_index is not None, \
+                    'A rate-limited step-up was not followed by an accepted retry.'
+                rate_limit_recovered = True
+                assert not any(response['url'].endswith(f'/api/admin/v1/licenses/{fixture["browserUploadLicenseId"]}/revoke')
+                    for response in events['responses'][index + 1:retry_success_index]), \
+                    'License revocation proceeded without a successful step-up after rate limiting.'
+            expected_console_statuses = Counter([401] * console_statuses.count(401) + [400, 404, 409, 409])
+            actual_console_statuses = Counter(console_statuses)
+            console_rate_limit_count = actual_console_statuses.pop(429, 0)
+            assert console_rate_limit_count <= len(rate_limited) and actual_console_statuses == expected_console_statuses, \
+                f'Browser console failures did not match expected authorization and conflict denials or observed step-up rate limits: expected={expected_console_statuses}, actual={Counter(console_statuses)}, rateLimited={len(rate_limited)}, recovered={rate_limit_recovered}, errors={events["consoleErrors"]}'
             await context.tracing.stop(path=str(evidence / 'portal-trace.zip'))
             redact_trace()
             payload = {"result": "PASS", "ticketId": ticket_id, "subject": subject, "replyText": reply_text,
+                "rateLimitRecovered": rate_limit_recovered,
                 "supportMarkupRenderedAsText": support_markup_rendered_as_text,
                 "sessionCustodyBrowserSafe": session_custody == { 'seededLegacyValue': 'synthetic-stale-session-value', 'authenticationKeys': [], 'scriptCanReadCookie': False },
                 "crossOriginMutationDenied": cross_origin_response.status in (401, 403),
@@ -2082,6 +2711,8 @@ async def main():
                 "crossOriginMutationMarker": cross_origin_mutation_marker,
                 "pendingApprovalId": fixture['pendingApprovalId'], "piiAuditRecordId": fixture['sensitiveAuditRecordId'],
                 "approvalDecision": "APPROVE", "approvalDecisionConfirmed": True,
+                "hardwareCommandReplay": hardware_command_replay,
+                "staleHardwareCommand": stale_hardware_command,
                 "initialPendingApprovalsCount": initial_dashboard_api['body']['pendingApprovalsCount'],
                 "activationRequestId": fixture['activationRequestId'], "activationDecision": "REQUEST_INFORMATION",
                 "sessionRevocationTargetId": fixture['targetSessionId'], "sessionRevocationConfirmed": True,
@@ -2101,6 +2732,15 @@ async def main():
                 "createdDirectoryCustomerId": created_customer_id, "createdDirectoryShopId": created_shop_id,
                 "queuePageOne": page_one, "queuePageTwo": page_two, "capabilities": capabilities,
                 "displayedUsername": auth_username,
+                "workerObservation": worker_observation,
+                "degradedWorkerObservation": degraded_worker_observation,
+                "workerPoisonMessageId": worker_poison_message_id,
+                "workerDegradedApiStatus": degraded_worker_body['status'],
+                "workerDegradedCacheControl": degraded_worker_headers.get('cache-control', ''),
+                "workerPoisonRetryCount": worker_probe_result['retryCount'],
+                "workerPoisonMaxAttempts": worker_probe_result['maxAttempts'],
+                "workerPoisonConsumerEffectCount": worker_probe_result['consumerEffectCount'],
+                "workerPoisonNotificationCount": worker_probe_result['notificationCount'],
                 "crossShopCreateDenied": cross_shop_result['status'] == 400 and cross_shop_result['code'] == 'SUPPORT_ATTACHMENT_ACCESS_DENIED',
                 "unlinkedDownloadDenied": unlinked_result['status'] == 404 and unlinked_result['code'] == 'SUPPORT_ATTACHMENT_NOT_FOUND',
                 "attachmentObjectId": fixture['attachmentObjectId'],
@@ -2112,13 +2752,13 @@ async def main():
                 "supportStatus": support_status, "supportStatusPersistedAfterReload": True,
                 "downloadedCiphertextLength": len(downloaded_bytes),
                 "downloadedCiphertextSha256": downloaded_sha256,
-                "checks": ["login-mfa-session-expiry-denied", "login-mfa-session-logout", "cookie-bound-step-up-session-derivation", "session-identity", "http-only-session-custody", "cross-origin-mutation-denied", "auth-trace-secret-redaction", "authoritative-nonzero-dashboard-metrics", "session", "queue-paging", "customer-360", "directory-customer-shop-create-search", "expired-license-approval-repreview-no-mutation", "license-revocation-stepup-separate-approval-mutation", "recovery-worker-status", "pending-approval-queue-visible", "independent-approval-decision-persisted", "activation-review-request-information-persisted", "audited-pii-reveal-injection-safe", "sensitive-data-cleared-on-close-and-navigation", "authenticated-browser-session-revocation", "commercial-catalog", "price-snapshot", "commercial-order-created", "payment-review-persisted", "license-issue-requires-separate-manual-action", "license-issue-persisted", "manual-addon-renewal-and-lifetime-conservation", "ciphertext-upload-resume-integrity-retention", "support-create", "support-attachment-download", "support-attachment-cross-shop-denial", "support-attachment-unlinked-download-denial", "support-reply", "support-status-persisted", "reload-persistence", "console-network"], "events": events}
+                "checks": ["favicon-ico-branded-svg-alias", "login-mfa-session-expiry-denied", "login-mfa-session-logout", "cookie-bound-step-up-session-derivation", "session-identity", "http-only-session-custody", "cross-origin-mutation-denied", "auth-trace-secret-redaction", "authoritative-nonzero-dashboard-metrics", "session", "queue-paging", "queue-common-fields-dashboard", "queue-common-fields-licensing", "customer-360", "directory-customer-shop-create-search", "expired-license-approval-repreview-no-mutation", "license-revocation-stepup-separate-approval-mutation", "recovery-worker-status", "recovery-worker-degraded-after-dead-letter", "pending-approval-queue-visible", "independent-approval-decision-persisted", "activation-review-request-information-persisted", "audited-pii-reveal-injection-safe", "sensitive-data-cleared-on-close-and-navigation", "hardware-transfer-evidence-cleared-on-close", "hardware-transfer-independent-approval-browser-persisted", "hardware-transfer-execution-mfa-session-bound", "hardware-information-and-transfer-cancellation-persisted", "hardware-command-replay-no-duplicate-effect", "hardware-stale-revision-denied", "approved-primary-transfer-completed-from-portal", "closed-hardware-preview-cannot-submit", "request-mfa-new-input-survives-old-preview", "superseded-preview-sends-no-stale-mfa", "authenticated-browser-session-revocation", "commercial-catalog", "price-snapshot", "commercial-order-created", "payment-review-persisted", "license-issue-requires-separate-manual-action", "license-issue-persisted", "manual-addon-renewal-and-lifetime-conservation", "ciphertext-upload-resume-integrity-retention", "support-create", "support-attachment-download", "support-attachment-cross-shop-denial", "support-attachment-unlinked-download-denial", "support-reply", "support-status-persisted", "reload-persistence", "console-network"], "events": events}
             result_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
             (evidence / 'browser-events.json').write_text(json.dumps(events, indent=2), encoding='utf-8')
             print(json.dumps({"result": "PASS", "ticketId": ticket_id, "checks": payload['checks']}))
     except Exception as error:
         if page is not None:
-            try: await page.screenshot(path=str(screenshots / 'failure.png'), full_page=True)
+            try: await capture_screenshot(page, path=str(screenshots / 'failure.png'), full_page=True)
             except Exception: pass
         if context is not None:
             try: await context.tracing.stop(path=str(evidence / 'portal-trace.zip'))

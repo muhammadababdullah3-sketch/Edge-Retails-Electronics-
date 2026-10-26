@@ -1104,6 +1104,10 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DecidedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ContractDecision")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("DiscrepancyReason")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -1112,10 +1116,19 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("InstallationId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ReportedMachineFingerprintId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ReportedMachineFingerprint")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("StoredMachineFingerprintId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VerificationEvidenceId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("ReviewedByAdminId")
                         .HasColumnType("uuid");
@@ -1344,8 +1357,16 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ContractDecision")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<Guid>("InitiatedByAdminId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("RecoveryType")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<int>("RowVersion")
                         .IsConcurrencyToken()
@@ -1366,6 +1387,9 @@ namespace EdgeRetails.Central.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(32)");
 
                     b.Property<Guid>("TargetInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VerificationEvidenceId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("TransferReason")

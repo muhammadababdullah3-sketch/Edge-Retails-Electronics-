@@ -21,9 +21,11 @@ public sealed class CentralExceptionHandlingMiddlewareTests
         await middleware.InvokeAsync(context);
 
         Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
-        Assert.DoesNotContain(secret, await ReadResponseAsync(context));
+        var response = await ReadResponseAsync(context);
+        Assert.DoesNotContain(secret, response);
         Assert.All(logger.Messages, message => Assert.DoesNotContain(secret, message, StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains("SAFE_CODE", StringComparison.Ordinal));
+        AssertRequestIdCorrelates(response, logger);
     }
 
     [Fact]
@@ -39,9 +41,11 @@ public sealed class CentralExceptionHandlingMiddlewareTests
         await middleware.InvokeAsync(context);
 
         Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
-        Assert.DoesNotContain(secret, await ReadResponseAsync(context));
+        var response = await ReadResponseAsync(context);
+        Assert.DoesNotContain(secret, response);
         Assert.All(logger.Messages, message => Assert.DoesNotContain(secret, message, StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains(nameof(InvalidOperationException), StringComparison.Ordinal));
+        AssertRequestIdCorrelates(response, logger);
     }
 
     [Fact]
@@ -59,6 +63,8 @@ public sealed class CentralExceptionHandlingMiddlewareTests
         await middleware.InvokeAsync(context);
 
         Assert.All(logger.Messages, message => Assert.DoesNotContain(secret, message, StringComparison.Ordinal));
+        Assert.Single(logger.RequestIds);
+        Assert.Contains(logger.RequestIds[0].ToString("D"), string.Join('\n', logger.Messages), StringComparison.Ordinal);
     }
 
     private static DefaultHttpContext NewContext()
@@ -75,11 +81,30 @@ public sealed class CentralExceptionHandlingMiddlewareTests
         return await reader.ReadToEndAsync();
     }
 
+    private static void AssertRequestIdCorrelates(string response, CapturingLogger logger)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(response);
+        var responseId = document.RootElement.GetProperty("requestId").GetGuid();
+
+        Assert.Contains(responseId.ToString("D"), string.Join('\n', logger.Messages), StringComparison.Ordinal);
+        Assert.Contains(responseId, logger.RequestIds);
+    }
+
     private sealed class CapturingLogger : ILogger<CentralExceptionHandlingMiddleware>
     {
         public List<string> Messages { get; } = [];
+        public List<Guid> RequestIds { get; } = [];
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            if (state is IEnumerable<KeyValuePair<string, object>> values &&
+                values.FirstOrDefault(value => value.Key == "CentralRequestId").Value is Guid requestId)
+            {
+                RequestIds.Add(requestId);
+            }
+
+            return null;
+        }
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(

@@ -42,6 +42,12 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
 
         var forbidden = await denied.PostAsJsonAsync($"/api/admin/v1/activations/{requestId:D}/review", new { meta, payload });
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        using (var db = OpenDb())
+        {
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.Id == meta.ClientOperationId));
+            Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == meta.ClientOperationId));
+            Assert.Equal(ActivationRedemption.StatusPending, (await db.ActivationRedemptions.SingleAsync(x => x.Id == requestId)).Status);
+        }
 
         var response = await allowed.PostAsJsonAsync($"/api/admin/v1/activations/{requestId:D}/review", new { meta, payload });
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected success, got {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
@@ -59,7 +65,12 @@ public sealed class CanonicalActivationReviewContractTests(WebApplicationFactory
             Assert.Equal(2, redemption.RowVersion);
             Assert.Equal(ActivationToken.StatusConsumed, (await db.ActivationTokens.SingleAsync(x => x.Id == redemption.TokenId)).Status);
             Assert.Equal(Installation.StatusActive, (await db.Installations.SingleAsync(x => x.Id == redemption.InstallationId)).Status);
-            Assert.Single(await db.CentralOutboxMessages.Where(x => x.Id == meta.ClientOperationId).ToListAsync());
+            var activationEvent = Assert.Single(await db.CentralOutboxMessages
+                .Where(x => x.Id == meta.ClientOperationId)
+                .ToListAsync());
+            Assert.Equal("activation.review_decided", activationEvent.EventType);
+            Assert.Equal(nameof(ActivationRedemption), activationEvent.AggregateType);
+            Assert.Equal(requestId.ToString("D"), activationEvent.AggregateId);
             Assert.Single(await db.CentralAuditRecords.Where(x => x.CorrelationId == meta.ClientOperationId.ToString()).ToListAsync());
             Assert.Single(await db.CentralOperationRecords.Where(x => x.ClientOperationId == meta.ClientOperationId).ToListAsync());
         }

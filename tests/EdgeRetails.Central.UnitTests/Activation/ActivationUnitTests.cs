@@ -7,6 +7,7 @@ using EdgeRetails.Central.Application.Services;
 using EdgeRetails.Central.Domain.Commercial;
 using EdgeRetails.Central.Domain.Common;
 using EdgeRetails.Central.Domain.Licensing;
+using EdgeRetails.Central.Domain.Storage;
 using EdgeRetails.Central.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -492,6 +493,16 @@ public class ActivationUnitTests : IDisposable
         await _dbContext.SaveChangesAsync();
 
         await _activationService.ApprovePrimaryTransferAsync(transfer.Id, distinctApproverAdminId, approval.Id);
+
+        // The source contract requires a persisted same-shop support attachment
+        // and an explicit APPROVE decision before transfer completion.
+        var verificationEvidence = EncryptedObjectRecord.Create(
+            Guid.NewGuid(), shop.Id, targetInstall.Id, EncryptedObjectRecord.PurposeSupportAttachment,
+            32, "application/octet-stream", new string('b', 64),
+            $"uploads/{shop.Id:N}/{Guid.NewGuid():N}.bin", Guid.NewGuid(), null, now);
+        _dbContext.EncryptedObjects.Add(verificationEvidence);
+        transfer.ApplyContractDecision("APPROVE", "STANDARD_TRANSFER", verificationEvidence.Id, distinctApproverAdminId);
+        await _dbContext.SaveChangesAsync();
 
         // Complete through the versioned Central operation command.
         var completionCommand = new CompletePrimaryTransferCommand

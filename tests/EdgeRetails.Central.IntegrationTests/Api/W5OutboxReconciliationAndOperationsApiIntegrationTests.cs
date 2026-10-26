@@ -119,7 +119,9 @@ public class W5OutboxReconciliationAndOperationsApiIntegrationTests : IClassFixt
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var nonce = Guid.NewGuid();
         var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
-        var bodyDigest = _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
+        var bodyDigest = body.Length == 0
+            ? _serializer.ComputeSha256Hex(string.Empty)
+            : _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
         var path = request.RequestUri!.OriginalString;
         var envelope = _serializer.SerializeCanonical(new
         {

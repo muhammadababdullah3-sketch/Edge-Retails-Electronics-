@@ -112,6 +112,8 @@ app.UseStaticFiles();
 app.UseRouting();
 
 app.MapControllers();
+app.MapGet("/favicon.ico", (Microsoft.AspNetCore.Hosting.IWebHostEnvironment environment) =>
+    Results.File(Path.Combine(environment.WebRootPath, "favicon.svg"), "image/svg+xml"));
 
 app.Run();
 

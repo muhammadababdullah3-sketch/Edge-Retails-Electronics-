@@ -13,7 +13,7 @@ $script:recoveryHostProcesses=[Collections.Generic.List[System.Diagnostics.Proce
 $script:evidence=$null
 $savedPg=@{}
 foreach($name in @('PGPASSWORD','PGDATABASE','PGUSER','PGHOST','PGPORT','PGSSLMODE','PGOPTIONS','PGSERVICE','PGHOSTADDR','PGPASSFILE','PGCLIENTENCODING')) { $savedPg[$name]=[Environment]::GetEnvironmentVariable($name) }
-$hostEnvironmentNames=@('CENTRAL_DATABASE_CONNECTION_STRING','CENTRAL_SIGNER_KEY_STORE_ROOT','CENTRAL_OBJECT_STORAGE_ROOT','CENTRAL_PAYMENT_STORAGE_ROOT','CENTRAL_PG_PORT','CENTRAL_PG_DATABASE','CENTRAL_PG_ROLE','CENTRAL_PG_MIGRATION_ROLE','CENTRAL_PG_PID','CENTRAL_PG_BINARY','CENTRAL_PG_OWNERSHIP_MARKER','CENTRAL_PG_DATA_DIR','CENTRAL_OUTBOX_ENABLED','CENTRAL_OUTBOX_BATCH_SIZE','CENTRAL_OUTBOX_MAX_ATTEMPTS','CENTRAL_OUTBOX_POLL_MS','CENTRAL_OUTBOX_LEASE_SECONDS','CENTRAL_OUTBOX_RETRY_BASE_MS','CENTRAL_OUTBOX_RETRY_MAX_MS','CENTRAL_STORAGE_RECONCILIATION_ENABLED','CENTRAL_ACTIVATION_DELIVERY_CLEANUP_ENABLED','ASPNETCORE_URLS','ASPNETCORE_ENVIRONMENT')
+$hostEnvironmentNames=@('CENTRAL_DATABASE_CONNECTION_STRING','CENTRAL_SIGNER_KEY_STORE_ROOT','CENTRAL_OBJECT_STORAGE_ROOT','CENTRAL_PAYMENT_STORAGE_ROOT','CENTRAL_PG_PORT','CENTRAL_PG_DATABASE','CENTRAL_PG_ROLE','CENTRAL_PG_MIGRATION_ROLE','CENTRAL_PG_PID','CENTRAL_PG_BINARY','CENTRAL_PG_OWNERSHIP_MARKER','CENTRAL_PG_DATA_DIR','CENTRAL_OUTBOX_ENABLED','CENTRAL_OUTBOX_BATCH_SIZE','CENTRAL_OUTBOX_MAX_ATTEMPTS','CENTRAL_OUTBOX_POLL_MS','CENTRAL_OUTBOX_LEASE_SECONDS','CENTRAL_OUTBOX_RETRY_BASE_MS','CENTRAL_OUTBOX_RETRY_MAX_MS','CENTRAL_STORAGE_RECONCILIATION_ENABLED','CENTRAL_ACTIVATION_DELIVERY_CLEANUP_ENABLED','ASPNETCORE_URLS','ASPNETCORE_ENVIRONMENT','CENTRAL_RECOVERY_TARGET_PG_PORT','CENTRAL_RECOVERY_TARGET_MIGRATION_ROLE','CENTRAL_RECOVERY_TARGET_RUNTIME_ROLE','CENTRAL_RECOVERY_TARGET_DATABASE_ADMIN_ROLE','CENTRAL_RECOVERY_TARGET_PG_BINARY','CENTRAL_RECOVERY_TARGET_PG_DATA_DIR','CENTRAL_RECOVERY_TARGET_PG_OWNERSHIP_MARKER','CENTRAL_RECOVERY_TARGET_PG_PID','CENTRAL_RECOVERY_TARGET_DATABASE_ADMIN_CONNECTION_STRING','CENTRAL_RECOVERY_TARGET_MIGRATION_CONNECTION_STRING','CENTRAL_RECOVERY_TARGET_RUNTIME_CONNECTION_STRING')
 $savedHostEnvironment=@{}
 foreach($name in $hostEnvironmentNames){$savedHostEnvironment[$name]=[Environment]::GetEnvironmentVariable($name)}
 function Required([string]$Name) { $v=[Environment]::GetEnvironmentVariable($Name); if([string]::IsNullOrWhiteSpace($v)){throw "Required owned-development value is absent: $Name"}; return $v }
@@ -41,14 +41,14 @@ function Owned([string]$Path) {
     if(-not @($script:ownedRoots|Where-Object { Contained $_ $p }).Count){throw 'Recovery path escapes the explicitly owned Central development roots.'}
     return $p
 }
-function Credential([string]$Variable,[string]$Database,[string]$Role) {
+function Credential([string]$Variable,[string]$Database,[string]$Role,[int]$ExpectedPort=$script:port) {
     $b=[Data.Common.DbConnectionStringBuilder]::new(); $b.set_ConnectionString((Required $Variable))
     $hostName=if($b.ContainsKey('Host')){[string]$b['Host']}elseif($b.ContainsKey('Server')){[string]$b['Server']}else{''}
     $userName=if($b.ContainsKey('Username')){[string]$b['Username']}elseif($b.ContainsKey('User Id')){[string]$b['User Id']}else{''}
-    if($hostName -notin @('127.0.0.1','::1','localhost') -or -not $b.ContainsKey('Port') -or [int]$b['Port'] -ne $script:port -or [string]$b['Database'] -ne $Database -or $userName -ne $Role -or -not $b.ContainsKey('Password') -or [string]::IsNullOrEmpty([string]$b['Password'])){throw "Credential target disagrees with owned identity: $Variable"}
-    return @{Database=$Database;Role=$Role;Password=[string]$b['Password']}
+    if($hostName -notin @('127.0.0.1','::1','localhost') -or -not $b.ContainsKey('Port') -or [int]$b['Port'] -ne $ExpectedPort -or [string]$b['Database'] -ne $Database -or $userName -ne $Role -or -not $b.ContainsKey('Password') -or [string]::IsNullOrEmpty([string]$b['Password'])){throw "Credential target disagrees with owned identity: $Variable"}
+    return @{Host='127.0.0.1';Port=$ExpectedPort;Database=$Database;Role=$Role;Password=[string]$b['Password']}
 }
-function UseCredential($Credential) { $env:PGDATABASE=$Credential.Database; $env:PGUSER=$Credential.Role; $env:PGPASSWORD=$Credential.Password }
+function UseCredential($Credential) { $env:PGHOST=$Credential.Host; $env:PGPORT=[string]$Credential.Port; $env:PGDATABASE=$Credential.Database; $env:PGUSER=$Credential.Role; $env:PGPASSWORD=$Credential.Password }
 function Native([string]$Tool,[string[]]$Arguments,$Credential,[switch]$AllowFailure) {
     $PSNativeCommandUseErrorActionPreference=$false
     UseCredential $Credential
@@ -68,7 +68,7 @@ function Identity($Credential,[switch]$Admin,[switch]$MigrationOwner) {
     # disposable target database. Runtime and migration-owner identities stay
     # non-superuser and cannot create roles/databases or bypass RLS.
     $roleMismatch=if($Admin){$j.superuser -or $j.createRole -or -not $j.createDb -or $j.replication -or $j.bypassRls}else{$j.superuser -or $j.createRole -or $j.createDb -or $j.replication -or $j.bypassRls}
-    if([int]$j.version -lt 180000 -or [int]$j.version -ge 190000 -or $j.database -ne $Credential.Database -or $j.role -ne $Credential.Role -or $j.sessionRole -ne $Credential.Role -or $j.address -notin @('127.0.0.1','::1') -or [int]$j.port -ne $script:port -or $roleMismatch){throw ('Live recovery identity mismatch. Observed: '+(JsonText $j))}
+    if([int]$j.version -lt 180000 -or [int]$j.version -ge 190000 -or $j.database -ne $Credential.Database -or $j.role -ne $Credential.Role -or $j.sessionRole -ne $Credential.Role -or $j.address -notin @('127.0.0.1','::1') -or [int]$j.port -ne [int]$Credential.Port -or $roleMismatch){throw ('Live recovery identity mismatch. Observed: '+(JsonText $j))}
     return $j
 }
 function TableHashes($Credential,[switch]$WithoutPaths) {
@@ -213,10 +213,60 @@ function GetSignerRootProof([string]$AssemblyPath,[string]$Root,[string]$Expecte
     } finally { if($store -is [IDisposable]){$store.Dispose()} }
 }
 function OutboxMessageState($Credential,[string]$Id) {
-    $sql='SELECT jsonb_build_object(''status'',m."Status",''retryCount'',m."RetryCount",''effectCount'',(SELECT count(*) FROM central.outbox_consumer_effects e WHERE e."MessageId"=m."Id"),''notificationCount'',(SELECT count(*) FROM central.admin_notifications n WHERE n."Id"=m."Id"))::text FROM central.outbox_messages m WHERE m."Id"='+(Literal $Id)+'::uuid;'
+    $sql='SELECT jsonb_build_object(''status'',m."Status",''eventType'',m."EventType",''retryCount'',m."RetryCount",''effectCount'',(SELECT count(*) FROM central.outbox_consumer_effects e WHERE e."MessageId"=m."Id"),''notificationCount'',(SELECT count(*) FROM central.admin_notifications n WHERE n."Id"=m."Id"))::text FROM central.outbox_messages m WHERE m."Id"='+(Literal $Id)+'::uuid;'
     $raw=(Query $Credential $sql).Output
     if(-not $raw){throw 'Recovery replay message disappeared from the disposable target.'}
     return ($raw|ConvertFrom-Json)
+}
+function IsNotificationEvent([string]$EventType) {
+    return $EventType -in @('activation.token_redeemed','activation.hardware_review_requested','activation.primary_transfer_initiated','payment.evidence_submitted','approval.requested','license.suspended','license.revoked')
+}
+function RequeueDispatchedWithoutEffect($Credential) {
+    $sql=@'
+SELECT COALESCE(jsonb_agg(jsonb_build_object('id',m."Id"::text,'eventType',m."EventType",'aggregateType',m."AggregateType",'aggregateId',m."AggregateId",'domainExists',CASE m."AggregateType"
+ WHEN 'ActivationToken' THEN EXISTS(SELECT 1 FROM central.activation_tokens x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'HardwareReview' THEN EXISTS(SELECT 1 FROM central.hardware_reviews x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'PrimaryTransfer' THEN EXISTS(SELECT 1 FROM central.primary_transfers x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'AdminUser' THEN EXISTS(SELECT 1 FROM central.admin_users x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'SensitiveApprovalRequest' THEN EXISTS(SELECT 1 FROM central.sensitive_approval_requests x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'Customer' THEN EXISTS(SELECT 1 FROM central.customers x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'Shop' THEN EXISTS(SELECT 1 FROM central.shops x WHERE x."Id"::text=m."AggregateId")
+ WHEN 'SupportTicket' THEN EXISTS(SELECT 1 FROM central.support_tickets x WHERE x."Id"::text=m."AggregateId")
+ ELSE false END) ORDER BY m."OccurredOnUtc",m."Id"),'[]'::jsonb)::text
+FROM central.outbox_messages m
+LEFT JOIN central.outbox_consumer_effects e ON e."MessageId"=m."Id"
+WHERE m."Status"='DISPATCHED' AND e."MessageId" IS NULL;
+'@
+    $raw=(Query $Credential $sql).Output
+    $records=@($raw|ConvertFrom-Json)
+    $eventAggregates=@{
+        'activation.delivery_pending'='ActivationToken'
+        'activation.hardware_review_decided'='HardwareReview'
+        'activation.primary_transfer_decided'='PrimaryTransfer'
+        'activation.primary_transfer_initiated'='PrimaryTransfer'
+        'admin.assign_role'='AdminUser'
+        'admin.disable'='AdminUser'
+        'admin.revoke_all'='AdminUser'
+        'admin.revoke_session'='AdminUser'
+        'approval.decided'='SensitiveApprovalRequest'
+        'commercial.customer_created'='Customer'
+        'commercial.shop_registered'='Shop'
+        'support.ticket_assigned'='SupportTicket'
+        'support.ticket_created'='SupportTicket'
+        'support.ticket_replied'='SupportTicket'
+        'support.ticket_status_changed'='SupportTicket'
+    }
+    foreach($record in $records) {
+        $null=[Guid]::Parse([string]$record.id)
+        if(-not $eventAggregates.ContainsKey([string]$record.eventType) -or [string]$eventAggregates[[string]$record.eventType] -cne [string]$record.aggregateType -or $record.domainExists -ne $true){throw 'A dispatched outbox event is unmapped, targets the wrong aggregate type, or lacks a persisted domain aggregate; safe target reconciliation is withheld.'}
+    }
+    if($records.Count -eq 0){return [ordered]@{count=0;records=@();requeuedIds=@();notificationIds=@()}}
+    $ids=(@($records|ForEach-Object {(Literal ([string]$_.id))+'::uuid'}) -join ',')
+    $update='UPDATE central.outbox_messages m SET "Status"=''PENDING'',"RetryCount"=0,"LastError"=NULL,"ProcessedAtUtc"=NULL,"ClaimToken"=NULL,"ClaimExpiresAtUtc"=NULL,"NextAttemptAtUtc"=CURRENT_TIMESTAMP WHERE m."Id" IN ('+$ids+') AND m."Status"=''DISPATCHED'' AND NOT EXISTS (SELECT 1 FROM central.outbox_consumer_effects e WHERE e."MessageId"=m."Id") RETURNING m."Id"::text;'
+    $requeued=@((Query $Credential $update).Output -split "`r?`n"|Where-Object {$_})
+    if($requeued.Count -ne $records.Count){throw 'Disposable target outbox reconciliation did not requeue exactly the validated missing-effect records.'}
+    $notificationIds=@($records|Where-Object {IsNotificationEvent ([string]$_.eventType)}|ForEach-Object {[string]$_.id})
+    return [ordered]@{count=$records.Count;eventToAggregateMappingVerified=$true;records=@($records|ForEach-Object {@{id=$_.id;eventType=$_.eventType;aggregateType=$_.aggregateType;aggregateId=$_.aggregateId;persistedDomainAggregateExists=$true;notificationExpected=(IsNotificationEvent ([string]$_.eventType))}});requeuedIds=$requeued;notificationIds=$notificationIds}
 }
 function PendingOutboxIds($Credential) {
     $raw=(Query $Credential 'SELECT COALESCE(jsonb_agg("Id"::text ORDER BY "OccurredOnUtc","Id"),''[]''::jsonb)::text FROM central.outbox_messages WHERE "Status"=''PENDING'';').Output
@@ -249,11 +299,11 @@ function VerifyPersistedTrustSet($Credential,[string]$RootPublicKey,[string]$Exp
 }
 function SetRecoveryHostEnvironment($Credential,[string]$SignerRoot,[string]$ObjectRoot,[string]$PaymentRoot,[string]$MarkerPath,[string]$DataPath,[string]$BinaryPath) {
     $builder=[Data.Common.DbConnectionStringBuilder]::new()
-    $builder['Host']='127.0.0.1'; $builder['Port']=$script:port; $builder['Database']=$Credential.Database; $builder['Username']=$Credential.Role; $builder['Password']=$Credential.Password; $builder['Pooling']='false'; $builder['Timeout']='5'; $builder['Command Timeout']='10'
+    $builder['Host']='127.0.0.1'; $builder['Port']=$Credential.Port; $builder['Database']=$Credential.Database; $builder['Username']=$Credential.Role; $builder['Password']=$Credential.Password; $builder['Pooling']='false'; $builder['Timeout']='5'; $builder['Command Timeout']='10'
     $env:CENTRAL_DATABASE_CONNECTION_STRING=$builder.ConnectionString
     $env:CENTRAL_SIGNER_KEY_STORE_ROOT=$SignerRoot; $env:CENTRAL_OBJECT_STORAGE_ROOT=$ObjectRoot; $env:CENTRAL_PAYMENT_STORAGE_ROOT=$PaymentRoot
-    $env:CENTRAL_PG_PORT=[string]$script:port; $env:CENTRAL_PG_DATABASE=$Credential.Database; $env:CENTRAL_PG_ROLE=$Credential.Role; $env:CENTRAL_PG_MIGRATION_ROLE=$ownerRole
-    $env:CENTRAL_PG_PID=[string]$processId; $env:CENTRAL_PG_BINARY=$BinaryPath; $env:CENTRAL_PG_OWNERSHIP_MARKER=$MarkerPath; $env:CENTRAL_PG_DATA_DIR=$DataPath
+    $env:CENTRAL_PG_PORT=[string]$Credential.Port; $env:CENTRAL_PG_DATABASE=$Credential.Database; $env:CENTRAL_PG_ROLE=$Credential.Role; $env:CENTRAL_PG_MIGRATION_ROLE=$script:targetOwnerRole
+    $env:CENTRAL_PG_PID=[string]$script:targetProcessId; $env:CENTRAL_PG_BINARY=$BinaryPath; $env:CENTRAL_PG_OWNERSHIP_MARKER=$MarkerPath; $env:CENTRAL_PG_DATA_DIR=$DataPath
     $env:CENTRAL_OUTBOX_ENABLED='true'; $env:CENTRAL_OUTBOX_BATCH_SIZE='100'; $env:CENTRAL_OUTBOX_MAX_ATTEMPTS='5'; $env:CENTRAL_OUTBOX_POLL_MS='100'; $env:CENTRAL_OUTBOX_LEASE_SECONDS='30'; $env:CENTRAL_OUTBOX_RETRY_BASE_MS='100'; $env:CENTRAL_OUTBOX_RETRY_MAX_MS='1000'
     $env:CENTRAL_STORAGE_RECONCILIATION_ENABLED='false'; $env:CENTRAL_ACTIVATION_DELIVERY_CLEANUP_ENABLED='false'
     $env:ASPNETCORE_URLS='http://127.0.0.1:0'; $env:ASPNETCORE_ENVIRONMENT='CentralDisposableRecovery'
@@ -270,20 +320,35 @@ function StopRecoveryHost($Process) {
     if($Process -and -not $Process.HasExited){throw 'Disposable recovery host could not be stopped.'}
 }
 function WaitForReplay($Credential,[string]$SyntheticId,[string[]]$ExpectedPending,$Process) {
+    # Read the pending count and every required effect from one PostgreSQL
+    # statement snapshot. Per-message psql invocations can consume the bounded
+    # wait while a pending count captured before them has already become stale.
+    $requiredIds=@(@($SyntheticId)+@($ExpectedPending)|Sort-Object -Unique)
+    foreach($id in $requiredIds){$null=[Guid]::Parse($id)}
+    $ids=(@($requiredIds|ForEach-Object {(Literal $_)+'::uuid'}) -join ',')
+    $snapshotSql='SELECT jsonb_build_object(''pendingCount'',(SELECT count(*) FROM central.outbox_messages WHERE "Status"=''PENDING''),''messages'',(SELECT COALESCE(jsonb_agg(jsonb_build_object(''id'',m."Id"::text,''status'',m."Status",''eventType'',m."EventType",''retryCount'',m."RetryCount",''effectCount'',(SELECT count(*) FROM central.outbox_consumer_effects e WHERE e."MessageId"=m."Id"),''notificationCount'',(SELECT count(*) FROM central.admin_notifications n WHERE n."Id"=m."Id")) ORDER BY m."Id"),''[]''::jsonb) FROM central.outbox_messages m WHERE m."Id" IN ('+$ids+')))::text;'
     $deadline=[DateTimeOffset]::UtcNow.AddSeconds(60)
     do {
         if($Process.HasExited){throw 'Disposable recovery host exited before outbox replay finished.'}
-        $synthetic=OutboxMessageState $Credential $SyntheticId
-        $pending=PendingOutboxIds $Credential
+        $snapshot=(Query $Credential $snapshotSql).Output|ConvertFrom-Json
+        $states=@{}
+        foreach($state in $snapshot.messages){$states[[string]$state.id]=$state}
+        if(-not $states.ContainsKey($SyntheticId)){throw 'Recovery replay message disappeared from the disposable target.'}
+        $synthetic=$states[$SyntheticId]
         $expectedDone=$true
-        foreach($id in $ExpectedPending){$state=OutboxMessageState $Credential $id; if($state.status -ne 'DISPATCHED' -or [int]$state.effectCount -ne 1){$expectedDone=$false;break}}
-        if($synthetic.status -eq 'DISPATCHED' -and [int]$synthetic.effectCount -eq 1 -and $pending.Count -eq 0 -and $expectedDone){return $synthetic}
+        foreach($id in $ExpectedPending){if(-not $states.ContainsKey($id)){$expectedDone=$false;break}; $state=$states[$id]; $notificationValid=if(IsNotificationEvent ([string]$state.eventType)){[int]$state.notificationCount -eq 1}else{[int]$state.notificationCount -le 1}; if($state.status -ne 'DISPATCHED' -or [int]$state.effectCount -ne 1 -or -not $notificationValid){$expectedDone=$false;break}}
+        if($synthetic.status -eq 'DISPATCHED' -and [int]$synthetic.effectCount -eq 1 -and [long]$snapshot.pendingCount -eq 0 -and $expectedDone){
+            SaveJson (Join-Path $script:evidence ('outbox-replay-observation-'+[Guid]::NewGuid().ToString('N')+'.json')) $snapshot
+            return $synthetic
+        }
         Start-Sleep -Milliseconds 250
     } while([DateTimeOffset]::UtcNow -lt $deadline)
+    SaveJson (Join-Path $script:evidence ('outbox-replay-timeout-'+[Guid]::NewGuid().ToString('N')+'.json')) $snapshot
     throw 'Disposable hosted outbox replay did not reach the expected durable effect state within 60 seconds.'
 }
 function ExerciseOutboxReplay($Credential,[string]$AssemblyPath,[string]$SignerRoot,[string]$ObjectRoot,[string]$PaymentRoot,[string]$MarkerPath,[string]$DataPath,[string]$BinaryPath) {
     $beforeDeadLetters=DeadLetterSnapshot $Credential
+    $reconciliation=RequeueDispatchedWithoutEffect $Credential
     $originalPending=@(PendingOutboxIds $Credential)
     $syntheticId=[Guid]::NewGuid().ToString('D')
     $payload='{"synthetic":true}'
@@ -299,7 +364,8 @@ function ExerciseOutboxReplay($Credential,[string]$AssemblyPath,[string]$SignerR
     finally { StopRecoveryHost $second }
     if([int]$secondResult.effectCount -ne 1 -or [int]$secondResult.notificationCount -ne 0){throw 'Repeated hosted replay produced a duplicate or unexpected synthetic business effect.'}
     if((DeadLetterSnapshot $Credential) -ne $beforeDeadLetters){throw 'Hosted replay changed a preserved dead-letter record.'}
-    return [ordered]@{hostedWorkerRestartedTwice=$true;syntheticReplayMessageId=$syntheticId;firstPassEffectCount=[int]$firstResult.effectCount;secondPassEffectCount=[int]$secondResult.effectCount;duplicateEffects=0;initialPendingMessageCount=$originalPending.Count;initialPendingResolved=$true;deadLetterSnapshotSha256=$beforeDeadLetters;deadLettersUnchanged=$true;externalDelivery='NOT_CONFIGURED_OR_INVOKED';proof='Actual CentralOutboxHostedService with DurableOutboxConsumerSink on disposable restored PostgreSQL; second pass requeues the same synthetic receipt and proves consumer idempotence.'}
+    foreach($notificationId in $reconciliation.notificationIds){if([int](OutboxMessageState $Credential $notificationId).notificationCount -ne 1){throw 'Reconciled event did not produce its expected persisted in-app notification.'}}
+    return [ordered]@{hostedWorkerRestartedTwice=$true;syntheticReplayMessageId=$syntheticId;firstPassEffectCount=[int]$firstResult.effectCount;secondPassEffectCount=[int]$secondResult.effectCount;duplicateEffects=0;initialPendingMessageCount=$originalPending.Count;initialPendingResolved=$true;dispatchedWithoutEffectReconciliation=$reconciliation;deadLetterSnapshotSha256=$beforeDeadLetters;deadLettersUnchanged=$true;externalDelivery='NOT_CONFIGURED_OR_INVOKED';proof='Actual CentralOutboxHostedService with DurableOutboxConsumerSink on disposable restored PostgreSQL; previously dispatched messages without consumer effects were requeued only after verifying their persisted domain aggregates, then replayed; required in-app notifications were checked; second pass requeues the same synthetic receipt and proves consumer idempotence.'}
 }
 function Outbox($Credential) {
     return (Query $Credential @'
@@ -314,6 +380,7 @@ function CaptureFiles($Credential,[string]$Bundle) {
     $roots=@()
     foreach($spec in @(@{kind='objects';name='CENTRAL_OBJECT_STORAGE_ROOTS'},@{kind='payments';name='CENTRAL_PAYMENT_STORAGE_ROOTS'})) {
         $raw=[Environment]::GetEnvironmentVariable($spec.name)
+        if(-not $raw -and $spec.kind -eq 'objects'){$raw=[Environment]::GetEnvironmentVariable('CENTRAL_OBJECT_STORAGE_ROOT')}
         if(-not $raw -and $spec.kind -eq 'payments'){$raw=[Environment]::GetEnvironmentVariable('CENTRAL_PAYMENT_STORAGE_ROOT')}
         if($raw){foreach($root in ($raw -split ';')){$full=Owned $root.Trim(); if(-not (Test-Path -LiteralPath $full -PathType Container)){throw 'Explicit source storage root is absent.'}; $roots+=@{kind=$spec.kind;root=$full}}}
     }
@@ -393,19 +460,31 @@ SELECT COALESCE(jsonb_agg(x ORDER BY x->>'table',x->>'id'),'[]'::jsonb)::text FR
     return $references
 }
 function AssertIdleSource($Credential) {
-    $others=[long](Query $Credential 'SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid();').Output
-    if($others -ne 0){throw 'Other clients remain connected to the source database; the coordinator must quiesce only its owned writers before capture.'}
+    $others=(Query $Credential @'
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+ 'pid',pid,'role',usename,'application',application_name,'clientAddress',host(client_addr),
+ 'backendType',backend_type,'state',state,'backendStart',backend_start,'stateChange',state_change
+) ORDER BY pid),'[]'::jsonb)::text
+FROM pg_stat_activity
+WHERE datname=current_database() AND pid<>pg_backend_pid();
+'@).Output|ConvertFrom-Json
+    if(@($others).Count -ne 0){throw ('Other clients remain connected to the source database; capture is refused. Sanitized session identities: '+(JsonText @($others)))}
 }
 function GetAllowedPostgresProcessIds([int]$PostgresPid,[string]$Binary,[string]$DataDirectory,[int]$Port) {
-    $postgres=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$PostgresPid" -ErrorAction Stop
-    $postgresCommand=([string]$postgres.CommandLine).Replace('/','\')
-    if(-not $postgres -or [string]$postgres.ExecutablePath -ne $Binary -or $postgresCommand -notmatch [regex]::Escape($DataDirectory) -or $postgresCommand -notmatch "(?i)(?:^|\s)-p\s+$Port(?:\s|$)"){throw 'The attested PostgreSQL process no longer matches its binary, data directory and port.'}
-    $ids=@($PostgresPid)
-    $parent=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$([int]$postgres.ParentProcessId)" -ErrorAction SilentlyContinue
-    if($parent) {
-        $parentCommand=([string]$parent.CommandLine).Replace('/','\')
-        if($parent.Name -ne 'cmd.exe' -or $parentCommand.IndexOf($Binary,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand.IndexOf($DataDirectory,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand -notmatch "(?i)(?:^|\s)-p\s+$Port(?:\s|$)"){throw 'PostgreSQL launcher is not an attested non-writer parent process.'}
-        $ids+=@([int]$parent.ProcessId)
+    $instances=@(@{Pid=$PostgresPid;Binary=$Binary;DataDirectory=$DataDirectory;Port=$Port})
+    if($script:targetProcessId){$instances+=@(@{Pid=$script:targetProcessId;Binary=$script:targetBinary;DataDirectory=$script:targetData;Port=$script:targetPort})}
+    $ids=@()
+    foreach($instance in $instances){
+        $postgres=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($instance.Pid)" -ErrorAction Stop
+        $postgresCommand=([string]$postgres.CommandLine).Replace('/','\')
+        if(-not $postgres -or [string]$postgres.ExecutablePath -ne $instance.Binary -or $postgresCommand -notmatch [regex]::Escape($instance.DataDirectory) -or $postgresCommand -notmatch "(?i)(?:^|\s)-p\s+$($instance.Port)(?:\s|$)"){throw 'An attested PostgreSQL process no longer matches its binary, data directory and port.'}
+        $ids+=@([int]$instance.Pid)
+        $parent=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$([int]$postgres.ParentProcessId)" -ErrorAction SilentlyContinue
+        if($parent) {
+            $parentCommand=([string]$parent.CommandLine).Replace('/','\')
+            if($parent.Name -ne 'cmd.exe' -or $parentCommand.IndexOf($instance.Binary,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand.IndexOf($instance.DataDirectory,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand -notmatch "(?i)(?:^|\s)-p\s+$($instance.Port)(?:\s|$)"){throw 'PostgreSQL launcher is not an attested non-writer parent process.'}
+            $ids+=@([int]$parent.ProcessId)
+        }
     }
     return @($ids)
 }
@@ -438,6 +517,7 @@ function ValidateQuiescenceProof([string]$Path,[string]$Database,[int]$Port,[int
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
     $coordinatorPid=$PID
     if($proof.sourceDatabase -ne $Database -or [int]$proof.port -ne $Port -or [int]$proof.postgresPid -ne $PostgresPid -or $proof.fileWritersQuiesced -ne $true -or $proof.databaseWritersQuiesced -ne $true -or [string]$proof.coordinator -ne $identity -or [int]$proof.coordinatorPid -ne $coordinatorPid -or @($proof.activeOwnedWriterProcessIds).Count -ne 0 -or $age.TotalSeconds -lt 0 -or $age.TotalSeconds -gt 120){throw 'Quiescence proof is stale or does not bind this coordinator and the attested idle source.'}
+    if(-not $proof.targetPostgres -or [int]$proof.targetPostgres.processId -ne $script:targetProcessId -or [int]$proof.targetPostgres.port -ne $script:targetPort -or [string]$proof.targetPostgres.binary -ne $script:targetBinary -or (CanonicalPath ([string]$proof.targetPostgres.dataDirectory)) -ne $script:targetData){throw 'Quiescence proof does not bind the independently attested target PostgreSQL instance.'}
     $refs=@($proof.observationEvidence)
     if($refs.Count -eq 0){throw 'Quiescence proof must reference native process-inventory evidence.'}
     $processRef=@($refs|Where-Object { $_.kind -eq 'windows-process-inventory' })
@@ -446,7 +526,7 @@ function ValidateQuiescenceProof([string]$Path,[string]$Database,[int]$Port,[int
     if((Sha $observationPath) -ne ([string]$processRef[0].sha256).ToLowerInvariant()){throw 'Quiescence process evidence hash does not match its raw observation.'}
     $inventory=Get-Content -LiteralPath $observationPath -Raw|ConvertFrom-Json -DateKind String
     try{$inventoryAt=[DateTimeOffset]::ParseExact([string]$inventory.capturedAtUtc,'O',[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::None)}catch{throw 'Raw process inventory timestamp is invalid.'}
-    if([Math]::Abs(($now-$inventoryAt).TotalSeconds) -gt 120 -or $inventory.coordinator -ne $identity -or [int]$inventory.coordinatorPid -ne $coordinatorPid -or [int]$inventory.postgresPid -ne $PostgresPid -or @($inventory.processes).Count -eq 0){throw 'Raw process inventory is stale or bound to a different coordinator/source.'}
+    if([Math]::Abs(($now-$inventoryAt).TotalSeconds) -gt 120 -or $inventory.coordinator -ne $identity -or [int]$inventory.coordinatorPid -ne $coordinatorPid -or [int]$inventory.postgresPid -ne $PostgresPid -or [int]$inventory.targetPostgres.processId -ne $script:targetProcessId -or [int]$inventory.targetPostgres.port -ne $script:targetPort -or [string]$inventory.targetPostgres.binary -ne $script:targetBinary -or (CanonicalPath ([string]$inventory.targetPostgres.dataDirectory)) -ne $script:targetData -or @($inventory.processes).Count -eq 0){throw 'Raw process inventory is stale or bound to a different coordinator/source/target.'}
     $allowedInfrastructure=@(GetAllowedPostgresProcessIds $PostgresPid $Binary $DataDirectory $Port)
     if([int]$proof.postgresLauncherPid -ne $(if($allowedInfrastructure.Count -gt 1){$allowedInfrastructure[1]}else{0})){throw 'Quiescence proof launcher identity does not match the attested PostgreSQL process tree.'}
     $observedWriters=@($inventory.processes|Where-Object { [int]$_.processId -notin (@([int]$proof.coordinatorPid)+$allowedInfrastructure) -and ($_.matchedOwnedRoot -eq $true -or $_.matchedCentralMarker -eq $true) })
@@ -454,6 +534,7 @@ function ValidateQuiescenceProof([string]$Path,[string]$Database,[int]$Port,[int
     $currentWriters=@(GetOwnedWriterProcesses $coordinatorPid $PostgresPid $Binary $DataDirectory $Port)
     if($currentWriters.Count -ne 0){throw 'A Central process referencing an explicitly owned root is currently active.'}
     $script:processObservations.Add([ordered]@{kind='windows-process-inventory';path=$observationPath;sha256=(Sha $observationPath);capturedAtUtc=$inventoryAt.ToUniversalTime().ToString('O');coordinator=$identity;coordinatorPid=$coordinatorPid;rawProcessCount=@($inventory.processes).Count;currentOwnedWriterCount=$currentWriters.Count})
+    $script:processObservations.Add([ordered]@{kind='independent-target-postgres';processId=$script:targetProcessId;port=$script:targetPort;binary=$script:targetBinary;dataDirectory=$script:targetData;markerPath=$script:targetMarkerPath;markerSha256=(Sha $script:targetMarkerPath);targetAdminIdentity=$script:targetAdminIdentity})
     return $proof
 }
 
@@ -467,9 +548,11 @@ try {
         if(@($script:ownedRoots|Where-Object { $_ -ne $root -and (Contained $root $_ -or Contained $_ $root) }).Count){throw 'Explicit recovery roots must be disjoint; broad ancestor roots are forbidden.'}
     }
     $script:port=[int](Required 'CENTRAL_PG_PORT')
+    $script:targetPort=[int](Required 'CENTRAL_RECOVERY_TARGET_PG_PORT')
     $sourceDatabase=Required 'CENTRAL_PG_DATABASE'; $runtimeRole=Required 'CENTRAL_PG_ROLE'; $ownerRole=Required 'CENTRAL_PG_MIGRATION_ROLE'; $adminRole=Required 'CENTRAL_PG_DATABASE_ADMIN_ROLE'
-    foreach($name in @($sourceDatabase,$runtimeRole,$ownerRole,$adminRole)){if($name -notmatch '\A[a-z_][a-z0-9_]{0,62}\z'){throw 'Invalid PostgreSQL identity.'}}
-    if($sourceDatabase -notmatch '\Acentral[a-z0-9_]+\z' -or $TargetDatabase -eq $sourceDatabase -or $TargetDatabase -match 'edgeretails|shop|pos|postgres|template' -or $script:port -in @(5432,7150) -or $script:port -lt 1024 -or $script:port -gt 65535){throw 'Recovery requires a separate disposable Central database on the reserved nonstandard port.'}
+    $script:targetOwnerRole=Required 'CENTRAL_RECOVERY_TARGET_MIGRATION_ROLE'; $targetRuntimeRole=Required 'CENTRAL_RECOVERY_TARGET_RUNTIME_ROLE'; $targetAdminRole=Required 'CENTRAL_RECOVERY_TARGET_DATABASE_ADMIN_ROLE'
+    foreach($name in @($sourceDatabase,$runtimeRole,$ownerRole,$adminRole,$script:targetOwnerRole,$targetRuntimeRole,$targetAdminRole)){if($name -notmatch '\A[a-z_][a-z0-9_]{0,62}\z'){throw 'Invalid PostgreSQL identity.'}}
+    if($sourceDatabase -notmatch '\Acentral[a-z0-9_]+\z' -or $TargetDatabase -eq $sourceDatabase -or $TargetDatabase -match 'edgeretails|shop|pos|postgres|template' -or $script:port -in @(5432,7150) -or $script:port -lt 1024 -or $script:port -gt 65535 -or $script:targetPort -in @(5432,7150) -or $script:targetPort -lt 1024 -or $script:targetPort -gt 65535 -or $script:targetPort -eq $script:port){throw 'Recovery requires independently attested source and target PostgreSQL 18 instances on distinct reserved nonstandard loopback ports.'}
     $binary=CanonicalPath (Required 'CENTRAL_PG_BINARY'); $data=Owned (Required 'CENTRAL_PG_DATA_DIR'); $markerPath=Owned (Required 'CENTRAL_PG_OWNERSHIP_MARKER'); $marker=Get-Content -LiteralPath $markerPath -Raw|ConvertFrom-Json
     $processId=[int](Required 'CENTRAL_PG_PID'); $process=Get-Process -Id $processId -ErrorAction Stop; $nativeProcess=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop; $postmaster=Get-Content -LiteralPath (Join-Path $data 'postmaster.pid')
     $nativeCommand=([string]$nativeProcess.CommandLine).Replace('/','\'); $dataArg='(?i)(?:^|\s)-D\s+"?'+[regex]::Escape($data)+'"?(?:\s|$)'; $portArg="(?i)(?:^|\s)-p\s+$script:port(?:\s|$)"
@@ -477,14 +560,24 @@ try {
     if(-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)){throw 'Listener ownership attestation is unavailable.'}
     $listeners=@(Get-NetTCPConnection -LocalPort $script:port -State Listen -ErrorAction Stop)
     if($listeners.Count -eq 0 -or @($listeners|Where-Object {$_.OwningProcess -ne $processId -or $_.LocalAddress -notin @('127.0.0.1','::1')}).Count -gt 0){throw 'The reserved listener is not owned exclusively by the attested loopback PostgreSQL process.'}
+    $script:targetBinary=CanonicalPath (Required 'CENTRAL_RECOVERY_TARGET_PG_BINARY'); $script:targetData=Owned (Required 'CENTRAL_RECOVERY_TARGET_PG_DATA_DIR'); $script:targetMarkerPath=Owned (Required 'CENTRAL_RECOVERY_TARGET_PG_OWNERSHIP_MARKER'); $targetMarker=Get-Content -LiteralPath $script:targetMarkerPath -Raw|ConvertFrom-Json
+    $script:targetProcessId=[int](Required 'CENTRAL_RECOVERY_TARGET_PG_PID'); $targetProcess=Get-Process -Id $script:targetProcessId -ErrorAction Stop; $targetNative=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($script:targetProcessId)" -ErrorAction Stop; $targetPostmaster=Get-Content -LiteralPath (Join-Path $script:targetData 'postmaster.pid')
+    $targetCommand=([string]$targetNative.CommandLine).Replace('/','\'); $targetDataArg='(?i)(?:^|\s)-D\s+"?'+[regex]::Escape($script:targetData)+'"?(?:\s|$)'; $targetPortArg="(?i)(?:^|\s)-p\s+$script:targetPort(?:\s|$)"
+    if($script:targetProcessId -eq $processId -or $script:targetData -eq $data -or $targetProcess.HasExited -or $targetProcess.Path -ne $script:targetBinary -or [string]$targetNative.ExecutablePath -ne $script:targetBinary -or $script:targetBinary -ne $binary -or $targetCommand -notmatch $targetDataArg -or $targetCommand -notmatch $targetPortArg -or [Diagnostics.FileVersionInfo]::GetVersionInfo($script:targetBinary).FileMajorPart -ne 18 -or [int]$targetMarker.pid -ne $script:targetProcessId -or [int]$targetMarker.port -ne $script:targetPort -or $targetMarker.runtimeRole -ne $targetRuntimeRole -or $targetMarker.migrationRole -ne $script:targetOwnerRole -or $targetMarker.sourceDatabase -ne $sourceDatabase -or $targetMarker.bindAddress -ne '127.0.0.1' -or [string]$targetMarker.purpose -notmatch '(?i)separate.*target' -or (CanonicalPath $targetMarker.dataDirectory) -ne $script:targetData -or $targetPostmaster.Count -lt 4 -or [int]$targetPostmaster[0] -ne $script:targetProcessId -or (CanonicalPath $targetPostmaster[1]) -ne $script:targetData -or [int]$targetPostmaster[3] -ne $script:targetPort){throw 'Target PostgreSQL process, binary, command-line data directory/port, version, marker and postmaster identity disagree or share the source instance.'}
+    $targetListeners=@(Get-NetTCPConnection -LocalPort $script:targetPort -State Listen -ErrorAction Stop)
+    if($targetListeners.Count -eq 0 -or @($targetListeners|Where-Object {$_.OwningProcess -ne $script:targetProcessId -or $_.LocalAddress -notin @('127.0.0.1','::1')}).Count -gt 0){throw 'The target listener is not owned exclusively by its attested loopback PostgreSQL process.'}
     $script:pgBin=Split-Path -Parent $binary
     foreach($tool in @('pg_dump.exe','pg_restore.exe','createdb.exe','psql.exe')){if(-not (Test-Path -LiteralPath (Join-Path $script:pgBin $tool) -PathType Leaf)){throw "Required PostgreSQL recovery tool missing: $tool"}}
     $owner=Credential 'CENTRAL_MIGRATION_CONNECTION_STRING' $sourceDatabase $ownerRole; $runtime=Credential 'CENTRAL_DATABASE_CONNECTION_STRING' $sourceDatabase $runtimeRole
     $admin=Credential 'CENTRAL_PG_DATABASE_ADMIN_CONNECTION_STRING' 'postgres' $adminRole
+    $targetAdmin=Credential 'CENTRAL_RECOVERY_TARGET_DATABASE_ADMIN_CONNECTION_STRING' 'postgres' $targetAdminRole $script:targetPort
+    $targetOwner=Credential 'CENTRAL_RECOVERY_TARGET_MIGRATION_CONNECTION_STRING' $TargetDatabase $script:targetOwnerRole $script:targetPort
+    $targetRuntime=Credential 'CENTRAL_RECOVERY_TARGET_RUNTIME_CONNECTION_STRING' $TargetDatabase $targetRuntimeRole $script:targetPort
     foreach($name in @('PGOPTIONS','PGSERVICE','PGHOSTADDR','PGPASSFILE')){Remove-Item -LiteralPath ('Env:'+ $name) -ErrorAction SilentlyContinue}
     $env:PGHOST='127.0.0.1'; $env:PGPORT=[string]$script:port; $env:PGSSLMODE='disable'; $env:PGCLIENTENCODING='UTF8'
     $script:evidence=Owned $EvidenceRoot; if(Test-Path -LiteralPath $script:evidence){throw 'Evidence root must be absent; preserve previous attempts.'}; $null=New-Item -ItemType Directory -Path $script:evidence
-    $null=CanonicalPath $script:evidence; $null=Identity $admin -Admin
+    $null=CanonicalPath $script:evidence; $null=Identity $admin -Admin; $script:targetAdminIdentity=Identity $targetAdmin -Admin
+    if([int](Query $targetAdmin ("SELECT count(*) FROM pg_database WHERE datname="+(Literal $TargetDatabase)+';')).Output -ne 0){throw 'The independently attested target database name already exists; choose a new disposable target identity.'}
     $signerAssembly=Owned (Required 'CENTRAL_RECOVERY_PROTECTED_SIGNER_ASSEMBLY')
     $apiAssembly=Owned (Required 'CENTRAL_RECOVERY_API_ASSEMBLY')
     foreach($assemblyPath in @($signerAssembly,$apiAssembly)){if(-not (Test-Path -LiteralPath $assemblyPath -PathType Leaf) -or [IO.Path]::GetExtension($assemblyPath) -ne '.dll'){throw 'Recovery requires existing owned Central .NET assemblies for protected-key and hosted-worker proof.'}}
@@ -537,17 +630,15 @@ try {
         if(-not (Contained $bundle $path) -or -not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne [long]$entry.bytes -or (Sha $path) -ne $entry.sha256){throw 'Backup archive/blob integrity failed before target creation.'}
     }
     if(@($manifest.files|Where-Object path -EQ 'central.dump').Count -ne 1){throw 'Backup manifest does not bind exactly one PostgreSQL archive.'}
-    $archive=CanonicalPath (Join-Path $bundle 'central.dump'); $null=Native 'pg_restore.exe' @('--list',$archive) $admin
-    # The recovery administrator is intentionally CREATEDB-only and is not a
-    # member of the migration role. Create the database as that administrator;
-    # pg_restore assigns every schema object to the migration role below.
-    $null=Native 'createdb.exe' @('--template','template0',$TargetDatabase) $admin
-    $null=Query $admin ('GRANT CONNECT, CREATE, TEMP ON DATABASE '+(Identifier $TargetDatabase)+' TO '+(Identifier $ownerRole)+';')
-    $targetOwner=@{Database=$TargetDatabase;Role=$ownerRole;Password=$owner.Password}; $targetRuntime=@{Database=$TargetDatabase;Role=$runtimeRole;Password=$runtime.Password}
+    $archive=CanonicalPath (Join-Path $bundle 'central.dump'); $null=Native 'pg_restore.exe' @('--list',$archive) $targetAdmin
+    # The independently attested target administrator alone creates the
+    # disposable database. Restored objects are owned by its migration role.
+    $null=Native 'createdb.exe' @('--template','template0',$TargetDatabase) $targetAdmin
+    $null=Query $targetAdmin ('GRANT CONNECT, CREATE, TEMP ON DATABASE '+(Identifier $TargetDatabase)+' TO '+(Identifier $script:targetOwnerRole)+';')
     # ACLs are deliberately retained; restored migration history must not conceal missing grants.
-    $null=Native 'pg_restore.exe' @('--exit-on-error','--single-transaction','--no-owner','--role',$ownerRole,'--dbname',$TargetDatabase,$archive) $targetOwner
+    $null=Native 'pg_restore.exe' @('--exit-on-error','--single-transaction','--no-owner','--role',$script:targetOwnerRole,'--dbname',$TargetDatabase,$archive) $targetOwner
     $targetIdentity=Identity $targetOwner -MigrationOwner; $null=Identity $targetRuntime
-    SaveJson (Join-Path $script:evidence 'RESTORED_TARGET_MARKER.json') @{pid=$processId;database=$TargetDatabase;port=$script:port;binary=$binary;dataDirectory=$data;runtimeRole=$runtimeRole;migrationRole=$ownerRole;bindAddress='127.0.0.1';purpose='owned-disposable-Central-restored-target';sourceMarkerSha256=(Sha $markerPath)}
+    SaveJson (Join-Path $script:evidence 'RESTORED_TARGET_MARKER.json') @{pid=$script:targetProcessId;database=$TargetDatabase;port=$script:targetPort;binary=$script:targetBinary;dataDirectory=$script:targetData;runtimeRole=$targetRuntimeRole;migrationRole=$script:targetOwnerRole;bindAddress='127.0.0.1';purpose='owned-disposable-Central-restored-target';sourceMarkerSha256=(Sha $markerPath);targetMarkerSha256=(Sha $script:targetMarkerPath)}
     $restored=@(TableHashes $targetOwner); $restoredCatalog=Catalog $targetOwner; $restoredOutbox=Outbox $targetOwner
     SaveJson (Join-Path $script:evidence 'restored-content-comparison.json') @{
         expectedTables=@($manifest.tables);actualTables=$restored
@@ -565,8 +656,27 @@ try {
         if(-not (Contained $root $dest)){throw 'Restored metadata path escapes its storage root.'}
         if($ref.present) {
             $source=Owned ([IO.Path]::GetFullPath($ref.bundlePath,$bundle)); if(-not (Contained $bundle $source) -or (Sha $source) -ne $ref.capturedSha256){throw 'Backup file reference is missing or altered.'}
-            $null=New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force; $null=CanonicalPath $dest; Copy-Item -LiteralPath $source -Destination $dest
-            if((Sha $dest) -ne $ref.capturedSha256 -or (Get-Item -LiteralPath $dest).Length -ne [long]$ref.bytes){throw 'Restored file integrity differs from its backup.'}
+            $null=New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force
+            $null=CanonicalPath $dest
+            if(Test-Path -LiteralPath $dest) {
+                if((Sha $dest) -ne $ref.capturedSha256 -or (Get-Item -LiteralPath $dest).Length -ne [long]$ref.bytes){throw 'Existing deduplicated restored file differs from the referenced backup content.'}
+            } else {
+                $temporary=Owned ($dest+'.recovery-'+[Guid]::NewGuid().ToString('N')+'.partial')
+                if(-not (Contained $root $temporary)){throw 'Temporary restored file escapes its storage root.'}
+                try {
+                    $inputStream=[IO.File]::Open($source,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+                    try {
+                        $outputStream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+                        try { $inputStream.CopyTo($outputStream); $outputStream.Flush($true) } finally { $outputStream.Dispose() }
+                    } finally { $inputStream.Dispose() }
+                    if((Sha $temporary) -ne $ref.capturedSha256 -or (Get-Item -LiteralPath $temporary).Length -ne [long]$ref.bytes){throw 'Staged restored file integrity differs from its backup.'}
+                    [IO.File]::Move($temporary,$dest)
+                    $null=CanonicalPath $dest
+                    if((Sha $dest) -ne $ref.capturedSha256 -or (Get-Item -LiteralPath $dest).Length -ne [long]$ref.bytes){throw 'Restored file integrity differs from its backup.'}
+                } finally {
+                    if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}
+                }
+            }
         }
         $newPath=$ref.targetPath.Replace('\','/'); $sql='UPDATE central.'+(Identifier $ref.table)+' SET "StoragePath"='+(Literal $newPath)+' WHERE "Id"='+(Literal $ref.id)+'::uuid AND "StoragePath"='+(Literal $ref.path)+' RETURNING "Id"::text;'
         if((Query $targetOwner $sql).Output -ne $ref.id){throw 'Storage rebase did not update exactly the expected original row.'}
@@ -602,10 +712,10 @@ try {
         $denial=Query $targetRuntime ('BEGIN; '+$sql+' ROLLBACK;') -AllowFailure
         if($denial.ExitCode -eq 0 -or $denial.Error -notmatch '42501'){throw 'Restored runtime audit operation was not denied by PostgreSQL privileges.'}
     }
-    $outboxReplayProof=ExerciseOutboxReplay $targetRuntime $apiAssembly $targetSignerRoot $objectRoot $paymentRoot (Join-Path $script:evidence 'RESTORED_TARGET_MARKER.json') $data $binary
+    $outboxReplayProof=ExerciseOutboxReplay $targetRuntime $apiAssembly $targetSignerRoot $objectRoot $paymentRoot (Join-Path $script:evidence 'RESTORED_TARGET_MARKER.json') $script:targetData $script:targetBinary
     $invariants=(Outbox $targetRuntime)|ConvertFrom-Json
     $eligible=$invariants.pending -eq 0 -and $invariants.dispatchedWithoutEffect -eq 0 -and $invariants.effectWithoutMessage -eq 0 -and $invariants.effectPayloadMismatch -eq 0 -and $invariants.invalidTimestamps -eq 0
-    $result=[ordered]@{format='CENTRAL_DISPOSABLE_RECOVERY_V3';result=if($eligible){'PASS'}else{'RESTORE_VERIFIED_WITH_INVARIANT_FAILURES'};recoveryAcceptanceEligible=$eligible;sourceDatabase=$sourceDatabase;restoredDatabase=$TargetDatabase;targetIdentity=$targetIdentity;port=$script:port;backupBundle=$bundle;backupBundleManifestSha256=(Sha $bundleManifestPath);backupSha256=(Sha $archive);centralTables=$restored;catalogSha256=(TextHash $restoredCatalog);runtimePrivilegesPreserved=$true;runtimeTransactionalWriteRollback=$true;auditMutationDenied=$true;protectedSigner=[ordered]@{recovered=$true;sourceRootPublicKeySha256=$manifest.protectedSigner.rootPublicKeySha256;targetRootPublicKeySha256=$signerRecoveryProof.rootPublicKeySha256;targetStoreRoot=$targetSignerRoot;reopened=$signerRecoveryProof.rootKeyReopened;syntheticRs256SignatureVerified=$signerRecoveryProof.syntheticSignatureVerified;dpapiPlaintextIntegrityVerified=$true;currentUserSid=$manifest.protectedSigner.currentUserSid};trustSetRecovery=$trustRecoveryProof;outbox=$invariants;outboxWorkerReplay=$outboxReplayProof;restoredObjectStorageRoot=$objectRoot;restoredPaymentStorageRoot=$paymentRoot;storageReferences=$readbacks;completedAtUtc=[DateTimeOffset]::UtcNow.ToString('O');scope='Owned Central schema/data/ACL/files restored; protected development signer DPAPI ciphertext reprotected under this Windows user and target root, reopened and used to sign; restored trust-set signature and revocation descriptors verified; actual hosted durable outbox worker restarted twice on the disposable target. External delivery, production keys/providers, upgrades and production cutover remain outside this rehearsal.'}
+    $result=[ordered]@{format='CENTRAL_DISPOSABLE_RECOVERY_V3';result=if($eligible){'PASS'}else{'RESTORE_VERIFIED_WITH_INVARIANT_FAILURES'};recoveryAcceptanceEligible=$eligible;sourceDatabase=$sourceDatabase;sourcePort=$script:port;sourcePostgresPid=$processId;sourceDataDirectory=$data;restoredDatabase=$TargetDatabase;targetIdentity=$targetIdentity;targetPort=$script:targetPort;targetPostgresPid=$script:targetProcessId;targetDataDirectory=$script:targetData;targetMarkerSha256=(Sha $script:targetMarkerPath);backupBundle=$bundle;backupBundleManifestSha256=(Sha $bundleManifestPath);backupSha256=(Sha $archive);centralTables=$restored;catalogSha256=(TextHash $restoredCatalog);runtimePrivilegesPreserved=$true;runtimeTransactionalWriteRollback=$true;auditMutationDenied=$true;protectedSigner=[ordered]@{recovered=$true;sourceRootPublicKeySha256=$manifest.protectedSigner.rootPublicKeySha256;targetRootPublicKeySha256=$signerRecoveryProof.rootPublicKeySha256;targetStoreRoot=$targetSignerRoot;reopened=$signerRecoveryProof.rootKeyReopened;syntheticRs256SignatureVerified=$signerRecoveryProof.syntheticSignatureVerified;dpapiPlaintextIntegrityVerified=$true;currentUserSid=$manifest.protectedSigner.currentUserSid};trustSetRecovery=$trustRecoveryProof;outbox=$invariants;outboxWorkerReplay=$outboxReplayProof;restoredObjectStorageRoot=$objectRoot;restoredPaymentStorageRoot=$paymentRoot;storageReferences=$readbacks;completedAtUtc=[DateTimeOffset]::UtcNow.ToString('O');scope='Central schema/data/ACL/files captured from one attested PostgreSQL 18 instance and restored to a distinct attested PostgreSQL 18 instance; protected development signer DPAPI ciphertext reprotected under this Windows user and target root, reopened and used to sign; restored trust-set signature and revocation descriptors verified; actual hosted durable outbox worker restarted twice on the separate target. External delivery, production keys/providers, upgrades and production cutover remain outside this rehearsal.'}
     SaveJson (Join-Path $script:evidence 'recovery-manifest.json') $result; $result|ConvertTo-Json -Depth 10
     if(-not $eligible){throw 'Restore completed but outbox invariants fail; recovery acceptance is withheld.'}
 } catch {

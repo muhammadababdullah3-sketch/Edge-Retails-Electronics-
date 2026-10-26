@@ -66,7 +66,9 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         var isBinary = string.Equals(request.Content?.Headers.ContentType?.MediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase);
         var bodyDigest = isBinary
             ? Convert.ToHexStringLower(SHA256.HashData(bodyBytes))
-            : _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(Encoding.UTF8.GetString(bodyBytes)));
+            : bodyBytes.Length == 0
+                ? _serializer.ComputeSha256Hex(string.Empty)
+                : _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(Encoding.UTF8.GetString(bodyBytes)));
         var proofPayload = new Dictionary<string, object?>
         {
             ["profile"] = isBinary ? "CENTRAL_INSTALLATION_BINARY_REQUEST_V1" : "CENTRAL_INSTALLATION_REQUEST_V1",
@@ -501,8 +503,9 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         var shopId = Guid.NewGuid();
 
         var shop = Shop.Create(Guid.NewGuid(), $"SH_{Guid.NewGuid():N}"[..10], "Support Shop", DateTimeOffset.UtcNow);
+        var otherShop = Shop.Create(Guid.NewGuid(), $"SH_{Guid.NewGuid():N}"[..10], "Other Support Shop", DateTimeOffset.UtcNow);
         typeof(Shop).GetProperty("Id")!.SetValue(shop, shopId);
-        database.Shops.Add(shop);
+        database.Shops.AddRange(shop, otherShop);
         await database.SaveChangesAsync();
 
         var attachmentId = Guid.NewGuid();
@@ -513,7 +516,41 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         database.EncryptedObjects.Add(EncryptedObjectRecord.Create(attachmentId, shopId, Guid.NewGuid(),
             EncryptedObjectRecord.PurposeSupportAttachment, attachmentBytes.Length, "application/octet-stream", attachmentHash,
             attachmentPath, Guid.NewGuid(), null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(30)));
+        var foreignAttachmentId = Guid.NewGuid();
+        var foreignAttachmentBytes = Encoding.UTF8.GetBytes("SYNTHETIC_FOREIGN_SHOP_SUPPORT_ATTACHMENT");
+        var foreignAttachmentPath = await storage.SaveCiphertextAsync(otherShop.Id, foreignAttachmentId, new MemoryStream(foreignAttachmentBytes));
+        database.EncryptedObjects.Add(EncryptedObjectRecord.Create(foreignAttachmentId, otherShop.Id, Guid.NewGuid(),
+            EncryptedObjectRecord.PurposeSupportAttachment, foreignAttachmentBytes.Length, "application/octet-stream",
+            Convert.ToHexStringLower(SHA256.HashData(foreignAttachmentBytes)), foreignAttachmentPath, Guid.NewGuid(), null,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(30)));
         await database.SaveChangesAsync();
+
+        var secretMarkers = new[]
+        {
+            "BEGIN RSA PRIVATE KEY",
+            "BEGIN PRIVATE KEY",
+            "password=forbidden-fixture-secret",
+            "token=forbidden-fixture-secret",
+            "secret=forbidden-fixture-secret"
+        };
+        foreach (var (secretMarker, index) in secretMarkers.Select((marker, index) => (marker, index)))
+        {
+            var unredactedSubject = $"Unredacted synthetic support diagnostic {index}";
+            using var unredactedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/support/v1/tickets");
+            unredactedRequest.Headers.Add("X-Client-Operation-Id", Guid.NewGuid().ToString("D"));
+            unredactedRequest.Content = JsonContent.Create(new TicketDto
+            {
+                ShopId = shopId,
+                Subject = unredactedSubject,
+                Summary = $"Synthetic support diagnostic: {secretMarker}",
+                AttachmentObjectIds = new List<Guid>(),
+                RedactionProfileVersion = 1
+            });
+            using var unredactedResponse = await adminClient.SendAsync(unredactedRequest);
+            Assert.Equal(HttpStatusCode.BadRequest, unredactedResponse.StatusCode);
+            Assert.Equal("SENSITIVE_SECRET_LEAKAGE", (await ReadJsonAsync(unredactedResponse))["code"]?.GetValue<string>());
+            Assert.False(await database.SupportTickets.AnyAsync(x => x.ShopId == shopId && x.Subject == unredactedSubject));
+        }
 
         // 1. Create Ticket
         var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/support/v1/tickets");
@@ -535,6 +572,36 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         var ticketIdStr = createJson["ticketId"]?.GetValue<string>();
         Assert.NotNull(ticketIdStr);
         var ticketId = Guid.Parse(ticketIdStr);
+
+        foreach (var (secretMarker, index) in secretMarkers.Select((marker, index) => (marker, index)))
+        {
+            using var unredactedReplyRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/support/v1/tickets/{ticketId:D}/actions");
+            unredactedReplyRequest.Headers.Add("X-Client-Operation-Id", Guid.NewGuid().ToString("D"));
+            unredactedReplyRequest.Content = JsonContent.Create(new TicketActionDto
+            {
+                TicketId = ticketId,
+                Action = "REPLY",
+                ReplyText = $"Synthetic support reply {index}: {secretMarker}"
+            });
+            using var unredactedReplyResponse = await adminClient.SendAsync(unredactedReplyRequest);
+            Assert.Equal(HttpStatusCode.BadRequest, unredactedReplyResponse.StatusCode);
+            Assert.Equal("SENSITIVE_SECRET_LEAKAGE", (await ReadJsonAsync(unredactedReplyResponse))["code"]?.GetValue<string>());
+        }
+        database.ChangeTracker.Clear();
+        var ticketAfterRedactionDenials = await database.SupportTickets.SingleAsync(x => x.Id == ticketId);
+        Assert.Equal(1, ticketAfterRedactionDenials.RowVersion);
+        Assert.Empty(JsonNode.Parse(ticketAfterRedactionDenials.RepliesJson)!.AsArray());
+
+        // The foreign object exists and belongs to a different persisted shop. A valid ticket
+        // session must still receive the same not-found result because it is not linked to this ticket.
+        using (var crossShopRequest = new HttpRequestMessage(HttpMethod.Get,
+                   $"/api/admin/v1/support/tickets/{ticketId:D}/attachments/{foreignAttachmentId:D}/download"))
+        using (var crossShopResponse = await adminClient.SendAsync(crossShopRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, crossShopResponse.StatusCode);
+            Assert.Equal("SUPPORT_ATTACHMENT_NOT_FOUND", (await ReadJsonAsync(crossShopResponse))["code"]?.GetValue<string>());
+            Assert.Equal("application/json", crossShopResponse.Content.Headers.ContentType?.MediaType);
+        }
 
         using (var downloadResponse = await adminClient.GetAsync($"/api/admin/v1/support/tickets/{ticketId:D}/attachments/{attachmentId:D}/download"))
         {
@@ -652,6 +719,14 @@ public class W3StorageAndSupportApiIntegrationTests : IClassFixture<WebApplicati
         Assert.Equal("We checked your network configuration and observed transient upstream packet drop.",
             restartedHistory.RootElement[0].GetProperty("Text").GetString());
         Assert.Equal(SupportReplyDto.KindStatusChanged, restartedHistory.RootElement[1].GetProperty("Kind").GetString());
+        using var restartedAttachmentResponse = await restartedClient.GetAsync(
+            $"/api/admin/v1/support/tickets/{ticketId:D}/attachments/{attachmentId:D}/download");
+        Assert.Equal(HttpStatusCode.OK, restartedAttachmentResponse.StatusCode);
+        Assert.Equal(attachmentBytes, await restartedAttachmentResponse.Content.ReadAsByteArrayAsync());
+        Assert.Equal(attachmentBytes.Length, restartedAttachmentResponse.Content.Headers.ContentLength);
+        Assert.Equal(attachmentId.ToString("D"), restartedAttachmentResponse.Headers.GetValues("X-Object-Id").Single());
+        Assert.Equal($"sha-256={Convert.ToBase64String(SHA256.HashData(attachmentBytes))}",
+            restartedAttachmentResponse.Headers.GetValues("Digest").Single());
     }
 
     [Fact]

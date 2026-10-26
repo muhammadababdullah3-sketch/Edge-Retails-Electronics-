@@ -118,7 +118,9 @@ public class W6WholePhaseReconciliationAndOracleIntegrationTests : IClassFixture
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var nonce = Guid.NewGuid();
         var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
-        var bodyDigest = _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
+        var bodyDigest = body.Length == 0
+            ? _serializer.ComputeSha256Hex(string.Empty)
+            : _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
         var envelope = _serializer.SerializeCanonical(new
         {
             profile = "CENTRAL_INSTALLATION_REQUEST_V1",

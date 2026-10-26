@@ -345,6 +345,15 @@ public class W4PortalDashboardAndGovernanceApiIntegrationTests : IClassFixture<W
         Assert.True(metrics["expiringAddonsCount"]?.GetValue<int>() >= 1);
         Assert.True(metrics["expiringFixedTermBasesCount"]?.GetValue<int>() >= 1);
 
+        // V2 section 134 lists LicenseExpiring as an example. Current design derives expiry
+        // metrics from persisted timestamps when queried; it does not publish an expiry event.
+        using (var db = GetDbContext())
+        {
+            Assert.False(await db.CentralOutboxMessages.AnyAsync(x =>
+                x.EventType == "commercial.license_expiring" &&
+                x.AggregateId == fixedTermLicenseId.ToString()));
+        }
+
         using var contractDashboardResponse = await client.GetAsync("/api/admin/v1/dashboard");
         Assert.Equal(HttpStatusCode.OK, contractDashboardResponse.StatusCode);
         var contractDashboard = await ReadJsonAsync(contractDashboardResponse);

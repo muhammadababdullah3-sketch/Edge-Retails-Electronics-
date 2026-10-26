@@ -10,8 +10,11 @@ public static class AdminCapabilities
     public const string AdminRolesManage = "admin.roles.manage";
     public const string LicensingRead = "licensing.read";
     public const string LicensingManage = "licensing.manage";
+    public const string AuditView = "audit.view";
     public const string AuditRead = "audit.read";
     public const string SignerSign = "signer.sign";
+    public const string SignerRotate = "signer.rotate";
+    public const string SignerRevoke = "signer.revoke";
     public const string TrustSetRead = "trustset.read";
     public const string OperationsLookup = "operation.lookup";
     public const string SecurityManage = "security.manage";
@@ -26,8 +29,11 @@ public static class AdminCapabilities
         AdminRolesManage,
         LicensingRead,
         LicensingManage,
+        AuditView,
         AuditRead,
         SignerSign,
+        SignerRotate,
+        SignerRevoke,
         TrustSetRead,
         OperationsLookup,
         SecurityManage

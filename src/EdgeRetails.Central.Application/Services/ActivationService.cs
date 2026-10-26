@@ -9,6 +9,7 @@ using EdgeRetails.Central.Domain.Common;
 using EdgeRetails.Central.Domain.Licensing;
 using EdgeRetails.Central.Domain.Outbox;
 using EdgeRetails.Central.Domain.Signing;
+using EdgeRetails.Central.Domain.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace EdgeRetails.Central.Application.Services;
@@ -1884,7 +1885,10 @@ public class ActivationService : IActivationService
         if (command is not null && (transferId == Guid.Empty || approverAdminId == Guid.Empty || meta is null ||
             meta.ClientOperationId == Guid.Empty || meta.OperationType != "primary.transfer" || meta.FingerprintVersion != 1 ||
             meta.ExpectedVersion < 1 || meta.PolicyVersion < 0 || string.IsNullOrWhiteSpace(meta.PayloadSha256) ||
-            string.IsNullOrWhiteSpace(meta.Reason) || sensitiveApprovalId == Guid.Empty || command.SensitiveApprovalId != sensitiveApprovalId))
+            string.IsNullOrWhiteSpace(meta.Reason) || sensitiveApprovalId == Guid.Empty || command.SensitiveApprovalId != sensitiveApprovalId ||
+            (command.ContractRecoveryType is null) != (command.ContractEvidenceId is null) ||
+            (command.ContractRecoveryType is not null && command.ContractRecoveryType is not ("STANDARD_TRANSFER" or "LOST_HARDWARE_RECOVERY")) ||
+            (command.ContractEvidenceId == Guid.Empty)))
         {
             throw new CentralDomainException("INVALID_PRIMARY_TRANSFER_COMMAND", "transfer.command_invalid", "Primary transfer approval command identity or metadata is invalid.");
         }
@@ -1925,6 +1929,12 @@ public class ActivationService : IActivationService
             throw new CentralDomainException("TARGET_MISMATCH", "transfer.target_mismatch", "Approval target does not match target transfer.");
         }
 
+        if (command?.CommandMeta is CommandMetaDto commandMeta &&
+            !string.Equals(sensitiveApproval.TargetPayloadSha256, commandMeta.PayloadSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CentralDomainException("APPROVAL_PAYLOAD_MISMATCH", "approval.payload_mismatch", "The approved payload digest does not match this canonical transfer command.");
+        }
+
         if (sensitiveApproval.RequesterAdminId == approverAdminId)
         {
             throw new CentralDomainException("SELF_APPROVAL_PROHIBITED", "transfer.self_approval_prohibited", "Approver must be distinct from requester.");
@@ -1942,12 +1952,12 @@ public class ActivationService : IActivationService
             var actorScope = $"admin:{approverAdminId}";
             var targetResource = $"transfers/{transferId}/approve";
 
-            await _operationLedger.ExecuteOrReplayAsync(
+            await _operationLedger.ExecuteOrReplayAsync<object, bool>(
                 actorScope: actorScope,
                 shopId: transfer.ShopId,
                 meta: command.CommandMeta,
-                payload: command,
-                executeAsync: async cmd =>
+                payload: command.CanonicalPayload is JsonElement canonicalPayload ? canonicalPayload : command,
+                executeAsync: async _ =>
                 {
                     if (meta.ExpectedVersion != transfer.RowVersion)
                     {
@@ -1961,9 +1971,22 @@ public class ActivationService : IActivationService
                     {
                         throw new CentralDomainException("APPROVAL_EXPIRED", "transfer.approval_expired", "Approval request has expired.");
                     }
+                    if (command.ContractEvidenceId is Guid contractEvidenceId)
+                    {
+                        var contractEvidence = await _dbContext.EncryptedObjects.SingleOrDefaultAsync(x => x.Id == contractEvidenceId, cancellationToken)
+                            ?? throw new CentralDomainException("EVIDENCE_NOT_FOUND", "support.evidence_not_found", "Verification evidence was not found.");
+                        if (contractEvidence.ShopId != transfer.ShopId || contractEvidence.Purpose != "SUPPORT_ATTACHMENT" || contractEvidence.IsTombstoned)
+                        {
+                            throw new CentralDomainException("EVIDENCE_SCOPE_INVALID", "support.evidence_scope_invalid", "Evidence must be an active support attachment belonging to the same shop.");
+                        }
+                    }
 
                     sensitiveApproval.Consume(now);
                     transfer.Approve(approverAdminId, sensitiveApproval.Id);
+                    if (command.ContractRecoveryType is not null && command.ContractEvidenceId is Guid evidenceId)
+                    {
+                        transfer.ApplyContractDecision("APPROVE", command.ContractRecoveryType, evidenceId, approverAdminId);
+                    }
                     await _dbContext.SaveChangesAsync(cancellationToken);
 
                     _dbContext.CentralOutboxMessages.Add(CentralOutboxMessage.Create(
@@ -2063,6 +2086,18 @@ public class ActivationService : IActivationService
                 {
                     throw new CentralDomainException("TRANSFER_NOT_APPROVED", "transfer.not_approved", $"Transfer must be in APPROVED status; current status: {transfer.Status}");
                 }
+                if (transfer.ContractDecision != "APPROVE" ||
+                    transfer.RecoveryType is not ("STANDARD_TRANSFER" or "LOST_HARDWARE_RECOVERY") ||
+                    transfer.VerificationEvidenceId is not Guid evidenceId || evidenceId == Guid.Empty)
+                {
+                    throw new CentralDomainException("TRANSFER_CONTRACT_EVIDENCE_REQUIRED", "transfer.evidence_required", "Completion requires a contract APPROVE decision with persisted verification evidence.");
+                }
+                var evidence = await _dbContext.EncryptedObjects.SingleOrDefaultAsync(x => x.Id == evidenceId, cancellationToken)
+                    ?? throw new CentralDomainException("EVIDENCE_NOT_FOUND", "support.evidence_not_found", "Primary transfer verification evidence was not found.");
+                if (evidence.ShopId != transfer.ShopId || evidence.Purpose != EncryptedObjectRecord.PurposeSupportAttachment || evidence.IsTombstoned)
+                {
+                    throw new CentralDomainException("EVIDENCE_SCOPE_INVALID", "support.evidence_scope_invalid", "Primary transfer evidence must be an active support attachment for the same shop.");
+                }
 
                 var source = await _dbContext.Installations.FindAsync(new object[] { transfer.SourceInstallationId }, cancellationToken)
                     ?? throw new CentralDomainException("SOURCE_NOT_FOUND", "transfer.source_not_found", "Source installation not found.");
@@ -2077,8 +2112,49 @@ public class ActivationService : IActivationService
                 {
                     throw new CentralDomainException("LICENSE_MISMATCH", "transfer.license_mismatch", "Source and target installations must be bound to the same license.");
                 }
+                // Serialize completion against commercial lifecycle and installation changes.
+                await SecurityTransaction.BeginAsync(_dbContext, source.LicenseId.ToString(), cancellationToken);
+                foreach (var installationId in new[] { source.Id, target.Id }.Order())
+                {
+                    await SecurityTransaction.BeginAsync(_dbContext, installationId.ToString(), cancellationToken);
+                }
+                if (_dbContext is not DbContext ef)
+                {
+                    throw new InvalidOperationException("Transfer completion requires a reload-capable EF context after acquiring persisted identity locks.");
+                }
+                await ef.Entry(source).ReloadAsync(cancellationToken);
+                await ef.Entry(target).ReloadAsync(cancellationToken);
 
+                if (source.ShopId != transfer.ShopId || target.ShopId != transfer.ShopId)
+                {
+                    throw new CentralDomainException("SHOP_MISMATCH", "transfer.shop_mismatch", "Both current installations must belong to the persisted transfer shop.");
+                }
+                if (source.LicenseId != target.LicenseId)
+                {
+                    throw new CentralDomainException("LICENSE_MISMATCH", "transfer.license_mismatch", "Current source and target installations must be bound to the same license.");
+                }
+                if (source.Id == target.Id ||
+                    source.Status is Installation.StatusRevoked or Installation.StatusReplaced ||
+                    target.Status is Installation.StatusRevoked or Installation.StatusReplaced)
+                {
+                    throw new CentralDomainException("TRANSFER_INSTALLATION_UNAVAILABLE", "transfer.installation_unavailable", "A retired or revoked installation cannot participate in this transfer.");
+                }
+
+                // Re-read commercial authority under the license lock before changing
+                // installation or certificate state.
+                var license = await _dbContext.CommercialLicenses.FindAsync(new object[] { source.LicenseId }, cancellationToken)
+                    ?? throw new CentralDomainException("LICENSE_NOT_FOUND", "transfer.license_not_found", "The transfer commercial license does not exist.");
                 var now = DateTimeOffset.UtcNow;
+                if (license.ShopId != transfer.ShopId)
+                {
+                    throw new CentralDomainException("SHOP_MISMATCH", "transfer.shop_mismatch", "The transfer license must belong to the persisted transfer shop.");
+                }
+                if (license.Status != CommercialLicense.StatusActive || license.ValidFromUtc > now ||
+                    (license.ValidUntilUtc.HasValue && license.ValidUntilUtc.Value <= now))
+                {
+                    throw new CentralDomainException("LICENSE_NOT_ELIGIBLE", "transfer.license_not_eligible", "Primary transfer completion requires a currently active, commercially valid license.");
+                }
+
                 var sourceCerts = await _dbContext.LicenseCertificates
                     .Where(c => c.InstallationId == source.Id && c.Status == LicenseCertificate.StatusActive)
                     .ToListAsync(cancellationToken);

@@ -1,6 +1,8 @@
 using EdgeRetails.Central.Application.Abstractions;
 using EdgeRetails.Central.Api.Security;
+using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
+using EdgeRetails.Central.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace EdgeRetails.Central.Api.Controllers;
@@ -11,13 +13,22 @@ public class ActivationController : ControllerBase
 {
     private readonly IActivationService _activationService;
     private readonly IAdminAuthService _authService;
+    private readonly ICentralDbContext _dbContext;
+    private readonly IStepUpService _stepUpService;
+    private readonly ICanonicalJsonSerializer _serializer;
 
     public ActivationController(
         IActivationService activationService,
-        IAdminAuthService authService)
+        IAdminAuthService authService,
+        ICentralDbContext dbContext,
+        IStepUpService stepUpService,
+        ICanonicalJsonSerializer serializer)
     {
         _activationService = activationService ?? throw new ArgumentNullException(nameof(activationService));
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _stepUpService = stepUpService ?? throw new ArgumentNullException(nameof(stepUpService));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     }
 
     [HttpPost("installations")]
@@ -108,19 +119,20 @@ public class ActivationController : ControllerBase
     }
 
     [HttpPost("hardware-reviews/{reviewId:guid}/decide")]
-    public async Task<IActionResult> DecideHardwareReview(
+    public Task<IActionResult> DecideHardwareReview(
         [FromRoute] Guid reviewId,
         [FromBody] DecideHardwareReviewCommand command,
         CancellationToken cancellationToken)
     {
-        var adminId = await GetAdminUserIdAsync(cancellationToken);
-        if (adminId == Guid.Empty)
+        // This compatibility route predates the contract decision payload and cannot
+        // bind a same-shop evidence attachment or a typed hardware decision. Keep it
+        // explicit for old clients, but never let it mutate a review.
+        return Task.FromResult<IActionResult>(Conflict(new
         {
-            return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
-        }
-
-        await _activationService.DecideHardwareReviewAsync(reviewId, command, adminId, cancellationToken);
-        return Ok(new { success = true, approve = command.Approve });
+            code = "CANONICAL_HARDWARE_REVIEW_REQUIRED",
+            safeMessageKey = "hardware.canonical_review_required",
+            route = "/api/admin/v1/hardware-reviews/{id}/decide"
+        }));
     }
 
     [HttpPost("primary-transfers")]
@@ -128,22 +140,14 @@ public class ActivationController : ControllerBase
         [FromBody] InitiatePrimaryTransferCommand command,
         CancellationToken cancellationToken)
     {
-        var adminId = await GetAdminUserIdAsync(cancellationToken);
-        if (adminId == Guid.Empty)
+        // The legacy DTO cannot bind same-shop verification evidence or the contract REQUEST decision.
+        // Route all new requests through the canonical contract endpoint.
+        return Conflict(new
         {
-            return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
-        }
-
-        if (command.CommandMeta is null || command.CommandMeta.ClientOperationId == Guid.Empty ||
-            command.CommandMeta.OperationType != "primary.transfer" || command.CommandMeta.FingerprintVersion != 1 ||
-            command.CommandMeta.ExpectedVersion < 0 || command.CommandMeta.PolicyVersion < 0 ||
-            string.IsNullOrWhiteSpace(command.CommandMeta.PayloadSha256) || string.IsNullOrWhiteSpace(command.CommandMeta.Reason))
-        {
-            return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
-        }
-
-        var transfer = await _activationService.InitiatePrimaryTransferAsync(command, adminId, cancellationToken);
-        return Ok(transfer);
+            code = "CANONICAL_PRIMARY_TRANSFER_REQUIRED",
+            safeMessageKey = "transfer.canonical_request_required",
+            route = "/api/admin/v1/transfers/{id}/decide"
+        });
     }
 
     [HttpPost("primary-transfers/{transferId:guid}/approve")]
@@ -152,23 +156,13 @@ public class ActivationController : ControllerBase
         [FromBody] ApprovePrimaryTransferCommand command,
         CancellationToken cancellationToken)
     {
-        var adminId = await GetAdminUserIdAsync(cancellationToken);
-        if (adminId == Guid.Empty)
+        // The legacy DTO cannot bind installation identities and verified evidence.
+        return Conflict(new
         {
-            return Unauthorized(new { code = "ADMIN_AUTH_REQUIRED", safeMessageKey = "auth.admin_required" });
-        }
-
-        if (command.CommandMeta is null || command.CommandMeta.ClientOperationId == Guid.Empty ||
-            command.CommandMeta.OperationType != "primary.transfer" || command.CommandMeta.FingerprintVersion != 1 ||
-            command.CommandMeta.ExpectedVersion < 1 || command.CommandMeta.PolicyVersion < 0 ||
-            string.IsNullOrWhiteSpace(command.CommandMeta.PayloadSha256) || string.IsNullOrWhiteSpace(command.CommandMeta.Reason) ||
-            command.SensitiveApprovalId == Guid.Empty)
-        {
-            return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
-        }
-
-        await _activationService.ApprovePrimaryTransferAsync(transferId, adminId, command.SensitiveApprovalId, command, cancellationToken);
-        return Ok(new { success = true, status = "APPROVED" });
+            code = "CANONICAL_PRIMARY_TRANSFER_REQUIRED",
+            safeMessageKey = "transfer.canonical_decision_required",
+            route = "/api/admin/v1/transfers/{id}/decide"
+        });
     }
 
     [HttpPost("primary-transfers/{transferId:guid}/complete")]
@@ -191,7 +185,32 @@ public class ActivationController : ControllerBase
             return BadRequest(new { code = "INVALID_PRIMARY_TRANSFER_COMMAND", safeMessageKey = "transfer.command_invalid" });
         }
 
+        if (HttpContext.Items["AdminSession"] is not AdminSessionDto session || session.AdminUserId != adminId)
+        {
+            return Unauthorized(new { code = "SESSION_REQUIRED", safeMessageKey = "auth.session_required" });
+        }
+
+        // Completion is a separate state transition after the contract REQUEST/APPROVE
+        // decisions. Consume fresh execution-session step-up atomically with its effects.
+        var stepUpPayloadSha256 = _serializer.SerializeAndHash(new
+        {
+            transferId,
+            commandPayloadSha256 = command.CommandMeta.PayloadSha256
+        }).Sha256Hex;
+        await using var transaction = await SecurityTransaction.BeginAsync(
+            _dbContext, transferId.ToString(), cancellationToken);
+        if (!await _stepUpService.ValidateAndConsumeStepUpGrantAsync(
+                session.SessionId, "primary.transfer", stepUpPayloadSha256, cancellationToken: cancellationToken))
+        {
+            throw new EdgeRetails.Central.Domain.Common.CentralDomainException(
+                "STEP_UP_REQUIRED", "auth.step_up_required", "A fresh execution-session step-up grant for this exact completion is required.");
+        }
+
         await _activationService.CompletePrimaryTransferAsync(transferId, adminId, command, cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
         return Ok(new { success = true, status = "COMPLETED" });
     }
 

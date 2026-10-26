@@ -168,9 +168,6 @@ public sealed class CanonicalSupportCommandsController(
             action is not ("REPLY" or "SET_STATUS" or "ASSIGN"))
         { return BadRequest(new { code = "INVALID_SUPPORT_COMMAND", safeMessageKey = "support.invalid_command" }); }
 
-        if (action == "ASSIGN" && !await db.AdminUsers.AsNoTracking().AnyAsync(x => x.Id == assigneeId && x.IsActive, cancellationToken))
-        { return BadRequest(new { code = "SUPPORT_ASSIGNEE_NOT_ACTIVE", safeMessageKey = "support.assignee_not_active" }); }
-
         var existing = await db.SupportTickets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, cancellationToken)
             ?? throw new EdgeRetails.Central.Domain.Common.CentralDomainException("SUPPORT_TICKET_NOT_FOUND", "support.ticket_not_found", "The requested support ticket does not exist.");
         var operationMeta = meta!;
@@ -181,6 +178,8 @@ public sealed class CanonicalSupportCommandsController(
             {
                 var ticket = await db.SupportTickets.SingleOrDefaultAsync(x => x.Id == ticketId, cancellationToken)
                     ?? throw new EdgeRetails.Central.Domain.Common.CentralDomainException("SUPPORT_TICKET_NOT_FOUND", "support.ticket_not_found", "The requested support ticket does not exist.");
+                if (action == "ASSIGN" && !await db.AdminUsers.AsNoTracking().AnyAsync(x => x.Id == assigneeId && x.IsActive, cancellationToken))
+                { throw new EdgeRetails.Central.Domain.Common.CentralDomainException("SUPPORT_ASSIGNEE_NOT_ACTIVE", "support.assignee_not_active", "Support tickets can only be assigned to an active persisted administrator."); }
                 if (ticket.RowVersion != operationMeta.ExpectedVersion)
                 { throw new EdgeRetails.Central.Domain.Common.CentralDomainException("CONCURRENCY_CONFLICT", "operation.concurrency_conflict", "The support ticket changed before the command was applied."); }
                 var now = DateTimeOffset.UtcNow;

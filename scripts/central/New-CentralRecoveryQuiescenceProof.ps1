@@ -4,7 +4,11 @@ param(
     [Parameter(Mandatory=$true)][ValidateRange(1024,65535)][int]$Port,
     [Parameter(Mandatory=$true)][ValidateRange(1,2147483647)][int]$PostgresPid,
     [Parameter(Mandatory=$true)][string]$PostgresBinary,
-    [Parameter(Mandatory=$true)][string]$DataDirectory
+    [Parameter(Mandatory=$true)][string]$DataDirectory,
+    [int]$TargetPostgresPid=0,
+    [int]$TargetPort=0,
+    [string]$TargetPostgresBinary,
+    [string]$TargetDataDirectory
 )
 
 $ErrorActionPreference='Stop'
@@ -36,6 +40,21 @@ if($postgresParent) {
     if($postgresParent.Name -ne 'cmd.exe' -or $parentCommand.IndexOf($binary,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand.IndexOf($data,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand -notmatch "(?i)(?:^|\s)-p\s+$Port(?:\s|$)"){throw 'PostgreSQL launcher is not an attested non-writer parent process.'}
     $postgresLauncherPid=[int]$postgresParent.ProcessId
 }
+$targetLauncherPid=0
+$targetIdentity=$null
+if($TargetPostgresPid -or $TargetPort -or $TargetPostgresBinary -or $TargetDataDirectory) {
+    if($TargetPostgresPid -le 0 -or $TargetPort -lt 1024 -or $TargetPort -gt 65535 -or [string]::IsNullOrWhiteSpace($TargetPostgresBinary) -or [string]::IsNullOrWhiteSpace($TargetDataDirectory) -or $TargetPostgresPid -eq $PostgresPid -or $TargetPort -eq $Port){throw 'Separate target process, port, binary and data directory must be supplied as one distinct attested instance.'}
+    $target=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$TargetPostgresPid" -ErrorAction Stop
+    $targetBinary=[IO.Path]::GetFullPath($TargetPostgresBinary); $targetData=[IO.Path]::GetFullPath($TargetDataDirectory); $targetCommand=([string]$target.CommandLine).Replace('/','\')
+    if([string]$target.ExecutablePath -ne $targetBinary -or $targetCommand -notmatch [regex]::Escape($targetData) -or $targetCommand -notmatch "(?i)(?:^|\s)-p\s+$TargetPort(?:\s|$)" -or [Diagnostics.FileVersionInfo]::GetVersionInfo($targetBinary).FileMajorPart -ne 18){throw 'Target PostgreSQL process does not match its binary, PostgreSQL 18 version, data directory and port.'}
+    $targetPostmaster=Get-Content -LiteralPath (Join-Path $targetData 'postmaster.pid')
+    if($targetPostmaster.Count -lt 4 -or [int]$targetPostmaster[0] -ne $TargetPostgresPid -or [IO.Path]::GetFullPath($targetPostmaster[1]) -ne $targetData -or [int]$targetPostmaster[3] -ne $TargetPort){throw 'Separate target postmaster identity does not match the supplied process, data directory and port.'}
+    $targetListeners=@(Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction Stop)
+    if($targetListeners.Count -eq 0 -or @($targetListeners|Where-Object {$_.OwningProcess -ne $TargetPostgresPid -or $_.LocalAddress -notin @('127.0.0.1','::1')}).Count -gt 0){throw 'Separate target listener is not owned exclusively by the attested loopback PostgreSQL process.'}
+    $targetParent=Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$([int]$target.ParentProcessId)" -ErrorAction SilentlyContinue
+    if($targetParent){$parentCommand=([string]$targetParent.CommandLine).Replace('/','\');if($targetParent.Name -ne 'cmd.exe' -or $parentCommand.IndexOf($targetBinary,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand.IndexOf($targetData,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $parentCommand -notmatch "(?i)(?:^|\s)-p\s+$TargetPort(?:\s|$)"){throw 'Target PostgreSQL launcher is not an attested non-writer parent process.'};$targetLauncherPid=[int]$targetParent.ProcessId}
+    $targetIdentity=@{processId=$TargetPostgresPid;port=$TargetPort;binary=$targetBinary;dataDirectory=$targetData;launcherPid=$targetLauncherPid}
+}
 $processes=@()
 foreach($row in @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)) {
     $cmd=[string]$row.CommandLine; $exe=[string]$row.ExecutablePath; $processId=[int]$row.ProcessId
@@ -44,13 +63,14 @@ foreach($row in @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)) {
     $centralMarker=($cmd -match '(?i)EdgeRetails\.Central\.(Api|Worker|IntegrationTests|UnitTests)|EdgeRetails\.ProtectedSigner|Invoke-CentralDisposableRecoveryRehearsal')
     $processes+=@{processId=$processId;parentProcessId=[int]$row.ParentProcessId;name=[string]$row.Name;executablePath=$exe;commandLineSha256=[Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($cmd)));matchedOwnedRoot=$matchesRoot;matchedCentralMarker=$centralMarker}
 }
-$writers=@($processes|Where-Object { $_.processId -notin (@($PID,$PostgresPid,$postgresLauncherPid) | Where-Object { [int]$_ -gt 0 }) -and ($_.matchedOwnedRoot -or $_.matchedCentralMarker) })
+$infrastructurePids=@($PID,$PostgresPid,$postgresLauncherPid,$TargetPostgresPid,$targetLauncherPid)|Where-Object {[int]$_ -gt 0}
+$writers=@($processes|Where-Object { $_.processId -notin $infrastructurePids -and ($_.matchedOwnedRoot -or $_.matchedCentralMarker) })
 $rawPath=[IO.Path]::ChangeExtension($out,'.processes.json')
-$inventory=@{kind='windows-process-inventory';capturedAtUtc=$captured.ToString('O');coordinator=$identity;coordinatorPid=$PID;postgresPid=$PostgresPid;postgresLauncherPid=$postgresLauncherPid;processes=$processes}
+$inventory=@{kind='windows-process-inventory';capturedAtUtc=$captured.ToString('O');coordinator=$identity;coordinatorPid=$PID;postgresPid=$PostgresPid;postgresLauncherPid=$postgresLauncherPid;targetPostgres=$targetIdentity;processes=$processes}
 $inventory|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $rawPath -Encoding utf8
 $sha=(Get-FileHash -LiteralPath $rawPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($writers.Count -ne 0){throw ('Owned Central writer processes remain active: '+(($writers|ForEach-Object { $_.processId }) -join ','))}
-$proof=@{sourceDatabase=$SourceDatabase;port=$Port;postgresPid=$PostgresPid;postgresLauncherPid=$postgresLauncherPid;coordinator=$identity;coordinatorPid=$PID;observedAtUtc=$captured.ToString('O');fileWritersQuiesced=$true;databaseWritersQuiesced=$true;activeOwnedWriterProcessIds=@();observationEvidence=@(@{kind='windows-process-inventory';path=$rawPath;sha256=$sha})}
+$proof=@{sourceDatabase=$SourceDatabase;port=$Port;postgresPid=$PostgresPid;postgresLauncherPid=$postgresLauncherPid;targetPostgres=$targetIdentity;coordinator=$identity;coordinatorPid=$PID;observedAtUtc=$captured.ToString('O');fileWritersQuiesced=$true;databaseWritersQuiesced=$true;activeOwnedWriterProcessIds=@();observationEvidence=@(@{kind='windows-process-inventory';path=$rawPath;sha256=$sha})}
 $proof|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $out -Encoding utf8
 Write-Output ('Quiescence proof written: '+$out)
 Write-Output ('Native process evidence SHA-256: '+$sha)

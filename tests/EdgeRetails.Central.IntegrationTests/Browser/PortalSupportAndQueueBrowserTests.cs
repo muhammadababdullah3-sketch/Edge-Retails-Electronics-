@@ -162,11 +162,18 @@ async def main():
             await queue_page_one_response.value
             async def read_queue_ids():
                 return await page.locator('#dashboard-queue-tbody tr').evaluate_all(
-                    "rows => rows.map(row => row.cells[0]?.textContent?.trim()).filter(Boolean)")
+                    "rows => rows.map(row => row.cells[1]?.textContent?.trim()).filter(Boolean)")
             await page.wait_for_function("document.querySelector('#dashboard-queue-status')?.textContent?.includes('page 1.')")
             await page.wait_for_function("document.querySelector('#dashboard-queue-tbody')?.textContent?.trim() && !document.querySelector('#dashboard-queue-tbody')?.textContent?.includes('Loading')")
             page_one = await read_queue_ids()
             require(page_one == fixture['queuePageOneEntityIds'], f'Queue page 1 mismatch: {page_one}')
+            headers = await page.locator('#dashboard-queue-tbody').evaluate("tbody => Array.from(tbody.closest('table').querySelectorAll('thead th')).map(cell => cell.textContent.trim())")
+            require(headers == ['Case Type', 'Case ID', 'Summary', 'Customer', 'Shop', 'Current State', 'Priority', 'Opened At (UTC)', 'Age', 'Assigned Admin', 'Risk / Attention Marker', 'Read-Only Review'],
+                    f'Queue common-field headers mismatch: {headers}')
+            first_row = await page.locator('#dashboard-queue-tbody tr').first.locator('td').all_inner_texts()
+            require(len(first_row) == 12 and all(value.strip() for value in first_row), f'Queue common fields are incomplete: {first_row}')
+            require(first_row[6] == 'Not set' and first_row[9] == 'Unassigned' and first_row[10] == 'No marker',
+                    f'Queue fields without configured values must be stated explicitly: {first_row}')
             await page.screenshot(path=str(screenshots / 'queue-page-1.png'), full_page=True)
             async with page.expect_response(lambda response: queue_path in response.url and 'cursor=20' in response.url and response.status == 200) as queue_page_two_response:
                 await page.locator('#dashboard-queue-next').click()
@@ -221,7 +228,7 @@ async def main():
             require(trace_redacted, 'A browser session credential remained in the trace after redaction.')
             payload = {'result': 'PASS', 'ticketId': ticket_id, 'uniqueSubject': unique_subject, 'replyText': reply_text,
                        'queuePageOne': page_one, 'queuePageTwo': page_two, 'sessionCookieRedactedFromTrace': trace_redacted,
-                       'checks': ['authenticated session', 'queue page 1', 'queue page 2', 'Customer 360', 'support create',
+                       'checks': ['authenticated session', 'queue page 1', 'queue page 2', 'queue common fields', 'Customer 360', 'support create',
                                   'support reply', 'reload persistence', 'session-secret redaction', 'console/network'],
                        'events': events}
             result_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')

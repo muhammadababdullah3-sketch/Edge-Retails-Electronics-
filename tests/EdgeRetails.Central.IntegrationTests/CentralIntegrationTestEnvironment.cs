@@ -37,13 +37,21 @@ internal static class CentralIntegrationTestEnvironment
         Environment.SetEnvironmentVariable("CENTRAL_SENSITIVE_APPROVAL_TTL_SECONDS", "3600"); // labelled synthetic integration fixture
         Environment.SetEnvironmentVariable("CENTRAL_DUAL_APPROVAL_ACTIONS", "NONE");
         // Existing implementation values are labelled compatibility-test fixtures, never runtime defaults.
-        Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "5");
-        Environment.SetEnvironmentVariable("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60");
+        SetSyntheticFixtureIfAbsent("CENTRAL_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "5");
+        SetSyntheticFixtureIfAbsent("CENTRAL_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60");
         // Explicit synthetic compatibility fixtures; no application defaults are implied.
         Environment.SetEnvironmentVariable("CENTRAL_ADMIN_AUTH_CHALLENGE_TTL_SECONDS", "300");
         Environment.SetEnvironmentVariable("CENTRAL_ADMIN_AUTH_SESSION_IDLE_TIMEOUT_SECONDS", "900");
         Environment.SetEnvironmentVariable("CENTRAL_ADMIN_AUTH_SESSION_ABSOLUTE_LIFETIME_SECONDS", "28800");
         Environment.SetEnvironmentVariable("CENTRAL_ADMIN_STEP_UP_TTL_SECONDS", "300");
         Environment.SetEnvironmentVariable("CENTRAL_INTERNAL_SIGNER_TOKEN", "synthetic-central-integration-secret-20261022");
+    }
+
+    private static void SetSyntheticFixtureIfAbsent(string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)))
+        {
+            Environment.SetEnvironmentVariable(name, value);
+        }
     }
 }

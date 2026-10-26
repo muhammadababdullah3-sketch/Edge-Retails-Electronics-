@@ -12,6 +12,10 @@ public class HardwareReview : Entity
     public Guid InstallationId { get; private set; }
     public string ReportedMachineFingerprint { get; private set; } = string.Empty;
     public string StoredMachineFingerprint { get; private set; } = string.Empty;
+    public Guid ReportedMachineFingerprintId { get; private set; }
+    public Guid StoredMachineFingerprintId { get; private set; }
+    public Guid? VerificationEvidenceId { get; private set; }
+    public string? ContractDecision { get; private set; }
     public string DiscrepancyReason { get; private set; } = string.Empty;
     public string Status { get; private set; } = StatusPending;
     public Guid? ReviewedByAdminId { get; private set; }
@@ -49,6 +53,8 @@ public class HardwareReview : Entity
             InstallationId = installationId,
             ReportedMachineFingerprint = reportedFingerprint.Trim(),
             StoredMachineFingerprint = storedFingerprint?.Trim() ?? string.Empty,
+            ReportedMachineFingerprintId = Guid.NewGuid(),
+            StoredMachineFingerprintId = Guid.NewGuid(),
             DiscrepancyReason = discrepancyReason?.Trim() ?? string.Empty,
             Status = StatusPending,
             CreatedAtUtc = createdAtUtc,
@@ -57,6 +63,9 @@ public class HardwareReview : Entity
     }
 
     public void Decide(bool approve, Guid adminUserId, DateTimeOffset decidedAtUtc)
+        => Decide(approve ? "APPROVE_REBIND" : "REJECT", null, adminUserId, decidedAtUtc);
+
+    public void Decide(string decision, Guid? verificationEvidenceId, Guid adminUserId, DateTimeOffset decidedAtUtc)
     {
         if (Status != StatusPending)
         {
@@ -67,7 +76,22 @@ public class HardwareReview : Entity
             throw new CentralDomainException("INVALID_ADMIN_ID", "hw.invalid_admin_id", "Admin ID is required.");
         }
 
-        Status = approve ? StatusApproved : StatusRejected;
+        if (decision is not ("APPROVE_REBIND" or "RECOMMEND_TRANSFER" or "REQUEST_INFORMATION" or "REJECT"))
+        {
+            throw new CentralDomainException("INVALID_DECISION", "hw.invalid_decision", "Hardware review decision is invalid.");
+        }
+        if (verificationEvidenceId == Guid.Empty)
+        {
+            throw new CentralDomainException("INVALID_EVIDENCE_ID", "hw.invalid_evidence", "Verification evidence ID is invalid.");
+        }
+        ContractDecision = decision;
+        VerificationEvidenceId = verificationEvidenceId;
+        Status = decision switch
+        {
+            "APPROVE_REBIND" => StatusApproved,
+            "REJECT" => StatusRejected,
+            _ => decision
+        };
         ReviewedByAdminId = adminUserId;
         DecidedAtUtc = decidedAtUtc;
         RowVersion++;

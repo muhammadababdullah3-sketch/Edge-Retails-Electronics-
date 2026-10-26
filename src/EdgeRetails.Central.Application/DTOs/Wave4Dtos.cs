@@ -106,11 +106,21 @@ public class QueueItemDto
     public Guid EntityId { get; set; }
     public string QueueType { get; set; } = string.Empty;
     public Guid ShopId { get; set; }
+    public string? CustomerName { get; set; }
+    public string? ShopName { get; set; }
+    public string Priority { get; set; } = "Not set";
+    public string AssignedAdmin { get; set; } = "Unassigned";
+    public string RiskAttentionMarker { get; set; } = "No marker";
     public Guid? OrderId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
     public string? ReasonOrSummary { get; set; }
+    public Guid? PreviousFingerprintId { get; set; }
+    public Guid? CurrentFingerprintId { get; set; }
+    public Guid? InstallationId { get; set; }
+    public Guid? OldInstallationId { get; set; }
+    public Guid? NewInstallationId { get; set; }
     public bool RequiresDualApproval { get; set; }
     public int? ResourceVersion { get; set; }
     public int? ValidationSnapshotVersion { get; set; }

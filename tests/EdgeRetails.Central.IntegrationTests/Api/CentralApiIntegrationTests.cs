@@ -61,7 +61,9 @@ public class CentralApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
         var timestamp = (timestampUtc ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
         var nonce = Guid.NewGuid();
         var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
-        var bodyDigest = _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
+        var bodyDigest = body.Length == 0
+            ? _serializer.ComputeSha256Hex(string.Empty)
+            : _serializer.ComputeSha256Hex(_serializer.SerializeCanonical(body));
         var envelope = _serializer.SerializeCanonical(new
         {
             profile = "CENTRAL_INSTALLATION_REQUEST_V1",
@@ -933,14 +935,16 @@ public class CentralApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
                 Guid attachmentId,
                 Guid? operationId = null,
                 bool reuseProof = false,
-                bool alterBodyAfterSigning = false)
+                bool alterBodyAfterSigning = false,
+                string? submittedSubject = null,
+                string? submittedSummary = null)
             {
                 var clientOperationId = operationId ?? Guid.NewGuid();
                 var payload = new
                 {
                     shopId = submittedShopId,
-                    subject = "Synthetic installation support request",
-                    summary = "A labelled development fixture submitted through installation proof.",
+                    subject = submittedSubject ?? "Synthetic installation support request",
+                    summary = submittedSummary ?? "A labelled development fixture submitted through installation proof.",
                     attachmentObjectIds = new[] { attachmentId },
                     redactionProfileVersion = 1
                 };
@@ -1018,6 +1022,31 @@ public class CentralApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
             {
                 Assert.Equal(1, await db.SupportTickets.CountAsync(x => x.Id == ticketId));
                 Assert.Single(await db.CentralOutboxMessages.Where(x => x.Id == operationId && x.EventType == "support.ticket_created").ToListAsync());
+            }
+
+            var secretMarkers = new[]
+            {
+                "BEGIN RSA PRIVATE KEY",
+                "BEGIN PRIVATE KEY",
+                "password=forbidden-fixture-secret",
+                "token=forbidden-fixture-secret",
+                "secret=forbidden-fixture-secret"
+            };
+            foreach (var (secretMarker, index) in secretMarkers.Select((marker, index) => (marker, index)))
+            {
+                var markerSubject = $"Synthetic installation support secret {index}";
+                var (redactedResponse, redactedOperationId) = await SendBundle(
+                    shop.Id,
+                    ownAttachment.Id,
+                    submittedSubject: markerSubject,
+                    submittedSummary: $"Synthetic diagnostic marker: {secretMarker}");
+                Assert.Equal(HttpStatusCode.BadRequest, redactedResponse.StatusCode);
+                Assert.Equal("SENSITIVE_SECRET_LEAKAGE", (await redactedResponse.Content.ReadFromJsonAsync<JsonNode>())?["code"]?.GetValue<string>());
+                using var db = GetDbContext();
+                Assert.False(await db.SupportTickets.AnyAsync(x => x.ShopId == shop.Id && x.Subject == markerSubject));
+                Assert.False(await db.CentralOperationRecords.AnyAsync(x => x.ClientOperationId == redactedOperationId));
+                Assert.False(await db.CentralOutboxMessages.AnyAsync(x => x.Id == redactedOperationId));
+                Assert.False(await db.CentralAuditRecords.AnyAsync(x => x.CorrelationId == redactedOperationId.ToString() && x.Action == "SUPPORT_TICKET_CREATED"));
             }
 
             // Reusing the exact signed nonce is rejected before command processing.
@@ -1381,11 +1410,15 @@ public class CentralApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
     public async Task Audit_QueriesBoundedRecords_WithActingAdminAttribution_AndPiiMasking()
     {
         RateLimitingMiddleware.Reset();
-        var (sessionId, callerUserId) = await AuthenticateAdminAsync(new[] { AdminCapabilities.AdminManage, AdminCapabilities.AuditRead });
+        var (sessionId, callerUserId) = await AuthenticateAdminAsync(new[] { AdminCapabilities.AuditView });
 
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         client.DefaultRequestHeaders.Add("Cookie", $"central_session={sessionId}");
         client.DefaultRequestHeaders.Add("Origin", "https://localhost");
+        var (auditReadOnlySession, _) = await AuthenticateAdminAsync(new[] { AdminCapabilities.AuditRead });
+        using var auditReadOnlyClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        auditReadOnlyClient.DefaultRequestHeaders.Add("Cookie", $"central_session={auditReadOnlySession}");
+        Assert.Equal(HttpStatusCode.Forbidden, (await auditReadOnlyClient.GetAsync("/api/admin/v1/audit?pageSize=1")).StatusCode);
         using var anonymousClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymousClient.GetAsync("/api/admin/v1/audit?page=1")).StatusCode);
 

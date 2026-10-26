@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using EdgeRetails.Central.Application.Abstractions;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Application.Services;
@@ -272,11 +273,14 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
     public async Task CONE_T21_DashboardQueues_PagingAndFiltering_MatchesPersistedDecisions()
     {
         var now = DateTimeOffset.UtcNow;
-        var shopId = Guid.NewGuid();
+        var customer = Customer.Create("Queue Customer", "queue@example.test", "", now);
+        var shop = Shop.Create(customer.Id, "QUEUE_SHOP", "Queue Shop", now);
+        _dbContext.Customers.Add(customer);
+        _dbContext.Shops.Add(shop);
 
         for (int i = 0; i < 5; i++)
         {
-            var ticket = SupportTicket.Create(Guid.NewGuid(), shopId, Guid.NewGuid(), $"Subject {i}", $"Summary {i}", new List<Guid>(), 1, now.AddMinutes(i));
+            var ticket = SupportTicket.Create(Guid.NewGuid(), shop.Id, Guid.NewGuid(), $"Subject {i}", $"Summary {i}", new List<Guid>(), 1, now.AddMinutes(i));
             _dbContext.SupportTickets.Add(ticket);
         }
         await _dbContext.SaveChangesAsync();
@@ -287,6 +291,11 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
         Assert.Equal(2, page1.Count);
         Assert.Equal(2, page2.Count);
         Assert.NotEqual(page1[0].EntityId, page2[0].EntityId);
+        Assert.Equal("Queue Customer", page1[0].CustomerName);
+        Assert.Equal("Queue Shop", page1[0].ShopName);
+        Assert.Equal("Not set", page1[0].Priority);
+        Assert.Equal("Unassigned", page1[0].AssignedAdmin);
+        Assert.Equal("No marker", page1[0].RiskAttentionMarker);
     }
 
     [Fact]
@@ -473,6 +482,110 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
             }));
 
         Assert.Equal("TARGET_SHOP_MISMATCH", exception.Code);
+    }
+
+    [Fact]
+    public async Task CONE_T22_HardwarePreview_BindsApprovalRequirementsToRebindDecision()
+    {
+        var shop = Shop.Create(Guid.NewGuid(), "HW_PREVIEW", "Hardware preview", DateTimeOffset.UtcNow);
+        _dbContext.Shops.Add(shop);
+        var license = SeedPreviewLicense(shop);
+        var installation = Installation.Register(shop.Id, license.Id, "FP_HW_PREVIEW", "PUBKEY", "pos-hw", "linux", DateTimeOffset.UtcNow);
+        var review = HardwareReview.Create(shop.Id, installation.Id, "reported-fingerprint", "stored-fingerprint", "replacement", DateTimeOffset.UtcNow);
+        _dbContext.Installations.Add(installation);
+        _dbContext.HardwareReviews.Add(review);
+        await _dbContext.SaveChangesAsync();
+
+        async Task<ActionPreviewResponseDto> Preview(string decision) => await _service.PreviewActionAsync(new ActionPreviewRequestDto
+        {
+            ActionType = "REPLACE_HARDWARE",
+            ShopId = shop.Id,
+            TargetEntityId = review.Id,
+            ProposedParametersJson = JsonSerializer.Serialize(new { shopId = shop.Id, targetEntityId = review.Id, expectedVersion = review.RowVersion, decision })
+        });
+
+        var rebind = await Preview("APPROVE_REBIND");
+        var reject = await Preview("REJECT");
+
+        Assert.True(rebind.RequiresStepUp);
+        Assert.True(rebind.RequiresDualApproval);
+        Assert.False(reject.RequiresStepUp);
+        Assert.False(reject.RequiresDualApproval);
+        Assert.Contains("reported fingerprint", rebind.ConsequenceSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not change", reject.ConsequenceSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CONE_T22_TransferPreview_OnlyRequiresDualApprovalForApproveDecision()
+    {
+        var shop = Shop.Create(Guid.NewGuid(), "TR_PREVIEW", "Transfer preview", DateTimeOffset.UtcNow);
+        _dbContext.Shops.Add(shop);
+        var license = SeedPreviewLicense(shop);
+        var source = Installation.Register(shop.Id, license.Id, "FP_TR_SOURCE", "PUBKEY1", "pos-source", "linux", DateTimeOffset.UtcNow);
+        var target = Installation.Register(shop.Id, license.Id, "FP_TR_TARGET", "PUBKEY2", "pos-target", "linux", DateTimeOffset.UtcNow);
+        var transfer = PrimaryTransfer.Initiate(shop.Id, source.Id, target.Id, "synthetic transfer", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        _dbContext.Installations.AddRange(source, target);
+        _dbContext.PrimaryTransfers.Add(transfer);
+        await _dbContext.SaveChangesAsync();
+
+        async Task<ActionPreviewResponseDto> Preview(string decision) => await _service.PreviewActionAsync(new ActionPreviewRequestDto
+        {
+            ActionType = "TRANSFER_PRIMARY",
+            ShopId = shop.Id,
+            TargetEntityId = transfer.Id,
+            ProposedParametersJson = JsonSerializer.Serialize(new { shopId = shop.Id, targetEntityId = transfer.Id, expectedVersion = transfer.RowVersion, decision })
+        });
+
+        var approve = await Preview("APPROVE");
+        var cancel = await Preview("CANCEL");
+
+        Assert.True(approve.RequiresStepUp);
+        Assert.True(approve.RequiresDualApproval);
+        Assert.False(cancel.RequiresStepUp);
+        Assert.False(cancel.RequiresDualApproval);
+        Assert.Contains("Approving transfer", approve.ConsequenceSummary, StringComparison.Ordinal);
+        Assert.Contains("does not complete", cancel.ConsequenceSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CONE_T22_TransferPreview_RejectsDecisionsThatCannotApplyToPersistedState()
+    {
+        var shop = Shop.Create(Guid.NewGuid(), "TR_PREVIEW_STATE", "Transfer preview state", DateTimeOffset.UtcNow);
+        _dbContext.Shops.Add(shop);
+        var license = SeedPreviewLicense(shop);
+        var source = Installation.Register(shop.Id, license.Id, "FP_TR_STATE_SOURCE", "PUBKEY_STATE_1", "pos-state-source", "linux", DateTimeOffset.UtcNow);
+        var target = Installation.Register(shop.Id, license.Id, "FP_TR_STATE_TARGET", "PUBKEY_STATE_2", "pos-state-target", "linux", DateTimeOffset.UtcNow);
+        var transfer = PrimaryTransfer.Initiate(shop.Id, source.Id, target.Id, "synthetic transfer", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        transfer.Approve(Guid.NewGuid(), Guid.NewGuid());
+        _dbContext.Installations.AddRange(source, target);
+        _dbContext.PrimaryTransfers.Add(transfer);
+        await _dbContext.SaveChangesAsync();
+
+        foreach (var decision in new[] { "REQUEST", "APPROVE", "REJECT", "CANCEL" })
+        {
+            var error = await Assert.ThrowsAsync<CentralDomainException>(() => _service.PreviewActionAsync(new ActionPreviewRequestDto
+            {
+                ActionType = "TRANSFER_PRIMARY",
+                ShopId = shop.Id,
+                TargetEntityId = transfer.Id,
+                ProposedParametersJson = JsonSerializer.Serialize(new { shopId = shop.Id, targetEntityId = transfer.Id, expectedVersion = transfer.RowVersion, decision })
+            }));
+
+            Assert.Equal("INVALID_STATE_TRANSITION", error.Code);
+        }
+
+        var requestRecorded = PrimaryTransfer.Initiate(shop.Id, source.Id, target.Id, "synthetic requested transfer", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        requestRecorded.ApplyContractDecision("REQUEST", "STANDARD_TRANSFER", Guid.NewGuid(), Guid.NewGuid());
+        _dbContext.PrimaryTransfers.Add(requestRecorded);
+        await _dbContext.SaveChangesAsync();
+        var repeatedRequest = await Assert.ThrowsAsync<CentralDomainException>(() => _service.PreviewActionAsync(new ActionPreviewRequestDto
+        {
+            ActionType = "TRANSFER_PRIMARY",
+            ShopId = shop.Id,
+            TargetEntityId = requestRecorded.Id,
+            ProposedParametersJson = JsonSerializer.Serialize(new { shopId = shop.Id, targetEntityId = requestRecorded.Id, expectedVersion = requestRecorded.RowVersion, decision = "REQUEST" })
+        }));
+        Assert.Equal("INVALID_STATE_TRANSITION", repeatedRequest.Code);
     }
 
     private CommercialLicense SeedPreviewLicense(Shop shop)

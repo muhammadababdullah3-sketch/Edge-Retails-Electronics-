@@ -17,6 +17,9 @@ const AppState = {
   lifecycle: { request: 0, busy: false, licenseId: null, shopId: null, details: null, preview: null, stage: null, opener: null },
   directory: { request: 0, filter: "", cursor: null, version: null },
   selectedQueueItem: null,
+  queueSelectionVersion: 0,
+  queueCommandVersion: 0,
+  queueApprovalStages: new Map(),
   queues: {
     dashboard: { type: "PAYMENT_REVIEW", page: 1, pageSize: 20, cursorStack: [null], nextCursor: null, asOfVersion: null, authorizedCount: 0, request: 0 },
     approvals: { type: "DUAL_APPROVAL", page: 1, pageSize: 20, cursorStack: [null], nextCursor: null, asOfVersion: null, authorizedCount: 0, request: 0 },
@@ -169,6 +172,18 @@ function formatUtc(value) {
   return Number.isNaN(date.getTime()) ? "Unavailable" : date.toISOString().replace("T", " ").replace("Z", " UTC");
 }
 
+function formatAge(value) {
+  if (typeof value !== "string" || !value.trim()) return "Unavailable";
+  const opened = new Date(value);
+  if (Number.isNaN(opened.getTime())) return "Unavailable";
+  const minutes = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
 function tableMessage(tbodyId, columnCount, message) {
   const row = node("tr");
   const cell = node("td", message);
@@ -215,8 +230,16 @@ async function responseError(response, fallback) {
   return error;
 }
 
-async function readJson(url, version) {
+async function readJson(url, version, attemptsRemaining = 3) {
   const response = await apiFetch(url);
+  if (response.status === 429 && attemptsRemaining > 1) {
+    const retryAfter = parseInt(response.headers.get("Retry-After") || "1", 10);
+    const delayMs = Math.min(Math.max(retryAfter, 1) * 1000, 5000);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    if (requestIsCurrent(version)) {
+      return readJson(url, version, attemptsRemaining - 1);
+    }
+  }
   if (!response.ok) {
     const error = await responseError(response, "The server could not complete this read.");
     if (response.status === 401 && requestIsCurrent(version)) {
@@ -257,12 +280,20 @@ function setAuthBusy(busy) {
 }
 
 function clearIdentity() {
+  closeQueueModal();
   const lifecycleDialog = document.getElementById("license-lifecycle-dialog");
   if (lifecycleDialog?.open) lifecycleDialog.close();
   AppState.lifecycle = { request: AppState.lifecycle.request + 1, busy: false, licenseId: null, shopId: null, details: null, preview: null, stage: null, opener: null };
   clearSensitiveDisclosure();
   if (AppState.sessionExpiryTimer !== null) clearTimeout(AppState.sessionExpiryTimer);
   AppState.sessionExpiryTimer = null;
+  AppState.queueApprovalStages.clear();
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith("central_queue_approval:")) sessionStorage.removeItem(key);
+    }
+  } catch (_) {}
   AppState.currentUser = null;
   AppState.loginChallengeId = null;
   AppState.activeShopId = null;
@@ -293,8 +324,8 @@ function clearIdentity() {
   document.getElementById("directory-filter").value = "";
   document.getElementById("directory-next").disabled = true;
   METRIC_FIELDS.forEach(([id]) => { document.getElementById(id).textContent = "Unavailable"; });
-  tableMessage("dashboard-queue-tbody", 5, "Sign in to load queue items.");
-  tableMessage("approvals-table-tbody", 5, "Sign in to load approval queue items.");
+  tableMessage("dashboard-queue-tbody", 12, "Sign in to load queue items.");
+  tableMessage("approvals-table-tbody", 12, "Sign in to load approval queue items.");
   tableMessage("audit-tbody", 7, "Sign in to load audit records.");
   clearBackupsData();
   Object.values(AppState.queues).forEach(state => { state.page = 1; });
@@ -550,6 +581,35 @@ function bindNavigation() {
   document.getElementById("activation-review-form").addEventListener("submit", submitActivationReview);
   document.getElementById("sensitive-approval-form").addEventListener("submit", submitSensitiveApprovalDecision);
   document.getElementById("payment-review-form").addEventListener("submit", submitPaymentReview);
+  document.getElementById("hardware-review-form").addEventListener("submit", submitHardwareReview);
+  document.getElementById("transfer-review-form").addEventListener("submit", submitTransferReview);
+  document.getElementById("transfer-completion-form").addEventListener("submit", submitTransferCompletion);
+  document.getElementById("hardware-review-request-approval").addEventListener("click", () => requestQueueSensitiveApproval("HARDWARE_REVIEW"));
+  document.getElementById("transfer-review-request-approval").addEventListener("click", () => requestQueueSensitiveApproval("PRIMARY_TRANSFER"));
+  [
+    ["HARDWARE_REVIEW", ["hardware-review-evidence", "hardware-review-decision", "hardware-review-reason"]],
+    ["PRIMARY_TRANSFER", ["transfer-review-evidence", "transfer-review-recovery", "transfer-review-decision", "transfer-review-reason"]]
+  ].forEach(([queueType, ids]) => ids.forEach(id => {
+    const element = document.getElementById(id);
+    element.addEventListener("input", () => invalidateQueueSensitiveApproval(queueType));
+    element.addEventListener("change", () => invalidateQueueSensitiveApproval(queueType));
+  }));
+  ["hardware-review-decision", "transfer-review-decision"].forEach(id => {
+    document.getElementById(id).addEventListener("change", updateQueueApprovalControls);
+  });
+  ["hardware-review-approval", "transfer-review-approval", "hardware-review-request-totp", "transfer-review-request-totp",
+    "hardware-review-execution-totp", "transfer-review-execution-totp"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => {
+      AppState.queueCommandVersion++;
+      resetQueueDecisionButtons();
+    });
+  });
+  ["transfer-completion-execution-totp", "transfer-completion-reason"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => {
+      AppState.queueCommandVersion++;
+      resetQueueDecisionButtons();
+    });
+  });
   document.getElementById("licensing-activation-queue").addEventListener("click", () => loadLicensingQueue("ACTIVATION_REVIEW"));
   document.getElementById("licensing-hardware-queue").addEventListener("click", () => loadLicensingQueue("HARDWARE_REVIEW"));
   document.getElementById("licensing-transfer-queue").addEventListener("click", () => loadLicensingQueue("PRIMARY_TRANSFER"));
@@ -585,6 +645,7 @@ function navigateTo(viewName) {
     return;
   }
   clearSensitiveDisclosure();
+  closeQueueModal();
   AppState.activeView = viewName;
   document.querySelectorAll(".nav-link").forEach(link => {
     const active = link.dataset.view === viewName;
@@ -609,7 +670,7 @@ function navigateTo(viewName) {
 async function loadDashboard() {
   if (hasCapability("queues.view")) loadQueue(AppState.queues.dashboard.type, AppState.queues.dashboard.page);
   else {
-    tableMessage("dashboard-queue-tbody", 5, "Your session cannot view operational queues.");
+    tableMessage("dashboard-queue-tbody", 12, "Your session cannot view operational queues.");
     setMessage("dashboard-queue-status", "Queue access is unavailable for this session.");
   }
   if (!hasCapability("dashboard.view")) {
@@ -644,7 +705,7 @@ async function loadQueue(queueType, page = 1, scope = "dashboard", resetSnapshot
   if (!AppState.currentUser || !Object.hasOwn(AppState.queues, scope) || !Object.hasOwn(QUEUE_LABELS, queueType) ||
       !Number.isSafeInteger(page) || page < 1) return;
   const state = AppState.queues[scope];
-  const columnCount = scope === "licensing" ? 6 : 5;
+  const columnCount = 12;
   if (resetSnapshot || state.type !== queueType) {
     state.cursorStack = [null];
     state.nextCursor = null;
@@ -690,11 +751,9 @@ async function loadQueue(queueType, page = 1, scope = "dashboard", resetSnapshot
     if (!items.length) tableMessage(tbodyId, columnCount, `No ${QUEUE_LABELS[queueType]} items returned for this page.`);
     items.forEach(item => {
       const row = node("tr");
-      if (scope === "licensing") {
-        appendCells(row, [item.entityId, textValue(item.title), isGuid(item.shopId) ? item.shopId : "Not supplied", textValue(item.status), formatUtc(item.createdAtUtc)]);
-      } else {
-        appendCells(row, [item.entityId, textValue(item.title), isGuid(item.shopId) ? item.shopId : "Not supplied", textValue(item.status)]);
-      }
+      appendCells(row, [textValue(QUEUE_LABELS[item.queueType]), item.entityId, textValue(item.title), textValue(item.customerName), textValue(item.shopName),
+        textValue(item.status), textValue(item.priority), formatUtc(item.createdAtUtc), formatAge(item.createdAtUtc),
+        textValue(item.assignedAdmin), textValue(item.riskAttentionMarker)]);
       const cell = node("td");
       const activationReviewable = queueType === "ACTIVATION_REVIEW" && hasCapability("activation.review") && Number.isSafeInteger(item.validationSnapshotVersion) && item.validationSnapshotVersion > 0;
       const approvalReviewable = queueType === "DUAL_APPROVAL" && hasCapability("sensitive.approve") && isGuid(item.approvalRequesterAdminId) &&
@@ -702,7 +761,11 @@ async function loadQueue(queueType, page = 1, scope = "dashboard", resetSnapshot
         typeof item.approvalTargetPayloadSha256 === "string" && /^[a-f0-9]{64}$/i.test(item.approvalTargetPayloadSha256) &&
         typeof item.approvalExpiresAtUtc === "string" && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
       const paymentReviewable = queueType === "PAYMENT_REVIEW" && hasCapability("payment.review") && isGuid(item.orderId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
-      const inspect = node("button", paymentReviewable ? "Review payment" : activationReviewable ? "Review activation" : approvalReviewable ? "Review approval" : "Inspect (read only)", "btn btn-secondary btn-sm");
+      const hardwareReviewable = queueType === "HARDWARE_REVIEW" && hasCapability("hardware.review") &&
+        isGuid(item.installationId) && isGuid(item.previousFingerprintId) && isGuid(item.currentFingerprintId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
+      const transferReviewable = queueType === "PRIMARY_TRANSFER" && hasCapability("primary.transfer") &&
+        isGuid(item.oldInstallationId) && isGuid(item.newInstallationId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
+      const inspect = node("button", paymentReviewable ? "Review payment" : activationReviewable ? "Review activation" : approvalReviewable ? "Review approval" : hardwareReviewable ? "Review hardware" : transferReviewable ? "Review transfer" : "Inspect (read only)", "btn btn-secondary btn-sm");
       inspect.type = "button";
       inspect.addEventListener("click", () => handleQueueAction(item));
       cell.appendChild(inspect);
@@ -729,7 +792,12 @@ async function loadQueue(queueType, page = 1, scope = "dashboard", resetSnapshot
 
 function handleQueueAction(item) {
   if (!AppState.currentUser || !isGuid(item.entityId) || !Object.hasOwn(QUEUE_LABELS, item.queueType)) return;
+  const prior = AppState.selectedQueueItem;
+  if (prior && (prior.queueType === "HARDWARE_REVIEW" || prior.queueType === "PRIMARY_TRANSFER")) {
+    clearQueueApprovalStage(prior, prior.queueType === "HARDWARE_REVIEW" ? "hardware.review" : "primary.transfer");
+  }
   AppState.selectedQueueItem = item;
+  AppState.queueSelectionVersion++;
   const fields = {
     "queue-item-entity": item.entityId,
     "queue-item-type": item.queueType,
@@ -741,37 +809,66 @@ function handleQueueAction(item) {
   Object.entries(fields).forEach(([id, value]) => { document.getElementById(id).textContent = value; });
   const activationReview = item.queueType === "ACTIVATION_REVIEW";
   const hardwareReview = item.queueType === "HARDWARE_REVIEW";
+  const transferReview = item.queueType === "PRIMARY_TRANSFER";
   const activationReviewable = activationReview && hasCapability("activation.review") && Number.isSafeInteger(item.validationSnapshotVersion) && item.validationSnapshotVersion > 0;
+  const hardwareReviewable = hardwareReview && hasCapability("hardware.review") && isGuid(item.installationId) && isGuid(item.previousFingerprintId) && isGuid(item.currentFingerprintId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
+  const transferReviewable = transferReview && hasCapability("primary.transfer") && isGuid(item.oldInstallationId) && isGuid(item.newInstallationId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
+  const transferCompletionReady = transferReviewable && item.status === "APPROVED" && hasCapability("auth.stepup");
   const paymentReviewable = item.queueType === "PAYMENT_REVIEW" && hasCapability("payment.review") && isGuid(item.orderId) && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
   const approvalReviewable = item.queueType === "DUAL_APPROVAL" && hasCapability("sensitive.approve") && isGuid(item.approvalRequesterAdminId) &&
     typeof item.approvalTargetActionType === "string" && item.approvalTargetActionType.length > 0 && isGuid(item.approvalTargetId) &&
     typeof item.approvalTargetPayloadSha256 === "string" && /^[a-f0-9]{64}$/i.test(item.approvalTargetPayloadSha256) &&
     typeof item.approvalExpiresAtUtc === "string" && Number.isSafeInteger(item.resourceVersion) && item.resourceVersion > 0;
-  document.getElementById("queue-inspect-title").textContent = paymentReviewable ? "Payment Evidence Review" : activationReview ? "Activation Review" : hardwareReview ? "Hardware Change Review (Read Only)" : approvalReviewable ? "Independent Approval Review" : "Queue Item (Read Only)";
+  document.getElementById("queue-inspect-title").textContent = paymentReviewable ? "Payment Evidence Review" : activationReview ? "Activation Review" : hardwareReview ? "Hardware Change Review" : transferReview ? "Primary Transfer" : approvalReviewable ? "Independent Approval Review" : "Queue Item (Read Only)";
   document.getElementById("activation-review-controls").hidden = !activationReviewable;
   document.getElementById("sensitive-approval-controls").hidden = !approvalReviewable;
   document.getElementById("payment-review-controls").hidden = !paymentReviewable;
+  document.getElementById("hardware-review-controls").hidden = !hardwareReviewable;
+  document.getElementById("transfer-review-controls").hidden = !transferReviewable || transferCompletionReady;
+  document.getElementById("transfer-completion-controls").hidden = !transferCompletionReady;
   document.getElementById("activation-review-version").textContent = activationReview
     ? `Persisted request version ${item.resourceVersion}; validation snapshot ${item.validationSnapshotVersion}. Central rechecks both before saving.`
     : "";
   document.getElementById("activation-review-form").reset();
   document.getElementById("sensitive-approval-form").reset();
   document.getElementById("payment-review-form").reset();
+  document.getElementById("hardware-review-form").reset();
+  document.getElementById("transfer-review-form").reset();
+  document.getElementById("transfer-completion-form").reset();
+  updateQueueApprovalControls();
   setMessage("activation-review-status", "");
   setMessage("sensitive-approval-status", "");
   setMessage("payment-review-status", "");
+  setMessage("hardware-review-status", "");
+  setMessage("transfer-review-status", "");
+  setMessage("transfer-completion-status", "");
   document.getElementById("sensitive-approval-details").textContent = approvalReviewable
     ? `Request from ${item.approvalRequesterAdminId}. Requester reason: ${textValue(item.reasonOrSummary)}. Expires ${formatUtc(item.approvalExpiresAtUtc)}. Persisted version ${item.resourceVersion}.`
     : "";
   document.getElementById("payment-review-details").textContent = paymentReviewable
     ? `Order ${item.orderId}; proof ${item.entityId}; persisted proof revision ${item.resourceVersion}. Central rechecks the order, shop and revision before saving.`
     : "";
+  document.getElementById("hardware-review-details").textContent = hardwareReviewable
+    ? `Persisted case revision ${item.resourceVersion}; prior fingerprint ${item.previousFingerprintId}; current fingerprint ${item.currentFingerprintId}. Central verifies the support attachment and both IDs against this case.`
+    : "The case requires persisted fingerprint identities, a current revision and hardware.review capability.";
+  document.getElementById("transfer-review-details").textContent = transferReviewable
+    ? `Persisted transfer revision ${item.resourceVersion}; source ${item.oldInstallationId}; target ${item.newInstallationId}. Approval requires a separate administrator approval and fresh execution MFA.`
+    : "The transfer requires persisted installation identities, a current revision and primary.transfer capability.";
+  document.getElementById("transfer-completion-details").textContent = transferCompletionReady
+    ? `This persisted transfer has independent APPROVE status at revision ${item.resourceVersion}. Completion is a separate, destructive step that retires the source and activates the target; Central will recheck current license and installation state.`
+    : "Completion is available only for an approved transfer with current primary.transfer and auth.stepup capabilities.";
   document.getElementById("queue-item-workflow").textContent = paymentReviewable
     ? "Choose a decision and reason code. Central records the review, order effect, audit and outbox outcome together."
     : hardwareReview
-    ? hasCapability("hardware.review")
-      ? "This persisted hardware case can be inspected, but no decision is submitted. The contract requires POST /api/admin/v1/hardware-reviews/{id}/decide with versioned HardwareCommand evidence; that route is not implemented by a controller, and the legacy decide endpoint accepts a different boolean-only DTO."
-      : "Your session can inspect this queue item but lacks hardware.review. No decision control is available."
+    ? hardwareReviewable
+      ? "Submit one of the persisted hardware outcomes with an active same-shop SUPPORT_ATTACHMENT. Fingerprint IDs and the case revision are checked by Central."
+      : "This hardware case is inspectable, but a required capability or persisted fingerprint identity is missing; no decision control is available."
+    : transferReview && transferCompletionReady
+      ? "This transfer is independently approved. Completion remains a separate previewed mutation requiring fresh execution-session MFA and current commercial eligibility."
+    : transferReview
+    ? transferReviewable
+      ? "Submit a request, rejection, cancellation or approval. Approval requires a separate administrator approval and fresh execution MFA; it never completes the transfer automatically."
+      : "This transfer is inspectable, but its required capability or persisted installation/revision data is missing; no decision control is available."
     : activationReview
     ? activationReviewable
       ? "Choose a decision and reason code. Central will verify the persisted activation snapshot and request version before recording it."
@@ -784,11 +881,7 @@ function handleQueueAction(item) {
       ? "Central did not provide a complete persisted approval snapshot. Refresh the queue before deciding; no action is available."
     : item.queueType === "SUPPORT_INBOX"
       ? "Open Support Tickets to view the persisted conversation or save a permitted staff reply. Inspecting this item makes no change."
-    : item.queueType === "PRIMARY_TRANSFER"
-      ? "This persisted transfer can be inspected, but no decision is submitted. The canonical primary.transfer decision route is not implemented yet; approval and completion remain separate persisted actions."
-      : item.queueType === "HARDWARE_REVIEW"
-        ? "Hardware review decisions are unavailable until the canonical versioned decision route and persisted case version/evidence are exposed."
-        : `The ${QUEUE_LABELS[item.queueType]} decision workflow is unavailable in this view. No mutation has been submitted.`;
+    : `The ${QUEUE_LABELS[item.queueType]} decision workflow is unavailable in this view. No mutation has been submitted.`;
   document.getElementById("btn-queue-shop").disabled = !isGuid(item.shopId);
   document.getElementById("queue-inspect-modal").classList.add("active");
   document.getElementById("btn-close-queue-modal").focus();
@@ -860,11 +953,475 @@ async function submitPaymentReview(event) {
   }
 }
 
+function queueApprovalKey(item, actionScope) {
+  return `central_queue_approval:${AppState.currentUser?.id}:${AppState.sessionVersion}:${actionScope}:${item.entityId}`;
+}
+
+function readQueueApprovalStage(item, actionScope, operationType, digest, reason) {
+  const key = queueApprovalKey(item, actionScope);
+  let stage = AppState.queueApprovalStages.get(key);
+  if (!stage) {
+    try { stage = JSON.parse(sessionStorage.getItem(key) || "null"); } catch (_) { stage = null; }
+  }
+  if (!stage || stage.version !== 1 || stage.requesterAdminId?.toLowerCase() !== AppState.currentUser.id.toLowerCase() ||
+      stage.actionScope !== actionScope || stage.operationType !== operationType || stage.targetId?.toLowerCase() !== item.entityId.toLowerCase() ||
+      stage.targetPayloadSha256 !== digest || stage.reason !== reason || stage.resourceVersion !== item.resourceVersion || !isGuid(stage.stepUpGrantId) ||
+      typeof stage.expiresAtUtc !== "string" || !Number.isFinite(Date.parse(stage.expiresAtUtc)) ||
+      stage.approvalRequestId && (!isGuid(stage.approvalRequestId) || typeof stage.approvalExpiresAtUtc !== "string" ||
+        !Number.isFinite(Date.parse(stage.approvalExpiresAtUtc)) || Date.parse(stage.approvalExpiresAtUtc) <= Date.now())) {
+    if (stage) clearQueueApprovalStage(item, actionScope);
+    return null;
+  }
+  AppState.queueApprovalStages.set(key, stage);
+  return stage;
+}
+
+function saveQueueApprovalStage(item, actionScope, stage) {
+  const key = queueApprovalKey(item, actionScope);
+  AppState.queueApprovalStages.set(key, stage);
+  try { sessionStorage.setItem(key, JSON.stringify(stage)); }
+  catch (_) {
+    if (stage.approvalRequestId) throw new Error(`Central saved approval request ${stage.approvalRequestId}, but this browser could not preserve its retry details. Keep this request ID.`);
+    AppState.queueApprovalStages.delete(key);
+    throw new Error("This browser could not preserve the step-up retry identity. No approval request was submitted.");
+  }
+}
+
+function clearQueueApprovalStage(item, actionScope) {
+  if (!AppState.currentUser || !item) return;
+  const key = queueApprovalKey(item, actionScope);
+  AppState.queueApprovalStages.delete(key);
+  try { sessionStorage.removeItem(key); } catch (_) {}
+}
+
+function invalidateQueueSensitiveApproval(queueType) {
+  const item = AppState.selectedQueueItem;
+  if (!item || item.queueType !== queueType) return;
+  const hardware = queueType === "HARDWARE_REVIEW";
+  const scope = hardware ? "hardware.review" : "primary.transfer";
+  AppState.queueCommandVersion++;
+  clearQueueApprovalStage(item, scope);
+  const prefix = hardware ? "hardware" : "transfer";
+  document.getElementById(`${prefix}-review-approval`).value = "";
+  document.getElementById(`${prefix}-review-request-totp`).value = "";
+  document.getElementById(`${prefix}-review-execution-totp`).value = "";
+  document.getElementById(`${prefix}-approval-state`).textContent = "";
+  resetQueueDecisionButtons();
+}
+
+function resetQueueDecisionButtons() {
+  ["hardware", "transfer"].forEach(prefix => {
+    document.getElementById(`${prefix}-review-submit`).disabled = false;
+    document.getElementById(`${prefix}-review-request-approval`).disabled = !hasCapability("auth.stepup") || !hasCapability("sensitive.approve");
+  });
+}
+
+function updateQueueApprovalControls() {
+  const item = AppState.selectedQueueItem;
+  document.getElementById("hardware-approval-controls").hidden = item?.queueType !== "HARDWARE_REVIEW" ||
+    document.getElementById("hardware-review-decision").value !== "APPROVE_REBIND";
+  document.getElementById("transfer-approval-controls").hidden = item?.queueType !== "PRIMARY_TRANSFER" ||
+    document.getElementById("transfer-review-decision").value !== "APPROVE";
+  resetQueueDecisionButtons();
+}
+
+function queueSensitivePayload(queueType, item) {
+  const evidenceId = document.getElementById(queueType === "HARDWARE_REVIEW" ? "hardware-review-evidence" : "transfer-review-evidence").value.trim();
+  const reason = document.getElementById(queueType === "HARDWARE_REVIEW" ? "hardware-review-reason" : "transfer-review-reason").value.trim();
+  if (queueType === "HARDWARE_REVIEW") {
+    return { payload: { caseId: item.entityId, installationId: item.installationId, previousFingerprintId: item.previousFingerprintId,
+      currentFingerprintId: item.currentFingerprintId, decision: "APPROVE_REBIND", verificationEvidenceId: evidenceId }, reason, evidenceId };
+  }
+  return { payload: { transferId: item.entityId, oldInstallationId: item.oldInstallationId, newInstallationId: item.newInstallationId,
+    recoveryType: document.getElementById("transfer-review-recovery").value, verificationEvidenceId: evidenceId, decision: "APPROVE" }, reason, evidenceId };
+}
+
+async function requestQueueSensitiveApproval(queueType) {
+  const item = AppState.selectedQueueItem;
+  const hardware = queueType === "HARDWARE_REVIEW";
+  const prefix = hardware ? "hardware" : "transfer";
+  const capability = hardware ? "hardware.review" : "primary.transfer";
+  const actionScope = capability;
+  const operationType = hardware ? "HARDWARE_REVIEW" : "PRIMARY_TRANSFER";
+  const statusId = `${prefix}-review-status`;
+  const proofInput = document.getElementById(`${prefix}-review-request-totp`);
+  if (!AppState.currentUser || !item || item.queueType !== queueType || !hasCapability(capability) ||
+      !hasCapability("auth.stepup") || !hasCapability("sensitive.approve") ||
+      !Number.isSafeInteger(item.resourceVersion) || item.resourceVersion < 1) {
+    setMessage(statusId, "This persisted queue item is unavailable for an approval request.");
+    return;
+  }
+  const { payload, reason, evidenceId } = queueSensitivePayload(queueType, item);
+  if (!isGuid(evidenceId) || !reason || reason.length > 500 ||
+      hardware && (!isGuid(item.installationId) || !isGuid(item.previousFingerprintId) || !isGuid(item.currentFingerprintId)) ||
+      !hardware && (!isGuid(item.oldInstallationId) || !isGuid(item.newInstallationId) || !["STANDARD_TRANSFER", "LOST_HARDWARE_RECOVERY"].includes(payload.recoveryType))) {
+    setMessage(statusId, "Enter the same-shop support attachment and decision reason; reload if persisted target identities are incomplete.");
+    return;
+  }
+  const proof = proofInput.value.trim();
+  proofInput.value = "";
+  const session = AppState.sessionVersion;
+  const selection = AppState.queueSelectionVersion;
+  const command = AppState.queueCommandVersion;
+  const approvalIsCurrent = () => requestIsCurrent(session) && AppState.queueSelectionVersion === selection && AppState.queueCommandVersion === command &&
+    AppState.selectedQueueItem === item && document.getElementById("queue-inspect-modal").classList.contains("active");
+  const button = document.getElementById(`${prefix}-review-request-approval`);
+  if (button.disabled) return;
+  button.disabled = true;
+  document.getElementById(`${prefix}-review-submit`).disabled = true;
+  setMessage(statusId, "Checking the exact decision preview before requesting separate approval...");
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(directoryCanonicalJson(payload)));
+    const payloadSha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+    if (!approvalIsCurrent()) return;
+    const previewAction = hardware ? "REPLACE_HARDWARE" : "TRANSFER_PRIMARY";
+    const previewResponse = await apiFetch("/api/admin/v1/action-preview", { method: "POST", body: JSON.stringify({
+      actionType: previewAction, targetEntityId: item.entityId, shopId: item.shopId,
+      proposedParametersJson: JSON.stringify({ shopId: item.shopId, targetEntityId: item.entityId,
+        expectedVersion: item.resourceVersion, decision: payload.decision })
+    }) });
+    if (!approvalIsCurrent()) return;
+    if (!previewResponse.ok) throw await responseError(previewResponse, "Central could not preview this decision.");
+    const preview = await previewResponse.json();
+    if (!approvalIsCurrent()) return;
+    if (preview?.actionType !== previewAction || preview.requiresStepUp !== true || preview.requiresDualApproval !== true ||
+        !Number.isSafeInteger(preview.affectedInstallationsCount) || typeof preview.consequenceSummary !== "string" || !preview.consequenceSummary.trim() ||
+        !Array.isArray(preview.warnings) || !preview.warnings.every(value => typeof value === "string")) {
+      throw new Error("Central did not confirm that this exact action currently requires step-up and independent approval.");
+    }
+    const prompt = `Central preview for ${payload.decision}\n\n${preview.consequenceSummary}\n\n${preview.warnings.join("\n\n")}\n\nPayload SHA-256: ${payloadSha256}\n\nThis requests independent approval only; it does not change the hardware or transfer.`;
+    if (!window.confirm(prompt)) {
+      setMessage(statusId, "No approval request was submitted. Review the case and preview again when ready.");
+      return;
+    }
+    if (!approvalIsCurrent()) return;
+    let stage = readQueueApprovalStage(item, actionScope, operationType, payloadSha256, reason);
+    if (stage?.approvalRequestId) {
+      document.getElementById(`${prefix}-review-approval`).value = stage.approvalRequestId;
+      document.getElementById(`${prefix}-approval-state`).textContent = `Saved request ${stage.approvalRequestId}. Check its current decision in Dual-Control Approvals; a different administrator must approve and execute this action.`;
+      setMessage(statusId, "The same persisted approval request was recovered; no duplicate was created.");
+      return;
+    }
+    if (!stage) {
+      if (!/^[0-9]{6}$/.test(proof)) throw new Error("Enter a fresh six-digit MFA code to request independent approval.");
+      const stepUpResponse = await apiFetch("/api/admin/v1/auth/step-up", { method: "POST", body: JSON.stringify({
+        sessionId: EMPTY_GUID, actionScope, targetPayloadSha256: payloadSha256, proof, challengeId: crypto.randomUUID()
+      }) });
+      if (!approvalIsCurrent()) return;
+      if (!stepUpResponse.ok) throw await responseError(stepUpResponse, "Central could not confirm fresh MFA.");
+      const grant = await stepUpResponse.json();
+      if (!approvalIsCurrent()) return;
+      if (grant?.actionScope !== actionScope || grant.targetPayloadSha256 !== payloadSha256 || !isGuid(grant.stepUpGrantId) ||
+          typeof grant.expiresAtUtc !== "string" || !Number.isFinite(Date.parse(grant.expiresAtUtc)) || Date.parse(grant.expiresAtUtc) <= Date.now()) {
+        throw new Error("Central returned a step-up grant for a different action or payload.");
+      }
+      stage = { version: 1, requesterAdminId: AppState.currentUser.id, actionScope, operationType, targetId: item.entityId, resourceVersion: item.resourceVersion,
+        targetPayloadSha256: payloadSha256, reason, stepUpGrantId: grant.stepUpGrantId, expiresAtUtc: grant.expiresAtUtc, approvalRequestId: null };
+      saveQueueApprovalStage(item, actionScope, stage);
+    }
+    if (!approvalIsCurrent()) return;
+    setMessage(statusId, "Fresh MFA was verified. Saving the independent approval request...");
+    const response = await apiFetch("/api/lifecycle/v1/sensitive-approvals", { method: "POST", body: JSON.stringify({
+      operationType, targetEntityId: item.entityId, targetPayloadSha256: payloadSha256, actionScope,
+      stepUpGrantId: stage.stepUpGrantId, reason
+    }) });
+    if (!approvalIsCurrent()) return;
+    if (!response.ok) throw await responseError(response, "Central could not confirm the saved approval request.");
+    const approval = await response.json();
+    if (!approvalIsCurrent()) return;
+    if (!isGuid(approval?.id) || approval.targetEntityId?.toLowerCase() !== item.entityId.toLowerCase() ||
+        approval.targetPayloadSha256 !== payloadSha256 || approval.operationType !== operationType || approval.actionScope !== actionScope ||
+        approval.status !== "PENDING" || approval.requesterAdminId?.toLowerCase() !== AppState.currentUser.id.toLowerCase() ||
+        typeof approval.expiresAtUtc !== "string" || !Number.isFinite(Date.parse(approval.expiresAtUtc)) || Date.parse(approval.expiresAtUtc) <= Date.now()) {
+      throw new Error("Central did not return the persisted pending approval for this exact decision.");
+    }
+    stage.approvalRequestId = approval.id;
+    stage.approvalExpiresAtUtc = approval.expiresAtUtc;
+    saveQueueApprovalStage(item, actionScope, stage);
+    document.getElementById(`${prefix}-review-approval`).value = approval.id;
+    document.getElementById(`${prefix}-approval-state`).textContent = `Persisted request ${approval.id} is pending until ${formatUtc(approval.expiresAtUtc)}. A different administrator must approve it in Dual-Control Approvals; no hardware or transfer change has occurred.`;
+    proofInput.value = "";
+    setMessage(statusId, "Independent approval request saved. The sensitive action has not been performed.");
+  } catch (error) {
+    if (approvalIsCurrent()) {
+      if (error.code === "STEP_UP_REQUIRED") clearQueueApprovalStage(item, actionScope);
+      setMessage(statusId, `Approval request not confirmed. ${error.message} Keep the decision, evidence and reason unchanged to retry the same request.`);
+    }
+  } finally {
+    if (approvalIsCurrent()) resetQueueDecisionButtons();
+  }
+}
+
+async function submitHardwareReview(event) {
+  event.preventDefault();
+  const item = AppState.selectedQueueItem;
+  const evidenceId = document.getElementById("hardware-review-evidence").value.trim();
+  const decision = document.getElementById("hardware-review-decision").value;
+  const sensitiveApprovalId = document.getElementById("hardware-review-approval").value.trim();
+  const reason = document.getElementById("hardware-review-reason").value.trim();
+  const executionProof = document.getElementById("hardware-review-execution-totp").value.trim();
+  if (!AppState.currentUser || !item || item.queueType !== "HARDWARE_REVIEW" || !hasCapability("hardware.review") ||
+      !isGuid(item.previousFingerprintId) || !isGuid(item.currentFingerprintId) || !Number.isSafeInteger(item.resourceVersion) || item.resourceVersion < 1 ||
+      !isGuid(evidenceId) || !["APPROVE_REBIND", "RECOMMEND_TRANSFER", "REQUEST_INFORMATION", "REJECT"].includes(decision) ||
+      decision === "APPROVE_REBIND" && (!hasCapability("auth.stepup") || !isGuid(sensitiveApprovalId) || !/^[0-9]{6}$/.test(executionProof)) || !reason || reason.length > 500) {
+    setMessage("hardware-review-status", "This case needs a current revision, same-shop support attachment and reason. Rebind also needs its persisted independent approval ID and fresh execution MFA.");
+    return;
+  }
+  await submitCanonicalQueueDecision({
+    queueType: "HARDWARE_REVIEW", item, payload: { caseId: item.entityId, installationId: item.installationId, previousFingerprintId: item.previousFingerprintId,
+      currentFingerprintId: item.currentFingerprintId, decision, verificationEvidenceId: evidenceId }, reason, statusId: "hardware-review-status",
+    submitId: "hardware-review-submit", endpoint: `/api/admin/v1/hardware-reviews/${encodeURIComponent(item.entityId)}/decide`, operationType: "hardware.review",
+    sensitiveApprovalId: decision === "APPROVE_REBIND" ? sensitiveApprovalId : undefined,
+    executionProof: decision === "APPROVE_REBIND" ? executionProof : undefined,
+    executionProofInputId: "hardware-review-execution-totp"
+  });
+}
+
+async function submitTransferReview(event) {
+  event.preventDefault();
+  const item = AppState.selectedQueueItem;
+  const evidenceId = document.getElementById("transfer-review-evidence").value.trim();
+  const recoveryType = document.getElementById("transfer-review-recovery").value;
+  const decision = document.getElementById("transfer-review-decision").value;
+  const sensitiveApprovalId = document.getElementById("transfer-review-approval").value.trim();
+  const reason = document.getElementById("transfer-review-reason").value.trim();
+  const executionProof = document.getElementById("transfer-review-execution-totp").value.trim();
+  if (!AppState.currentUser || !item || item.queueType !== "PRIMARY_TRANSFER" || !hasCapability("primary.transfer") ||
+      !isGuid(item.oldInstallationId) || !isGuid(item.newInstallationId) || !Number.isSafeInteger(item.resourceVersion) || item.resourceVersion < 1 ||
+      !isGuid(evidenceId) || !["STANDARD_TRANSFER", "LOST_HARDWARE_RECOVERY"].includes(recoveryType) || !["REQUEST", "APPROVE", "REJECT", "CANCEL"].includes(decision) ||
+      decision === "APPROVE" && (!hasCapability("auth.stepup") || !isGuid(sensitiveApprovalId) || !/^[0-9]{6}$/.test(executionProof)) || !reason || reason.length > 500) {
+    setMessage("transfer-review-status", "This transfer needs a current revision, same-shop support attachment, valid recovery type and reason. Approval also needs its persisted independent approval ID and fresh execution MFA.");
+    return;
+  }
+  await submitCanonicalQueueDecision({
+    queueType: "PRIMARY_TRANSFER", item, payload: { transferId: item.entityId, oldInstallationId: item.oldInstallationId, newInstallationId: item.newInstallationId,
+      recoveryType, verificationEvidenceId: evidenceId, decision }, reason, statusId: "transfer-review-status", submitId: "transfer-review-submit",
+    endpoint: `/api/admin/v1/transfers/${encodeURIComponent(item.entityId)}/decide`, operationType: "primary.transfer",
+    sensitiveApprovalId: decision === "APPROVE" ? sensitiveApprovalId : undefined,
+    executionProof: decision === "APPROVE" ? executionProof : undefined,
+    executionProofInputId: "transfer-review-execution-totp"
+  });
+}
+
+async function submitTransferCompletion(event) {
+  event.preventDefault();
+  const item = AppState.selectedQueueItem;
+  const reason = document.getElementById("transfer-completion-reason").value.trim();
+  const executionProofInput = document.getElementById("transfer-completion-execution-totp");
+  const executionProof = executionProofInput.value.trim();
+  const submit = document.getElementById("transfer-completion-submit");
+  if (!AppState.currentUser || !item || item.queueType !== "PRIMARY_TRANSFER" || item.status !== "APPROVED" ||
+      !hasCapability("primary.transfer") || !hasCapability("auth.stepup") || !isGuid(item.shopId) ||
+      !isGuid(item.oldInstallationId) || !isGuid(item.newInstallationId) || !Number.isSafeInteger(item.resourceVersion) ||
+      item.resourceVersion < 1 || !/^[0-9]{6}$/.test(executionProof) || !reason || reason.length > 500) {
+    setMessage("transfer-completion-status", "Completion requires a currently approved transfer, current decision and step-up capabilities, a reason and fresh six-digit MFA.");
+    return;
+  }
+  const session = AppState.sessionVersion;
+  const selection = AppState.queueSelectionVersion;
+  const command = AppState.queueCommandVersion;
+  const completionIsCurrent = () => requestIsCurrent(session) && AppState.queueSelectionVersion === selection &&
+    AppState.queueCommandVersion === command && AppState.selectedQueueItem === item &&
+    document.getElementById("queue-inspect-modal").classList.contains("active");
+  if (submit.disabled) return;
+  submit.disabled = true;
+  executionProofInput.value = "";
+  setMessage("transfer-completion-status", "Loading the current transfer completion preview...");
+  try {
+    const previewResponse = await apiFetch("/api/admin/v1/action-preview", { method: "POST", body: JSON.stringify({
+      actionType: "TRANSFER_PRIMARY", targetEntityId: item.entityId, shopId: item.shopId,
+      proposedParametersJson: JSON.stringify({ shopId: item.shopId, targetEntityId: item.entityId,
+        expectedVersion: item.resourceVersion, decision: "COMPLETE" })
+    }) });
+    if (!completionIsCurrent()) return;
+    if (!previewResponse.ok) throw await responseError(previewResponse, "Central could not preview this transfer completion.");
+    const preview = await previewResponse.json();
+    if (!completionIsCurrent()) return;
+    if (preview?.actionType !== "TRANSFER_PRIMARY" || preview.requiresStepUp !== true || preview.requiresDualApproval !== false ||
+        preview.isDestructive !== true || preview.affectedInstallationsCount !== 2 ||
+        typeof preview.consequenceSummary !== "string" || !preview.consequenceSummary.trim() ||
+        !Array.isArray(preview.warnings) || !preview.warnings.every(value => typeof value === "string")) {
+      throw new Error("Central returned an incomplete completion preview or its approval policy changed. Refresh and preview again.");
+    }
+    if (!window.confirm(`Central completion preview\n\n${[preview.consequenceSummary, ...preview.warnings].join("\n\n")}\n\nContinue with this separate completion?`)) {
+      setMessage("transfer-completion-status", "No completion was submitted. Review the approved transfer and preview again when ready.");
+      return;
+    }
+    if (!completionIsCurrent()) return;
+    const identityPayload = { transferId: item.entityId };
+    const identity = await supportOperation(`primary.transfer.complete:${item.entityId}`, { payload: identityPayload, reason }, AppState.currentUser.id);
+    const digest = async value => {
+      const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(directoryCanonicalJson(value)));
+      return Array.from(new Uint8Array(bytes), part => part.toString(16).padStart(2, "0")).join("");
+    };
+    // CompletePrimaryTransferCommand contains only commandMeta; the canonical
+    // serializer intentionally excludes commandMeta, so the ledger payload is {}.
+    const payloadSha256 = await digest({});
+    const stepUpTargetPayloadSha256 = await digest({ transferId: item.entityId.toLowerCase(), commandPayloadSha256: payloadSha256 });
+    if (!completionIsCurrent()) return;
+    const stepUpResponse = await apiFetch("/api/admin/v1/auth/step-up", { method: "POST", body: JSON.stringify({
+      sessionId: EMPTY_GUID, actionScope: "primary.transfer", targetPayloadSha256: stepUpTargetPayloadSha256,
+      proof: executionProof, challengeId: crypto.randomUUID()
+    }) });
+    if (!completionIsCurrent()) return;
+    if (!stepUpResponse.ok) throw await responseError(stepUpResponse, "Central could not confirm fresh MFA for completion.");
+    const grant = await stepUpResponse.json();
+    if (grant?.actionScope !== "primary.transfer" || grant.targetPayloadSha256 !== stepUpTargetPayloadSha256 ||
+        !isGuid(grant.stepUpGrantId) || typeof grant.expiresAtUtc !== "string" ||
+        !Number.isFinite(Date.parse(grant.expiresAtUtc)) || Date.parse(grant.expiresAtUtc) <= Date.now()) {
+      throw new Error("Central returned an execution grant for a different completion action or payload.");
+    }
+    const commandMeta = { clientOperationId: identity.id, operationType: "primary.transfer", fingerprintVersion: 1,
+      payloadSha256, expectedVersion: item.resourceVersion, policyVersion: 0, reason };
+    setMessage("transfer-completion-status", "Submitting the separately approved transfer completion to Central...");
+    const response = await apiFetch(`/api/activation/v1/primary-transfers/${encodeURIComponent(item.entityId)}/complete`, {
+      method: "POST", body: JSON.stringify({ commandMeta })
+    });
+    if (!completionIsCurrent()) return;
+    if (!response.ok) throw await responseError(response, "Central did not confirm transfer completion.");
+    const outcome = await response.json();
+    if (!completionIsCurrent() || outcome?.success !== true || outcome.status !== "COMPLETED") {
+      throw new Error("Central did not return the expected persisted transfer completion. Refresh before retrying.");
+    }
+    try { sessionStorage.removeItem(identity.storageKey); } catch (_) {}
+    AppState.support.operations.delete(`primary.transfer.complete:${item.entityId}`);
+    setMessage("transfer-completion-status", "Central completed the approved transfer and recorded its audit/outbox outcome. Refreshing the queue...");
+    await loadLicensingQueue("PRIMARY_TRANSFER");
+  } catch (error) {
+    if (completionIsCurrent()) setMessage("transfer-completion-status", error.message);
+  } finally {
+    if (completionIsCurrent()) {
+      executionProofInput.value = "";
+      submit.disabled = false;
+    }
+  }
+}
+
+async function submitCanonicalQueueDecision({ queueType, item, payload, reason, statusId, submitId, endpoint, operationType, sensitiveApprovalId, executionProof, executionProofInputId }) {
+  const session = AppState.sessionVersion;
+  const selection = AppState.queueSelectionVersion;
+  const command = AppState.queueCommandVersion;
+  const decisionIsCurrent = () => requestIsCurrent(session) && AppState.queueSelectionVersion === selection && AppState.queueCommandVersion === command &&
+    AppState.selectedQueueItem === item && document.getElementById("queue-inspect-modal").classList.contains("active");
+  const submit = document.getElementById(submitId);
+  if (submit.disabled) return;
+  if (executionProofInputId) document.getElementById(executionProofInputId).value = "";
+  submit.disabled = true;
+  const prefix = queueType === "HARDWARE_REVIEW" ? "hardware" : "transfer";
+  document.getElementById(`${prefix}-review-request-approval`).disabled = true;
+  setMessage(statusId, "Loading the current server consequence preview...");
+  try {
+    const previewAction = queueType === "HARDWARE_REVIEW" ? "REPLACE_HARDWARE" : "TRANSFER_PRIMARY";
+    const previewResponse = await apiFetch("/api/admin/v1/action-preview", { method: "POST", body: JSON.stringify({
+      actionType: previewAction, targetEntityId: item.entityId, shopId: item.shopId,
+      proposedParametersJson: JSON.stringify({ shopId: item.shopId, targetEntityId: item.entityId,
+        expectedVersion: item.resourceVersion, decision: payload.decision })
+    }) });
+    if (!decisionIsCurrent()) return;
+    if (!previewResponse.ok) throw await responseError(previewResponse, "Central could not preview this decision.");
+    const preview = await previewResponse.json();
+    if (!decisionIsCurrent()) return;
+    const sensitiveDecision = queueType === "HARDWARE_REVIEW" ? payload.decision === "APPROVE_REBIND" : payload.decision === "APPROVE";
+    if (!requestIsCurrent(session) || preview?.actionType !== previewAction ||
+        typeof preview.requiresStepUp !== "boolean" || typeof preview.requiresDualApproval !== "boolean" ||
+        !Number.isSafeInteger(preview.affectedInstallationsCount) || typeof preview.consequenceSummary !== "string" || !preview.consequenceSummary.trim() ||
+        !Array.isArray(preview.warnings) || !preview.warnings.every(value => typeof value === "string") ||
+        sensitiveDecision && (!preview.requiresStepUp || !preview.requiresDualApproval) ||
+        !sensitiveDecision && (preview.requiresStepUp || preview.requiresDualApproval)) {
+      throw new Error("Central returned an incomplete preview or its approval policy changed. Reload the queue and preview again.");
+    }
+    if (sensitiveDecision && (!isGuid(sensitiveApprovalId) || !/^[0-9]{6}$/.test(executionProof || ""))) {
+      throw new Error("This decision needs its persisted independent approval ID and fresh six-digit MFA for execution.");
+    }
+    const confirmation = [preview.consequenceSummary, ...preview.warnings].join("\n\n");
+    if (!window.confirm(`Central preview\n\n${confirmation}\n\nContinue with this persisted decision?`)) {
+      setMessage(statusId, "No change was submitted. Review the persisted case and preview again when ready.");
+      return;
+    }
+    if (!decisionIsCurrent()) return;
+    setMessage(statusId, "Saving the previewed decision; waiting for Central's persisted outcome...");
+    const operation = await supportOperation(`${operationType}:${item.entityId}`, { payload, reason, sensitiveApprovalId: sensitiveApprovalId || null }, AppState.currentUser.id);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(directoryCanonicalJson(payload)));
+    const payloadSha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+    if (!decisionIsCurrent()) return;
+    if (sensitiveDecision) {
+      const actionScope = queueType === "HARDWARE_REVIEW" ? "hardware.review" : "primary.transfer";
+      const stepUpResponse = await apiFetch("/api/admin/v1/auth/step-up", { method: "POST", body: JSON.stringify({
+        sessionId: EMPTY_GUID, actionScope, targetPayloadSha256: payloadSha256, proof: executionProof, challengeId: crypto.randomUUID()
+      }) });
+      if (!decisionIsCurrent()) return;
+      if (!stepUpResponse.ok) throw await responseError(stepUpResponse, "Central could not confirm fresh MFA for execution.");
+      const grant = await stepUpResponse.json();
+      if (!decisionIsCurrent()) return;
+      if (grant?.actionScope !== actionScope || grant.targetPayloadSha256 !== payloadSha256 || !isGuid(grant.stepUpGrantId) ||
+          typeof grant.expiresAtUtc !== "string" || !Number.isFinite(Date.parse(grant.expiresAtUtc)) || Date.parse(grant.expiresAtUtc) <= Date.now()) {
+        throw new Error("Central returned an execution grant for a different action or payload.");
+      }
+    }
+    const meta = { clientOperationId: operation.id, operationType, fingerprintVersion: 1, payloadSha256,
+      expectedVersion: item.resourceVersion, policyVersion: 0, reason };
+    if (sensitiveApprovalId) meta.sensitiveApprovalId = sensitiveApprovalId;
+    const response = await apiFetch(endpoint, { method: "POST", body: JSON.stringify({ meta, payload }) });
+    if (!decisionIsCurrent()) return;
+    if (!response.ok) throw await responseError(response, "Central could not save this decision.");
+    const outcome = await response.json();
+    if (!decisionIsCurrent()) return;
+    if (!requestIsCurrent(session) || outcome?.clientOperationId !== operation.id || outcome.operationType !== operationType ||
+        outcome.payloadSha256 !== payloadSha256 || outcome.state !== "SUCCEEDED" || outcome.resultReference !== `${queueType === "HARDWARE_REVIEW" ? "hardware_reviews" : "transfers"}/${item.entityId}`) {
+      throw new Error("Central did not return the matching persisted decision. Reload the queue before retrying.");
+    }
+    try { sessionStorage.removeItem(operation.storageKey); } catch (_) {}
+    AppState.support.operations.delete(`${operationType}:${item.entityId}`);
+    clearQueueApprovalStage(item, operationType);
+    setMessage(statusId, `Decision saved at Central revision ${outcome.resourceVersion}.`);
+    await loadLicensingQueue(item.queueType);
+  } catch (error) {
+    if (decisionIsCurrent()) setMessage(statusId, error.message);
+  } finally {
+    if (executionProofInputId && decisionIsCurrent()) document.getElementById(executionProofInputId).value = "";
+    if (decisionIsCurrent()) resetQueueDecisionButtons();
+  }
+}
+
 function closeQueueModal() {
+  const item = AppState.selectedQueueItem;
+  if (item?.queueType === "HARDWARE_REVIEW" || item?.queueType === "PRIMARY_TRANSFER") {
+    clearQueueApprovalStage(item, item.queueType === "HARDWARE_REVIEW" ? "hardware.review" : "primary.transfer");
+  }
+  AppState.queueSelectionVersion++;
+  AppState.queueCommandVersion++;
   document.getElementById("queue-inspect-modal").classList.remove("active");
   document.getElementById("activation-review-controls").hidden = true;
   document.getElementById("sensitive-approval-controls").hidden = true;
   document.getElementById("payment-review-controls").hidden = true;
+  document.getElementById("hardware-review-controls").hidden = true;
+  document.getElementById("transfer-review-controls").hidden = true;
+  document.getElementById("transfer-completion-controls").hidden = true;
+  document.getElementById("hardware-review-form").reset();
+  document.getElementById("transfer-review-form").reset();
+  document.getElementById("transfer-completion-form").reset();
+  document.getElementById("activation-review-form")?.reset();
+  document.getElementById("sensitive-approval-form")?.reset();
+  document.getElementById("payment-review-form")?.reset();
+  document.getElementById("hardware-review-submit").disabled = false;
+  document.getElementById("transfer-review-submit").disabled = false;
+  document.getElementById("transfer-completion-submit").disabled = false;
+  const activationSubmit = document.getElementById("activation-review-submit");
+  if (activationSubmit) activationSubmit.disabled = false;
+  const sensitiveSubmit = document.getElementById("sensitive-approval-submit");
+  if (sensitiveSubmit) sensitiveSubmit.disabled = false;
+  const paymentSubmit = document.getElementById("payment-review-submit");
+  if (paymentSubmit) paymentSubmit.disabled = false;
+  document.getElementById("hardware-review-request-approval").disabled = false;
+  document.getElementById("transfer-review-request-approval").disabled = false;
+  document.getElementById("hardware-approval-state").textContent = "";
+  document.getElementById("transfer-approval-state").textContent = "";
+  setMessage("hardware-review-status", "");
+  setMessage("transfer-review-status", "");
+  setMessage("transfer-completion-status", "");
+  setMessage("activation-review-status", "");
+  setMessage("sensitive-approval-status", "");
+  setMessage("payment-review-status", "");
   document.getElementById("queue-inspect-title").textContent = "Queue Item (Read Only)";
   AppState.selectedQueueItem = null;
 }
@@ -1436,8 +1993,13 @@ function renderCustomer360(data) {
     policy.body.appendChild(node("p", "No enforcement policy returned for this shop."));
   }
 
-  const unavailable = node("div", "Hardware and primary-transfer decisions remain unavailable until their source-defined evidence and outcomes are persisted.", "card card-body");
-  container.replaceChildren(identity.card, commercial.card, addons, installations.card, orders, tickets, policy.card, unavailable);
+  const licensingQueue = node("div", undefined, "card card-body");
+  licensingQueue.appendChild(node("p", "Hardware verification and primary-transfer decisions are handled in the Licensing & Hardware queues with a current revision and same-shop support evidence."));
+  const queueButton = node("button", "Open Licensing & Hardware queues", "btn btn-secondary btn-sm");
+  queueButton.type = "button";
+  queueButton.dataset.goView = "licensing";
+  licensingQueue.appendChild(queueButton);
+  container.replaceChildren(identity.card, commercial.card, addons, installations.card, orders, tickets, policy.card, licensingQueue);
 }
 
 function lifecycleStageKey(adminId, licenseId) {
@@ -2126,7 +2688,7 @@ async function loadCustomer360ForCommercial(shopId, version) {
 
 function loadLicensing() {
   if (!hasCapability("queues.view")) {
-    tableMessage("licensing-activations-tbody", 6, "Your session cannot view licensing review queues.");
+    tableMessage("licensing-activations-tbody", 12, "Your session cannot view licensing review queues.");
     setMessage("licensing-queue-status", "Queue access is unavailable for this session; queues.view is required to read these snapshots.");
     document.getElementById("licensing-queue-prev").disabled = true;
     document.getElementById("licensing-queue-next").disabled = true;
@@ -2138,7 +2700,7 @@ function loadLicensing() {
 function loadLicensingQueue(queueType) {
   if (!["ACTIVATION_REVIEW", "HARDWARE_REVIEW", "PRIMARY_TRANSFER"].includes(queueType)) return;
   if (!hasCapability("queues.view")) {
-    tableMessage("licensing-activations-tbody", 6, "Your session cannot view licensing review queues.");
+    tableMessage("licensing-activations-tbody", 12, "Your session cannot view licensing review queues.");
     setMessage("licensing-queue-status", "Queue access is unavailable for this session; queues.view is required.");
     return;
   }

@@ -167,8 +167,8 @@
           </div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Entity ID</th><th>Title</th><th>Shop ID</th><th>Status</th><th>Read-Only Review</th></tr></thead>
-              <tbody id="dashboard-queue-tbody"><tr><td colspan="5" style="text-align:center; padding:1.5rem;">Queue items not yet loaded.</td></tr></tbody>
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Read-Only Review</th></tr></thead>
+              <tbody id="dashboard-queue-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Queue items not yet loaded.</td></tr></tbody>
             </table>
           </div>
           <div class="card-body">
@@ -260,11 +260,11 @@
       <div id="licensing-view" class="view-container">
         <div class="card">
           <div class="card-header"><h2 class="card-title">Licensing & Hardware</h2><span class="badge">QUEUES / DECISION ROUTES PARTIAL</span></div>
-          <div class="card-body"><p>Pending activation, hardware review and primary-transfer cases can be inspected when your session has queue access. Hardware and transfer decisions stay unavailable until the canonical versioned routes in the effective040 contract are implemented; the older activation endpoints accept different, incomplete payloads.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
+          <div class="card-body"><p>Pending activation, hardware review and primary-transfer cases can be inspected when your session has queue access. Hardware and transfer decisions use versioned canonical commands, persisted same-shop verification attachments and audited outcomes.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Case ID</th><th>Summary</th><th>Shop ID</th><th>Status</th><th>Submitted (UTC)</th><th>Action</th></tr></thead>
-              <tbody id="licensing-activations-tbody"><tr><td colspan="6" style="text-align:center; padding:1.5rem;">Choose a review queue to load.</td></tr></tbody>
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Action</th></tr></thead>
+              <tbody id="licensing-activations-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Choose a review queue to load.</td></tr></tbody>
             </table>
           </div>
           <div class="card-body">
@@ -285,8 +285,8 @@
           <div class="card-body"><p>Eligible approvers can approve or reject a persisted request. Central checks the saved requester, target, digest, expiry and version against the decision. Approval records independent authorization; the approved business action is submitted separately.</p></div>
           <div class="table-responsive">
             <table class="data-table">
-              <thead><tr><th>Entity ID</th><th>Title</th><th>Shop ID</th><th>Status</th><th>Review</th></tr></thead>
-              <tbody id="approvals-table-tbody"><tr><td colspan="5" style="text-align:center; padding:1.5rem;">Approval queue not yet loaded.</td></tr></tbody>
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Review</th></tr></thead>
+              <tbody id="approvals-table-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Approval queue not yet loaded.</td></tr></tbody>
             </table>
           </div>
           <div class="card-body">
@@ -542,6 +542,75 @@
             </div>
             <p id="payment-review-status" role="status" aria-live="polite" class="workflow-status"></p>
             <button id="payment-review-submit" type="submit" class="btn btn-primary">Save payment decision</button>
+          </form>
+        </section>
+        <section id="hardware-review-controls" hidden aria-labelledby="hardware-review-title" style="margin-top:1rem;">
+          <h4 id="hardware-review-title" class="card-title">Decide hardware verification</h4>
+          <p id="hardware-review-details" class="form-help"></p>
+          <form id="hardware-review-form">
+            <label class="form-label" for="hardware-review-evidence">Same-shop support attachment ID</label>
+            <input id="hardware-review-evidence" class="form-input" required inputmode="text" autocomplete="off">
+            <label class="form-label" for="hardware-review-decision">Decision</label>
+            <select id="hardware-review-decision" class="form-input" required>
+              <option value="APPROVE_REBIND">Approve rebind</option><option value="RECOMMEND_TRANSFER">Recommend transfer</option>
+              <option value="REQUEST_INFORMATION">Request information</option><option value="REJECT">Reject</option>
+            </select>
+            <div id="hardware-approval-controls" hidden>
+            <label class="form-label" for="hardware-review-approval">Persisted independent approval request ID</label>
+            <input id="hardware-review-approval" class="form-input" autocomplete="off">
+            <label class="form-label" for="hardware-review-request-totp">Fresh MFA to request independent approval</label>
+            <input id="hardware-review-request-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <button id="hardware-review-request-approval" type="button" class="btn btn-secondary">Preview and request independent approval</button>
+            <label class="form-label" for="hardware-review-execution-totp">Fresh MFA to execute approved rebind</label>
+            <input id="hardware-review-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <p id="hardware-approval-state" role="status" aria-live="polite" class="form-help"></p>
+            </div>
+            <label class="form-label" for="hardware-review-reason">Decision reason</label>
+            <textarea id="hardware-review-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="hardware-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="hardware-review-submit" type="submit" class="btn btn-primary">Save hardware decision</button>
+          </form>
+        </section>
+        <section id="transfer-review-controls" hidden aria-labelledby="transfer-review-title" style="margin-top:1rem;">
+          <h4 id="transfer-review-title" class="card-title">Decide primary transfer</h4>
+          <p id="transfer-review-details" class="form-help"></p>
+          <form id="transfer-review-form">
+            <label class="form-label" for="transfer-review-evidence">Same-shop support attachment ID</label>
+            <input id="transfer-review-evidence" class="form-input" required autocomplete="off">
+            <label class="form-label" for="transfer-review-recovery">Recovery type</label>
+            <select id="transfer-review-recovery" class="form-input" required>
+              <option value="STANDARD_TRANSFER">Standard transfer</option><option value="LOST_HARDWARE_RECOVERY">Lost hardware recovery</option>
+            </select>
+            <label class="form-label" for="transfer-review-decision">Decision</label>
+            <select id="transfer-review-decision" class="form-input" required>
+              <option value="REQUEST">Record request</option><option value="APPROVE">Approve with separate approval</option><option value="REJECT">Reject</option><option value="CANCEL">Cancel</option>
+            </select>
+            <div id="transfer-approval-controls" hidden>
+            <label class="form-label" for="transfer-review-approval">Persisted independent approval request ID</label>
+            <input id="transfer-review-approval" class="form-input" autocomplete="off">
+            <label class="form-label" for="transfer-review-request-totp">Fresh MFA to request independent approval</label>
+            <input id="transfer-review-request-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <button id="transfer-review-request-approval" type="button" class="btn btn-secondary">Preview and request independent approval</button>
+            <label class="form-label" for="transfer-review-execution-totp">Fresh MFA to execute approved transfer</label>
+            <input id="transfer-review-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <p id="transfer-approval-state" role="status" aria-live="polite" class="form-help"></p>
+            </div>
+            <label class="form-label" for="transfer-review-reason">Decision reason</label>
+            <textarea id="transfer-review-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="transfer-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="transfer-review-submit" type="submit" class="btn btn-primary">Save transfer decision</button>
+          </form>
+        </section>
+        <section id="transfer-completion-controls" hidden aria-labelledby="transfer-completion-title" style="margin-top:1rem;">
+          <h4 id="transfer-completion-title" class="card-title">Complete approved primary transfer</h4>
+          <p id="transfer-completion-details" class="form-help"></p>
+          <form id="transfer-completion-form">
+            <label class="form-label" for="transfer-completion-execution-totp">Fresh MFA for this completion</label>
+            <input id="transfer-completion-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+            <label class="form-label" for="transfer-completion-reason">Completion reason</label>
+            <textarea id="transfer-completion-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="transfer-completion-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="transfer-completion-submit" type="submit" class="btn btn-primary">Preview and complete transfer</button>
           </form>
         </section>
       </div>

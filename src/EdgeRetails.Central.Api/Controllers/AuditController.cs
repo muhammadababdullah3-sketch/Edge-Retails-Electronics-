@@ -27,7 +27,7 @@ public class AuditController : ControllerBase
         [FromQuery] AuditQueryDto query,
         CancellationToken cancellationToken)
     {
-        // 1. Authenticate session & verify AuditRead capability
+        // 1. Authenticate session & verify audit-view capability
         var sessionId = ExtractSessionId();
         if (sessionId == Guid.Empty)
         {
@@ -40,8 +40,7 @@ public class AuditController : ControllerBase
             return Unauthorized(new { code = "SESSION_INVALID", safeMessageKey = "auth.session_invalid" });
         }
 
-        if (!session.Capabilities.Contains(AdminCapabilities.AuditRead) &&
-            !session.Capabilities.Contains(AdminCapabilities.AdminManage))
+        if (!session.Capabilities.Contains(AdminCapabilities.AuditView))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "FORBIDDEN", safeMessageKey = "auth.unauthorized_capability" });
         }

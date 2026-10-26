@@ -116,14 +116,15 @@ public class ProtectedSigningController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "CROSS_ORIGIN_PROHIBITED", safeMessageKey = "signer.cross_origin_prohibited" });
         }
 
-        // 2. Authenticate Admin session & verify SecurityManage or AdminManage capability
+        // 2. Authenticate Admin session and verify the exact action capability or its approved broad administrator grants.
         var session = await AuthenticateAdminSessionAsync(cancellationToken);
         if (session is null)
         {
             return Unauthorized(new { code = "SESSION_INVALID", safeMessageKey = "auth.session_invalid" });
         }
 
-        if (!session.Capabilities.Contains(AdminCapabilities.SecurityManage) &&
+        if (!session.Capabilities.Contains(AdminCapabilities.SignerRotate) &&
+            !session.Capabilities.Contains(AdminCapabilities.SecurityManage) &&
             !session.Capabilities.Contains(AdminCapabilities.AdminManage))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "FORBIDDEN", safeMessageKey = "auth.unauthorized_capability" });
@@ -158,14 +159,15 @@ public class ProtectedSigningController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "CROSS_ORIGIN_PROHIBITED", safeMessageKey = "signer.cross_origin_prohibited" });
         }
 
-        // 2. Authenticate Admin session & verify SecurityManage or AdminManage capability
+        // 2. Authenticate Admin session and verify the exact action capability or its approved broad administrator grants.
         var session = await AuthenticateAdminSessionAsync(cancellationToken);
         if (session is null)
         {
             return Unauthorized(new { code = "SESSION_INVALID", safeMessageKey = "auth.session_invalid" });
         }
 
-        if (!session.Capabilities.Contains(AdminCapabilities.SecurityManage) &&
+        if (!session.Capabilities.Contains(AdminCapabilities.SignerRevoke) &&
+            !session.Capabilities.Contains(AdminCapabilities.SecurityManage) &&
             !session.Capabilities.Contains(AdminCapabilities.AdminManage))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "FORBIDDEN", safeMessageKey = "auth.unauthorized_capability" });

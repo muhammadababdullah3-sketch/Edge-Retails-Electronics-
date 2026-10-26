@@ -18,6 +18,12 @@ public class CentralExceptionHandlingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var requestId = Guid.NewGuid();
+        using var logScope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["CentralRequestId"] = requestId
+        });
+
         try
         {
             await _next(context);
@@ -26,27 +32,27 @@ public class CentralExceptionHandlingMiddleware
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogError("Central domain request failed after the response started.");
+                _logger.LogError("Central domain request {RequestId} failed after the response started.", requestId);
                 context.Abort();
                 return;
             }
-            _logger.LogWarning("Central domain request failed with code {Code}.", ex.Code);
-            await HandleDomainExceptionAsync(context, ex);
+            _logger.LogWarning("Central domain request {RequestId} failed with code {Code}.", requestId, ex.Code);
+            await HandleDomainExceptionAsync(context, ex, requestId);
         }
         catch (Exception ex)
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogError("Unhandled server exception after the response started ({FailureType}).", ex.GetType().Name);
+                _logger.LogError("Unhandled server exception after the response started ({FailureType}) for request {RequestId}.", ex.GetType().Name, requestId);
                 context.Abort();
                 return;
             }
-            _logger.LogError("Unhandled server exception occurred ({FailureType}).", ex.GetType().Name);
-            await HandleGenericExceptionAsync(context, ex);
+            _logger.LogError("Unhandled server exception occurred ({FailureType}) for request {RequestId}.", ex.GetType().Name, requestId);
+            await HandleGenericExceptionAsync(context, ex, requestId);
         }
     }
 
-    private static async Task HandleDomainExceptionAsync(HttpContext context, CentralDomainException ex)
+    private static async Task HandleDomainExceptionAsync(HttpContext context, CentralDomainException ex, Guid requestId)
     {
         var statusCode = ex.Code switch
         {
@@ -65,7 +71,7 @@ public class CentralExceptionHandlingMiddleware
         var errorDto = new ErrorDto
         {
             Code = ex.Code,
-            RequestId = Guid.NewGuid(),
+            RequestId = requestId,
             Retryable = statusCode == HttpStatusCode.Conflict || statusCode == HttpStatusCode.ServiceUnavailable,
             SafeMessageKey = ex.SafeMessageKey
         };
@@ -74,7 +80,7 @@ public class CentralExceptionHandlingMiddleware
         await context.Response.WriteAsync(json);
     }
 
-    private static async Task HandleGenericExceptionAsync(HttpContext context, Exception ex)
+    private static async Task HandleGenericExceptionAsync(HttpContext context, Exception ex, Guid requestId)
     {
         context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
         context.Response.ContentType = "application/json";
@@ -82,7 +88,7 @@ public class CentralExceptionHandlingMiddleware
         var errorDto = new ErrorDto
         {
             Code = "INTERNAL_SERVER_ERROR",
-            RequestId = Guid.NewGuid(),
+            RequestId = requestId,
             Retryable = true,
             SafeMessageKey = "error.internal"
         };

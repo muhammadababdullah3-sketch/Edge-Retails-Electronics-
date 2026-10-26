@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace EdgeRetails.Central.Application.DTOs;
@@ -220,6 +221,15 @@ public class ApprovePrimaryTransferCommand
 
     [JsonPropertyName("stepUpGrantToken")]
     public string? StepUpGrantToken { get; set; }
+
+    [JsonPropertyName("contractRecoveryType")]
+    public string? ContractRecoveryType { get; set; }
+
+    [JsonPropertyName("contractEvidenceId")]
+    public Guid? ContractEvidenceId { get; set; }
+
+    [JsonIgnore]
+    public JsonElement? CanonicalPayload { get; set; }
 }
 
 public class CompletePrimaryTransferCommand

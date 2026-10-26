@@ -125,13 +125,22 @@ public sealed class InstallationRequestProofService
                 body = await reader.ReadToEndAsync(cancellationToken);
             }
             request.Body.Position = 0;
-            try
+            if (body.Length == 0)
             {
-                bodyDigest = _canonical.ComputeSha256Hex(_canonical.SerializeCanonical(body));
+                // Bodyless GET requests have one unambiguous representation in the
+                // installation proof profile: SHA-256 of zero body bytes.
+                bodyDigest = _canonical.ComputeSha256Hex(string.Empty);
             }
-            catch (System.Text.Json.JsonException)
+            else
             {
-                return false;
+                try
+                {
+                    bodyDigest = _canonical.ComputeSha256Hex(_canonical.SerializeCanonical(body));
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    return false;
+                }
             }
         }
 
@@ -174,11 +183,18 @@ public sealed class InstallationRequestProofService
             }
         }
 
+        var nonceValue = requestNonce.ToString("D");
+        if (await _db.InstallationRequestNonces.AsNoTracking().AnyAsync(
+                x => x.InstallationId == installation.Id && x.Nonce == nonceValue, cancellationToken))
+        {
+            return false;
+        }
+
         var expiredNonces = await _db.InstallationRequestNonces
             .Where(x => x.TimestampUtc < now.AddSeconds(-600))
             .ToListAsync(cancellationToken);
         _db.InstallationRequestNonces.RemoveRange(expiredNonces);
-        var nonceRecord = InstallationRequestNonce.Create(installation.Id, requestNonce.ToString("D"), timestamp);
+        var nonceRecord = InstallationRequestNonce.Create(installation.Id, nonceValue, timestamp);
         _db.InstallationRequestNonces.Add(nonceRecord);
         try
         {

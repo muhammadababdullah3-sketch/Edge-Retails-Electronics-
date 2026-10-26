@@ -423,6 +423,42 @@ public class CentralRequestAuthorizationTests
         Assert.Null(filterContext.Result);
     }
 
+    [Theory]
+    [InlineData("/api/admin/v1/payments/11111111-1111-1111-1111-111111111111/review", "payment.review")]
+    [InlineData("/api/admin/v1/licenses/issue", "license.issue")]
+    public async Task Filter_ManualCommercialActionsRequireTheirOwnPersistedCapability(string path, string capability)
+    {
+        var authService = new TestAdminAuthService();
+        var filter = new CentralRequestAuthorizationFilter(authService);
+        var requestContext = new DefaultHttpContext();
+        requestContext.Request.Method = "POST";
+        requestContext.Request.Path = path;
+        requestContext.Request.Headers["X-Caller-Scope"] = "admin";
+        requestContext.Request.Headers["X-Admin-Role"] = capability;
+        var actionContext = new ActionContext(requestContext, new RouteData(), new ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        await filter.OnAuthorizationAsync(filterContext);
+        Assert.IsType<UnauthorizedObjectResult>(filterContext.Result);
+
+        var sessionId = Guid.NewGuid();
+        authService.Sessions[sessionId] = new AdminSessionDto
+        {
+            SessionId = sessionId,
+            AdminUserId = Guid.NewGuid(),
+            Capabilities = new List<string> { "admin.manage" }
+        };
+        requestContext.Request.Headers.Cookie = $"{CentralSessionCredentials.CookieName}={sessionId:D}";
+        filterContext.Result = null;
+        await filter.OnAuthorizationAsync(filterContext);
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(filterContext.Result).StatusCode);
+
+        authService.Sessions[sessionId].Capabilities = new List<string> { capability };
+        filterContext.Result = null;
+        await filter.OnAuthorizationAsync(filterContext);
+        Assert.Null(filterContext.Result);
+    }
+
     [Fact]
     public async Task Filter_PortalSession_RequiresSessionViewCapability()
     {
