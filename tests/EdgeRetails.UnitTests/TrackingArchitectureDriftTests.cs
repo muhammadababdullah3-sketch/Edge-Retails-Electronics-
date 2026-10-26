@@ -64,7 +64,8 @@ public sealed class TrackingArchitectureDriftTests
         var opcodes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
             .Select(x => (OpCode)x.GetValue(null)!).ToDictionary(x => unchecked((ushort)x.Value));
         foreach (var project in Directory.EnumerateDirectories(Path.Combine(root.FullName, "src"), "EdgeRetails.*")
-            .Where(x => File.Exists(Path.Combine(x, Path.GetFileName(x) + ".csproj"))))
+            .Where(x => File.Exists(Path.Combine(x, Path.GetFileName(x) + ".csproj")))
+            .Where(x => IsShopPosProductionAssembly(Path.GetFileName(x))))
         {
             var name = Path.GetFileName(project);
             var framework = name is "EdgeRetails.Desktop" or "EdgeRetails.Recovery" ? "net10.0-windows" : "net10.0";
@@ -150,6 +151,15 @@ public sealed class TrackingArchitectureDriftTests
         var type = reader.GetTypeReference(handle);
         return reader.GetString(type.Namespace) + "." + reader.GetString(type.Name);
     }
+
+    private static bool IsShopPosProductionAssembly(string projectFolderName) =>
+        projectFolderName is "EdgeRetails.Domain"
+            or "EdgeRetails.Application"
+            or "EdgeRetails.Infrastructure"
+            or "EdgeRetails.Server"
+            or "EdgeRetails.Worker"
+            or "EdgeRetails.Desktop"
+            or "EdgeRetails.Recovery";
 
     private sealed record Call(string Owner, string Method, string TargetType, string TargetName, OpCode OpCode, OpCode Previous, OpCode BeforePrevious);
 }

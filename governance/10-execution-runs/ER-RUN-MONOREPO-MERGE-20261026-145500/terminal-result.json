@@ -1,0 +1,131 @@
+﻿{
+    "status":  "PASS",
+    "cleanup_pass":  true,
+    "owned_root":  "C:\\Users\\muham\\AppData\\Local\\Temp\\EdgeRetailsMasterPg_ER-RUN-6b3a26c2894b4579b69e4a4c801c78c9",
+    "peak_scratch_bytes":  217739528,
+    "reserved_scratch_bytes":  335544320,
+    "records":  [
+                    {
+                        "step":  "Release integration build",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:00:34.0935115Z"
+                    },
+                    {
+                        "step":  "Release crash host build",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:00:36.9479313Z"
+                    },
+                    {
+                        "step":  "initdb PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:00:54.6129112Z"
+                    },
+                    {
+                        "step":  "start PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:00:55.1389854Z"
+                    },
+                    {
+                        "step":  "create identities/database PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:00:55.6974397Z"
+                    },
+                    {
+                        "step":  "migrate PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:01:07.1152067Z"
+                    },
+                    {
+                        "step":  "grant write and separate backup read PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:01:07.2596081Z"
+                    },
+                    {
+                        "step":  "transfer object ownership to er_provisioner PHASE11",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:01:07.4849527Z"
+                    },
+                    {
+                        "step":  "initdb MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:06.5767594Z"
+                    },
+                    {
+                        "step":  "start MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:07.1072458Z"
+                    },
+                    {
+                        "step":  "create identities/database MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:07.6698950Z"
+                    },
+                    {
+                        "step":  "migrate MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:18.6135795Z"
+                    },
+                    {
+                        "step":  "grant write and separate backup read MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:18.7604504Z"
+                    },
+                    {
+                        "step":  "transfer object ownership to er_provisioner MASTER",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:02:18.9835303Z"
+                    },
+                    {
+                        "step":  "initdb MODEL",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:18.5840939Z"
+                    },
+                    {
+                        "step":  "start MODEL",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:19.1233999Z"
+                    },
+                    {
+                        "step":  "create identities/database MODEL",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:19.7364282Z"
+                    },
+                    {
+                        "step":  "generate model-only schema",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:24.8698634Z"
+                    },
+                    {
+                        "step":  "initialize model-only profile before tests",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:26.2207974Z"
+                    },
+                    {
+                        "step":  "grant write and separate backup read MODEL",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:03:26.3594791Z"
+                    },
+                    {
+                        "step":  "Release crash host rebinding before tests",
+                        "exit_code":  0,
+                        "utc":  "2026-10-26T10:04:19.9382980Z"
+                    },
+                    {
+                        "step":  "Owned test process",
+                        "pid":  17704,
+                        "elapsed_seconds":  516.6469913,
+                        "peak_scratch_bytes":  217739528,
+                        "reserved_bytes":  335544320,
+                        "exit_code":  0
+                    },
+                    {
+                        "step":  "IntegrationTests Release",
+                        "exit_code":  0,
+                        "total":  "1112",
+                        "passed":  "1112",
+                        "failed":  "0",
+                        "not_executed":  "0",
+                        "filter":  ""
+                    }
+                ]
+}
