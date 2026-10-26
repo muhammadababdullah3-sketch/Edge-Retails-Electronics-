@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeRetails Central Admin Portal</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/portal.css">
+  <style>
+    /* Existing six headline tiles stay neutral: no series/status palette or chart. */
+    .metrics-grid .metric-card::before { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Auth Wrapper (Login & MFA) -->
+  <div id="auth-wrapper" class="auth-wrapper">
+    <div class="auth-box">
+      <div class="auth-header">
+        <div class="auth-logo">ER</div>
+        <h2>EdgeRetails Central</h2>
+        <p style="color:var(--text-secondary); font-size:0.85rem; margin-top:0.25rem;">
+          Enterprise Management & Governance Authority
+        </p>
+      </div>
+
+      <p id="auth-status" role="status" aria-live="polite" style="margin-bottom:1rem;">Checking server session...</p>
+      <noscript>JavaScript is required to verify a session and use this portal.</noscript>
+
+      <div id="login-step">
+        <form id="login-form">
+          <div class="form-group">
+            <label class="form-label" for="login-username">Admin Username</label>
+            <input type="text" id="login-username" class="form-input" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-password">Password</label>
+            <input type="password" id="login-password" class="form-input" required autocomplete="current-password">
+          </div>
+          <div id="login-error" role="alert" style="display:none; color:var(--accent-danger); font-size:0.85rem; margin-bottom:1rem;"></div>
+          <button type="submit" class="btn btn-primary" style="width:100%; margin-top:0.5rem;">Authenticate Password</button>
+        </form>
+      </div>
+
+      <div id="mfa-step" style="display:none;">
+        <div class="preview-consequence" style="margin-bottom:1.25rem;">
+          <div style="font-weight:600; margin-bottom:0.25rem;">Two-Factor Authentication Required</div>
+          <div style="font-size:0.8rem; color:var(--text-secondary);">Enter the 6-digit TOTP verification code for the server-issued login challenge.</div>
+        </div>
+        <form id="mfa-form">
+          <div class="form-group">
+            <label class="form-label" for="mfa-totp">TOTP Verification Code</label>
+            <input type="text" id="mfa-totp" class="form-input" style="font-size:1.25rem; letter-spacing:0.3em; text-align:center;" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" required>
+          </div>
+          <div id="mfa-error" role="alert" style="display:none; color:var(--accent-danger); font-size:0.85rem; margin-bottom:1rem;"></div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Verify & Enter Portal</button>
+          <button type="button" id="btn-back-login" class="btn btn-secondary" style="width:100%; margin-top:0.5rem;">Return to Sign-In</button>
+        </form>
+      </div>
+
+      <button type="button" id="btn-check-session" class="btn btn-secondary" style="width:100%; margin-top:1rem;">Retry Session Check</button>
+      <div style="margin-top:1.5rem; text-align:center; font-size:0.75rem; color:var(--text-secondary);">
+        Sign-in uses the server's secure browser cookie. A verified server session is required.
+      </div>
+    </div>
+  </div>
+
+  <!-- Existing App Shell Layout -->
+  <div id="app-shell" style="display:none;">
+    <aside id="sidebar">
+      <div class="brand-section">
+        <div class="brand-logo">ER</div>
+        <div>
+          <div class="brand-title">EdgeRetails</div>
+          <div class="brand-subtitle">Central Administration</div>
+        </div>
+      </div>
+
+      <ul class="nav-menu">
+        <li><a href="#dashboard" class="nav-link active" data-view="dashboard"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></a></li>
+        <li><a href="#customer360" class="nav-link" data-view="customer360"><span class="nav-icon" aria-hidden="true">C</span><span>Customer 360</span></a></li>
+        <li><a href="#commercial" class="nav-link" data-view="commercial"><span class="nav-icon" aria-hidden="true">O</span><span>Commercial & Orders</span></a></li>
+        <li><a href="#licensing" class="nav-link" data-view="licensing"><span class="nav-icon" aria-hidden="true">L</span><span>Licensing & Hardware</span></a></li>
+        <li><a href="#approvals" class="nav-link" data-view="approvals"><span class="nav-icon" aria-hidden="true">A</span><span>Dual-Control Approvals</span></a></li>
+        <li><a href="#backups" class="nav-link" data-view="backups"><span class="nav-icon" aria-hidden="true">B</span><span>Encrypted Backups</span></a></li>
+        <li><a href="#support" class="nav-link" data-view="support"><span class="nav-icon" aria-hidden="true">S</span><span>Support Tickets</span></a></li>
+        <li><a href="#notifications" class="nav-link" data-view="notifications"><span class="nav-icon" aria-hidden="true">N</span><span>Notifications</span></a></li>
+        <li><a href="#sessions" class="nav-link" data-view="sessions"><span class="nav-icon" aria-hidden="true">X</span><span>Admin Sessions</span></a></li>
+        <li><a href="#audit" class="nav-link" data-view="audit"><span class="nav-icon" aria-hidden="true">T</span><span>Central Audit Trail</span></a></li>
+        <li><a href="#recovery" class="nav-link" data-view="recovery"><span class="nav-icon" aria-hidden="true">R</span><span>Recovery & Attestation</span></a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div style="font-weight:600; color:var(--text-primary);">Administration workspace</div>
+        <div>Available views follow your session capabilities.</div>
+        <div>Server authorization applies to every request.</div>
+      </div>
+    </aside>
+
+    <main id="main-content">
+      <header id="top-header">
+        <div class="header-left">
+          <button type="button" id="btn-menu" class="btn-icon mobile-menu" aria-controls="sidebar" aria-expanded="false">Menu</button>
+          <h1 id="current-page-title" class="page-title">Enterprise Dashboard</h1>
+          <span class="badge" style="background:var(--bg-tertiary); color:var(--text-secondary);">SERVER SESSION</span>
+        </div>
+        <div class="header-right">
+          <button type="button" id="btn-theme-toggle" class="btn-icon">Light theme</button>
+          <div class="user-badge">
+            <div id="user-avatar-text" class="user-avatar"></div>
+            <div>
+              <div id="user-display-name" style="font-weight:600; line-height:1.2;"></div>
+              <div id="user-capabilities" style="font-size:0.7rem; color:var(--text-secondary);"></div>
+            </div>
+          </div>
+          <button type="button" id="btn-logout" class="btn btn-secondary btn-sm">Log out</button>
+        </div>
+      </header>
+      <div id="shell-status" role="alert" style="display:none; padding:1rem 1.5rem;"></div>
+      <p id="session-capabilities" style="padding:0.75rem 1.5rem; font-size:0.8rem; color:var(--text-secondary); overflow-wrap:anywhere;"></p>
+
+      <!-- Dashboard: six actual DashboardMetricsDto fields, without invented defaults -->
+      <div id="dashboard-view" class="view-container active">
+        <p id="metrics-status" role="status" aria-live="polite" style="margin-bottom:1rem;">Metrics not yet loaded.</p>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-header">Active Shops</div>
+            <div id="metric-active-shops" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Shops with active status</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">Lifetime Base Licenses</div>
+            <div id="metric-lifetime-bases" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Active lifetime commercial bases</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">Fixed-Term Base Licenses</div>
+            <div id="metric-fixed-term-bases" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Active fixed-term commercial bases</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">Expiring Add-ons</div>
+            <div id="metric-expiring-addons" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Active add-ons expiring within 30 days</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">Expiring Fixed-Term Bases</div>
+            <div id="metric-expiring-fixed-bases" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Within 30 days; lifetime bases excluded</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">Pending Approvals</div>
+            <div id="metric-pending-approvals" class="metric-value">Unavailable</div>
+            <div class="metric-subtext">Pending sensitive approval requests</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header" style="flex-wrap:wrap; gap:0.75rem;">
+            <h2 class="card-title">Operations & Approval Queues</h2>
+            <div style="display:flex; flex-wrap:wrap; gap:0.5rem;" aria-label="Queue selection">
+              <button type="button" class="btn btn-secondary btn-sm" data-queue="PAYMENT_REVIEW" aria-pressed="true">Payment Reviews</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-queue="HARDWARE_REVIEW" aria-pressed="false">Hardware Reviews</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-queue="DUAL_APPROVAL" aria-pressed="false">Dual Approvals</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-queue="SUPPORT_INBOX" aria-pressed="false">Support Inbox</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Read-Only Review</th></tr></thead>
+              <tbody id="dashboard-queue-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Queue items not yet loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <p id="dashboard-queue-status" role="status" aria-live="polite" style="margin-bottom:0.75rem;">Queue not yet loaded.</p>
+            <button type="button" id="dashboard-queue-prev" class="btn btn-secondary btn-sm" disabled>Previous Page</button>
+            <button type="button" id="dashboard-queue-next" class="btn btn-secondary btn-sm" disabled>Next Page</button>
+            <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.75rem;">Inspecting an item does not submit a decision. Staff conversations and ticket status changes are available in Support Tickets when permitted.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Customer360 uses nested commercialLicense and installations, not fabricated PII -->
+      <div id="customer360-view" class="view-container">
+        <div class="card" id="customer-create-card" style="margin-bottom:1.5rem;" hidden>
+          <div class="card-header"><h2 class="card-title">Create Customer</h2></div>
+          <form id="customer-create-form" class="card-body">
+            <label class="form-label" for="customer-display-name">Display name</label><input id="customer-display-name" class="form-input" required maxlength="256">
+            <label class="form-label" for="customer-contact-reference">Contact reference (optional)</label><input id="customer-contact-reference" class="form-input" autocomplete="off">
+            <label class="form-label" for="customer-create-reason">Reason</label><input id="customer-create-reason" class="form-input" required>
+            <button type="submit" class="btn btn-primary" style="margin-top:0.75rem;">Create customer</button>
+            <p id="customer-create-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+        <div class="card" id="shop-create-card" style="margin-bottom:1.5rem;" hidden>
+          <div class="card-header"><h2 class="card-title">Register Shop</h2></div>
+          <form id="shop-create-form" class="card-body">
+            <label class="form-label" for="shop-customer-id">Customer ID</label><input id="shop-customer-id" class="form-input" required autocomplete="off">
+            <label class="form-label" for="shop-display-name">Shop name</label><input id="shop-display-name" class="form-input" required maxlength="256">
+            <label class="form-label" for="shop-contact-reference">Contact reference (optional)</label><input id="shop-contact-reference" class="form-input" autocomplete="off">
+            <label class="form-label" for="shop-create-reason">Reason</label><input id="shop-create-reason" class="form-input" required>
+            <p class="form-help">Each shop has one primary installation.</p>
+            <button type="submit" class="btn btn-primary" style="margin-top:0.75rem;">Register shop</button>
+            <p id="shop-create-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+        <div class="card" style="margin-bottom:1.5rem;">
+          <form id="customer-search-form" class="card-body" style="display:flex; flex-wrap:wrap; gap:1rem; align-items:center;">
+            <div style="flex:1; min-width:200px;">
+              <label class="form-label" for="customer-search-input">Shop ID (GUID)</label>
+              <input type="text" id="customer-search-input" class="form-input" required autocomplete="off" placeholder="Enter a Shop GUID">
+            </div>
+            <button type="submit" id="btn-customer-search" class="btn btn-primary" style="margin-top:1.5rem;">Lookup Customer 360</button>
+          </form>
+        </div>
+        <div class="card" id="directory-card" style="margin-bottom:1.5rem;" hidden>
+          <form id="directory-search-form" class="card-body">
+            <label class="form-label" for="directory-filter">Find a shop by name, code or customer name</label>
+            <input id="directory-filter" class="form-input" type="search" maxlength="200" autocomplete="off">
+            <button type="submit" class="btn btn-primary" style="margin-top:0.75rem;">Search shops</button>
+          </form>
+          <p id="directory-status" role="status" aria-live="polite" class="card-body"></p>
+          <div id="directory-results" class="card-body"></div>
+          <div class="card-body"><button id="directory-next" type="button" class="btn btn-secondary" disabled>More results</button></div>
+        </div>
+        <div id="customer-360-details" aria-live="polite">
+          <div class="card card-body" style="text-align:center; padding:3rem;">Enter a Shop GUID, or open a shop from a queue item, to read shop identity, commercial base and installations. No contact email is supplied by this contract.</div>
+        </div>
+      </div>
+
+      <div id="commercial-view" class="view-container">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Commercial Licenses & Orders</h2><span class="badge">CATALOG &amp; ORDER COMMANDS</span></div>
+          <div class="card-body"><p>Active server plans and governed order creation are available below. A saved order is not a payment approval or license issue. Review payment evidence in its authorized workflow before issuing a license.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button><p id="commercial-catalog-status" role="status" aria-live="polite" class="workflow-status"></p></div>
+          <section id="commercial-order-panel" class="card" hidden aria-labelledby="commercial-order-title">
+            <div class="card-header"><h3 id="commercial-order-title" class="card-title">Create an Order</h3></div>
+            <form id="commercial-order-form" class="card-body">
+              <div class="form-grid">
+                <div class="form-group"><label class="form-label" for="commercial-shop-id">Shop ID</label><input id="commercial-shop-id" class="form-input" autocomplete="off" required></div>
+                <div class="form-group"><label class="form-label" for="commercial-plan-id">Active plan</label><select id="commercial-plan-id" class="form-input" required><option value="">Load the plan catalog first</option></select></div>
+                <div class="form-group"><label class="form-label" for="commercial-order-type">Order type</label><select id="commercial-order-type" class="form-input" required></select></div>
+                <div id="commercial-base-license-group" class="form-group" hidden><label class="form-label" for="commercial-base-license-id">Existing base license ID</label><input id="commercial-base-license-id" class="form-input" autocomplete="off"></div>
+                <div id="commercial-entitlement-group" class="form-group" hidden><label class="form-label" for="commercial-entitlement-id">Existing add-on entitlement ID (when renewing one)</label><input id="commercial-entitlement-id" class="form-input" autocomplete="off"></div>
+              </div>
+              <p id="commercial-plan-summary" class="form-help">Select a server plan. The server will calculate and persist the price snapshot.</p>
+              <div class="form-group"><label class="form-label" for="commercial-order-reason">Reason</label><input id="commercial-order-reason" class="form-input" required maxlength="500"></div>
+              <button id="commercial-order-submit" type="submit" class="btn btn-primary">Create price snapshot and order</button>
+              <p id="commercial-order-status" role="status" aria-live="polite" class="workflow-status"></p>
+            </form>
+          </section>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead><tr><th>License ID</th><th>Shop ID</th><th>Plan Profile</th><th>Term Model</th><th>Valid Until</th><th>Status</th><th>Governed Actions</th></tr></thead>
+              <tbody id="commercial-licenses-tbody"><tr><td colspan="7" style="text-align:center; padding:1.5rem;">No collection request has been made. Per-shop license details are available in Customer 360.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="licensing-view" class="view-container">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Licensing & Hardware</h2><span class="badge">QUEUES / DECISION ROUTES PARTIAL</span></div>
+          <div class="card-body"><p>Pending activation, hardware review and primary-transfer cases can be inspected when your session has queue access. Hardware and transfer decisions use versioned canonical commands, persisted same-shop verification attachments and audited outcomes.</p><button type="button" class="btn btn-secondary btn-sm" data-go-view="customer360" style="margin-top:0.75rem;">Open Customer 360</button></div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Action</th></tr></thead>
+              <tbody id="licensing-activations-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Choose a review queue to load.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <p id="licensing-queue-status" role="status" aria-live="polite" style="margin-bottom:0.75rem;">Queue not yet loaded.</p>
+            <button type="button" id="licensing-activation-queue" class="btn btn-secondary btn-sm">Activation Reviews</button>
+            <button type="button" id="licensing-hardware-queue" class="btn btn-secondary btn-sm">Hardware Reviews</button>
+            <button type="button" id="licensing-transfer-queue" class="btn btn-secondary btn-sm">Primary Transfers</button>
+            <button type="button" id="licensing-queue-refresh" class="btn btn-secondary btn-sm">Refresh Current Queue</button>
+            <button type="button" id="licensing-queue-prev" class="btn btn-secondary btn-sm" disabled>Previous Page</button>
+            <button type="button" id="licensing-queue-next" class="btn btn-secondary btn-sm" disabled>Next Page</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="approvals-view" class="view-container">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Dual-Control Approval Queue</h2><span class="badge">INDEPENDENT REVIEW</span></div>
+          <div class="card-body"><p>Eligible approvers can approve or reject a persisted request. Central checks the saved requester, target, digest, expiry and version against the decision. Approval records independent authorization; the approved business action is submitted separately.</p></div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead><tr><th>Case Type</th><th>Case ID</th><th>Summary</th><th>Customer</th><th>Shop</th><th>Current State</th><th>Priority</th><th>Opened At (UTC)</th><th>Age</th><th>Assigned Admin</th><th>Risk / Attention Marker</th><th>Review</th></tr></thead>
+              <tbody id="approvals-table-tbody"><tr><td colspan="12" style="text-align:center; padding:1.5rem;">Approval queue not yet loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <p id="approvals-queue-status" role="status" aria-live="polite" style="margin-bottom:0.75rem;">Queue not yet loaded.</p>
+            <button type="button" id="approvals-queue-prev" class="btn btn-secondary btn-sm" disabled>Previous Page</button>
+            <button type="button" id="approvals-queue-next" class="btn btn-secondary btn-sm" disabled>Next Page</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="backups-view" class="view-container">
+        <div class="card">
+          <div class="card-header" style="flex-wrap:wrap; gap:0.75rem;">
+            <h2 class="card-title">Encrypted Backup Metadata</h2>
+            <button id="backups-refresh" type="button" class="btn btn-secondary btn-sm">Refresh metadata</button>
+          </div>
+          <div class="card-body">
+            <p id="backups-status" role="status" aria-live="polite" class="workflow-status">Backup metadata has not been loaded.</p>
+            <p class="form-help">This view reports persisted metadata only. The SHA-256 value is recorded ciphertext metadata; it is not a live integrity check. This portal does not provide backup upload, download, or customer restore actions, and this view does not attest key custody or file availability.</p>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <caption>Persisted encrypted backup metadata returned by Central</caption>
+              <thead><tr><th scope="col">Backup ID</th><th scope="col">Shop ID</th><th scope="col">Payload Size</th><th scope="col">Recorded Ciphertext SHA-256</th><th scope="col">Created (UTC)</th><th scope="col">Retain Until (UTC)</th><th scope="col">Legal Hold</th><th scope="col">Tombstone</th><th scope="col">Tombstoned At (UTC)</th></tr></thead>
+              <tbody id="backups-tbody"><tr><td colspan="9" style="text-align:center; padding:1.5rem;">Sign in with backup metadata access to load records.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <p id="backups-page-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <div class="button-row"><button id="backups-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="backups-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="support-view" class="view-container">
+        <p id="support-access-status" role="status" aria-live="polite" class="workflow-status"></p>
+        <section id="support-create-panel" class="card" hidden>
+          <div class="card-header"><h2 class="card-title">Create Support Ticket</h2></div>
+          <form id="support-create-form" class="card-body">
+            <div class="form-grid">
+              <div class="form-group"><label class="form-label" for="support-shop-id">Shop ID</label><input id="support-shop-id" class="form-input" type="text" autocomplete="off" required></div>
+              <div class="form-group"><label class="form-label" for="support-redaction-version">Redaction Profile Version</label><input id="support-redaction-version" class="form-input" type="number" min="1" step="1" value="1" required></div>
+            </div>
+            <div class="form-group"><label class="form-label" for="support-subject">Subject</label><input id="support-subject" class="form-input" type="text" required></div>
+            <div class="form-group"><label class="form-label" for="support-summary">Issue Summary</label><textarea id="support-summary" class="form-input" rows="4" required></textarea></div>
+            <div class="form-group"><label class="form-label" for="support-attachments">Existing Attachment Object IDs (optional)</label><textarea id="support-attachments" class="form-input" rows="2" aria-describedby="support-attachment-help"></textarea><p id="support-attachment-help" class="form-help">Separate IDs with commas or new lines. Use objects already authorized for this shop. File upload is unavailable in this view. Do not include passwords, activation tokens or private keys.</p></div>
+            <button id="support-create-submit" type="submit" class="btn btn-primary" data-support-submit>Create Ticket</button>
+            <p id="support-create-status" role="status" aria-live="polite" class="workflow-status"></p>
+          </form>
+        </section>
+        <section id="support-list-panel" class="card" hidden>
+          <div class="card-header"><h2 class="card-title">Support Tickets</h2><button id="support-refresh" type="button" class="btn btn-secondary btn-sm">Refresh</button></div>
+          <div class="table-responsive"><table class="data-table"><thead><tr><th>Ticket</th><th>Shop</th><th>Subject</th><th>Status</th><th>Updated (UTC)</th><th>Conversation</th></tr></thead><tbody id="support-tbody"><tr><td colspan="6">Tickets not yet loaded.</td></tr></tbody></table></div>
+          <div class="card-body"><p id="support-list-status" role="status" aria-live="polite" class="workflow-status"></p><div class="button-row"><button id="support-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="support-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div></div>
+        </section>
+        <section id="support-detail-panel" class="card" hidden aria-labelledby="support-detail-title">
+          <div class="card-header"><h2 id="support-detail-title" class="card-title" tabindex="-1">Ticket Conversation</h2></div>
+          <div class="card-body">
+            <dl id="support-ticket-metadata" class="ticket-metadata"></dl><p id="support-ticket-summary" class="preserve-lines"></p>
+            <h3 class="section-label">Encrypted Attachments</h3><ul id="support-ticket-attachments"></ul><p class="form-help">Downloads are available to staff with support access. Central verifies the persisted ticket, shop and attachment relationship before returning encrypted bytes.</p>
+            <h3 class="section-label">Replies &amp; Status History</h3><ol id="support-history" class="ticket-history"></ol><p id="support-detail-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <form id="support-reply-form" hidden><div class="form-group"><label class="form-label" for="support-reply-text">Staff Reply</label><textarea id="support-reply-text" class="form-input" rows="4" required></textarea></div><button type="submit" class="btn btn-primary" data-support-submit>Save Reply</button><p id="support-reply-status" role="status" aria-live="polite" class="workflow-status"></p></form>
+            <form id="support-status-form" hidden><div class="form-group"><label class="form-label" for="support-new-status">Ticket Status</label><select id="support-new-status" class="form-input"><option value="OPEN">Open</option><option value="IN_PROGRESS">In progress</option><option value="WAITING">Waiting</option><option value="CLOSED">Closed</option></select></div><button type="submit" class="btn btn-secondary" data-support-submit>Save Status</button><p id="support-change-status" role="status" aria-live="polite" class="workflow-status"></p></form>
+            <p class="form-help">Replies are saved in the portal. Saving a reply does not send an external notification.</p>
+          </div>
+        </section>
+      </div>
+
+      <div id="sessions-view" class="view-container">
+        <section class="card">
+          <div class="card-header" style="flex-wrap:wrap; gap:0.75rem;">
+            <h2 class="card-title">Administrator Sessions</h2>
+            <div class="button-row"><button id="sessions-refresh" type="button" class="btn btn-secondary btn-sm">Refresh</button></div>
+          </div>
+          <div class="card-body">
+            <p>Review authenticated administrator sessions. Revoking a session takes effect on the server. Your current session cannot be revoked here.</p>
+            <form id="sessions-filter-form" class="form-grid" role="search">
+              <div class="form-group"><label class="form-label" for="sessions-filter">Administrator username</label><input id="sessions-filter" class="form-input" type="search" maxlength="200" autocomplete="off"></div>
+              <div class="form-group" style="align-self:end"><button type="submit" class="btn btn-secondary">Apply Filter</button></div>
+            </form>
+            <p id="sessions-status" role="status" aria-live="polite" class="workflow-status">Sessions not yet loaded.</p>
+          </div>
+          <div class="table-responsive">
+            <table id="sessions-table" class="data-table">
+              <thead><tr><th>Administrator</th><th>Created (UTC)</th><th>Last Activity (UTC)</th><th>Expires (UTC)</th><th>Absolute Expiry (UTC)</th><th>MFA</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="sessions-table-tbody"><tr><td colspan="8" style="text-align:center; padding:1.5rem;">Sessions not yet loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body"><p id="sessions-page-status" role="status" aria-live="polite" class="workflow-status"></p><div class="button-row"><button id="sessions-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="sessions-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div></div>
+        </section>
+      </div>
+      <div id="notifications-view" class="view-container">
+        <section class="card">
+          <div class="card-header"><h2 class="card-title">Notifications</h2><button id="notifications-refresh" type="button" class="btn btn-secondary btn-sm">Refresh</button></div>
+          <div class="card-body"><p>Notifications report recorded events. Viewing an event does not approve or resolve the associated case.</p><p id="notifications-worker-status" role="status" aria-live="polite" class="workflow-status">Worker activity is unknown until checked with the server.</p></div>
+          <div class="table-responsive"><table class="data-table"><thead><tr><th>Title</th><th>Category</th><th>Related Record</th><th>Occurred (UTC)</th></tr></thead><tbody id="notifications-tbody"><tr><td colspan="4">Notifications not yet loaded.</td></tr></tbody></table></div>
+          <div class="card-body"><p id="notifications-status" role="status" aria-live="polite" class="workflow-status"></p><div class="button-row"><button id="notifications-prev" type="button" class="btn btn-secondary btn-sm" disabled>Previous Page</button><button id="notifications-next" type="button" class="btn btn-secondary btn-sm" disabled>Next Page</button></div></div>
+        </section>
+      </div>
+
+      <div id="audit-view" class="view-container">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Central Audit Trail</h2><span class="badge">SERVER RECORDS</span></div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead><tr><th>Audit ID</th><th>Action</th><th>Actor Username</th><th>Reason</th><th>Timestamp (UTC)</th><th>Operation Result</th><th>Customer Contact</th></tr></thead>
+              <tbody id="audit-tbody"><tr><td colspan="7" style="text-align:center; padding:1.5rem;">Audit records not yet loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <p id="audit-status" role="status" aria-live="polite" style="margin-bottom:0.75rem;">Audit page not yet loaded. Contact reveal requires customer-sensitive and audit-read capabilities and is recorded by Central.</p>
+            <button type="button" id="audit-prev" class="btn btn-secondary btn-sm" disabled>Previous Page</button>
+            <button type="button" id="audit-next" class="btn btn-secondary btn-sm" disabled>Next Page</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="recovery-view" class="view-container">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Recovery & Guard Attestation</h2><button id="recovery-refresh" type="button" class="btn btn-secondary btn-sm">Refresh status</button></div>
+          <div class="card-body">
+            <p id="recovery-worker-status" role="status" aria-live="polite">Worker health is unknown until a fresh authorized server observation is requested.</p>
+            <p id="recovery-status" role="status">Recovery and restore attestation are unavailable in this portal. A worker observation does not prove a backup, restore, host identity, or database target.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="sessions-revoke-dialog" aria-labelledby="sessions-revoke-title" aria-describedby="sessions-revoke-description">
+    <form method="dialog" class="modal-dialog" id="sessions-revoke-form">
+      <div class="modal-header"><h3 id="sessions-revoke-title" class="modal-title">Revoke administrator session?</h3></div>
+      <div class="card-body"><p id="sessions-revoke-description">This session will lose access to Central immediately. Confirm only if you intend to revoke this other administrator session.</p><p id="sessions-revoke-target" role="status" aria-live="polite"></p><p id="sessions-revoke-status" role="status" aria-live="polite" class="workflow-status"></p></div>
+      <div class="button-row"><button id="sessions-revoke-cancel" type="submit" value="cancel" class="btn btn-secondary">Cancel</button><button id="sessions-revoke-confirm" type="button" class="btn btn-danger" data-session-revoke-confirm disabled>Revoke Session</button></div>
+    </form>
+  </dialog>
+  <dialog id="license-lifecycle-dialog" aria-labelledby="license-lifecycle-title" aria-describedby="license-lifecycle-description">
+    <section class="modal-dialog">
+      <div class="modal-header"><h3 id="license-lifecycle-title" class="modal-title">Review license revocation</h3><button id="license-lifecycle-close" type="button" class="btn-icon" aria-label="Close license revocation review">Close</button></div>
+      <div class="modal-body">
+        <p id="license-lifecycle-description">Central will show the persisted license, shop, current policy and affected installation count before you request a separate administrator approval. Revocation does not send a command to an offline installation immediately.</p>
+        <p id="license-lifecycle-target" role="status" aria-live="polite"></p>
+        <button id="license-lifecycle-preview" type="button" class="btn btn-secondary">Refresh server preview</button>
+        <p id="license-lifecycle-preview-status" role="status" aria-live="polite" class="workflow-status"></p>
+        <section id="license-lifecycle-preview-result" hidden>
+          <h4>Current server preview</h4>
+          <p id="license-lifecycle-consequence"></p>
+          <ul id="license-lifecycle-warnings"></ul>
+          <p id="license-lifecycle-policy"></p>
+        </section>
+        <section id="license-lifecycle-request-section" hidden>
+          <h4>Request independent approval</h4>
+          <label class="form-label" for="license-lifecycle-reason">Reason for requesting approval</label>
+          <textarea id="license-lifecycle-reason" class="form-input" rows="3" maxlength="500" required></textarea>
+          <label class="form-label" for="license-lifecycle-request-totp">Current MFA code</label>
+          <input id="license-lifecycle-request-totp" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <button id="license-lifecycle-request-approval" type="button" class="btn btn-primary">Request separate approval</button>
+          <p id="license-lifecycle-request-status" role="status" aria-live="polite" class="workflow-status"></p>
+        </section>
+        <section id="license-lifecycle-final-section" hidden>
+          <h4>Execute after a different administrator approves</h4>
+          <p id="license-lifecycle-approval-state" role="status" aria-live="polite"></p>
+          <label class="form-label" for="license-lifecycle-approval-id">Persisted approval request ID</label>
+          <input id="license-lifecycle-approval-id" class="form-input" autocomplete="off" required>
+          <label class="form-label" for="license-lifecycle-final-reason">Reason for executing the approved action</label>
+          <textarea id="license-lifecycle-final-reason" class="form-input" rows="3" maxlength="500" required></textarea>
+          <label class="form-label" for="license-lifecycle-final-totp">Fresh MFA code for execution</label>
+          <input id="license-lifecycle-final-totp" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <button id="license-lifecycle-execute" type="button" class="btn btn-danger">Execute approved revocation</button>
+          <p id="license-lifecycle-final-status" role="status" aria-live="polite" class="workflow-status"></p>
+        </section>
+      </div>
+    </section>
+  </dialog>
+  <!-- Queue decisions use their canonical persisted routes and server-validated revisions. -->
+  <div id="queue-inspect-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="queue-inspect-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="queue-inspect-title" class="modal-title">Queue Item (Read Only)</h3>
+        <button type="button" id="btn-close-queue-modal" class="btn-icon" aria-label="Close queue details">Close</button>
+      </div>
+      <div class="modal-body" style="overflow-wrap:anywhere;">
+        <dl>
+          <dt class="form-label">Entity ID</dt><dd id="queue-item-entity" data-queue-detail></dd>
+          <dt class="form-label">Queue Type</dt><dd id="queue-item-type" data-queue-detail></dd>
+          <dt class="form-label">Title</dt><dd id="queue-item-title" data-queue-detail></dd>
+          <dt class="form-label">Status</dt><dd id="queue-item-status" data-queue-detail></dd>
+          <dt class="form-label">Created (UTC)</dt><dd id="queue-item-created" data-queue-detail></dd>
+          <dt class="form-label">Reason / Summary</dt><dd id="queue-item-summary" data-queue-detail></dd>
+        </dl>
+        <p id="queue-item-workflow" data-queue-detail style="margin-top:1rem;"></p>
+        <section id="activation-review-controls" hidden aria-labelledby="activation-review-title" style="margin-top:1rem;">
+          <h4 id="activation-review-title" class="card-title">Record an activation decision</h4>
+          <p id="activation-review-version" class="form-help"></p>
+          <form id="activation-review-form">
+            <div class="form-group">
+              <label class="form-label" for="activation-review-decision">Decision</label>
+              <select id="activation-review-decision" class="form-input" required>
+                <option value="APPROVE">Approve</option>
+                <option value="REJECT">Reject</option>
+                <option value="REQUEST_INFORMATION">Request information</option>
+                <option value="OPEN_HARDWARE_REVIEW">Open hardware review</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="activation-review-reason">Reason code</label>
+              <input id="activation-review-reason" class="form-input" required maxlength="120" autocomplete="off">
+            </div>
+            <p id="activation-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="activation-review-submit" type="submit" class="btn btn-primary">Save decision</button>
+          </form>
+        </section>
+        <section id="sensitive-approval-controls" hidden aria-labelledby="sensitive-approval-title" style="margin-top:1rem;">
+          <h4 id="sensitive-approval-title" class="card-title">Record an independent approval decision</h4>
+          <p id="sensitive-approval-details" class="form-help"></p>
+          <form id="sensitive-approval-form">
+            <div class="form-group">
+              <label class="form-label" for="sensitive-approval-decision">Decision</label>
+              <select id="sensitive-approval-decision" class="form-input" required>
+                <option value="">Choose a decision</option>
+                <option value="APPROVE">Approve request</option>
+                <option value="REJECT">Reject request</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="sensitive-approval-reason">Decision reason</label>
+              <textarea id="sensitive-approval-reason" class="form-input" rows="3" required maxlength="500"></textarea>
+            </div>
+            <p id="sensitive-approval-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="sensitive-approval-submit" type="submit" class="btn btn-primary">Save decision</button>
+          </form>
+        </section>
+        <section id="payment-review-controls" hidden aria-labelledby="payment-review-title" style="margin-top:1rem;">
+          <h4 id="payment-review-title" class="card-title">Review payment evidence</h4>
+          <p id="payment-review-details" class="form-help"></p>
+          <form id="payment-review-form">
+            <div class="form-group">
+              <label class="form-label" for="payment-review-decision">Decision</label>
+              <select id="payment-review-decision" class="form-input" required>
+                <option value="">Choose a decision</option>
+                <option value="APPROVE">Approve evidence</option>
+                <option value="REJECT">Reject evidence</option>
+                <option value="CLARIFICATION">Request clarification</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="payment-review-reason">Reason code</label>
+              <input id="payment-review-reason" class="form-input" required maxlength="120" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="payment-review-note">Internal note (optional)</label>
+              <textarea id="payment-review-note" class="form-input" rows="3" maxlength="1000"></textarea>
+            </div>
+            <p id="payment-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="payment-review-submit" type="submit" class="btn btn-primary">Save payment decision</button>
+          </form>
+        </section>
+        <section id="hardware-review-controls" hidden aria-labelledby="hardware-review-title" style="margin-top:1rem;">
+          <h4 id="hardware-review-title" class="card-title">Decide hardware verification</h4>
+          <p id="hardware-review-details" class="form-help"></p>
+          <form id="hardware-review-form">
+            <label class="form-label" for="hardware-review-evidence">Same-shop support attachment ID</label>
+            <input id="hardware-review-evidence" class="form-input" required inputmode="text" autocomplete="off">
+            <label class="form-label" for="hardware-review-decision">Decision</label>
+            <select id="hardware-review-decision" class="form-input" required>
+              <option value="APPROVE_REBIND">Approve rebind</option><option value="RECOMMEND_TRANSFER">Recommend transfer</option>
+              <option value="REQUEST_INFORMATION">Request information</option><option value="REJECT">Reject</option>
+            </select>
+            <div id="hardware-approval-controls" hidden>
+            <label class="form-label" for="hardware-review-approval">Persisted independent approval request ID</label>
+            <input id="hardware-review-approval" class="form-input" autocomplete="off">
+            <label class="form-label" for="hardware-review-request-totp">Fresh MFA to request independent approval</label>
+            <input id="hardware-review-request-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <button id="hardware-review-request-approval" type="button" class="btn btn-secondary">Preview and request independent approval</button>
+            <label class="form-label" for="hardware-review-execution-totp">Fresh MFA to execute approved rebind</label>
+            <input id="hardware-review-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <p id="hardware-approval-state" role="status" aria-live="polite" class="form-help"></p>
+            </div>
+            <label class="form-label" for="hardware-review-reason">Decision reason</label>
+            <textarea id="hardware-review-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="hardware-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="hardware-review-submit" type="submit" class="btn btn-primary">Save hardware decision</button>
+          </form>
+        </section>
+        <section id="transfer-review-controls" hidden aria-labelledby="transfer-review-title" style="margin-top:1rem;">
+          <h4 id="transfer-review-title" class="card-title">Decide primary transfer</h4>
+          <p id="transfer-review-details" class="form-help"></p>
+          <form id="transfer-review-form">
+            <label class="form-label" for="transfer-review-evidence">Same-shop support attachment ID</label>
+            <input id="transfer-review-evidence" class="form-input" required autocomplete="off">
+            <label class="form-label" for="transfer-review-recovery">Recovery type</label>
+            <select id="transfer-review-recovery" class="form-input" required>
+              <option value="STANDARD_TRANSFER">Standard transfer</option><option value="LOST_HARDWARE_RECOVERY">Lost hardware recovery</option>
+            </select>
+            <label class="form-label" for="transfer-review-decision">Decision</label>
+            <select id="transfer-review-decision" class="form-input" required>
+              <option value="REQUEST">Record request</option><option value="APPROVE">Approve with separate approval</option><option value="REJECT">Reject</option><option value="CANCEL">Cancel</option>
+            </select>
+            <div id="transfer-approval-controls" hidden>
+            <label class="form-label" for="transfer-review-approval">Persisted independent approval request ID</label>
+            <input id="transfer-review-approval" class="form-input" autocomplete="off">
+            <label class="form-label" for="transfer-review-request-totp">Fresh MFA to request independent approval</label>
+            <input id="transfer-review-request-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <button id="transfer-review-request-approval" type="button" class="btn btn-secondary">Preview and request independent approval</button>
+            <label class="form-label" for="transfer-review-execution-totp">Fresh MFA to execute approved transfer</label>
+            <input id="transfer-review-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+            <p id="transfer-approval-state" role="status" aria-live="polite" class="form-help"></p>
+            </div>
+            <label class="form-label" for="transfer-review-reason">Decision reason</label>
+            <textarea id="transfer-review-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="transfer-review-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="transfer-review-submit" type="submit" class="btn btn-primary">Save transfer decision</button>
+          </form>
+        </section>
+        <section id="transfer-completion-controls" hidden aria-labelledby="transfer-completion-title" style="margin-top:1rem;">
+          <h4 id="transfer-completion-title" class="card-title">Complete approved primary transfer</h4>
+          <p id="transfer-completion-details" class="form-help"></p>
+          <form id="transfer-completion-form">
+            <label class="form-label" for="transfer-completion-execution-totp">Fresh MFA for this completion</label>
+            <input id="transfer-completion-execution-totp" type="password" class="form-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+            <label class="form-label" for="transfer-completion-reason">Completion reason</label>
+            <textarea id="transfer-completion-reason" class="form-input" rows="2" maxlength="500" required></textarea>
+            <p id="transfer-completion-status" role="status" aria-live="polite" class="workflow-status"></p>
+            <button id="transfer-completion-submit" type="submit" class="btn btn-primary">Preview and complete transfer</button>
+          </form>
+        </section>
+      </div>
+      <div class="modal-footer"><button type="button" id="btn-queue-shop" class="btn btn-secondary" disabled>Open Shop Customer 360</button></div>
+    </div>
+  </div>
+
+  <div id="pii-unmask-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pii-unmask-title" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="pii-unmask-title" class="modal-title">Audited Customer Contact Access</h3>
+        <button type="button" id="btn-close-pii-modal" class="btn-icon" aria-label="Close contact access">Close</button>
+      </div>
+      <form id="pii-unmask-form" class="modal-body">
+        <p>Central checks your current capabilities and records each successful reveal with this reason.</p>
+        <p id="pii-unmask-record" class="form-help"></p>
+        <label class="form-label" for="pii-unmask-reason">Operational reason</label>
+        <textarea id="pii-unmask-reason" class="form-input" rows="3" required></textarea>
+        <p id="pii-unmask-status" role="status" aria-live="polite" class="workflow-status"></p>
+        <div id="pii-unmask-result" class="pii-result" hidden aria-live="polite"></div>
+        <div class="modal-footer"><button id="btn-submit-pii-unmask" type="submit" class="btn btn-primary">Request audited access</button></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/portal.js"></script>
+</body>
+</html>

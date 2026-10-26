@@ -1,0 +1,2419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:edge-retails:central-one:contracts:040",
+  "description": "Engineering transport schema. Numeric policy/provider values intentionally required configuration; no production issuance implied. Formats require real validator enforcement.",
+  "type": "object",
+  "$defs": {
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "currentVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outcomeReference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "safeMessageKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "requestId",
+        "retryable",
+        "safeMessageKey"
+      ]
+    },
+    "CommandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientOperationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operationType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fingerprintVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "payloadSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policyVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sensitiveApprovalId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "clientOperationId",
+        "operationType",
+        "fingerprintVersion",
+        "payloadSha256",
+        "expectedVersion",
+        "policyVersion",
+        "reason"
+      ]
+    },
+    "Outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientOperationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operationType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payloadSha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcomeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "resultReference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "PENDING",
+            "FAILED_FINAL"
+          ]
+        },
+        "resourceVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authorityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "safeError": {
+          "$ref": "#/$defs/Error"
+        }
+      },
+      "required": [
+        "clientOperationId",
+        "operationType",
+        "payloadSha256",
+        "outcomeId",
+        "state",
+        "resourceVersion"
+      ]
+    },
+    "Query": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "filter": {
+          "type": "string"
+        },
+        "asOfVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": []
+    },
+    "BackupMetadataQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,4}|100000)$"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "asOfVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": []
+    },
+    "BackupMetadataItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "shopId": { "type": "string", "format": "uuid" },
+        "contentLength": { "type": "integer", "minimum": 1 },
+        "ciphertextSha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "createdAtUtc": { "type": "string", "format": "date-time" },
+        "retentionUntilUtc": { "type": ["string", "null"], "format": "date-time" },
+        "isUnderLegalHold": { "type": "boolean" },
+        "isTombstoned": { "type": "boolean" },
+        "tombstonedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "resourceVersion": { "type": "integer", "minimum": 1 }
+      },
+      "required": [
+        "id", "shopId", "contentLength", "ciphertextSha256", "createdAtUtc",
+        "retentionUntilUtc", "isUnderLegalHold", "isTombstoned", "tombstonedAtUtc", "resourceVersion"
+      ]
+    },
+    "BackupMetadataPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/BackupMetadataItem" } },
+        "nextCursor": { "type": ["string", "null"] },
+        "asOfVersion": { "type": "integer", "minimum": 0 },
+        "authorizedCount": { "type": "integer", "minimum": 0 },
+        "projectionRevision": { "type": "integer", "minimum": 0 },
+        "isTruncated": { "type": "boolean" }
+      },
+      "required": ["items", "nextCursor", "asOfVersion", "authorizedCount", "projectionRevision", "isTruncated"]
+    },
+    "DashboardMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activeShopsCount": { "type": "integer", "minimum": 0 },
+        "lifetimeBaseCount": { "type": "integer", "minimum": 0 },
+        "fixedTermBaseCount": { "type": "integer", "minimum": 0 },
+        "expiringAddonsCount": { "type": "integer", "minimum": 0 },
+        "expiringFixedTermBasesCount": { "type": "integer", "minimum": 0 },
+        "pendingOrdersCount": { "type": "integer", "minimum": 0 },
+        "pendingEvidenceReviewsCount": { "type": "integer", "minimum": 0 },
+        "pendingHardwareReviewsCount": { "type": "integer", "minimum": 0 },
+        "pendingApprovalsCount": { "type": "integer", "minimum": 0 },
+        "openSupportTicketsCount": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "activeShopsCount",
+        "lifetimeBaseCount",
+        "fixedTermBaseCount",
+        "expiringAddonsCount",
+        "expiringFixedTermBasesCount",
+        "pendingOrdersCount",
+        "pendingEvidenceReviewsCount",
+        "pendingHardwareReviewsCount",
+        "pendingApprovalsCount",
+        "openSupportTicketsCount"
+      ]
+    },
+    "Page": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "asOfVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authorizedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "projectionRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "asOfVersion",
+        "authorizedCount",
+        "projectionRevision"
+      ]
+    },
+    "Shop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "shopName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contactReference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installationCapacity": {
+          "const": 1
+        }
+      },
+      "required": [
+        "customerId",
+        "shopName",
+        "installationCapacity"
+      ]
+    },
+    "Customer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contactReference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "displayName"
+      ]
+    },
+    "Order": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "orderType": {
+          "type": "string",
+          "enum": [
+            "NEW_LICENSE",
+            "RENEWAL",
+            "PLAN_CHANGE",
+            "SUPPORT_RENEWAL",
+            "UPGRADE"
+          ]
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pricingSnapshotId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "requestedPrimaryCapacity": {
+          "const": 1
+        },
+        "termKind": {
+          "type": "string",
+          "enum": [
+            "FIXED_TERM",
+            "LIFETIME"
+          ]
+        },
+        "purchaseTarget": {
+          "$ref": "#/$defs/PurchaseTarget"
+        }
+      },
+      "required": [
+        "shopId",
+        "orderType",
+        "planId",
+        "pricingSnapshotId",
+        "requestedPrimaryCapacity",
+        "termKind",
+        "purchaseTarget"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "SUPPORT",
+                      "PREMIUM_UPGRADE"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "purchaseTarget"
+            ]
+          },
+          "then": {
+            "properties": {
+              "termKind": {
+                "const": "FIXED_TERM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "NEW_LICENSE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "RENEWAL"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "PLAN_CHANGE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "SUPPORT_RENEWAL"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "SUPPORT"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "UPGRADE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "PREMIUM_UPGRADE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PriceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "orderType": {
+          "type": "string",
+          "enum": [
+            "NEW_LICENSE",
+            "RENEWAL",
+            "PLAN_CHANGE",
+            "SUPPORT_RENEWAL",
+            "UPGRADE"
+          ]
+        },
+        "billingPeriodId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestedPrimaryCapacity": {
+          "const": 1
+        },
+        "termKind": {
+          "type": "string",
+          "enum": [
+            "FIXED_TERM",
+            "LIFETIME"
+          ]
+        },
+        "purchaseTarget": {
+          "$ref": "#/$defs/PurchaseTarget"
+        }
+      },
+      "required": [
+        "shopId",
+        "planId",
+        "orderType",
+        "billingPeriodId",
+        "currency",
+        "requestedPrimaryCapacity",
+        "termKind",
+        "purchaseTarget"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "termKind": {
+                "const": "LIFETIME"
+              }
+            },
+            "required": [
+              "termKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "billingPeriodId": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "billingPeriodId": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "SUPPORT",
+                      "PREMIUM_UPGRADE"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "purchaseTarget"
+            ]
+          },
+          "then": {
+            "properties": {
+              "termKind": {
+                "const": "FIXED_TERM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "NEW_LICENSE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "RENEWAL"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "PLAN_CHANGE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "BASE_LICENSE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "SUPPORT_RENEWAL"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "SUPPORT"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "orderType": {
+                "const": "UPGRADE"
+              }
+            },
+            "required": [
+              "orderType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "purchaseTarget": {
+                "properties": {
+                  "kind": {
+                    "const": "PREMIUM_UPGRADE"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PaymentReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "proofId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "APPROVE",
+            "REJECT",
+            "CLARIFICATION"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "internalNote": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "orderId",
+        "proofId",
+        "decision",
+        "reasonCode"
+      ]
+    },
+    "LicenseCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "effectiveAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "orderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "extensionEndUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "capabilityPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "licenseId",
+        "effectiveAtUtc",
+        "capabilityPolicyId"
+      ]
+    },
+    "Policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "policyVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "enforcementMode": {
+          "type": "string",
+          "enum": [
+            "FULL_STOP",
+            "CONFIGURABLE_EXTENSION"
+          ]
+        },
+        "extensionEndUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "afterExtensionPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "leaseDurationSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "offlineGraceSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rollbackToleranceSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "capabilityPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approvedByAdminId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approvedAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "shopId",
+        "licenseId",
+        "policyVersion",
+        "enforcementMode",
+        "afterExtensionPolicyId",
+        "leaseDurationSeconds",
+        "offlineGraceSeconds",
+        "rollbackToleranceSeconds",
+        "capabilityPolicyId",
+        "approvedByAdminId",
+        "approvedAtUtc"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enforcementMode": {
+                "const": "CONFIGURABLE_EXTENSION"
+              }
+            },
+            "required": [
+              "enforcementMode"
+            ]
+          },
+          "then": {
+            "required": [
+              "extensionEndUtc"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "extensionEndUtc"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "InstallRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationPublicKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installationPublicKeyFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bootstrapChallengeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "proofOfPossession": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deviceIdentityVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "deviceIdentityHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hardwareFingerprintVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hardwareFingerprintHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signalQuality": {
+          "type": "string",
+          "enum": [
+            "STRONG",
+            "WEAK",
+            "UNKNOWN"
+          ]
+        },
+        "applicationVersion": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "shopId",
+        "licenseId",
+        "installationId",
+        "installationPublicKey",
+        "installationPublicKeyFingerprint",
+        "bootstrapChallengeId",
+        "proofOfPossession",
+        "deviceIdentityVersion",
+        "deviceIdentityHash",
+        "hardwareFingerprintVersion",
+        "hardwareFingerprintHash",
+        "signalQuality",
+        "applicationVersion"
+      ]
+    },
+    "BootstrapChallengeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationPublicKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "activationTokenHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestNonce": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "installationId",
+        "installationPublicKey",
+        "activationTokenHash",
+        "requestNonce"
+      ]
+    },
+    "BootstrapChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "challengeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "challengeNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "allowedOperations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "installation.register",
+              "activation.redeem",
+              "activation.status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "challengeId",
+        "installationId",
+        "challengeNonce",
+        "expiresAtUtc",
+        "allowedOperations"
+      ]
+    },
+    "ActivationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationPublicKeyFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hardwareFingerprintHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "deliveryChannelId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "licenseId",
+        "installationId",
+        "installationPublicKeyFingerprint",
+        "hardwareFingerprintHash",
+        "tokenPolicyId",
+        "deliveryChannelId"
+      ]
+    },
+    "ActivationIssued": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientOperationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "activationTokenId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "deliveryReference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ISSUED",
+            "DELIVERY_PENDING"
+          ]
+        }
+      },
+      "required": [
+        "clientOperationId",
+        "activationTokenId",
+        "deliveryReference",
+        "expiresAtUtc",
+        "state"
+      ]
+    },
+    "ActivationRedeem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activationToken": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "hardwareFingerprintHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installationPublicKeyFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validationNonce": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "bootstrapChallengeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "proofOfPossession": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "activationToken",
+        "installationId",
+        "hardwareFingerprintHash",
+        "installationPublicKeyFingerprint",
+        "validationNonce",
+        "bootstrapChallengeId",
+        "proofOfPossession"
+      ]
+    },
+    "ActivationDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activationRequestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "APPROVE",
+            "REJECT",
+            "REQUEST_INFORMATION",
+            "OPEN_HARDWARE_REVIEW"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validationSnapshotVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "activationRequestId",
+        "decision",
+        "reasonCode",
+        "validationSnapshotVersion"
+      ]
+    },
+    "HardwareCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "previousFingerprintId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "currentFingerprintId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "APPROVE_REBIND",
+            "RECOMMEND_TRANSFER",
+            "REQUEST_INFORMATION",
+            "REJECT"
+          ]
+        },
+        "verificationEvidenceId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "caseId",
+        "installationId",
+        "previousFingerprintId",
+        "currentFingerprintId",
+        "decision",
+        "verificationEvidenceId"
+      ]
+    },
+    "TransferCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transferId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "oldInstallationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "newInstallationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "recoveryType": {
+          "type": "string",
+          "enum": [
+            "STANDARD_TRANSFER",
+            "LOST_HARDWARE_RECOVERY"
+          ]
+        },
+        "verificationEvidenceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "REQUEST",
+            "APPROVE",
+            "REJECT",
+            "CANCEL"
+          ]
+        }
+      },
+      "required": [
+        "transferId",
+        "oldInstallationId",
+        "newInstallationId",
+        "recoveryType",
+        "verificationEvidenceId",
+        "decision"
+      ]
+    },
+    "SensitiveApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetActionType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "targetPayloadSha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterAdminId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approverAdminId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "REQUEST",
+            "APPROVE",
+            "REJECT",
+            "EXECUTE"
+          ]
+        }
+      },
+      "required": [
+        "targetActionType",
+        "targetId",
+        "targetPayloadSha256",
+        "requesterAdminId",
+        "expiresAtUtc",
+        "decision"
+      ]
+    },
+    "Reconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "certificateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hardwareFingerprintHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicationVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastVerifiedVendorTimeUtc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "installationId",
+        "certificateId",
+        "authorityRevision",
+        "hardwareFingerprintHash",
+        "applicationVersion",
+        "lastVerifiedVendorTimeUtc"
+      ]
+    },
+    "SigningRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signingRequestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "issuanceRequestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "payloadSha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "keyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keyVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "LICENSE",
+            "RECOVERY",
+            "UPDATE"
+          ]
+        },
+        "canonicalPayload": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "signingRequestId",
+        "issuanceRequestId",
+        "payloadSha256",
+        "authorityRevision",
+        "keyId",
+        "keyVersion",
+        "purpose",
+        "canonicalPayload"
+      ]
+    },
+    "KeyDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keyVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "algorithmProfileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "LICENSE",
+            "RECOVERY",
+            "UPDATE"
+          ]
+        },
+        "publicKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validFromUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validUntilUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PENDING",
+            "ACTIVE",
+            "VERIFY_ONLY",
+            "RETIRED",
+            "REVOKED"
+          ]
+        }
+      },
+      "required": [
+        "keyId",
+        "keyVersion",
+        "algorithmProfileId",
+        "purpose",
+        "publicKey",
+        "validFromUtc",
+        "validUntilUtc",
+        "status"
+      ]
+    },
+    "TrustSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trustSetVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KeyDescriptor"
+          }
+        },
+        "revokedKeyIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "emergencyRolloverRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "signedByTrustedRootKeyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "trustSetVersion",
+        "keys",
+        "revokedKeyIds",
+        "emergencyRolloverRevision",
+        "signedByTrustedRootKeyId",
+        "signature"
+      ]
+    },
+    "EntitlementPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "certificateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "certificateVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationPublicKeyFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hardwareFingerprintVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hardwareFingerprintHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy": {
+          "$ref": "#/$defs/Policy"
+        },
+        "issuedAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validFromUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseExpiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "offlineGraceUntilUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "trustedVendorTimeUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "capabilityClaims": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "signingKeyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signingKeyVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "commercialTerm": {
+          "$ref": "#/$defs/CommercialTerm"
+        },
+        "addonEntitlements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AddonEntitlement"
+          }
+        }
+      },
+      "required": [
+        "certificateId",
+        "certificateVersion",
+        "shopId",
+        "licenseId",
+        "installationId",
+        "installationPublicKeyFingerprint",
+        "hardwareFingerprintVersion",
+        "hardwareFingerprintHash",
+        "authorityRevision",
+        "policy",
+        "issuedAtUtc",
+        "validFromUtc",
+        "leaseExpiresAtUtc",
+        "offlineGraceUntilUtc",
+        "trustedVendorTimeUtc",
+        "capabilityClaims",
+        "signingKeyId",
+        "signingKeyVersion",
+        "commercialTerm",
+        "addonEntitlements"
+      ]
+    },
+    "SignedEntitlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "envelopeVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonicalizationProfileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "algorithmProfileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "const": "LICENSE"
+        },
+        "payload": {
+          "$ref": "#/$defs/EntitlementPayload"
+        },
+        "payloadSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trustSetVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "envelopeVersion",
+        "canonicalizationProfileId",
+        "algorithmProfileId",
+        "purpose",
+        "payload",
+        "payloadSha256",
+        "signature",
+        "trustSetVersion"
+      ]
+    },
+    "UploadInit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "PAYMENT_PROOF",
+            "ENCRYPTED_BACKUP",
+            "SUPPORT_ATTACHMENT"
+          ]
+        },
+        "contentLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contentType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ciphertextSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "localManifestAuthenticationOpaque": {
+          "type": "string"
+        },
+        "retentionPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "shopId",
+        "installationId",
+        "objectId",
+        "purpose",
+        "contentLength",
+        "contentType",
+        "ciphertextSha256",
+        "retentionPolicyId"
+      ]
+    },
+    "UploadSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorizedObjectId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "acceptedOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "chunkRoute": {
+          "type": "string",
+          "minLength": 1
+        },
+        "finalizeRoute": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "uploadId",
+        "authorizedObjectId",
+        "maxBytes",
+        "acceptedOffset",
+        "expiresAtUtc",
+        "chunkRoute",
+        "finalizeRoute"
+      ]
+    },
+    "UploadFinalize": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "objectId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expectedLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedSha256": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "uploadId",
+        "objectId",
+        "expectedLength",
+        "expectedSha256"
+      ]
+    },
+    "ObjectAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objectId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retentionPolicyId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "restoreAuthorizationId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "objectId",
+        "purpose"
+      ]
+    },
+    "ObjectDownloadGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grantId": { "type": "string", "format": "uuid" },
+        "downloadToken": { "type": "string", "minLength": 40 },
+        "contentRoute": { "type": "string", "minLength": 1 },
+        "expiresAtUtc": { "type": "string", "format": "date-time" }
+      },
+      "required": ["grantId", "downloadToken", "contentRoute", "expiresAtUtc"]
+    },
+    "Ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentObjectIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "redactionProfileVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "shopId",
+        "subject",
+        "summary",
+        "attachmentObjectIds",
+        "redactionProfileVersion"
+      ]
+    },
+    "TicketAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "REPLY",
+            "SET_STATUS",
+            "ASSIGN"
+          ]
+        },
+        "replyText": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "OPEN",
+            "IN_PROGRESS",
+            "WAITING",
+            "CLOSED"
+          ]
+        },
+        "assigneeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "replyChannelId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "ticketId",
+        "action"
+      ]
+    },
+    "AdminAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adminUserId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "INVITE",
+            "DISABLE",
+            "REVOKE_SESSION",
+            "REVOKE_ALL",
+            "ASSIGN_ROLE",
+            "REVOKE_ROLE"
+          ]
+        },
+        "roleId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "adminUserId",
+        "action"
+      ]
+    },
+    "Login": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passwordOrProviderAssertion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "challengeId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "username",
+        "passwordOrProviderAssertion"
+      ]
+    },
+    "Mfa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "loginChallengeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actionScope": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "loginChallengeId",
+        "proof"
+      ]
+    },
+    "PreAuthChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "MFA_CHALLENGE"
+        },
+        "challengeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "businessAuthority": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "challengeId",
+        "expiresAtUtc",
+        "businessAuthority"
+      ]
+    },
+    "AdminSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "AUTHENTICATED"
+        },
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "absoluteExpiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "mfaSatisfied": {
+          "const": true
+        },
+        "adminSecurityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "sessionId",
+        "expiresAtUtc",
+        "absoluteExpiresAtUtc",
+        "mfaSatisfied",
+        "adminSecurityRevision",
+        "capabilities"
+      ]
+    },
+    "AuthResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PreAuthChallenge"
+        },
+        {
+          "$ref": "#/$defs/AdminSession"
+        }
+      ]
+    },
+    "StepUpGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actionScope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetPayloadSha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stepUpGrantId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "sessionId",
+        "actionScope",
+        "targetPayloadSha256",
+        "expiresAtUtc",
+        "stepUpGrantId"
+      ]
+    },
+    "StepUpRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actionScope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetPayloadSha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "challengeId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "sessionId",
+        "actionScope",
+        "targetPayloadSha256",
+        "proof",
+        "challengeId"
+      ]
+    },
+    "CommercialTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "termKind",
+        "validFromUtc",
+        "validUntilUtc"
+      ],
+      "properties": {
+        "termKind": {
+          "type": "string",
+          "enum": [
+            "FIXED_TERM",
+            "LIFETIME"
+          ]
+        },
+        "validFromUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validUntilUtc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "termKind": {
+                "const": "LIFETIME"
+              }
+            },
+            "required": [
+              "termKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "validUntilUtc": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "validUntilUtc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AddonEntitlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entitlementId",
+        "kind",
+        "status",
+        "validUntilUtc"
+      ],
+      "properties": {
+        "entitlementId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "SUPPORT",
+            "PREMIUM_UPGRADE"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "EXPIRED",
+            "NOT_PURCHASED"
+          ]
+        },
+        "validUntilUtc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ACTIVE"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "validUntilUtc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "EXPIRED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "validUntilUtc": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PurchaseTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "BASE_LICENSE",
+            "SUPPORT",
+            "PREMIUM_UPGRADE"
+          ]
+        },
+        "baseLicenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "existingEntitlementId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "SUPPORT",
+                  "PREMIUM_UPGRADE"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "baseLicenseId"
+            ]
+          }
+        }
+      ]
+    },
+    "AddonRenewalCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "licenseId",
+        "entitlementId",
+        "kind",
+        "approvedOrderId",
+        "effectiveAtUtc",
+        "expectedEntitlementVersion"
+      ],
+      "properties": {
+        "licenseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entitlementId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "SUPPORT",
+            "PREMIUM_UPGRADE"
+          ]
+        },
+        "approvedOrderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "effectiveAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expectedEntitlementVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

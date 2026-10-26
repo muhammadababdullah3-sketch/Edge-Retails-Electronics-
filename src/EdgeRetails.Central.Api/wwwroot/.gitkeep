@@ -1,0 +1,2 @@
+This directory exists for ASP.NET Core static asset discovery.
+Portal source files live in ../EdgeRetails.Central.Portal and are linked into build output.
