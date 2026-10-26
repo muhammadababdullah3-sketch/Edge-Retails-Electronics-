@@ -1,8 +1,0 @@
-{
-  "command": "dotnet build EdgeRetails.sln --configuration Release --no-restore --verbosity minimal",
-  "configuration": "Release",
-  "exit_code": 0,
-  "status": "PASS",
-  "finished_utc": "2026-10-24T05:33:58.9241591Z",
-  "log": "governance\\10-execution-runs\\ER-RUN-POS-PHASE11-CURRENT-VERIFY-20261024-002\\evidence\\solution-release-build.log"
-}

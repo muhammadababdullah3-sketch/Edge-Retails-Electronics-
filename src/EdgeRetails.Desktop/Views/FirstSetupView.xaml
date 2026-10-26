@@ -64,9 +64,9 @@
               CornerRadius="10"
               Visibility="{Binding IsLicenseStep, Converter={StaticResource BooleanToVisibilityConverter}}">
        <StackPanel>
-        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="Import License File"
+        <TextBlock Style="{StaticResource Text.DetailTitle}" Text="License (cloud or file)"
                    Foreground="{DynamicResource Brush.Text.Primary}"/>
-        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Select the signed Edge Retails license package for this installation."
+        <TextBlock Style="{StaticResource Text.FormLabel}" Text="Online: enter activation token from Edge Retails (admin must approve). Offline: browse signed .erlic file."
                    Margin="0,6,0,0"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource Brush.Text.Secondary}"/>
@@ -95,6 +95,23 @@
                  Style="{StaticResource Button.Neutral}"
                  Padding="16,0"/>
         </Grid>
+        <StackPanel Margin="0,16,0,0"
+                    Visibility="{Binding IsCloudActivationAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+         <TextBlock Style="{StaticResource Text.FormLabel}" Text="Activation token (from vendor)"
+                    Margin="0,0,0,6"/>
+         <TextBox Text="{Binding ActivationToken, UpdateSourceTrigger=PropertyChanged}"
+                  Padding="10,8"/>
+         <Button Content="Send request to cloud (admin approval)"
+                 Command="{Binding RequestCloudActivationCommand}"
+                 Style="{StaticResource Button.Primary}"
+                 Margin="0,10,0,0"
+                 HorizontalAlignment="Left"/>
+         <TextBlock Text="{Binding CloudActivationStatus}"
+                    Margin="0,8,0,0"
+                    TextWrapping="Wrap"
+                    Style="{StaticResource Text.PosMeta}"
+                    Foreground="{DynamicResource Brush.Text.Secondary}"/>
+        </StackPanel>
         <Border Margin="0,14,0,0"
                 Padding="12"
                 Background="{DynamicResource Brush.Selection.Subtle}"

@@ -42,7 +42,14 @@ public sealed class SettingsController(
         }
 
         var result = await updateShop.HandleAsync(
-            new UpdateShopProfileCommand(request.ShopName, request.Phone, request.Address, actor.UserId, request.CorrelationId),
+            new UpdateShopProfileCommand(
+                request.ShopName,
+                request.Phone,
+                request.Address,
+                request.TimeZoneId,
+                request.BusinessDayCutoffLocalTime,
+                actor.UserId,
+                request.CorrelationId),
             cancellationToken);
         if (result.IsSuccess)
         {
@@ -87,7 +94,13 @@ public sealed class SettingsController(
     }
 }
 
-public sealed record UpdateShopSettingsApiRequest(string ShopName, string? Phone, string? Address, Guid CorrelationId);
+public sealed record UpdateShopSettingsApiRequest(
+    string ShopName,
+    string? Phone,
+    string? Address,
+    string? TimeZoneId,
+    string? BusinessDayCutoffLocalTime,
+    Guid CorrelationId);
 public sealed record UpdateReceiptTemplateApiRequest(
     string? Header,
     string? Footer,

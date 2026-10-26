@@ -12,10 +12,19 @@ Edge Retails is an enterprise-grade Point of Sale (POS), inventory management, a
 
 ## 🏛️ System Architecture
 
-Edge Retails adheres strictly to **Clean Architecture** and **Domain-Driven Design (DDD)** principles with unidirectional dependency flow:
+This monorepo has **two deployables**:
+
+| Tier | Project | Role |
+|------|---------|------|
+| **Cloud server** | `EdgeRetails.Central.Api` | License, activation, admin portal, signing (`docs/central/`) |
+| **Shop (per store)** | `EdgeRetails.Desktop` + `EdgeRetails.Server` + `EdgeRetails.Worker` | Offline-capable POS; local host is **loopback only** (`127.0.0.1:7150`) |
+
+Naming map: [docs/SHOP_AND_CENTRAL_RUNTIME.md](docs/SHOP_AND_CENTRAL_RUNTIME.md). **`EdgeRetails.Server` is not the cloud server.**
+
+Shop stack — **Clean Architecture** / **DDD**:
 
 ```
-[ EdgeRetails.Desktop (WPF / MVVM) ]      [ EdgeRetails.Server (REST API) ]      [ EdgeRetails.Worker (Background Service) ]
+[ EdgeRetails.Desktop (WPF / MVVM) ]      [ EdgeRetails.Server (shop local host) ]      [ EdgeRetails.Worker (Background Service) ]
                                     \                     |                    /
                                      \                    |                   /
                                       v                   v                  v
@@ -36,7 +45,7 @@ Edge Retails adheres strictly to **Clean Architecture** and **Domain-Driven Desi
 | **Domain** | `src/EdgeRetails.Domain` | Pure enterprise business entities, value objects, domain events, and invariant rules. Zero external dependencies. |
 | **Application** | `src/EdgeRetails.Application` | Use cases, CQRS commands & queries, business transaction pipelines, validation rules, and boundary interfaces. |
 | **Infrastructure** | `src/EdgeRetails.Infrastructure` | PostgreSQL persistence, EF Core mappings, raw SQL/Dapper read-models, migrations, outbox dispatch, and file storage. |
-| **Server / API** | `src/EdgeRetails.Server` | Shop Server REST API delivering endpoints for multi-terminal sync, catalog queries, and diagnostics. |
+| **Shop local host** | `src/EdgeRetails.Server` | Loopback REST API on the shop PC (`7150`); business mutations and terminal/session auth — **not** the cloud Central server. |
 | **Desktop Client** | `src/EdgeRetails.Desktop` | Professional WPF MVVM desktop POS interface optimized for barcode/IMEI scanning, touch workflow, thermal receipts, and local resilience. |
 | **Background Worker** | `src/EdgeRetails.Worker` | Windows Service / background daemon for automated backups, outbox processing, health diagnostics, and reconciliation. |
 
@@ -56,9 +65,10 @@ Point of Sale/
 │   ├── EdgeRetails.Domain/               # Core Domain Models & Business Invariants
 │   ├── EdgeRetails.Application/          # Application Use Cases & CQRS Handlers
 │   ├── EdgeRetails.Infrastructure/       # Database Contexts, Migrations & Adapters
-│   ├── EdgeRetails.Server/               # Shop Server REST API
+│   ├── EdgeRetails.Server/               # Shop local host (loopback API)
 │   ├── EdgeRetails.Desktop/              # WPF Desktop Client (MVVM)
-│   └── EdgeRetails.Worker/               # Background Worker & Health Engine
+│   ├── EdgeRetails.Worker/               # Background Worker & Health Engine
+│   └── EdgeRetails.Central.Api/          # Cloud server (separate deploy)
 │
 ├── tests/                                # Comprehensive Automated Test Suites
 │   ├── EdgeRetails.UnitTests/            # Domain, Accounting & Architecture Tests

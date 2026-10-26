@@ -42,6 +42,8 @@ public static class PermissionKeys
     public const string ReportsView = "reports.view";
     public const string SettingsManage = "settings.manage";
     public const string SupervisorPostingOverride = "supervisor.posting_override";
+    public const string CashSessionClose = "cash.session.close";
+    public const string CashSessionOwnerVoid = "cash.session.owner_void";
 }
 
 public sealed record LoginAccountDto(
@@ -192,11 +194,13 @@ public sealed class AuthenticateUserHandler
             user.Id,
             cancellationToken);
 
+        var now = _clock.UtcNow;
         var session = new UserSession
         {
             UserId = user.Id,
             ClientSessionId = command.ClientSessionId,
-            StartedAt = _clock.UtcNow,
+            StartedAt = now,
+            LastActivityAt = now,
             IsRevoked = false
         };
         _sessions.AddSession(session);
@@ -285,6 +289,172 @@ public sealed class EndUserSessionHandler
         return Result.Success();
     }
 }
+
+public sealed record LockUserSessionCommand(
+    Guid UserId,
+    Guid SessionId,
+    Guid CorrelationId);
+
+public sealed class LockUserSessionHandler
+{
+    private readonly IIdentitySessionRepository _sessions;
+    private readonly IBusinessAuditWriter _audit;
+    private readonly IClock _clock;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public LockUserSessionHandler(
+        IIdentitySessionRepository sessions,
+        IBusinessAuditWriter audit,
+        IClock clock,
+        IUnitOfWork unitOfWork)
+    {
+        _sessions = sessions;
+        _audit = audit;
+        _clock = clock;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result> HandleAsync(
+        LockUserSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.UserId == Guid.Empty ||
+            command.SessionId == Guid.Empty ||
+            command.CorrelationId == Guid.Empty)
+        {
+            return Result.Failure(
+                "identity.invalid_session_lock",
+                "User session identifiers are required.");
+        }
+
+        var session = await _sessions.GetSessionForUpdateAsync(command.SessionId, cancellationToken);
+        if (session is null ||
+            session.UserId != command.UserId ||
+            session.IsRevoked ||
+            session.EndedAt is not null)
+        {
+            return Result.Failure(
+                "identity.session_not_active",
+                "The active user session could not be found.");
+        }
+
+        if (session.IsScreenLocked)
+        {
+            return Result.Success();
+        }
+
+        var now = _clock.UtcNow;
+        session.ScreenLockedAt = now;
+        session.LastActivityAt = now;
+        _audit.Record(
+            "USER_SCREEN_LOCK",
+            "USER_SESSION",
+            session.Id,
+            command.UserId,
+            command.CorrelationId,
+            "Operator locked the screen.");
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+}
+
+public sealed record UnlockUserSessionCommand(
+    Guid UserId,
+    Guid SessionId,
+    string Pin,
+    Guid CorrelationId);
+
+public sealed class UnlockUserSessionHandler
+{
+    private readonly IIdentitySessionRepository _sessions;
+    private readonly IIdentityReadRepository _identity;
+    private readonly IPinCredentialService _pinCredentials;
+    private readonly IBusinessAuditWriter _audit;
+    private readonly IClock _clock;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public UnlockUserSessionHandler(
+        IIdentitySessionRepository sessions,
+        IIdentityReadRepository identity,
+        IPinCredentialService pinCredentials,
+        IBusinessAuditWriter audit,
+        IClock clock,
+        IUnitOfWork unitOfWork)
+    {
+        _sessions = sessions;
+        _identity = identity;
+        _pinCredentials = pinCredentials;
+        _audit = audit;
+        _clock = clock;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result> HandleAsync(
+        UnlockUserSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.UserId == Guid.Empty ||
+            command.SessionId == Guid.Empty ||
+            command.CorrelationId == Guid.Empty ||
+            command.Pin.Length != 4 ||
+            command.Pin.Any(ch => !char.IsAsciiDigit(ch)))
+        {
+            return Result.Failure(
+                "identity.invalid_unlock",
+                "A valid session and PIN are required.");
+        }
+
+        var session = await _sessions.GetSessionForUpdateAsync(command.SessionId, cancellationToken);
+        if (session is null ||
+            session.UserId != command.UserId ||
+            session.IsRevoked ||
+            session.EndedAt is not null)
+        {
+            return Result.Failure(
+                "identity.session_not_active",
+                "The active user session could not be found.");
+        }
+
+        if (!session.IsScreenLocked)
+        {
+            return Result.Success();
+        }
+
+        var user = await _identity.GetUserAsync(command.UserId, cancellationToken);
+        if (user is null || user.Status != UserStatus.Active)
+        {
+            return Result.Failure(
+                "identity.invalid_unlock",
+                "Invalid user or PIN.");
+        }
+
+        var credential = new PinCredential(
+            user.PinHash,
+            user.PinSalt,
+            user.PinIterations,
+            user.PinAlgorithm);
+        if (!_pinCredentials.Verify(command.Pin, credential))
+        {
+            return Result.Failure(
+                "identity.invalid_unlock",
+                "Invalid user or PIN.");
+        }
+
+        var now = _clock.UtcNow;
+        session.ScreenLockedAt = null;
+        session.LastActivityAt = now;
+        _audit.Record(
+            "USER_SCREEN_UNLOCK",
+            "USER_SESSION",
+            session.Id,
+            command.UserId,
+            command.CorrelationId,
+            "Operator unlocked the screen.");
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+}
+
 public interface IApplicationPermissionAuthorizer
 {
     Task<Result> AuthorizeAsync(

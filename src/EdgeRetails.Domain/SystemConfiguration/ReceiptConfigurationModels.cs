@@ -8,6 +8,10 @@ public sealed class ShopProfile : Entity
     public string ShopName { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? Address { get; set; }
+    /// <summary>IANA or Windows time zone id for shop business-date authority (Phase 8).</summary>
+    public string TimeZoneId { get; set; } = "Asia/Karachi";
+    /// <summary>When set, shop business date rolls at this local time instead of calendar midnight.</summary>
+    public TimeOnly? BusinessDayCutoffLocalTime { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public long Version { get; set; }
 }

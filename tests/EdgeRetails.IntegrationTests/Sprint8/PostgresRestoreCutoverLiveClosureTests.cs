@@ -184,15 +184,8 @@ public sealed class PostgresRestoreCutoverLiveClosureTests
             CommandTimeout = 30
         };
 
-        var options = new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-            .UseNpgsql(
-                connection.ConnectionString,
-                npgsql => npgsql
-                    .MigrationsAssembly(typeof(EdgeRetailsDbContext).Assembly.FullName)
-                    .MigrationsHistoryTable("__ef_migrations_history", "system"))
-            .Options;
-
-        await using var db = new EdgeRetailsDbContext(options);
+        await using var db = new EdgeRetailsDbContext(
+            Phase2PostgresTestHarness.NewDbContextOptions(connection.ConnectionString));
         await db.Database.MigrateAsync();
     }
 

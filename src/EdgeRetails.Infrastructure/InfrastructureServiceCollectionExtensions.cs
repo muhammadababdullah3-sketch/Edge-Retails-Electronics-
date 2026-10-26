@@ -233,9 +233,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Finance.ReverseSupplierRefundHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.SupplierAccountAdjustmentHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.SupplierOpeningBalanceHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Finance.GetCurrentCashSessionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.OpenCashSessionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.RecordManualCashMovementHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Finance.CloseCashSessionHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Finance.VoidCashSessionByOwnerHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.CreateStocktakeHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.StartStocktakeHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.RecordStocktakeCountHandler>();
@@ -276,6 +278,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Features.Identity.CreateCashierHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.AuthenticateUserHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.EndUserSessionHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Identity.LockUserSessionHandler>();
+        services.AddScoped<EdgeRetails.Application.Features.Identity.UnlockUserSessionHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.RecoverOwnerPinHandler>();
         services.AddScoped<EdgeRetails.Application.Features.Identity.IApplicationPermissionAuthorizer, EdgeRetails.Application.Features.Identity.ApplicationPermissionAuthorizer>();
         services.AddScoped<EdgeRetails.Application.Features.Terminals.RegisterTerminalHandler>();
@@ -287,14 +291,24 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<EdgeRetails.Application.Gateways.IApplicationGateway, EdgeRetails.Application.Gateways.LocalApplicationGateway>();
 
         services.AddScoped<IDocumentNumberService, PostgresDocumentNumberService>();
-        services.AddSingleton<IClock, SystemClock>();
-        services.AddSingleton<IShopClock>(sp => (IShopClock)sp.GetRequiredService<IClock>());
+        services.AddSingleton<IShopTimeZoneCache, ShopTimeZoneCache>();
+        services.AddSingleton<ShopTimeAuthority>();
+        services.AddSingleton<IShopTimeAuthority>(sp => sp.GetRequiredService<ShopTimeAuthority>());
+        services.AddSingleton<IClock>(sp => sp.GetRequiredService<ShopTimeAuthority>());
+        services.AddSingleton<IShopClock>(sp => sp.GetRequiredService<ShopTimeAuthority>());
+        services.AddScoped<EdgeRetails.Application.Production.Printing.IPhysicalLabelPrintIntentWriter,
+            EdgeRetails.Infrastructure.Production.Printing.EfPhysicalLabelPrintIntentWriter>();
+        services.AddScoped<EdgeRetails.Application.Production.Printing.IPhysicalLabelPrintIntentCoordinator,
+            EdgeRetails.Infrastructure.Production.Printing.EfPhysicalLabelPrintIntentCoordinator>();
+        services.AddSingleton<IExceptionToErrorMapper, EfExceptionToErrorMapper>();
+        services.AddSingleton<SingleHostWorkerHeartbeatProbe>();
         services.AddSingleton<IIdGenerator, UuidV7IdGenerator>();
         services.AddSingleton<ISequenceHighWaterService, MachineSequenceHighWaterService>();
 
         services.AddScoped<IPeriodLockRepository, EdgeRetails.Infrastructure.Repositories.EfPeriodLockRepository>();
         services.AddScoped<IPostingAuditRepository, EdgeRetails.Infrastructure.Repositories.EfPostingAuditRepository>();
         services.AddScoped<IShopPeriodBoundaryService, EdgeRetails.Application.Features.Posting.ShopPeriodBoundaryService>();
+        services.AddScoped<ISupervisorApprovalStore, EdgeRetails.Infrastructure.Repositories.EfSupervisorApprovalStore>();
         services.AddScoped<IShopPostingValidationService, EdgeRetails.Application.Features.Posting.ShopPostingValidationService>();
         services.AddScoped<EdgeRetails.Infrastructure.Repositories.FinancialPostingAdapter>();
         services.AddScoped<EdgeRetails.Application.Features.Inventory.IPackSubLedgerAllocationAuthority, EdgeRetails.Application.Features.Inventory.PackSubLedgerAllocationAuthority>();

@@ -131,7 +131,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             var lot = await db.InventoryLots.SingleAsync(x => x.Id == fixture.LotId);
             var source = new SupplierProduct { SupplierId = fixture.SupplierId, ProductId = fixture.ProductId,
@@ -153,6 +153,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
                         ToStatus = InventoryUnitStatus.WithSupplier });
                 }
             }
+            await Phase2PostgresTestHarness.ReloadNpgsqlEnumTypesAsync(db);
             await db.SaveChangesAsync();
             await db.Database.MigrateAsync();
             var warrantyCase = await db.ShopStockWarrantyCases.SingleAsync(x => x.Id == fixture.CaseId);
@@ -177,7 +178,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             await db.Database.MigrateAsync();
             var allocationId = await InsertSendAllocationAsync(db, fixture, fixture.LotId, 2m);
@@ -192,34 +193,39 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
             Directory.CreateDirectory(directory);
             var runtimeRole = "er_warranty_runtime_" + Guid.NewGuid().ToString("N");
             var runtimePassword = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-            await db.Database.OpenConnectionAsync();
-            var adminConnection = (NpgsqlConnection)db.Database.GetDbConnection();
-            await using (var format = new NpgsqlCommand("SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', @role, @password)", adminConnection))
+            var profile = PostgresFixtureProfile.Resolve();
+            await using var maintenanceDb = new NpgsqlConnection(profile.MaintenanceForDatabase(builder.Database!));
+            await maintenanceDb.OpenAsync();
+            await using (var format = new NpgsqlCommand("SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', @role, @password)", maintenanceDb))
             {
                 format.Parameters.AddWithValue("role", runtimeRole);
                 format.Parameters.AddWithValue("password", runtimePassword);
                 var createRoleSql = (string)(await format.ExecuteScalarAsync())!;
-                await using var createRole = new NpgsqlCommand(createRoleSql, adminConnection);
+                await using var createRole = new NpgsqlCommand(createRoleSql, maintenanceDb);
                 await createRole.ExecuteNonQueryAsync();
             }
-            foreach (var schema in new[] { "system", "identity", "parties", "catalog", "inventory", "sales",
-                "purchasing", "thaka", "warranty", "finance", "audit", "reporting" })
+            foreach (var schema in new[] { "system", "identity", "parties", "catalog", "catalog_v3", "inventory", "sales",
+                "purchasing", "thaka", "warranty", "finance", "audit", "reporting", "posting", "production" })
             {
                 await using var grant = new NpgsqlCommand($"GRANT USAGE ON SCHEMA {schema} TO {runtimeRole}; " +
                     $"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {runtimeRole}; " +
-                    $"GRANT SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {runtimeRole}", adminConnection);
+                    $"GRANT SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {runtimeRole}", maintenanceDb);
                 await grant.ExecuteNonQueryAsync();
             }
+            var maintConn = new NpgsqlConnectionStringBuilder(profile.MaintenanceConnectionString)
+            {
+                Database = builder.Database
+            };
             var runtime = new PostgresConnectionDescriptor(builder.Host!, builder.Port, builder.Database!,
                 runtimeRole, new SensitiveString(runtimePassword));
-            var maintenance = new PostgresMaintenanceDescriptor(builder.Host!, builder.Port, builder.Username!,
-                new SensitiveString(builder.Password!));
+            var maintenanceDescriptor = new PostgresMaintenanceDescriptor(maintConn.Host!, maintConn.Port, maintConn.Username!,
+                new SensitiveString(maintConn.Password!));
             var keys = new RehearsalKeys();
             var sessions = new HmacRestoreSessionStore(Path.Combine(directory, "journal"), keys);
             var barrier = new FileProductionMaintenanceBarrier(Path.Combine(directory, "maintenance"), keys);
             var engine = new PostgresBackupEngine(Path.Combine(tools, "pg_dump.exe"), Path.Combine(tools, "pg_restore.exe"),
                 Path.Combine(tools, "psql.exe"), Path.Combine(tools, "createdb.exe"), new AesGcmBackupProtector(keys),
-                sessions, new RehearsalMaintenanceProvider(maintenance), barrier,
+                sessions, new RehearsalMaintenanceProvider(maintenanceDescriptor), barrier,
                 new CanonicalRestoreStagingValidator(Path.Combine(tools, "psql.exe"),
                     [new EdgeRetailsEfRestoreCompatibilityProbe(), new EdgeRetailsBusinessRestoreCompatibilityProbe(Path.Combine(tools, "psql.exe"))]),
                 new HmacBackupManifestAuthenticator(keys));
@@ -237,10 +243,12 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
                 Assert.Equal(RestoreSessionState.Prepared, session.State);
                 Assert.Equal(backup.Manifest.Sha256, session.VerifiedSha256);
                 Assert.NotEqual(builder.Database, session.StagingDatabase);
-                builder.Database = session.StagingDatabase;
-                builder.Pooling = false;
-                await using var restored = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                    .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
+                var stagingConnection = new NpgsqlConnectionStringBuilder(profile.MaintenanceConnectionString)
+                {
+                    Database = session.StagingDatabase
+                }.ConnectionString;
+                await using var restored = new EdgeRetailsDbContext(
+                    Phase2PostgresTestHarness.NewDbContextOptions(stagingConnection));
                 Assert.Equal(history, (await restored.Database.GetAppliedMigrationsAsync()).ToArray());
                 Assert.Empty(await restored.Database.GetPendingMigrationsAsync());
                 Assert.False(restored.Database.HasPendingModelChanges());
@@ -263,7 +271,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
                     Assert.Equal(RestoreSessionState.Discarded, (await sessions.GetAsync(token.RestoreId))!.State);
                     Assert.Equal(ProductionMaintenanceState.Normal, await barrier.GetStateAsync());
                 }
-                await using var dropRole = new NpgsqlCommand($"DROP OWNED BY {runtimeRole}; DROP ROLE {runtimeRole}", adminConnection);
+                await using var dropRole = new NpgsqlCommand($"DROP OWNED BY {runtimeRole}; DROP ROLE {runtimeRole}", maintenanceDb);
                 await dropRole.ExecuteNonQueryAsync();
                 if (Directory.Exists(directory))
                 {
@@ -291,7 +299,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             var otherLot = new InventoryLot { ProductId = fixture.ProductId, SourceMovementId = fixture.SendMovementId,
                 ReceivedQuantity = 2m, OriginalUnitCost = 50m, EffectiveUnitCost = 50m, CreatedAt = DateTimeOffset.UtcNow };
@@ -323,7 +331,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             var otherLot = new InventoryLot { ProductId = fixture.ProductId, SourceMovementId = fixture.SendMovementId,
                 ReceivedQuantity = 2m, OriginalUnitCost = 50m, EffectiveUnitCost = 50m, CreatedAt = DateTimeOffset.UtcNow };
@@ -354,7 +362,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             var previousHistory = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
             Assert.Equal(PreviousMigration, previousHistory[^1]);
@@ -451,7 +459,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             await db.Database.MigrateAsync();
             Assert.Equal(0, await AllocationCountAsync(db));
@@ -496,7 +504,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
     {
         await WithOwnedDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, PreviousMigration);
             var fixture = await SeedPreWarrantyLegacyCaseAsync(db);
             await db.Database.MigrateAsync();
             var before = await LegacySnapshotAsync(db, fixture);
@@ -522,6 +530,7 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
 
     private static async Task<LegacyFixture> SeedPreWarrantyLegacyCaseAsync(EdgeRetailsDbContext db)
     {
+        await Phase2PostgresTestHarness.EnsureHistoricalEfSchemaShimsAsync(db);
         var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
         var now = DateTimeOffset.UtcNow;
         var purchase = new Purchase
@@ -786,28 +795,6 @@ public sealed class Phase7Pass5WarrantyMigrationPostgresTests(ITestOutputHelper 
         return names;
     }
 
-    private static async Task WithOwnedDatabaseAsync(Func<EdgeRetailsDbContext, Task> test)
-    {
-        await using var attested = Phase2PostgresTestHarness.BuildProvider();
-        var name = "edge_retails_warranty_migration_" + Guid.NewGuid().ToString("N");
-        var profile = PostgresFixtureProfile.Resolve();
-        await using var admin = profile.OpenMaintenance();
-        await using (var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin))
-        {
-            await create.ExecuteNonQueryAsync();
-        }
-        try
-        {
-            var builder = new NpgsqlConnectionStringBuilder(profile.MaintenanceForDatabase(name));
-            await using var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
-            await test(db);
-        }
-        finally
-        {
-            // Generated name is scoped to the attested disposable runner, never an operator database.
-            await using var drop = new NpgsqlCommand($"DROP DATABASE {name} WITH (FORCE)", admin);
-            await drop.ExecuteNonQueryAsync();
-        }
-    }
+    private static Task WithOwnedDatabaseAsync(Func<EdgeRetailsDbContext, Task> test) =>
+        Phase2PostgresTestHarness.RunWithOwnedEmptyDatabaseAsync("edge_retails_warranty_migration_", test);
 }

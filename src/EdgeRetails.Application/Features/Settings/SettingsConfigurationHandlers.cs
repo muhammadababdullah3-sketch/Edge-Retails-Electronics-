@@ -8,6 +8,8 @@ public sealed record SettingsConfigurationDto(
     string ShopName,
     string? Phone,
     string? Address,
+    string TimeZoneId,
+    string? BusinessDayCutoffLocalTime,
     string? ReceiptHeader,
     string? ReceiptFooter,
     bool ShowCustomer,
@@ -18,6 +20,8 @@ public sealed record UpdateShopProfileCommand(
     string ShopName,
     string? Phone,
     string? Address,
+    string? TimeZoneId,
+    string? BusinessDayCutoffLocalTime,
     Guid ActorId,
     Guid CorrelationId);
 
@@ -52,6 +56,8 @@ public sealed class GetSettingsConfigurationHandler
             shop.ShopName,
             shop.Phone,
             shop.Address,
+            shop.TimeZoneId,
+            shop.BusinessDayCutoffLocalTime?.ToString("HH:mm"),
             receipt.Header,
             receipt.Footer,
             receipt.ShowCustomer,
@@ -67,6 +73,7 @@ public sealed class UpdateShopProfileHandler
     private readonly IBusinessAuditWriter _audit;
     private readonly IClock _clock;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IShopTimeZoneCache? _shopTimeZoneCache;
 
     public UpdateShopProfileHandler(
         ISetupRepository setup,
@@ -74,7 +81,8 @@ public sealed class UpdateShopProfileHandler
         ITransactionRunner transactions,
         IBusinessAuditWriter audit,
         IClock clock,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IShopTimeZoneCache? shopTimeZoneCache = null)
     {
         _setup = setup;
         _authorization = authorization;
@@ -82,6 +90,7 @@ public sealed class UpdateShopProfileHandler
         _audit = audit;
         _clock = clock;
         _unitOfWork = unitOfWork;
+        _shopTimeZoneCache = shopTimeZoneCache;
     }
     public Task<Result<bool>> HandleAsync(
         UpdateShopProfileCommand command,
@@ -114,11 +123,61 @@ public sealed class UpdateShopProfileHandler
                     "Authoritative shop profile is not configured.");
             }
 
+            var timeZoneId = string.IsNullOrWhiteSpace(command.TimeZoneId)
+                ? profile.TimeZoneId
+                : command.TimeZoneId.Trim();
+            if (string.IsNullOrWhiteSpace(timeZoneId))
+            {
+                timeZoneId = "Asia/Karachi";
+            }
+
+            TimeZoneInfo resolvedZone;
+            try
+            {
+                resolvedZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                return Result<bool>.Failure(
+                    "time.shop_timezone_unresolvable",
+                    $"Authoritative shop timezone '{command.TimeZoneId}' could not be resolved on this system.");
+            }
+            catch (InvalidTimeZoneException)
+            {
+                return Result<bool>.Failure(
+                    "time.shop_timezone_unresolvable",
+                    $"Authoritative shop timezone '{command.TimeZoneId}' is invalid on this system.");
+            }
+
             profile.ShopName = command.ShopName.Trim();
             profile.Phone = Normalize(command.Phone);
             profile.Address = Normalize(command.Address);
+            profile.TimeZoneId = resolvedZone.Id;
+
+            if (command.BusinessDayCutoffLocalTime is not null)
+            {
+                if (string.IsNullOrWhiteSpace(command.BusinessDayCutoffLocalTime))
+                {
+                    profile.BusinessDayCutoffLocalTime = null;
+                }
+                else if (!TimeOnly.TryParse(
+                             command.BusinessDayCutoffLocalTime.Trim(),
+                             out var parsedCutoff))
+                {
+                    return Result<bool>.Failure(
+                        "time.business_day_cutoff_invalid",
+                        "Business day cutoff must be a valid local time (HH:mm).");
+                }
+                else
+                {
+                    profile.BusinessDayCutoffLocalTime = parsedCutoff;
+                }
+            }
+
             profile.UpdatedAt = _clock.UtcNow;
             profile.Version++;
+
+            _shopTimeZoneCache?.Refresh(resolvedZone, profile.BusinessDayCutoffLocalTime);
 
             _audit.Record(
                 "SHOP_PROFILE_UPDATED",

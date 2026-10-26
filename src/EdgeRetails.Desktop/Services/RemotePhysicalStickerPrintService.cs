@@ -222,6 +222,35 @@ public sealed class RemotePhysicalStickerPrintService
                 continue;
             }
 
+            var allowIntentRetry = requestMode == PrintRequestMode.Retry;
+            try
+            {
+                if (isReprint)
+                {
+                    await _apiClient.PostAsync<LabelIntentClaimByUnitRequest, PhysicalLabelPrintIntentSummary>(
+                        "/api/printing/label-intents/reprint",
+                        new(unitId, Environment.MachineName, allowIntentRetry),
+                        cancellationToken);
+                }
+                else
+                {
+                    await _apiClient.PostAsync<LabelIntentClaimByUnitRequest, PhysicalLabelPrintIntentSummary>(
+                        "/api/printing/label-intents/claim-by-unit",
+                        new(unitId, Environment.MachineName, allowIntentRetry),
+                        cancellationToken);
+                }
+            }
+            catch (DesktopApiException ex)
+            {
+                results.Add(new PrintJobResult(
+                    false,
+                    ex.Code,
+                    ex.Message,
+                    effectiveCorrelation ?? Guid.NewGuid().ToString("D"),
+                    InventoryUnitId: unitId));
+                continue;
+            }
+
             Guid attemptGuid = Guid.Empty;
             if (effectiveCorrelation is not null && Guid.TryParse(effectiveCorrelation, out var parsedGuid))
             {

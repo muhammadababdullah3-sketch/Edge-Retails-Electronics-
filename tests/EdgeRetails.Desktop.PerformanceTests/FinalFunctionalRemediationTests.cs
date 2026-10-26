@@ -430,6 +430,7 @@ public sealed class FinalFunctionalRemediationTests
             "/api/auth/accounts" => JsonResponse("[]"),
             "/api/system/ready" => JsonResponse("{\"status\":\"Ready\",\"canConnect\":true,\"hasPendingMigrations\":false}"),
             "/api/backups/diagnostics" => JsonResponse("{\"verifiedCount\":0,\"verifiedBackups\":[],\"invalidArtifactCount\":0,\"invalidArtifacts\":[]}"),
+            "/api/system/lifecycle" => JsonResponse("{\"isDraining\":false,\"workerHeartbeatFound\":true,\"workerHeartbeatStale\":false}"),
             _ => throw new InvalidOperationException($"Unexpected endpoint: {request.RequestUri}")
         });
 
@@ -439,7 +440,7 @@ public sealed class FinalFunctionalRemediationTests
         // Must report truthful values rather than fabricated metrics
         Assert.Equal("Ready", settings.DatabaseStatus);
         Assert.Equal("Unavailable · Storage metrics not exposed by server", settings.DatabaseSize);
-        Assert.Equal("Unavailable · Background worker heartbeat endpoint not attached", settings.WorkerStatus);
+        Assert.Equal("Running · heartbeat OK", settings.WorkerStatus);
         Assert.Equal("Unavailable · License server endpoint not attached", settings.LicenseStatus);
         Assert.StartsWith("Never Run", settings.LastBackupDisplay);
     }

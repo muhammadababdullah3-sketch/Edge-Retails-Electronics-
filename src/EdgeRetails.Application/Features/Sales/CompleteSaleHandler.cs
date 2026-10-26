@@ -81,7 +81,8 @@ public static class CompleteSaleCanonicalPayload
                 : new
                 {
                     command.SupervisorApproval.SupervisorId,
-                    Reason = command.SupervisorApproval.Reason?.Trim()
+                    Reason = command.SupervisorApproval.Reason?.Trim(),
+                    command.SupervisorApproval.ApprovalToken
                     // Explicitly EXCLUDE SupervisorPin and RequestedAtUtc per §22 / MON-P12W1-005
                 },
             // Exclude PaymentReference per approved legacy concurrent retry rule (lines 1149-1152)

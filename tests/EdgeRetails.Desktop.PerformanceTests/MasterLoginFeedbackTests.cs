@@ -91,5 +91,11 @@ public sealed class MasterLoginFeedbackTests
             return Result.Task;
         }
         public Task SignOutAsync(ISessionContext session, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task LockScreenAsync(ISessionContext session, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task UnlockScreenAsync(ISessionContext session, string pin, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

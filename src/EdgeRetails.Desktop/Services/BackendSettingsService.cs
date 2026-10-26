@@ -12,6 +12,8 @@ public sealed record BackendSettingsSnapshot(
     string OwnerName,
     string Phone,
     string Address,
+    string TimeZoneId,
+    string? BusinessDayCutoffLocalTime,
     string ReceiptHeader,
     string ReceiptFooter,
     bool ShowCustomer,
@@ -51,6 +53,8 @@ public interface IBackendSettingsService
         string shopName,
         string? phone,
         string? address,
+        string? timeZoneId = null,
+        string? businessDayCutoffLocalTime = null,
         CancellationToken cancellationToken = default);
 
     Task SaveReceiptTemplateAsync(
@@ -92,6 +96,8 @@ public sealed class BackendSettingsService : IBackendSettingsService
         var showCustomer = false;
         var showCashier = false;
         var autoPrintDefault = false;
+        var timeZoneId = "Asia/Karachi";
+        string? businessDayCutoff = null;
 
         var databaseStatus = "Unavailable";
         var connectionStatus = "Database readiness unavailable";
@@ -139,6 +145,8 @@ public sealed class BackendSettingsService : IBackendSettingsService
                 showCustomer = configuration.ShowCustomer;
                 showCashier = configuration.ShowCashier;
                 autoPrintDefault = configuration.AutoPrintDefault;
+                timeZoneId = configuration.TimeZoneId;
+                businessDayCutoff = configuration.BusinessDayCutoffLocalTime;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -204,6 +212,8 @@ public sealed class BackendSettingsService : IBackendSettingsService
             ownerName,
             phone,
             address,
+            timeZoneId,
+            businessDayCutoff,
             receiptHeader,
             receiptFooter,
             showCustomer,
@@ -229,6 +239,8 @@ public sealed class BackendSettingsService : IBackendSettingsService
         string shopName,
         string? phone,
         string? address,
+        string? timeZoneId = null,
+        string? businessDayCutoffLocalTime = null,
         CancellationToken cancellationToken = default)
     {
         var actor = RequireActor();
@@ -239,6 +251,8 @@ public sealed class BackendSettingsService : IBackendSettingsService
                 shopName,
                 phone,
                 address,
+                timeZoneId,
+                businessDayCutoffLocalTime,
                 actor,
                 Guid.CreateVersion7()),
             cancellationToken);

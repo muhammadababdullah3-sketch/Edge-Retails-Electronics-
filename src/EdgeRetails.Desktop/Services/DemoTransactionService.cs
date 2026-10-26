@@ -197,7 +197,7 @@ public sealed class DemoTransactionService : ITransactionService
                 item.IsRestockAsRemnant))
         {
             throw new InvalidOperationException(
-                "Pack, container, and provenance returns require the shop server. Preview mode cannot process this return.");
+                "Pack, container, and provenance returns require a live shop install. Preview mode cannot process this return.");
         }
 
         if (request.Items.Count == 0 || request.TotalRefundAmount <= 0m)

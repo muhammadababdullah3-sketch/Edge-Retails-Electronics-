@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Application.Features.Catalog;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Setup;
 using EdgeRetails.Domain.Catalog;
@@ -125,9 +126,12 @@ public sealed class CatalogReferenceUpgradeApiContractTests
         Assert.NotNull(initialResult);
         Assert.Equal(10, initialResult.UnitsAdded);
         Assert.Equal(0, initialResult.UnitsPreserved);
+        Assert.Equal(TaxonomyV3Store.Departments.Count, initialResult.CategoriesAdded);
+        Assert.Equal(TaxonomyV3Store.UnitDefinitions.Count - 10, initialResult.TaxonomyUnitsAdded);
         Assert.False(initialResult.AlreadyApplied);
         Assert.True(fakeSetup.UpgradeApplied);
-        Assert.Equal(10, fakeCatalog.Units.Count);
+        Assert.Equal(TaxonomyV3Store.UnitDefinitions.Count, fakeCatalog.Units.Count);
+        Assert.Equal(TaxonomyV3Store.Departments.Count, fakeCatalog.Categories.Count);
 
         // 2. Replay Execution (200 OK, AlreadyApplied: true)
         using var replayRequest = CreateRequest(baseFactory, HttpMethod.Post, "/api/catalog/upgrade/fixed-units", sessionId);
@@ -198,6 +202,7 @@ public sealed class CatalogReferenceUpgradeApiContractTests
     private sealed class InMemoryCatalogRepo : ICatalogRepository
     {
         public List<Unit> Units { get; } = [];
+        public List<Category> Categories { get; } = [];
 
         public Task<IReadOnlyList<Unit>> GetUnitsAsync(bool includeInactive, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Unit>>(Units.ToList().AsReadOnly());
@@ -218,7 +223,8 @@ public sealed class CatalogReferenceUpgradeApiContractTests
         public Task<Category?> GetCategoryForUpdateAsync(Guid categoryId, CancellationToken cancellationToken) => Task.FromResult<Category?>(null);
         public Task<Category?> GetCategoryByIdentitySymbolAsync(string normalizedSymbol, CancellationToken cancellationToken) => Task.FromResult<Category?>(null);
         public Task<Category?> GetCategoryByNameAsync(string name, CancellationToken cancellationToken) => Task.FromResult<Category?>(null);
-        public Task<IReadOnlyList<Category>> GetCategoriesAsync(bool includeInactive, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<Category>>([]);
+        public Task<IReadOnlyList<Category>> GetCategoriesAsync(bool includeInactive, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Category>>(Categories.ToList().AsReadOnly());
         public Task<bool> IsCategoryInUseByActiveProductAsync(Guid categoryId, CancellationToken cancellationToken) => Task.FromResult(false);
         public Task<Unit?> GetUnitAsync(Guid unitId, CancellationToken cancellationToken) => Task.FromResult<Unit?>(null);
         public Task<Unit?> GetUnitForUpdateAsync(Guid unitId, CancellationToken cancellationToken) => Task.FromResult<Unit?>(null);
@@ -233,6 +239,6 @@ public sealed class CatalogReferenceUpgradeApiContractTests
         public void AddProductUnit(ProductUnit productUnit) { }
         public void AddBarcode(ProductUnitBarcode barcode) { }
         public void AddCompany(Company company) { }
-        public void AddCategory(Category category) { }
+        public void AddCategory(Category category) => Categories.Add(category);
     }
 }

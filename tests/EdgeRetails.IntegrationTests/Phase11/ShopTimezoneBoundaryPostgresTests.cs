@@ -498,7 +498,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         // Scenario 1: Future posting date validation via authoritative posting service
         var tomorrow = fixedShopDate.AddDays(1);
@@ -594,7 +595,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var dMinus7 = fixedShopDate.AddDays(-7); // exactly 7 calendar days back
@@ -651,7 +653,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var dMinus8 = fixedShopDate.AddDays(-8); // 8 calendar days back: exceeds 7-day window
@@ -717,7 +720,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var dMinus2 = new DateOnly(2025, 6, 3); // Within 7 days of 2025-06-05, but inside locked period 2025-06-01 to 2025-06-30
@@ -774,7 +778,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
 
@@ -826,7 +831,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var dMinus3 = fixedShopDate.AddDays(-3);
@@ -903,7 +909,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var dMinus2 = fixedShopDate.AddDays(-2);
@@ -977,7 +984,8 @@ public sealed class ShopTimezoneBoundaryPostgresTests
             postingAudits,
             identity,
             PinService,
-            auditWriter);
+            auditWriter,
+            new EfSupervisorApprovalStore(db));
 
         var entityId = Guid.NewGuid();
         var command = new PostingValidationCommand(

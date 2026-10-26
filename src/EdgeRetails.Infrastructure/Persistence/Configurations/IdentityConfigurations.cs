@@ -106,6 +106,8 @@ internal sealed class UserSessionConfiguration
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.HasIndex(x => x.ClientSessionId).IsUnique();
         builder.HasIndex(x => new { x.UserId, x.EndedAt });
+        builder.Property(x => x.LastActivityAt).IsRequired();
+        builder.Property(x => x.ScreenLockedAt);
 
         builder.HasOne<User>()
             .WithMany()

@@ -300,13 +300,13 @@ public sealed class LoginViewModel : ViewModelBase
             HasError = true;
             if (ex is DesktopApiException { Code: "network.timeout" })
             {
-                HelperText = "Sign in timed out. Check the Server connection and try again.";
+                HelperText = "Sign in timed out. Check that Edge Retails services are running, then try again.";
             }
             else
             {
                 HelperText = DesktopErrorPresentation.ForException(
                     ex,
-                    "Sign in is unavailable. Check the Server connection and try again.");
+                    "Sign in is unavailable. Check that Edge Retails services are running, then try again.");
             }
             IsSigningIn = false;
             Pin = string.Empty;
@@ -351,7 +351,7 @@ public sealed class LoginViewModel : ViewModelBase
             HasError = true;
             HelperText = DesktopErrorPresentation.ForException(
                 ex,
-                "Accounts could not be loaded. Check the Server connection and try again.");
+                "Accounts could not be loaded. Check that Edge Retails services are running, then try again.");
         }
     }
 

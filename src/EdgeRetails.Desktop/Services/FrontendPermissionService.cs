@@ -44,7 +44,7 @@ public sealed class BackendFrontendPermissionService : IFrontendPermissionServic
         NavigationTarget target,
         out string denialReason)
     {
-        denialReason = "A verified Server session is required to open this screen.";
+        denialReason = "Sign in is required to open this screen.";
         return false;
     }
 }

@@ -4,6 +4,7 @@ using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Inventory;
 using EdgeRetails.Application.Features.Purchasing;
 using EdgeRetails.Application.Features.Sales;
+using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Features.Thaka;
 using EdgeRetails.Application.Features.Warranty;
 using EdgeRetails.Domain.Catalog;
@@ -20,6 +21,9 @@ using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Persistence;
 using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
@@ -28,11 +32,118 @@ namespace EdgeRetails.IntegrationTests;
 
 internal static class Phase2PostgresTestHarness
 {
-    private static readonly object SequenceFixtureInitialization = new();
-
     public static string ResolveConnectionString()
     {
         return PostgresFixtureProfile.Resolve().ConnectionString;
+    }
+
+    private static readonly Npgsql.NameTranslation.NpgsqlNullNameTranslator PackStateTranslator = new();
+
+    internal static DbContextOptions<EdgeRetailsDbContext> NewDbContextOptions(string connectionString) =>
+        new DbContextOptionsBuilder<EdgeRetailsDbContext>()
+            .UseNpgsql(connectionString, npgsql => npgsql
+                .MigrationsAssembly(typeof(EdgeRetailsDbContext).Assembly.FullName)
+                .MigrationsHistoryTable("__ef_migrations_history", "system")
+                .MapEnum<PackState>("pack_state", "inventory", PackStateTranslator))
+            .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning))
+            .Options;
+
+    /// <summary>
+    /// The current EF model includes columns from later migrations. Historical rehearsal databases intentionally
+    /// stop at an earlier migration but still seed through the present model; add only the missing columns.
+    /// </summary>
+    internal static async Task EnsureHistoricalEfSchemaShimsAsync(EdgeRetailsDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            DO $shim$ BEGIN
+              IF to_regclass('catalog.units') IS NOT NULL THEN
+                ALTER TABLE catalog.units ADD COLUMN IF NOT EXISTS dimension character varying(20) NOT NULL DEFAULT 'Count';
+                ALTER TABLE catalog.units ADD COLUMN IF NOT EXISTS factor_to_reference numeric(18,9) NOT NULL DEFAULT 1.0;
+                ALTER TABLE catalog.units ADD COLUMN IF NOT EXISTS conversion_kind character varying(20) NOT NULL DEFAULT 'FIXED';
+              END IF;
+              IF to_regclass('system.shop_profile') IS NOT NULL THEN
+                ALTER TABLE system.shop_profile ADD COLUMN IF NOT EXISTS business_day_cutoff_local_time time without time zone NULL;
+                ALTER TABLE system.shop_profile ADD COLUMN IF NOT EXISTS time_zone_id character varying(100) NOT NULL DEFAULT '';
+              END IF;
+              IF to_regclass('identity.user_sessions') IS NOT NULL THEN
+                ALTER TABLE identity.user_sessions ADD COLUMN IF NOT EXISTS last_activity_at timestamp with time zone NULL;
+                UPDATE identity.user_sessions SET last_activity_at = started_at WHERE last_activity_at IS NULL;
+                BEGIN
+                  ALTER TABLE identity.user_sessions ALTER COLUMN last_activity_at SET NOT NULL;
+                EXCEPTION WHEN others THEN
+                  NULL;
+                END;
+              END IF;
+              IF to_regclass('finance.cash_sessions') IS NOT NULL THEN
+                ALTER TABLE finance.cash_sessions ADD COLUMN IF NOT EXISTS void_reason character varying(500) NULL;
+                ALTER TABLE finance.cash_sessions ADD COLUMN IF NOT EXISTS voided_at timestamp with time zone NULL;
+                ALTER TABLE finance.cash_sessions ADD COLUMN IF NOT EXISTS voided_by uuid NULL;
+              END IF;
+              IF to_regclass('catalog.products') IS NOT NULL THEN
+                ALTER TABLE catalog.products ADD COLUMN IF NOT EXISTS class_ref character varying(20) NULL;
+              END IF;
+              BEGIN
+                CREATE TYPE inventory.pack_state AS ENUM ('Sealed', 'Open', 'Consumed');
+              EXCEPTION
+                WHEN duplicate_object THEN NULL;
+              END;
+              IF to_regclass('inventory.units') IS NOT NULL THEN
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS initial_base_quantity numeric(18,4) NULL;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS remaining_base_quantity numeric(18,4) NULL;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS is_loose_stock boolean NOT NULL DEFAULT false;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS pack_state inventory.pack_state NULL;
+              END IF;
+              IF to_regclass('system.operation_outcomes') IS NOT NULL THEN
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_content_type character varying(100) NULL;
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_payload jsonb NULL;
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_status_code integer NULL;
+              END IF;
+            END $shim$;
+            """);
+        await db.Database.OpenConnectionAsync();
+        if (db.Database.GetDbConnection() is NpgsqlConnection npgsql)
+        {
+            await npgsql.ReloadTypesAsync();
+        }
+    }
+
+    internal static async Task ReloadNpgsqlEnumTypesAsync(EdgeRetailsDbContext db)
+    {
+        await db.Database.OpenConnectionAsync();
+        if (db.Database.GetDbConnection() is NpgsqlConnection npgsql)
+        {
+            await npgsql.ReloadTypesAsync();
+        }
+    }
+
+    internal static async Task MigrateToHistoricalBaselineAsync(EdgeRetailsDbContext db, string migrationId)
+    {
+        await db.GetService<IMigrator>().MigrateAsync(migrationId);
+        await EnsureHistoricalEfSchemaShimsAsync(db);
+    }
+
+    internal static async Task RunWithOwnedEmptyDatabaseAsync(string namePrefix, Func<EdgeRetailsDbContext, Task> test)
+    {
+        await using var attested = BuildProvider();
+        var name = namePrefix + Guid.NewGuid().ToString("N");
+        var profile = PostgresFixtureProfile.Resolve();
+        await using var admin = profile.OpenMaintenance();
+        await using (var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin))
+        {
+            await create.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            var connectionString = profile.MaintenanceForDatabase(name);
+            await using var db = new EdgeRetailsDbContext(NewDbContextOptions(connectionString));
+            profile.GrantWriteAccess(name);
+            await test(db);
+        }
+        finally
+        {
+            await using var drop = new NpgsqlCommand($"DROP DATABASE {name} WITH (FORCE)", admin);
+            await drop.ExecuteNonQueryAsync();
+        }
     }
 
     public static ServiceProvider BuildProvider(IClock? clock = null, Action<IServiceCollection>? configure = null)
@@ -111,32 +222,36 @@ internal static class Phase2PostgresTestHarness
 
     internal static void VerifyOrCreateCustodyBinding(string authorityRoot, string root, string? clusterRunId, int port, string database)
     {
-        var manifest = Path.Combine(authorityRoot, "highwater.manifest");
-        var bindingFile = Path.Combine(authorityRoot, "cluster_binding.json");
-
-        lock (SequenceFixtureInitialization)
+        lock (SequenceFixtureCoordination.InitLock)
         {
+            if (Directory.Exists(authorityRoot) && !File.Exists(Path.Combine(authorityRoot, "cluster_binding.json")) &&
+                !Directory.EnumerateFileSystemEntries(authorityRoot).Any())
+            {
+                Directory.Delete(authorityRoot, recursive: false);
+            }
+
             if (!Directory.Exists(authorityRoot))
             {
-                Directory.CreateDirectory(authorityRoot);
-                MachineSequenceHighWaterService.InitializeOwnedFixture(manifest, new OwnedSequenceAuthorityCustody(authorityRoot));
-
-                // Bind custody directory to the specific cluster root, run ID, port, and database
-                var bindingJson = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    ClusterRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    RunId = clusterRunId ?? "unknown",
-                    Port = port,
-                    Database = database,
-                    BoundAtUtc = DateTimeOffset.UtcNow
-                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(bindingFile, bindingJson);
+                InitializeCustodyBinding(authorityRoot, root, clusterRunId, port, database);
             }
             else
             {
-                // Verify candidate cluster/run/custody binding contract
+                var bindingFile = Path.Combine(authorityRoot, "cluster_binding.json");
+                var manifest = Path.Combine(authorityRoot, "highwater.manifest");
                 if (!File.Exists(bindingFile))
                 {
+                    SequenceFixtureCoordination.WaitForFile(bindingFile);
+                }
+
+                if (!File.Exists(bindingFile))
+                {
+                    if (!Directory.EnumerateFileSystemEntries(authorityRoot).Any())
+                    {
+                        Directory.Delete(authorityRoot, recursive: false);
+                        InitializeCustodyBinding(authorityRoot, root, clusterRunId, port, database);
+                        return;
+                    }
+
                     throw new InvalidOperationException(
                         $"FAIL-CLOSED: Custody directory '{authorityRoot}' exists but is missing required 'cluster_binding.json'. Silently binding unverified existing authority is forbidden.");
                 }
@@ -170,13 +285,34 @@ internal static class Phase2PostgresTestHarness
                     throw new InvalidOperationException($"FAIL-CLOSED: Corrupt cluster binding file at '{bindingFile}'.", ex);
                 }
 
-                // Missing artifact fail-closed check: all three artifacts must exist
-                if (!File.Exists(manifest) || !File.Exists(manifest + ".checkpoint") || !File.Exists(manifest + ".lock"))
+                if (!SequenceFixtureCoordination.SequenceArtifactsComplete(manifest))
+                {
+                    SequenceFixtureCoordination.WaitForSequenceArtifacts(manifest);
+                }
+
+                if (!SequenceFixtureCoordination.SequenceArtifactsComplete(manifest))
                 {
                     throw new InvalidOperationException("FAIL-CLOSED: Sequence fixture artifacts are incomplete or corrupt in existing authority root. Deleting or recreating legitimate authority is forbidden.");
                 }
             }
         }
+    }
+
+    private static void InitializeCustodyBinding(string authorityRoot, string root, string? clusterRunId, int port, string database)
+    {
+        var manifest = Path.Combine(authorityRoot, "highwater.manifest");
+        var bindingFile = Path.Combine(authorityRoot, "cluster_binding.json");
+        Directory.CreateDirectory(authorityRoot);
+        MachineSequenceHighWaterService.InitializeOwnedFixture(manifest, new OwnedSequenceAuthorityCustody(authorityRoot));
+        var bindingJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ClusterRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            RunId = clusterRunId ?? "unknown",
+            Port = port,
+            Database = database,
+            BoundAtUtc = DateTimeOffset.UtcNow
+        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(bindingFile, bindingJson);
     }
 
     internal static (string Root, string? ClusterRunId) AttestOwnedPostgresRoot(string connectionString, string? runnerRootOverride = null)
@@ -237,45 +373,8 @@ internal static class Phase2PostgresTestHarness
             }
         }
 
-        bool isApprovedOwnedCluster = false;
-        string? clusterRunId = null;
-
-        var ownershipMarkerPath = Path.Combine(root, "OWNERSHIP_MARKER.json");
-        if (File.Exists(ownershipMarkerPath))
-        {
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(ownershipMarkerPath));
-                var rootElem = doc.RootElement;
-                var marker = rootElem.TryGetProperty("marker", out var m) ? m.GetString() : null;
-                var runId = rootElem.TryGetProperty("run_id", out var r) ? r.GetString() : null;
-                var port = rootElem.TryGetProperty("port", out var p) ? p.GetInt32() : 0;
-                var isolation = rootElem.TryGetProperty("isolation_mode", out var i) ? i.GetString() : null;
-
-                if (string.Equals(marker, "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER", StringComparison.Ordinal) &&
-                    !string.IsNullOrWhiteSpace(runId) &&
-                    port == connection.Port &&
-                    string.Equals(isolation, "owned_disposable_local_cluster", StringComparison.Ordinal))
-                {
-                    isApprovedOwnedCluster = true;
-                    clusterRunId = runId;
-                }
-            }
-            catch
-            {
-                isApprovedOwnedCluster = false;
-            }
-        }
-
-        var tempPrefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
-        var isApprovedTempRunner = root.StartsWith(tempPrefix, StringComparison.OrdinalIgnoreCase) &&
-                                  (Directory.Exists(Path.Combine(root, "data")) || Directory.Exists(Path.Combine(root, "pgdata")));
-
-        if (!isApprovedTempRunner && !isApprovedOwnedCluster)
-        {
-            throw new InvalidOperationException("FAIL-CLOSED: PostgreSQL fixture authority is outside the approved isolated runner or lacks verified ownership marker.");
-        }
+        var (_, clusterRunId) = OwnedPostgresRunnerAttestation.TryApproveRunnerRoot(root, connection.Port);
+        OwnedPostgresRunnerAttestation.EnsureRunnerRootApproved(root, connection.Port);
 
         using var pg = new NpgsqlConnection(connectionString);
         pg.Open();
@@ -529,6 +628,56 @@ internal static class Phase2PostgresTestHarness
         db.CashSessions.Add(session);
         await db.SaveChangesAsync();
         return session;
+    }
+
+    /// <summary>Stock, terminal, and cash session prerequisites for crash-host complete-sale scenarios.</summary>
+    public static async Task<(QuantityProductFixture Product, Guid TerminalId)> SetupCrashSalePrerequisitesAsync(
+        ServiceProvider provider,
+        decimal initialStock = 20m)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
+        await EnsureReceiptConfigurationAsync(db);
+        var product = await SeedQuantityProductAsync(db, defaultSalePrice: 200m);
+
+        var purchase = await scope.ServiceProvider.GetRequiredService<CreatePurchaseHandler>().HandleAsync(
+            new CreatePurchaseCommand(
+                product.SupplierId,
+                "PURCHASE-CRASH-" + Guid.NewGuid().ToString("N")[..8],
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                null,
+                0m,
+                PurchaseSettlementMode.External,
+                product.ActorId,
+                Guid.NewGuid(),
+                [new(product.ProductId, product.ProductUnitId, initialStock, 100m, 200m, [])]),
+            default);
+        if (!purchase.IsSuccess)
+        {
+            throw new InvalidOperationException(purchase.Error?.Message ?? "Purchase seed failed for crash scenario.");
+        }
+
+        var terminal = new Terminal
+        {
+            Name = "POS-CRASH-" + Guid.NewGuid().ToString("N")[..8],
+            TerminalCode = "CR-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(),
+            Status = TerminalStatus.Active,
+            RegisteredAt = DateTimeOffset.UtcNow
+        };
+        db.Terminals.Add(terminal);
+        await db.SaveChangesAsync();
+
+        if (!await db.CashSessions.AnyAsync(x => x.Status == CashSessionStatus.Open))
+        {
+            var openRes = await scope.ServiceProvider.GetRequiredService<OpenCashSessionHandler>()
+                .HandleAsync(new OpenCashSessionCommand(1000m, product.ActorId, "Crash test opening drawer"), default);
+            if (!openRes.IsSuccess)
+            {
+                throw new InvalidOperationException(openRes.Error?.Message ?? "Cash session open failed for crash scenario.");
+            }
+        }
+
+        return (product, terminal.Id);
     }
 }
 

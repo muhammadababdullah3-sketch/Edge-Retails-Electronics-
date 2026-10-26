@@ -54,7 +54,8 @@ public sealed class Phase1EditorSubmissionSafetyTests
     {
         var service = new BusinessService();
         object vm = expense
-            ? new ExpenseEditViewModel(new Toasts(), () => { }, backendService: service, categories: ["General"])
+            ? new ExpenseEditViewModel(new Toasts(), () => { }, backendService: service, categories: ["General"],
+                operationIntents: new InMemoryClientOperationIntentStore())
                 { AmountText = "10", Note = "original" }
             : new CustomerEditViewModel(new Toasts(), () => { }, backendService: service) { Name = "original" };
         var first = Save(vm);
@@ -83,7 +84,8 @@ public sealed class Phase1EditorSubmissionSafetyTests
     public async Task Expense_UnknownOutcomePreservesOriginalPayloadForRetry()
     {
         var service = new BusinessService { FailFirst = true };
-        var vm = new ExpenseEditViewModel(new Toasts(), () => { }, backendService: service, categories: ["General"])
+        var vm = new ExpenseEditViewModel(new Toasts(), () => { }, backendService: service, categories: ["General"],
+            operationIntents: new InMemoryClientOperationIntentStore())
             { AmountText = "10", Note = "original" };
         await Save(vm);
         Assert.False(vm.CanEdit);
@@ -102,7 +104,8 @@ public sealed class Phase1EditorSubmissionSafetyTests
 
     private static StockAdjustmentViewModel Stock(StockService service) => new(
         new PosProductItemViewModel("P", "Product", "SKU", "Brand", "General", 10m, 20m,
-            backendProductId: Guid.NewGuid(), backendProductUnitId: Guid.NewGuid()), new Toasts(), () => { }, service)
+            backendProductId: Guid.NewGuid(), backendProductUnitId: Guid.NewGuid()), new Toasts(), () => { }, service,
+        operationIntents: new InMemoryClientOperationIntentStore())
         { QuantityText = "2", Note = "original" };
 
     private sealed record StockRequest(Guid Id, decimal Quantity, bool Increase, StockAdjustmentReason Reason, string? Note);

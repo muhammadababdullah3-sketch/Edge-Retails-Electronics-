@@ -530,6 +530,8 @@
                         <TextBlock Style="{StaticResource Text.SectionTitle}" Grid.Column="0"
                                    Text="Rs."
                                    FontFamily="{StaticResource Font.Numeric}"
+                                   FontSize="18"
+                                   FontWeight="Bold"
                                    Foreground="{DynamicResource Brush.Text.Muted}"
                                    Margin="14,0,6,0"
                                    VerticalAlignment="Center" />
@@ -537,8 +539,11 @@
                         <!-- Numeric Amount TextBox -->
                         <TextBox x:Name="AmountReceivedTextBox"
                                  Grid.Column="1"
-                                 Style="{StaticResource Input.TextBox.Amount}"
+                                 Style="{StaticResource Input.TextBox.Embedded}"
                                  Text="{Binding AmountReceivedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="{StaticResource Font.Numeric}"
+                                 FontSize="18"
+                                 FontWeight="Bold"
                                  Foreground="{DynamicResource Brush.Text.Primary}"
                                  Padding="0,0,14,0"
                                  VerticalAlignment="Center"

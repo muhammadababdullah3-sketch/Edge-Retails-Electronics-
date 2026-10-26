@@ -16,6 +16,21 @@ public sealed class Phase11ShopTimeAndPostingTests
     private static readonly TimeZoneInfo KarachiZone = TimeZoneInfo.FindSystemTimeZoneById(
         OperatingSystem.IsWindows() ? "Pakistan Standard Time" : "Asia/Karachi");
 
+    private sealed class TestShopTimeAuthority : ShopClock, IShopTimeAuthority
+    {
+        private readonly ShopClockIntegrity _integrity;
+
+        public TestShopTimeAuthority(TimeZoneInfo tz, Func<DateTimeOffset>? utc = null, ShopClockIntegrity? integrity = null)
+            : base(tz, utc)
+        {
+            _integrity = integrity ?? new ShopClockIntegrity(true, null);
+        }
+
+        public ShopClockIntegrity Integrity => _integrity;
+
+        public DateOnly GetCurrentShopDate() => ShopDate;
+    }
+
     private static readonly Pbkdf2PinCredentialService PinService = new();
 
     private sealed class TestIdentityRepository : IIdentityReadRepository
@@ -140,7 +155,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     {
         // 2026-10-12 00:30:00 AM PKT corresponds to 2026-10-11 19:30:00 UTC (previous day in UTC)
         var utcTimestamp = new DateTimeOffset(2026, 10, 11, 19, 30, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcTimestamp);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcTimestamp);
 
         Assert.Equal(new DateOnly(2026, 10, 11), DateOnly.FromDateTime(clock.UtcNow.UtcDateTime));
         Assert.Equal(new DateOnly(2026, 10, 12), clock.ShopDate);
@@ -152,7 +167,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T04_PostingDate_CurrentShopDate_SucceedsWithoutSupervisor()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -161,7 +176,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.SalesCreate }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Sale,
@@ -184,7 +199,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T05_PostingDate_FutureDate_Rejected()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -192,7 +207,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.SalesCreate }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -212,7 +227,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     {
         // Today is 2026-10-12. Exactly 7 days back is 2026-10-05.
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -222,7 +237,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var supervisor = CreateUser("Supervisor", "9999", new[] { PermissionKeys.SupervisorPostingOverride }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -251,7 +266,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     {
         // Today is 2026-10-12. Day 8 backdate is 2026-10-04.
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -261,7 +276,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var supervisor = CreateUser("Supervisor", "9999", new[] { PermissionKeys.SupervisorPostingOverride }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -285,7 +300,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T08_PostingDate_HistoricalWithoutSupervisor_Rejected()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -293,7 +308,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.PurchasingManage }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -313,7 +328,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T09_SupervisorAuth_CallerBooleanRejected()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -321,7 +336,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.PurchasingManage }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -341,7 +356,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T10_SupervisorAuth_InvalidPin_Rejected()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -351,7 +366,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var supervisor = CreateUser("Supervisor", "9999", new[] { PermissionKeys.SupervisorPostingOverride }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -375,7 +390,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T11_SupervisorAuth_SpoofedActor_Rejected()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -385,7 +400,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.SalesCreate }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -409,7 +424,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T11b_SupervisorAuth_UnprivilegedSupervisor_PermissionDenied()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -419,7 +434,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var otherCashier = CreateUser("OtherCashier", "2222", new[] { PermissionKeys.SalesCreate }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var command = new PostingValidationCommand(
             OperationType: PostingOperationTypes.Purchase,
@@ -443,7 +458,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T12_PeriodLock_PrecedenceOverSupervisorOverride()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -466,7 +481,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         var supervisor = CreateUser("Owner", "9999", new[] { PermissionKeys.SupervisorPostingOverride, PermissionKeys.SettingsManage }, identity);
 
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         // Attempt to post on 2026-10-06 (which is within 7 days, has valid supervisor, but falls in locked period)
         var command = new PostingValidationCommand(
@@ -492,7 +507,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T13_AtomicAudit_CreatedAndCommittedInUnitOfWork()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -502,7 +517,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.ExpensesManage }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
         var adapter = new FinancialPostingAdapter(service, uow, tx);
 
         var entityId = Guid.NewGuid();
@@ -535,7 +550,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T14_AtomicAudit_FailureRollsBackMutation()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -545,7 +560,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.ExpensesManage }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
         var adapter = new FinancialPostingAdapter(service, uow, tx);
 
         var command = new PostingValidationCommand(
@@ -565,7 +580,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     [Fact]
     public void T15_ReportingBoundary_Daily_InclusiveStartExclusiveEnd()
     {
-        var clock = new ShopClock(KarachiZone);
+        var clock = new TestShopTimeAuthority(KarachiZone);
         var boundaryService = new ShopPeriodBoundaryService(clock);
 
         var day = new DateOnly(2026, 10, 12);
@@ -582,7 +597,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     [Fact]
     public void T16_ReportingBoundary_Monthly_Yearly_LeapYear()
     {
-        var clock = new ShopClock(KarachiZone);
+        var clock = new TestShopTimeAuthority(KarachiZone);
         var boundaryService = new ShopPeriodBoundaryService(clock);
 
         // Leap Year February 2028 has 29 days
@@ -606,7 +621,7 @@ public sealed class Phase11ShopTimeAndPostingTests
         // Whatever the host system's local timezone (e.g. UTC, Pacific, Tokyo),
         // ShopClock is explicitly pinned to Karachi Zone (+05:00)
         var fixedUtc = new DateTimeOffset(2026, 10, 12, 14, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => fixedUtc);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => fixedUtc);
 
         // 14:00 UTC + 5 = 19:00 PKT
         Assert.Equal(19, clock.ShopNow.Hour);
@@ -685,7 +700,7 @@ public sealed class Phase11ShopTimeAndPostingTests
     public async Task T20_ReplayAndIdempotency_SameAndDifferentDateRetries()
     {
         var utcNow = new DateTimeOffset(2026, 10, 12, 6, 0, 0, TimeSpan.Zero);
-        var clock = new ShopClock(KarachiZone, () => utcNow);
+        var clock = new TestShopTimeAuthority(KarachiZone, () => utcNow);
         var periodLocks = new InMemoryPeriodLockRepository();
         var audits = new PostingAuditRepository();
         var identity = new TestIdentityRepository();
@@ -693,7 +708,7 @@ public sealed class Phase11ShopTimeAndPostingTests
 
         var cashier = CreateUser("Cashier", "1111", new[] { PermissionKeys.SalesCreate }, identity);
         var service = new ShopPostingValidationService(
-            clock, periodLocks, audits, identity, PinService, businessAudit);
+            clock, periodLocks, audits, identity, PinService, businessAudit, new StubSupervisorApprovalStore());
 
         var entityId = Guid.NewGuid();
         var command1 = new PostingValidationCommand(

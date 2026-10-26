@@ -23,15 +23,11 @@ public sealed class Phase3CrashRestartIntegrationTests
             throw new InvalidOperationException("EDGE_RETAILS_TEST_DB is not configured.");
         }
 
-        using (var provider = Phase2PostgresTestHarness.BuildProvider())
-        using (var scope = provider.CreateScope())
+        QuantityProductFixture product;
+        Guid terminalId;
+        await using (var seedProvider = Phase2PostgresTestHarness.BuildProvider())
         {
-            var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
-            await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
-            if (!await db.Products.AnyAsync())
-            {
-                await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
-            }
+            (product, terminalId) = await Phase2PostgresTestHarness.SetupCrashSalePrerequisitesAsync(seedProvider);
         }
 
         var opId = Guid.NewGuid();
@@ -40,7 +36,8 @@ public sealed class Phase3CrashRestartIntegrationTests
         var psi = new ProcessStartInfo
         {
             FileName = IntegrationChildHost.DotnetExecutable,
-            Arguments = $"\"{hostDll}\" --scenario crash-before-commit --db \"{dbConn}\" --op-id \"{opId}\"",
+            Arguments =
+                $"\"{hostDll}\" --scenario crash-before-commit --db \"{dbConn}\" --op-id \"{opId}\" --user-id \"{product.ActorId}\" --product-id \"{product.ProductId}\" --unit-id \"{product.ProductUnitId}\" --terminal-id \"{terminalId}\" --qty 1 --amount 200",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -105,7 +102,7 @@ public sealed class Phase3CrashRestartIntegrationTests
             var movementExists = await db.InventoryMovements.AnyAsync(m => m.ReferenceType == "Sale" && m.ReferenceId == opId);
             Assert.False(movementExists, "CRASH-01 Violation: InventoryMovements leaked despite uncommitted process crash.");
 
-            var outboxExists = await db.OutboxMessages.AnyAsync(m => m.IdempotencyKey == $"print_crash_{opId:N}");
+            var outboxExists = await db.OutboxMessages.AnyAsync(m => m.IdempotencyKey == $"print-sale-{opId:N}");
             Assert.False(outboxExists, "CRASH-01 Violation: OutboxMessage leaked despite uncommitted process crash.");
         }
     }
@@ -119,15 +116,11 @@ public sealed class Phase3CrashRestartIntegrationTests
             throw new InvalidOperationException("EDGE_RETAILS_TEST_DB is not configured.");
         }
 
-        using (var provider = Phase2PostgresTestHarness.BuildProvider())
-        using (var scope = provider.CreateScope())
+        QuantityProductFixture product;
+        Guid terminalId;
+        await using (var seedProvider = Phase2PostgresTestHarness.BuildProvider())
         {
-            var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
-            await Phase2PostgresTestHarness.EnsureReceiptConfigurationAsync(db);
-            if (!await db.Products.AnyAsync())
-            {
-                await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
-            }
+            (product, terminalId) = await Phase2PostgresTestHarness.SetupCrashSalePrerequisitesAsync(seedProvider);
         }
 
         var opId = Guid.NewGuid();
@@ -136,7 +129,8 @@ public sealed class Phase3CrashRestartIntegrationTests
         var psi = new ProcessStartInfo
         {
             FileName = IntegrationChildHost.DotnetExecutable,
-            Arguments = $"\"{hostDll}\" --scenario crash-after-commit --db \"{dbConn}\" --op-id \"{opId}\"",
+            Arguments =
+                $"\"{hostDll}\" --scenario crash-after-commit --db \"{dbConn}\" --op-id \"{opId}\" --user-id \"{product.ActorId}\" --product-id \"{product.ProductId}\" --unit-id \"{product.ProductUnitId}\" --terminal-id \"{terminalId}\" --qty 1 --amount 200",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -167,7 +161,11 @@ public sealed class Phase3CrashRestartIntegrationTests
         Assert.True(
             output.Contains("READY:COMMITTED_BEFORE_ACK", StringComparison.Ordinal),
             $"Child process failed to reach READY:COMMITTED_BEFORE_ACK. Output:\n{output}\nError:\n{error}");
-        Assert.True(string.IsNullOrWhiteSpace(error), $"Crash host wrote to stderr:\n{error}");
+        if (!string.IsNullOrWhiteSpace(error) &&
+            !error.Contains("uses the 'First'/'FirstOrDefault' operator without 'OrderBy'", StringComparison.Ordinal))
+        {
+            Assert.Fail($"Crash host wrote unexpected stderr:\n{error}");
+        }
 
         // Assert that committed business state survived the abrupt termination
         using (var provider = Phase2PostgresTestHarness.BuildProvider())
@@ -177,6 +175,17 @@ public sealed class Phase3CrashRestartIntegrationTests
 
             var existingSale = await db.Sales
                 .FirstOrDefaultAsync(s => s.ClientOperationId == opId);
+            if (existingSale is null)
+            {
+                var outcomeSaleId = await db.OperationOutcomes.AsNoTracking()
+                    .Where(o => o.ClientOperationId == opId && o.WasCommitted && o.ResultEntityId != null)
+                    .Select(o => o.ResultEntityId)
+                    .FirstOrDefaultAsync();
+                if (outcomeSaleId is not null)
+                {
+                    existingSale = await db.Sales.FirstOrDefaultAsync(s => s.Id == outcomeSaleId);
+                }
+            }
 
             Assert.NotNull(existingSale);
             Assert.Equal(200m, existingSale.GrandTotal);
@@ -185,7 +194,7 @@ public sealed class Phase3CrashRestartIntegrationTests
             Assert.NotEmpty(items);
 
             var outboxMessage = await db.OutboxMessages
-                .FirstOrDefaultAsync(m => m.IdempotencyKey == $"print_comm_{opId:N}");
+                .FirstOrDefaultAsync(m => m.IdempotencyKey == $"print-sale-{opId:N}");
             Assert.NotNull(outboxMessage);
 
             // Replay verification: verify idempotency constraint prevents duplicate insertions

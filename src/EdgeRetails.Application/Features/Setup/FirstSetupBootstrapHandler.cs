@@ -1,7 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Catalog;
-using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Parties;
@@ -61,7 +60,9 @@ public sealed class FirstSetupBootstrapHandler
         "warranty.shop_stock.manage",
         "warranty.shop_stock.credit",
         "reports.view",
-        "settings.manage"
+        "settings.manage",
+        "cash.session.close",
+        "cash.session.owner_void"
     ];
 
     private static readonly HashSet<string> ManagerPermissions =
@@ -90,7 +91,9 @@ public sealed class FirstSetupBootstrapHandler
         "warranty.claim.resolve",
         "warranty.claim.replace",
         "warranty.claim.handover",
-        "warranty.shop_stock.manage"
+        "warranty.shop_stock.manage",
+        "cash.session.close",
+        "cash.session.owner_void"
     ];
 
     private static readonly HashSet<string> CashierPermissions =
@@ -102,7 +105,8 @@ public sealed class FirstSetupBootstrapHandler
         "sales.draft.create",
         "sales.draft.resume",
         "sales.draft.cancel",
-        "sales.price_check"
+        "sales.price_check",
+        "cash.session.close"
     ];
 
     private readonly ISetupRepository _setup;
@@ -110,19 +114,22 @@ public sealed class FirstSetupBootstrapHandler
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly ICatalogRepository _catalog;
 
     public FirstSetupBootstrapHandler(
         ISetupRepository setup,
         IPinCredentialService pinCredentials,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        ICatalogRepository catalog)
     {
         _setup = setup;
         _pinCredentials = pinCredentials;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _catalog = catalog;
     }
 
     public Task<Result<FirstSetupBootstrapResult>> HandleAsync(
@@ -270,6 +277,8 @@ public sealed class FirstSetupBootstrapHandler
         };
         _setup.AddUser(owner);
 
+        await CatalogTaxonomyBootstrap.SeedMissingReferenceDataAsync(_catalog, cancellationToken);
+
         installation.SetupStatus = SetupStatus.Complete;
         installation.CompletedAt = now;
         installation.Version++;
@@ -281,63 +290,6 @@ public sealed class FirstSetupBootstrapHandler
                 installation.InstallationId,
                 owner.Id,
                 walkIn.Id));
-    }
-
-    private static async Task PreloadCanonicalCatalogAsync(
-        ICatalogRepository catalog,
-        CancellationToken cancellationToken)
-    {
-        var existingUnits = await catalog.GetUnitsAsync(includeInactive: true, cancellationToken);
-        var existingUnitSymbols = new HashSet<string>(
-            existingUnits.Select(u => u.Symbol),
-            StringComparer.OrdinalIgnoreCase);
-        var existingUnitNames = new HashSet<string>(
-            existingUnits.Select(u => u.Name),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var def in TaxonomyV3Store.UnitDefinitions)
-        {
-            if (!existingUnitSymbols.Contains(def.LocalCode) && !existingUnitNames.Contains(def.Name))
-            {
-                catalog.AddUnit(new Unit
-                {
-                    Name = def.Name,
-                    Symbol = def.LocalCode,
-                    Dimension = def.Dimension,
-                    FactorToReference = def.FactorToReference,
-                    ConversionKind = def.ConversionKind,
-                    DisplayDecimalPlaces = def.Dimension == PhysicalDimension.Count ? 0 : 3,
-                    IsActive = def.IsActiveSupported
-                });
-                existingUnitSymbols.Add(def.LocalCode);
-                existingUnitNames.Add(def.Name);
-            }
-        }
-
-        var existingCategories = await catalog.GetCategoriesAsync(includeInactive: true, cancellationToken);
-        var existingCategorySymbols = new HashSet<string>(
-            existingCategories.Select(c => c.IdentitySymbol),
-            StringComparer.OrdinalIgnoreCase);
-        var existingCategoryNames = new HashSet<string>(
-            existingCategories.Select(c => c.Name),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dept in TaxonomyV3Store.Departments)
-        {
-            var symbol = dept.Code.ToUpperInvariant();
-            if (!existingCategorySymbols.Contains(symbol) && !existingCategoryNames.Contains(dept.Name))
-            {
-                catalog.AddCategory(new Category
-                {
-                    Name = dept.Name,
-                    IdentitySymbol = symbol,
-                    IsActive = true,
-                    Version = 1
-                });
-                existingCategorySymbols.Add(symbol);
-                existingCategoryNames.Add(dept.Name);
-            }
-        }
     }
 
     private static Role CreateRole(string name) =>

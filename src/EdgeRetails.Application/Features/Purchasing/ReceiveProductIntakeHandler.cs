@@ -8,6 +8,7 @@ using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Posting;
+using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Domain.Purchasing;
 
 namespace EdgeRetails.Application.Features.Purchasing;
@@ -68,6 +69,7 @@ public sealed class ReceiveProductIntakeHandler
     private readonly ISequenceHighWaterService _highWaterService;
     private readonly IPhysicalUnitCreationAuthority? _physicalUnits;
     private readonly IShopPostingValidationService? _postingValidation;
+    private readonly IPhysicalLabelPrintIntentWriter? _labelPrintIntents;
 
     public ReceiveProductIntakeHandler(
         IPurchasingRepository purchases,
@@ -86,7 +88,8 @@ public sealed class ReceiveProductIntakeHandler
         ISequenceHighWaterService? highWaterService = null,
         IOperationOutcomeLedger? outcomeLedger = null,
         IPhysicalUnitCreationAuthority? physicalUnitCreationAuthority = null,
-        IShopPostingValidationService? postingValidation = null)
+        IShopPostingValidationService? postingValidation = null,
+        IPhysicalLabelPrintIntentWriter? labelPrintIntentWriter = null)
     {
         _purchases = purchases;
         _parties = parties;
@@ -105,6 +108,7 @@ public sealed class ReceiveProductIntakeHandler
         _outcomeLedger = outcomeLedger;
         _physicalUnits = physicalUnitCreationAuthority;
         _postingValidation = postingValidation;
+        _labelPrintIntents = labelPrintIntentWriter;
     }
 
     private readonly IOperationOutcomeLedger? _outcomeLedger;
@@ -903,6 +907,15 @@ public sealed class ReceiveProductIntakeHandler
                             postingValidationResult.Error!.Code,
                             postingValidationResult.Error.Message);
                     }
+                }
+
+                if (_labelPrintIntents is not null && committedUnits.Count > 0)
+                {
+                    _labelPrintIntents.AddOriginalIntents(
+                        command.ClientOperationId,
+                        movement.Id,
+                        committedUnits.Select(static u => u.Id).ToArray(),
+                        _clock.UtcNow);
                 }
 
                 await _unitOfWork.SaveChangesAsync(ct);

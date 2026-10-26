@@ -128,6 +128,14 @@
                              Fill="{StaticResource Brush.Function.Success}"
                              Visibility="{Binding IsOnline, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
+                    <Button Content="Lock"
+                            Command="{Binding LockScreenCommand}"
+                            Style="{StaticResource Button.Text.Neutral}"
+                            Margin="8,0,0,0"
+                            Padding="6,2"
+                            ToolTip="Lock screen"
+                            AutomationProperties.Name="Lock screen" />
+
                     <Button Content="Switch"
                             Command="{Binding SwitchUserCommand}"
                             Style="{StaticResource Button.Text.Neutral}"

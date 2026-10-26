@@ -495,9 +495,14 @@ public sealed class Phase3ProductionSafetyPostgresTests
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();
 
-        // 1. Verify that all 31 migrations are applied to the live PostgreSQL 18 database
+        var migrationsAssembly = db.GetInfrastructure().GetService<IMigrationsAssembly>();
+        Assert.NotNull(migrationsAssembly);
+        var migrationIds = migrationsAssembly.Migrations.Keys.OrderBy(static id => id, StringComparer.Ordinal).ToList();
+        var expectedMigrationCount = migrationIds.Count;
+
+        // 1. Verify that all EF migrations are applied to the live PostgreSQL 18 database
         var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToList();
-        Assert.Equal(31, appliedMigrations.Count);
+        Assert.Equal(expectedMigrationCount, appliedMigrations.Count);
 
         // Verify the Phase 11 and Phase 12 migrations are applied in sequence
         Assert.Contains("20261012050955_Phase11PhysicalPackContainerSubLedger", appliedMigrations);
@@ -505,15 +510,13 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.Contains("20261015103137_Phase12OperationOutcomeResponsePayload", appliedMigrations);
         Assert.Contains("20261021120000_Phase11CatalogCanonicalIntegration", appliedMigrations);
         Assert.Contains("20261021160049_Phase11ThakaCreditRefundTable", appliedMigrations);
-        Assert.Equal("20261024110000_Phase11LooseReturnSourceGraph", appliedMigrations[^1]);
+        Assert.Equal(migrationIds[^1], appliedMigrations[^1]);
 
         // 2. Real EF Core Model Differ / Snapshot check
         bool hasPendingChanges = db.Database.HasPendingModelChanges();
         Assert.False(hasPendingChanges, "EF Core reports pending model changes between DbContext and ModelSnapshot!");
 
         // 3. Verify via IMigrationsModelDiffer and IMigrationsAssembly directly using DesignTimeModel
-        var migrationsAssembly = db.GetInfrastructure().GetService<IMigrationsAssembly>();
-        Assert.NotNull(migrationsAssembly);
         Assert.NotNull(migrationsAssembly.ModelSnapshot);
         Assert.NotNull(migrationsAssembly.ModelSnapshot.Model);
 
@@ -552,7 +555,7 @@ public sealed class Phase3ProductionSafetyPostgresTests
         Assert.True(Directory.Exists(migrationsDir), $"Migrations directory missing: {migrationsDir}");
 
         var migrationFiles = Directory.GetFiles(migrationsDir, "*.cs");
-        Assert.Equal(61, migrationFiles.Length); // Existing 30-migration inventory plus the Phase 11 loose-return source-graph migration and designer.
+        Assert.Equal(72, migrationFiles.Length);
 
         // Verify known historical migration hashes
         var knownHistoricalHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -601,14 +604,26 @@ public sealed class Phase3ProductionSafetyPostgresTests
             ["20261006083906_Phase7Pass5WarrantySourceAuthority.Designer.cs"] = "BEF26856317DDAFC71CEDBD784002D29B51B67F79EF6A664DEA7AE31FAF77E3B",
             ["20261007063406_Phase7Pass5ExactWarrantyMultiSourceAuthority.cs"] = "147FD3941A316075EF5BBCAA1A4613EE43690CE608F431906910E7EA90E3ACE3",
             ["20261007063406_Phase7Pass5ExactWarrantyMultiSourceAuthority.Designer.cs"] = "9BE433147FBBA8D3514908EB4B16274B7727674B86FAF3D67BA0E97F0F33F1B1",
-            ["20261021120000_Phase11CatalogCanonicalIntegration.cs"] = "D1B492EEEB763478F4BC877747CDD26A6E8744ADF07AF5E7334532821C55408C",
+            ["20261021120000_Phase11CatalogCanonicalIntegration.cs"] = "C6499651D17D0FB47244334EC85DEF0BC8880BFA6D4B9FC14DB1B434F0360BA8",
             ["20261021120000_Phase11CatalogCanonicalIntegration.Designer.cs"] = "F5881D3637951DE20C2EC68BAA3E97A97AB2D6FF1634904C3A9EC7B677A44337",
             ["20261021160049_Phase11ThakaCreditRefundTable.cs"] = "B47C4EE4CFBF3A7CB84DD2C78EC05B6359D8D2AAAB185879858943F889A9202F",
             ["20261021160049_Phase11ThakaCreditRefundTable.Designer.cs"] = "9933A1BA2E2AD454E8E61E1C5A5466971A452B3C795BEFAFF2A01D05992919E7",
-            ["20261021160100_Phase11CatalogV3RelationalIntegrity.cs"] = "963FE2C96343F93C7901E8D9A8825CD7F4A05A82752F69AB91299CB245BD926C",
+            ["20261021160100_Phase11CatalogV3RelationalIntegrity.cs"] = "2AFE0FB702A0FBF4CC06570C0E738D0995FB8993D55039522DD6E124AD5D8A14",
             ["20261021160100_Phase11CatalogV3RelationalIntegrity.Designer.cs"] = "66050A1E51F13CDB2BB445F3E6E3B8B614595A145D11D35D910E5F90DDCCFF58",
             ["20261024110000_Phase11LooseReturnSourceGraph.cs"] = "A61D43208BAC47AEAD8243B055546BA63DD08956B95F577589FBAA45121A2231",
-            ["20261024110000_Phase11LooseReturnSourceGraph.Designer.cs"] = "B0AE2A7D6CD48987EE6962C9BBC331FD5E1767AD3F1B71B8892B0389828282B8"
+            ["20261024110000_Phase11LooseReturnSourceGraph.Designer.cs"] = "B0AE2A7D6CD48987EE6962C9BBC331FD5E1767AD3F1B71B8892B0389828282B8",
+            ["20261025083042_Phase89ShopTimeZoneAndLabelPrintIntent.cs"] = "7CFEAD43DEA2B02582159398D8F2E34519D86683AD8EDA0AA7DC227624D4FC98",
+            ["20261025083042_Phase89ShopTimeZoneAndLabelPrintIntent.Designer.cs"] = "E8849ECCD445B917F7E39785C0F9A69A0400863C857E5653125FA6BE6BF7D9D5",
+            ["20261025084146_Phase8BusinessDayCutoff.cs"] = "5D86E4B35A3D09C1B4101FE125BCFEF3F4F8BF91CF0C2C658ACBB29A4725D43B",
+            ["20261025084146_Phase8BusinessDayCutoff.Designer.cs"] = "94642C8884BCCEE15D204B53FEFB5B2749E6EEC80705D39BE5D73CF98E0D4075",
+            ["20261025084609_Phase8LifeIdentityHardening.cs"] = "69DE71F20EAC10F69E48E7A85F44F81F8EBC9B21CC36853D63C9357AA5F4D0BE",
+            ["20261025084609_Phase8LifeIdentityHardening.Designer.cs"] = "9304788E4CCFF95700ECF06C0DA0DF2D7941A23576E1B125AEE4112C6C4611C7",
+            ["20261025085525_Phase8CashSessionPermissions.cs"] = "4112EAF63F48965BE2F9CFE06073D28EA4CC6A6EDCC3B54617AF0364EEEDD0D2",
+            ["20261025085525_Phase8CashSessionPermissions.Designer.cs"] = "C732727006E91F027098D57C0F72B979A6DFCC6BA2D6DEC9E3FE57C714E9E690",
+            ["20261025091634_Phase8ScreenLock.cs"] = "647FE5C898F22BB0210E319C5A7E515AAD9719F3C1FF7C0EE3CC8D4BA1D45B79",
+            ["20261025091634_Phase8ScreenLock.Designer.cs"] = "22EAF2D312B6E09FD18B54AD6EE88B3B04E2AE50C68ADDB372301469712FD871",
+            ["20261026103000_SupervisorApprovalGrants.cs"] = "06FC8B233F11492BE51E724BE5ECFF0EE6AB06DA3D01A3A8FFC7F70B2D830F6D",
+            ["EdgeRetailsDbContextModelSnapshot.cs"] = "5C0182F35B3698DBA9FA99838DC991A6D65D37B565131045E3F6806AB78AB0D2"
         };
 
         using var sha = System.Security.Cryptography.SHA256.Create();

@@ -1,5 +1,6 @@
 using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
+using EdgeRetails.Application.Features.Catalog;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Setup;
 using EdgeRetails.Domain.Catalog;
@@ -22,10 +23,12 @@ public sealed class CatalogReferenceUpgradeHandlerTests
 
         Assert.True(first.IsSuccess, first.Error?.Message);
         Assert.Equal(10, first.Value!.UnitsAdded);
+        Assert.Equal(TaxonomyV3Store.Departments.Count, first.Value.CategoriesAdded);
+        Assert.Equal(TaxonomyV3Store.UnitDefinitions.Count - 10, first.Value.TaxonomyUnitsAdded);
         Assert.False(first.Value.AlreadyApplied);
         Assert.True(second.IsSuccess, second.Error?.Message);
         Assert.True(second.Value!.AlreadyApplied);
-        Assert.Equal(10, fixture.Catalog.Units.Values.Count(x => x.IsActive));
+        Assert.Equal(TaxonomyV3Store.UnitDefinitions.Count, fixture.Catalog.Units.Count);
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
         Assert.Single(fixture.Audit.Events);
     }

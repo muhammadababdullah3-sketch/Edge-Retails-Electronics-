@@ -62,74 +62,77 @@ public sealed class CatalogV3SeedLifecyclePostgresTests
     [Fact]
     public async Task ProductionMigrations_CreateCanonicalSchemaAndClassRefConstraint()
     {
-        var connectionString = GetConnectionString();
-        await using var db = CreateDb(connectionString);
-        var migrator = db.GetService<IMigrator>();
-        await migrator.MigrateAsync("20261021120000_Phase11CatalogCanonicalIntegration");
-        await migrator.MigrateAsync("20261021160049_Phase11ThakaCreditRefundTable");
-        await migrator.MigrateAsync("20261021160100_Phase11CatalogV3RelationalIntegrity");
+        await Phase2PostgresTestHarness.RunWithOwnedEmptyDatabaseAsync("edge_retails_catalog_v3_production_", async db =>
+        {
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261021120000_Phase11CatalogCanonicalIntegration");
+            await migrator.MigrateAsync("20261021160049_Phase11ThakaCreditRefundTable");
+            await migrator.MigrateAsync("20261021160100_Phase11CatalogV3RelationalIntegrity");
 
-        var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
-        Assert.Contains("20261021160049_Phase11ThakaCreditRefundTable", applied);
-        Assert.Contains("20261021160100_Phase11CatalogV3RelationalIntegrity", applied);
+            var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+            Assert.Contains("20261021160049_Phase11ThakaCreditRefundTable", applied);
+            Assert.Contains("20261021160100_Phase11CatalogV3RelationalIntegrity", applied);
 
-        await db.Database.OpenConnectionAsync();
-        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
-        await using var fk = new NpgsqlCommand("""
-            SELECT count(*) FROM pg_constraint c
-            JOIN pg_namespace child_ns ON child_ns.oid=c.connamespace
-            JOIN pg_class child_table ON child_table.oid=c.conrelid
-            JOIN pg_class parent_table ON parent_table.oid=c.confrelid
-            JOIN pg_namespace parent_ns ON parent_ns.oid=parent_table.relnamespace
-            WHERE c.contype='f' AND child_ns.nspname='catalog' AND child_table.relname='products'
-              AND parent_ns.nspname='catalog_v3' AND parent_table.relname='product_classes'
-              AND c.confdeltype='r'
-            """, connection);
-        Assert.Equal(1, Convert.ToInt32(await fk.ExecuteScalarAsync()));
+            await db.Database.OpenConnectionAsync();
+            var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+            await using var fk = new NpgsqlCommand("""
+                SELECT count(*) FROM pg_constraint c
+                JOIN pg_namespace child_ns ON child_ns.oid=c.connamespace
+                JOIN pg_class child_table ON child_table.oid=c.conrelid
+                JOIN pg_class parent_table ON parent_table.oid=c.confrelid
+                JOIN pg_namespace parent_ns ON parent_ns.oid=parent_table.relnamespace
+                WHERE c.contype='f' AND child_ns.nspname='catalog' AND child_table.relname='products'
+                  AND parent_ns.nspname='catalog_v3' AND parent_table.relname='product_classes'
+                  AND c.confdeltype='r'
+                """, connection);
+            Assert.Equal(1, Convert.ToInt32(await fk.ExecuteScalarAsync()));
+        });
     }
 
     [Fact]
     public async Task Phase11LooseReturnSourceGraphMigration_DownRestoresPriorFunctionAndUpReinstallsGraph()
     {
-        var connectionString = GetConnectionString();
-        await using var db = CreateDb(connectionString);
-        var migrator = db.GetService<IMigrator>();
-        const string previousMigration = "20261021160100_Phase11CatalogV3RelationalIntegrity";
-        const string currentMigration = "20261024110000_Phase11LooseReturnSourceGraph";
-
-        var migrations = db.Database.GetMigrations().ToArray();
-        Assert.Equal(currentMigration, migrations[^1]);
-        Assert.Contains(previousMigration, migrations);
-
-        await migrator.MigrateAsync(previousMigration);
-        await db.Database.OpenConnectionAsync();
-        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
-        await using (var priorFunction = new NpgsqlCommand(
-            "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
+        await Phase2PostgresTestHarness.RunWithOwnedEmptyDatabaseAsync("edge_retails_catalog_loose_return_", async db =>
         {
-            var definition = (string)(await priorFunction.ExecuteScalarAsync())!;
-            Assert.DoesNotContain("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
-        }
-        await using (var removedHelper = new NpgsqlCommand(
-            "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NULL", connection))
-        {
-            Assert.True((bool)(await removedHelper.ExecuteScalarAsync())!);
-        }
+            var migrator = db.GetService<IMigrator>();
+            const string previousMigration = "20261021160100_Phase11CatalogV3RelationalIntegrity";
+            const string currentMigration = "20261024110000_Phase11LooseReturnSourceGraph";
 
-        await migrator.MigrateAsync();
-        await using (var restoredHelper = new NpgsqlCommand(
-            "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NOT NULL", connection))
-        {
-            Assert.True((bool)(await restoredHelper.ExecuteScalarAsync())!);
-        }
-        await using (var restoredFunction = new NpgsqlCommand(
-            "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
-        {
-            var definition = (string)(await restoredFunction.ExecuteScalarAsync())!;
-            Assert.Contains("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
-        }
+            var migrations = db.Database.GetMigrations().ToArray();
+            Assert.Contains(currentMigration, migrations);
+            Assert.Contains(previousMigration, migrations);
 
-        Assert.Equal(migrations, (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+            await migrator.MigrateAsync();
+            await migrator.MigrateAsync(previousMigration);
+            await db.Database.OpenConnectionAsync();
+            var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+            await using (var priorFunction = new NpgsqlCommand(
+                "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
+            {
+                var definition = (string)(await priorFunction.ExecuteScalarAsync())!;
+                Assert.DoesNotContain("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
+            }
+            await using (var removedHelper = new NpgsqlCommand(
+                "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NULL", connection))
+            {
+                Assert.True((bool)(await removedHelper.ExecuteScalarAsync())!);
+            }
+
+            await migrator.MigrateAsync();
+            await using (var restoredHelper = new NpgsqlCommand(
+                "SELECT to_regprocedure('warranty.assert_container_loose_return_source_graph(uuid)') IS NOT NULL", connection))
+            {
+                Assert.True((bool)(await restoredHelper.ExecuteScalarAsync())!);
+            }
+            await using (var restoredFunction = new NpgsqlCommand(
+                "SELECT pg_get_functiondef('warranty.assert_sold_item_source(uuid)'::regprocedure)", connection))
+            {
+                var definition = (string)(await restoredFunction.ExecuteScalarAsync())!;
+                Assert.Contains("assert_container_loose_return_source_graph", definition, StringComparison.Ordinal);
+            }
+
+            Assert.Equal(migrations, (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        });
     }
 
     /// <summary>
@@ -234,7 +237,7 @@ public sealed class CatalogV3SeedLifecyclePostgresTests
 
         await using (var ensureUnit = new NpgsqlCommand("""
             INSERT INTO catalog.units (id, name, symbol, dimension, factor_to_reference, conversion_kind, is_active, display_decimal_places)
-            VALUES ('00000000-0000-0000-0000-000000000001', 'Piece', 'PCS', 1, 1.0, 'FIXED', true, 0)
+            VALUES ('00000000-0000-0000-0000-000000000001', 'CAT107 FK fixture unit', 'C107', 'Count', 1.0, 'FIXED', true, 0)
             ON CONFLICT (id) DO NOTHING;
             """, connection))
         {
@@ -290,7 +293,7 @@ public sealed class CatalogV3SeedLifecyclePostgresTests
 
         await using (var ensureUnit = new NpgsqlCommand("""
             INSERT INTO catalog.units (id, name, symbol, dimension, factor_to_reference, conversion_kind, is_active, display_decimal_places)
-            VALUES ('00000000-0000-0000-0000-000000000001', 'Piece', 'PCS', 1, 1.0, 'FIXED', true, 0)
+            VALUES ('00000000-0000-0000-0000-000000000002', 'CAT107 rollback fixture unit', 'C108', 'Count', 1.0, 'FIXED', true, 0)
             ON CONFLICT (id) DO NOTHING;
             """, connection))
         {

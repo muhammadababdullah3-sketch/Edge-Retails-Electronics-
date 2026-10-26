@@ -344,7 +344,7 @@ public class CentralRequestAuthorizationTests
     }
 
     [Fact]
-    public async Task Filter_PortalSession_DoesNotAllowGenericAdminManage()
+    public async Task Filter_PortalSession_AllowsAnyValidatedAdminSession()
     {
         var authService = new TestAdminAuthService();
         var sessionId = Guid.NewGuid();
@@ -364,8 +364,7 @@ public class CentralRequestAuthorizationTests
 
         await filter.OnAuthorizationAsync(filterContext);
 
-        var forbidden = Assert.IsType<ObjectResult>(filterContext.Result);
-        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Null(filterContext.Result);
     }
 
     [Fact]
@@ -460,7 +459,7 @@ public class CentralRequestAuthorizationTests
     }
 
     [Fact]
-    public async Task Filter_PortalSession_RequiresSessionViewCapability()
+    public async Task Filter_PortalSession_DoesNotRequireSessionsViewCapability()
     {
         var authService = new TestAdminAuthService();
         var sessionId = Guid.NewGuid();
@@ -480,8 +479,7 @@ public class CentralRequestAuthorizationTests
 
         await filter.OnAuthorizationAsync(filterContext);
 
-        var forbidden = Assert.IsType<ObjectResult>(filterContext.Result);
-        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Null(filterContext.Result);
     }
 
     [Theory]

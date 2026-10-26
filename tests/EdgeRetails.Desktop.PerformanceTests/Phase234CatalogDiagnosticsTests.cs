@@ -88,12 +88,13 @@ public sealed class Phase234CatalogDiagnosticsTests
             "/api/system/ready" => Json(new { status = "Ready", maintenanceState = supported ? "Normal" : null }),
             "/api/backups/diagnostics" when supported => Json(new BackupHistoryDiagnosticsResponse(0, [], 2, [])),
             "/api/backups/diagnostics" => new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = JsonContent.Create(new { code = "permission.denied", message = "Denied" }) },
+            "/api/system/lifecycle" => Json(new { isDraining = false, workerHeartbeatFound = false, workerHeartbeatStale = false }),
             _ => throw new InvalidOperationException()
         });
         var result = await new RemoteBackendSettingsService(api, () => Guid.NewGuid()).LoadAsync();
         Assert.StartsWith(supported ? "Normal" : "Unavailable", result.MaintenanceStatus);
         Assert.Contains(supported ? "2 invalid" : "Unavailable", result.LastBackupDisplay);
-        Assert.StartsWith("Unavailable", result.WorkerStatus);
+        Assert.StartsWith(supported ? "No heartbeat" : "No heartbeat", result.WorkerStatus);
         Assert.StartsWith("Unavailable", result.LicenseStatus);
         Assert.StartsWith("Unavailable", result.DatabaseSize);
     }

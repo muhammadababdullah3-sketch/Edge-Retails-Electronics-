@@ -3,6 +3,7 @@ using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Gateways;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure;
+using EdgeRetails.Infrastructure.Production.Client;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -130,6 +131,9 @@ public sealed class BackendPosCatalogGateway : IPosCatalogGateway
     }
 }
 
+/// <summary>
+/// Wires the client app to the <b>client shop service</b> (<c>EdgeRetails.Server</c> on loopback), not the cloud server.
+/// </summary>
 public sealed class BackendRuntime : IDisposable
 {
     private readonly ServiceProvider _provider;
@@ -164,7 +168,7 @@ public sealed class BackendRuntime : IDisposable
                 !string.Equals(version.ProtocolVersion, TerminalProtocol.CurrentProtocolVersion, StringComparison.Ordinal))
             {
                 return new BackendStartupState(false, false,
-                    "The local Server protocol is incompatible with this Desktop version.", []);
+                    "The shop service protocol is incompatible with this app version.", []);
             }
 
             var readiness = await ApiClient.GetAsync<ServerReady>(
@@ -173,21 +177,32 @@ public sealed class BackendRuntime : IDisposable
                 !readiness.CanConnect || readiness.HasPendingMigrations)
             {
                 return new BackendStartupState(false, false,
-                    "The local Server did not report a ready database state.", []);
+                    "The shop service did not report a ready database state.", []);
             }
 
-            var terminalSecret = Environment.GetEnvironmentVariable("EDGE_RETAILS_TERMINAL_SECRET");
+            var lifecycle = await ApiClient.GetAsync<ServerLifecycle>(
+                "/api/system/lifecycle", cancellationToken);
+            if (lifecycle.IsDraining)
+            {
+                return new BackendStartupState(false, false,
+                    "The shop service is restarting. Wait for it to come back, then open the app again.", []);
+            }
+
+            if (RequiresWorkerHeartbeat() &&
+                (lifecycle.WorkerHeartbeatStale ?? true))
+            {
+                return new BackendStartupState(false, false,
+                    "EdgeRetails Worker is not running or its heartbeat is stale. Start the Worker service, then retry.", []);
+            }
+
+            var terminalSecret = ClientTerminalCredential.TryResolveSecret();
             if (string.IsNullOrWhiteSpace(terminalSecret))
             {
                 return new BackendStartupState(false, false,
-                    "Terminal authentication is not configured. Set EDGE_RETAILS_TERMINAL_SECRET for this installation.", []);
+                    "Shop pairing is not configured. Run the Edge Retails client installation setup (Initialize-EdgeRetailsClientInstallation.ps1) or contact support.", []);
             }
 
-            var terminalCode = Environment.GetEnvironmentVariable("EDGE_RETAILS_TERMINAL_CODE");
-            if (string.IsNullOrWhiteSpace(terminalCode))
-            {
-                terminalCode = "LOCAL";
-            }
+            var terminalCode = ClientTerminalCredential.ResolveTerminalCode();
 
             var registered = await ApiClient.PostAsync<RegisterTerminalCommand, RegisterTerminalResult>(
                 "/api/terminals/register",
@@ -198,7 +213,7 @@ public sealed class BackendRuntime : IDisposable
             if (registered.Status != TerminalStatus.Active)
             {
                 return new BackendStartupState(false, false,
-                    $"Terminal is {registered.Status}. Access must be restored on the Server.", []);
+                    $"Terminal is {registered.Status}. Contact support to restore access.", []);
             }
 
             ApiClient.SetTerminalContext(registered.TerminalId, terminalSecret);
@@ -304,7 +319,9 @@ public sealed class BackendRuntime : IDisposable
         var apiHttpClient = new HttpClient(
             new DesktopSessionForwardingHandler(
                 () => apiClient?.CurrentSessionId,
-                (sessionId, code) => apiClient?.InvalidateSessionIfMatches(sessionId, code)))
+                (sessionId, code) => apiClient?.InvalidateSessionIfMatches(sessionId, code),
+                sessionId => apiClient?.NotifyScreenLockedIfMatches(sessionId),
+                () => apiClient?.NotifyServerDraining()))
         {
             BaseAddress = new Uri(string.IsNullOrWhiteSpace(serverUrl)
                 ? "http://127.0.0.1:7150"
@@ -376,7 +393,15 @@ public sealed class BackendRuntime : IDisposable
         _provider.Dispose();
     }
 
+    private static bool RequiresWorkerHeartbeat()
+    {
+        var value = Environment.GetEnvironmentVariable("EDGE_RETAILS_REQUIRE_WORKER_HEARTBEAT");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed record ServerVersion(string ProtocolVersion);
     private sealed record ServerReady(string Status, bool CanConnect, bool HasPendingMigrations);
+    private sealed record ServerLifecycle(bool IsDraining, bool? WorkerHeartbeatStale);
     private sealed record ServerSetupState(bool IsSetupRequired);
 }

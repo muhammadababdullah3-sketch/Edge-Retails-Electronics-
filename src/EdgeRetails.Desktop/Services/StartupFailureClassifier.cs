@@ -54,7 +54,7 @@ public static class StartupFailureClassifier
                     StartupFailureCode.LICENSE_CONFIGURATION_INVALID,
                     "License Configuration Invalid",
                     message,
-                    "Ensure the vendor master RSA public key is configured via 'EDGE_RETAILS_LICENSE_PUBLIC_KEY' or installed in '%ProgramData%\\EdgeRetails\\keys\\license.pub'. Private keys are strictly rejected.");
+                    "Do not install vendor signing keys on the shop PC. Use a signed license (*.erlic) issued from the vendor cloud, or contact Edge Retails support. Private keys must never be placed on the client.");
             }
 
             // 3. License Invalid (signature invalid, fingerprint mismatch, expired, corrupted payload)
@@ -100,7 +100,7 @@ public static class StartupFailureClassifier
             {
                 return new StartupClassificationResult(
                     StartupFailureCode.DATABASE_UNAVAILABLE,
-                    "Database Server Unavailable",
+                    "Database Unavailable",
                     message,
                     "Ensure PostgreSQL 18 service is running on the host specified in the connection string, port 5432 is reachable, and the database credentials are valid.");
             }
@@ -140,7 +140,7 @@ public static class StartupFailureClassifier
                 StartupFailureCode.DATABASE_INCOMPATIBLE,
                 "Pending Database Migrations Required",
                 $"Database is missing required migrations: {migrationList}",
-                "Apply the pending migrations using the EdgeRetails Server migration command or 'dotnet ef database update' before launching the desktop client.");
+                "Apply pending database migrations on the client database (IT: dotnet ef database update) before opening the POS app.");
         }
 
         var reason = failureReason ?? "Database readiness check failed.";

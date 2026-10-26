@@ -3,7 +3,9 @@
 **Document Identifier:** `ER-OPS-INS-01`  
 **Phase:** Phase 6 — Final Certification & Long-Term Maintenance  
 **Canonical Architecture SHA-256:** `12344760C60124DDC2D1C0E54ABFB7BC0E82B9B23A46E6463303EBFA530AB673`  
-**Deployment Model:** Single Shop installation with a loopback-only Shop Server
+**Deployment Model:** Single **client** installation with a loopback-only client shop service (`EdgeRetails.Server` — **not** the cloud Central server; see [SHOP_AND_CENTRAL_RUNTIME.md](../SHOP_AND_CENTRAL_RUNTIME.md)).
+
+**Client pairing (required):** After install, run `scripts\Initialize-EdgeRetailsClientInstallation.ps1` (also invoked from `Register-EdgeRetailsServices.ps1`). This creates a DPAPI-protected terminal pairing secret — not a license signing key. Retailers must not set `EDGE_RETAILS_LICENSE_PUBLIC_KEY` or place `license.pub` on the client; vendor public verify material ships inside the product build.
 **Installer Technologies:** WiX Toolset v4 MSI (`EdgeRetails.Setup`) & WiX Burn Bootstrapper (`EdgeRetails.Bootstrapper`)
 
 ---

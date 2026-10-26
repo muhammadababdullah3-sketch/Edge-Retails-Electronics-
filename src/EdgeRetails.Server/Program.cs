@@ -1,11 +1,16 @@
+// Shop LOCAL HOST only (127.0.0.1:7150). Cloud server = EdgeRetails.Central.Api — see docs/SHOP_AND_CENTRAL_RUNTIME.md.
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EdgeRetails.Application.Production.Licensing;
 using EdgeRetails.Application.Production.Recovery;
 using EdgeRetails.Infrastructure;
 using EdgeRetails.Infrastructure.Production.Recovery;
+using EdgeRetails.Infrastructure.Services;
 using EdgeRetails.Server.Filters;
 using EdgeRetails.Server.Middleware;
+using EdgeRetails.Server.Services;
+using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Application.Production.Startup;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,8 +45,10 @@ if (builder.Environment.IsEnvironment("Testing"))
     }
 
     connectionString = testConnectionString;
+    var fixtureRunnerRoot = Environment.GetEnvironmentVariable("EDGE_RETAILS_FIXTURE_PHASE11_ROOT")
+        ?? Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT");
     builder.Services.AddEdgeRetailsInfrastructure(connectionString);
-    builder.Services.AddGuardedTestSequenceAuthority(connectionString);
+    builder.Services.AddGuardedTestSequenceAuthority(connectionString, fixtureRunnerRoot);
 }
 else
 {
@@ -61,6 +68,13 @@ builder.Services.AddSingleton<IRecoveryAuthorizationTrustProvider>(
     builder.Environment.IsEnvironment("Testing")
         ? new UnprovisionedRecoveryAuthorizationTrustProvider()
         : new ProtectedFileRecoveryAuthorizationTrustProvider(recoveryTrustConfig));
+
+builder.Services.AddSingleton<ISingleHostLifecycleState, SingleHostLifecycleState>();
+builder.Services.AddHostedService<SingleHostLifecycleHostedService>();
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<SingleHostServerHeartbeatHostedService>();
+}
 
 builder.Services.AddControllers(options =>
     {
@@ -85,12 +99,33 @@ if (!builder.Environment.IsEnvironment("Testing"))
 
 var app = builder.Build();
 
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var coordinator = scope.ServiceProvider.GetRequiredService<ProductionStartupCoordinator>();
+        var startup = await coordinator.RunAsync();
+        if (startup.Disposition == StartupDisposition.Blocked)
+        {
+            throw new InvalidOperationException(
+                $"Production startup blocked at {startup.Stage}: [{startup.ErrorCode}] {startup.Message}");
+        }
+    }
+}
+
+app.UseMiddleware<DomainExceptionMiddleware>();
 app.UseMiddleware<ProtocolCompatibilityMiddleware>();
+app.UseMiddleware<SingleHostDrainGuardMiddleware>();
 app.UseMiddleware<MaintenanceModeGuardMiddleware>();
 app.UseMiddleware<TerminalAuthenticationMiddleware>();
 app.UseMiddleware<UserSessionAuthenticationMiddleware>();
 
 app.MapControllers();
+
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    await ShopTimeZoneBootstrap.WarmCacheFromDatabaseAsync(app.Services);
+}
 
 app.Run();
 

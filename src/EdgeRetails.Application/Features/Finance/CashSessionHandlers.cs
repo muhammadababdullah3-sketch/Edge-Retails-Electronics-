@@ -2,6 +2,7 @@ using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Common;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Features.Terminals;
+using EdgeRetails.Domain.Common;
 using EdgeRetails.Domain.Finance;
 
 namespace EdgeRetails.Application.Features.Finance;
@@ -11,12 +12,51 @@ public sealed record OpenCashSessionCommand(
     Guid ActorId,
     string? Note);
 
+public sealed record CashSessionSummaryDto(
+    Guid SessionId,
+    DateOnly BusinessDate,
+    decimal OpeningCash,
+    Guid OpenedBy,
+    DateTimeOffset OpenedAt,
+    string? Note);
+
+public sealed class GetCurrentCashSessionHandler
+{
+    private readonly ICashRepository _cash;
+
+    public GetCurrentCashSessionHandler(ICashRepository cash)
+    {
+        _cash = cash;
+    }
+
+    public async Task<Result<CashSessionSummaryDto>> HandleAsync(CancellationToken cancellationToken)
+    {
+        var session = await _cash.GetOpenSessionAsync(cancellationToken);
+        if (session is null)
+        {
+            return Result<CashSessionSummaryDto>.Failure(
+                "cash.session_not_found",
+                "No cash session is currently open.");
+        }
+
+        return Result<CashSessionSummaryDto>.Success(
+            new CashSessionSummaryDto(
+                session.Id,
+                session.BusinessDate,
+                session.OpeningCash,
+                session.OpenedBy,
+                session.OpenedAt,
+                session.Note));
+    }
+}
+
 public sealed class OpenCashSessionHandler
 {
     private readonly ICashRepository _cash;
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IExceptionToErrorMapper _exceptionMapper;
     private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public OpenCashSessionHandler(
@@ -24,12 +64,14 @@ public sealed class OpenCashSessionHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
+        IExceptionToErrorMapper exceptionMapper,
         IApplicationPermissionAuthorizer? authorizer = null)
     {
         _cash = cash;
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _exceptionMapper = exceptionMapper;
         _authorizer = authorizer;
     }
 
@@ -90,8 +132,11 @@ public sealed class OpenCashSessionHandler
             };
 
             _cash.AddSession(session);
-            await _unitOfWork.SaveChangesAsync(ct);
-            return Result<Guid>.Success(session.Id);
+            return await PersistenceGuard.SaveChangesAsync(
+                _unitOfWork,
+                _exceptionMapper,
+                session.Id,
+                ct);
         }, cancellationToken);
     }
 }
@@ -165,6 +210,7 @@ public sealed class CashMovementService : ICashMovementService
             OccurredAt = _clock.UtcNow
         };
 
+        session.Version++;
         _cash.AddMovement(movement);
         return Result<Guid>.Success(movement.Id);
     }
@@ -214,6 +260,7 @@ public sealed class RecordManualCashMovementHandler
     private readonly ICashMovementService _service;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IExceptionToErrorMapper _exceptionMapper;
     private readonly IBusinessAuditWriter _audit;
     private readonly IOperationOutcomeLedger? _outcomeLedger;
     private readonly IOperationLock? _operationLock;
@@ -222,6 +269,7 @@ public sealed class RecordManualCashMovementHandler
         ICashMovementService service,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
+        IExceptionToErrorMapper exceptionMapper,
         IBusinessAuditWriter audit,
         IOperationOutcomeLedger? outcomeLedger = null,
         IOperationLock? operationLock = null)
@@ -229,6 +277,7 @@ public sealed class RecordManualCashMovementHandler
         _service = service;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _exceptionMapper = exceptionMapper;
         _audit = audit;
         _outcomeLedger = outcomeLedger;
         _operationLock = operationLock;
@@ -341,7 +390,11 @@ public sealed class RecordManualCashMovementHandler
 
             _audit.Record(command.Direction == CashMovementDirection.In ? "MANUAL_CASH_IN" : "MANUAL_CASH_OUT",
                 "CASH_MOVEMENT", result.Value, command.ActorId, result.Value, command.Reason.Trim());
-            await _unitOfWork.SaveChangesAsync(ct);
+            var save = await PersistenceGuard.SaveChangesAsync(_unitOfWork, _exceptionMapper, ct);
+            if (!save.IsSuccess)
+            {
+                return Result<Guid>.Failure(save.Error!.Code, save.Error.Message);
+            }
 
             if (command.ClientOperationId.HasValue && command.ClientOperationId.Value != Guid.Empty && _outcomeLedger is not null)
             {
@@ -423,6 +476,7 @@ public sealed class CloseCashSessionHandler
     private readonly IClock _clock;
     private readonly ITransactionRunner _transactions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IExceptionToErrorMapper _exceptionMapper;
     private readonly IApplicationPermissionAuthorizer? _authorizer;
 
     public CloseCashSessionHandler(
@@ -430,12 +484,14 @@ public sealed class CloseCashSessionHandler
         IClock clock,
         ITransactionRunner transactions,
         IUnitOfWork unitOfWork,
+        IExceptionToErrorMapper exceptionMapper,
         IApplicationPermissionAuthorizer? authorizer = null)
     {
         _cash = cash;
         _clock = clock;
         _transactions = transactions;
         _unitOfWork = unitOfWork;
+        _exceptionMapper = exceptionMapper;
         _authorizer = authorizer;
     }
 
@@ -461,7 +517,7 @@ public sealed class CloseCashSessionHandler
 
             var auth = await _authorizer.AuthorizeAsync(
                 command.ActorId,
-                PermissionKeys.SalesPosUse,
+                PermissionKeys.CashSessionClose,
                 ct);
             if (!auth.IsSuccess)
             {
@@ -517,7 +573,11 @@ public sealed class CloseCashSessionHandler
                 command.ActorId,
                 _clock.UtcNow);
 
-            await _unitOfWork.SaveChangesAsync(ct);
+            var save = await PersistenceGuard.SaveChangesAsync(_unitOfWork, _exceptionMapper, ct);
+            if (!save.IsSuccess)
+            {
+                return Result<CashClosingResult>.Failure(save.Error!.Code, save.Error.Message);
+            }
 
             return Result<CashClosingResult>.Success(new CashClosingResult(
                 session.Id,
@@ -527,6 +587,101 @@ public sealed class CloseCashSessionHandler
                 session.ExpectedClosingCash!.Value,
                 session.CountedClosingCash!.Value,
                 session.Difference!.Value));
+        }, cancellationToken);
+    }
+}
+
+public sealed record VoidCashSessionByOwnerCommand(
+    Guid SessionId,
+    Guid ActorId,
+    string? Reason);
+
+public sealed class VoidCashSessionByOwnerHandler
+{
+    private readonly ICashRepository _cash;
+    private readonly IClock _clock;
+    private readonly ITransactionRunner _transactions;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IExceptionToErrorMapper _exceptionMapper;
+    private readonly IApplicationPermissionAuthorizer? _authorizer;
+
+    public VoidCashSessionByOwnerHandler(
+        ICashRepository cash,
+        IClock clock,
+        ITransactionRunner transactions,
+        IUnitOfWork unitOfWork,
+        IExceptionToErrorMapper exceptionMapper,
+        IApplicationPermissionAuthorizer? authorizer = null)
+    {
+        _cash = cash;
+        _clock = clock;
+        _transactions = transactions;
+        _unitOfWork = unitOfWork;
+        _exceptionMapper = exceptionMapper;
+        _authorizer = authorizer;
+    }
+
+    public Task<Result> HandleAsync(
+        VoidCashSessionByOwnerCommand command,
+        CancellationToken cancellationToken)
+    {
+        return _transactions.ExecuteAsync(async ct =>
+        {
+            if (_authorizer is null)
+            {
+                return Result.Failure(
+                    "security.authorizer_unavailable",
+                    "Permission authorizer service is unavailable.");
+            }
+
+            if (command.ActorId == Guid.Empty)
+            {
+                return Result.Failure(
+                    "auth.actor_required",
+                    "Actor id is required to void a cash session.");
+            }
+
+            var auth = await _authorizer.AuthorizeAsync(
+                command.ActorId,
+                PermissionKeys.CashSessionOwnerVoid,
+                ct);
+            if (!auth.IsSuccess)
+            {
+                return Result.Failure(auth.Error!.Code, auth.Error.Message);
+            }
+
+            if (command.SessionId == Guid.Empty)
+            {
+                return Result.Failure(
+                    "cash.session_id_required",
+                    "Cash session id is required.");
+            }
+
+            var session = await _cash.GetSessionForUpdateAsync(command.SessionId, ct);
+            if (session is null)
+            {
+                return Result.Failure(
+                    "cash.session_not_found",
+                    "Cash session was not found.");
+            }
+
+            if (session.Status == CashSessionStatus.VoidedByOwner)
+            {
+                return Result.Failure(
+                    "cash.session_already_voided",
+                    "Cash session was already voided by the owner.");
+            }
+
+            try
+            {
+                session.VoidByOwner(command.ActorId, _clock.UtcNow, command.Reason);
+            }
+            catch (BusinessRuleException ex)
+            {
+                return Result.Failure(ex.Code, ex.Message);
+            }
+
+            return await PersistenceGuard.SaveChangesAsync(_unitOfWork, _exceptionMapper, ct);
         }, cancellationToken);
     }
 }

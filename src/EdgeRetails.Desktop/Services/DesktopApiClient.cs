@@ -26,8 +26,13 @@ public sealed class DesktopSessionInvalidatedEventArgs(Guid sessionId, string co
     public string Code { get; } = code;
 }
 
+public sealed class DesktopSessionLockedEventArgs(Guid sessionId) : EventArgs
+{
+    public Guid SessionId { get; } = sessionId;
+}
+
 /// <summary>
-/// The single HTTP boundary for Desktop requests to the local shop Server.
+/// HTTP boundary for Desktop to the shop local host (EdgeRetails.Server on loopback). Not the cloud Central server.
 /// Session and terminal credentials are applied to each request at send time.
 /// </summary>
 public sealed class DesktopApiClient : IDisposable
@@ -57,6 +62,10 @@ public sealed class DesktopApiClient : IDisposable
 
     public event EventHandler<DesktopSessionInvalidatedEventArgs>? SessionInvalidated;
 
+    public event EventHandler<DesktopSessionLockedEventArgs>? ScreenLocked;
+
+    public event EventHandler? ServerDraining;
+
     public DesktopApiClient(HttpClient httpClient, bool ownsClient = false)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -68,7 +77,7 @@ public sealed class DesktopApiClient : IDisposable
             !IPAddress.IsLoopback(address))
         {
             throw new ArgumentException(
-                "Desktop Server URL must be an HTTP loopback IP address.",
+                "Client shop service URL must be an HTTP loopback IP address.",
                 nameof(httpClient));
         }
     }
@@ -119,6 +128,24 @@ public sealed class DesktopApiClient : IDisposable
         }
 
         SessionInvalidated?.Invoke(this, new DesktopSessionInvalidatedEventArgs(sessionId, code));
+    }
+
+    internal void NotifyScreenLockedIfMatches(Guid sessionId)
+    {
+        lock (_contextGate)
+        {
+            if (_sessionId != sessionId)
+            {
+                return;
+            }
+        }
+
+        ScreenLocked?.Invoke(this, new DesktopSessionLockedEventArgs(sessionId));
+    }
+
+    internal void NotifyServerDraining()
+    {
+        ServerDraining?.Invoke(this, EventArgs.Empty);
     }
 
     public async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken = default)
@@ -219,17 +246,17 @@ public sealed class DesktopApiClient : IDisposable
 
             var result = await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken);
             return result ?? throw new DesktopApiException(
-                "gateway.empty_response", "Server returned an empty response.");
+                "gateway.empty_response", "The shop service returned an empty response.");
         }
         catch (HttpRequestException)
         {
             throw new DesktopApiException(
-                "network.server_unavailable", "The local Server is unavailable.", null);
+                "network.server_unavailable", "The shop service is unavailable.", null);
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new DesktopApiException(
-                "network.timeout", "The local Server did not respond in time.", null);
+                "network.timeout", "The shop service did not respond in time.", null);
         }
     }
 
@@ -246,7 +273,9 @@ public sealed class DesktopApiClient : IDisposable
 
 internal sealed class DesktopSessionForwardingHandler(
     Func<Guid?> getSessionId,
-    Action<Guid, string>? invalidateSession = null)
+    Action<Guid, string>? invalidateSession = null,
+    Action<Guid>? notifyScreenLocked = null,
+    Action? notifyServerDraining = null)
     : DelegatingHandler(new HttpClientHandler
     {
         AllowAutoRedirect = false,
@@ -270,7 +299,7 @@ internal sealed class DesktopSessionForwardingHandler(
         CancellationToken cancellationToken)
     {
         var response = await base.SendAsync(request, cancellationToken);
-        if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) ||
+        if (response.IsSuccessStatusCode ||
             !Guid.TryParse(request.Headers.TryGetValues("X-Session-Id", out var values)
                 ? values.SingleOrDefault()
                 : null, out var requestSessionId))
@@ -294,8 +323,17 @@ internal sealed class DesktopSessionForwardingHandler(
             // Non-canonical failures do not invalidate a verified session.
         }
 
-        if (code is "auth.session_invalid" or "auth.session_missing" or "auth.user_disabled" or
-            "auth.role_disabled" or "auth.terminal_revoked" or "auth.terminal_suspended")
+        if (code is "auth.session_screen_locked")
+        {
+            notifyScreenLocked?.Invoke(requestSessionId);
+        }
+        else if (code is "system.server_draining")
+        {
+            notifyServerDraining?.Invoke();
+        }
+        else if (code is "auth.session_invalid" or "auth.session_missing" or "auth.session_idle_expired" or
+            "auth.user_disabled" or "auth.role_disabled" or "auth.terminal_revoked" or
+            "auth.terminal_suspended")
         {
             invalidateSession?.Invoke(requestSessionId, code);
         }

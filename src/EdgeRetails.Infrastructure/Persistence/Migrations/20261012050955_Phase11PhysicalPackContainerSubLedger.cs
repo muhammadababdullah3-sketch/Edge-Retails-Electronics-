@@ -11,41 +11,17 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AlterDatabase()
-                .Annotation("Npgsql:Enum:inventory.pack_state", "Sealed,Open,Consumed");
-
-            migrationBuilder.AddColumn<decimal>(
-                name: "initial_base_quantity",
-                schema: "inventory",
-                table: "units",
-                type: "numeric(18,4)",
-                precision: 18,
-                scale: 4,
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "is_loose_stock",
-                schema: "inventory",
-                table: "units",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<int>(
-                name: "pack_state",
-                schema: "inventory",
-                table: "units",
-                type: "inventory.pack_state",
-                nullable: true);
-
-            migrationBuilder.AddColumn<decimal>(
-                name: "remaining_base_quantity",
-                schema: "inventory",
-                table: "units",
-                type: "numeric(18,4)",
-                precision: 18,
-                scale: 4,
-                nullable: true);
+            migrationBuilder.Sql("""
+                DO $enum$ BEGIN
+                  CREATE TYPE inventory.pack_state AS ENUM ('Sealed', 'Open', 'Consumed');
+                EXCEPTION
+                  WHEN duplicate_object THEN NULL;
+                END $enum$;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS initial_base_quantity numeric(18,4) NULL;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS is_loose_stock boolean NOT NULL DEFAULT false;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS pack_state inventory.pack_state NULL;
+                ALTER TABLE inventory.units ADD COLUMN IF NOT EXISTS remaining_base_quantity numeric(18,4) NULL;
+                """);
 
             migrationBuilder.CreateTable(
                 name: "pack_allocations",

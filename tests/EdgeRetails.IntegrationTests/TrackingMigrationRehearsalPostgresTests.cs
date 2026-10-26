@@ -93,7 +93,7 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
         {
             var migrations = db.Database.GetMigrations().ToArray();
             var previous = migrations[Array.IndexOf(migrations, TrackingMigration) - 1];
-            await db.GetService<IMigrator>().MigrateAsync(previous);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, previous);
             var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
             var adjustment = new StockAdjustment
             {
@@ -161,7 +161,7 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
             var migrations = db.Database.GetMigrations().ToArray();
             var trackingIndex = Array.IndexOf(migrations, TrackingMigration);
             var previous = migrations[trackingIndex - 1];
-            await db.GetService<IMigrator>().MigrateAsync(previous);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, previous);
             var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
             var adjustment = new StockAdjustment
             {
@@ -235,7 +235,7 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
             var migrations = db.Database.GetMigrations().ToArray();
             var previous = migrations[Array.IndexOf(migrations, TrackingMigration) - 1];
             output.WriteLine("LEGACY_CHECKPOINT " + previous);
-            await db.GetService<IMigrator>().MigrateAsync(previous);
+            await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db, previous);
             var seed = await Phase2PostgresTestHarness.SeedQuantityProductAsync(db);
             var adjustment = new StockAdjustment { AdjustmentNumber = "LEGACY", ActorId = seed.ActorId,
                 CorrelationId = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow, OccurredAt = DateTimeOffset.UtcNow };
@@ -351,28 +351,6 @@ public sealed class TrackingMigrationRehearsalPostgresTests(ITestOutputHelper ou
         }
     }
 
-    private static async Task WithOwnedDatabaseAsync(Func<EdgeRetailsDbContext, Task> test)
-    {
-        await using var attested = Phase2PostgresTestHarness.BuildProvider();
-        var name = "edge_retails_tracking_rehearsal_" + Guid.NewGuid().ToString("N");
-        var profile = PostgresFixtureProfile.Resolve();
-        await using var admin = profile.OpenMaintenance();
-        await using (var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin))
-        {
-            await create.ExecuteNonQueryAsync();
-        }
-        try
-        {
-            var builder = new NpgsqlConnectionStringBuilder(profile.MaintenanceForDatabase(name));
-            await using var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
-            await test(db);
-        }
-        finally
-        {
-            // Name is generated locally after server/root attestation. No arbitrary database is accepted.
-            await using var drop = new NpgsqlCommand($"DROP DATABASE {name} WITH (FORCE)", admin);
-            await drop.ExecuteNonQueryAsync();
-        }
-    }
+    private static Task WithOwnedDatabaseAsync(Func<EdgeRetailsDbContext, Task> test) =>
+        Phase2PostgresTestHarness.RunWithOwnedEmptyDatabaseAsync("edge_retails_tracking_rehearsal_", test);
 }

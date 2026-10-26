@@ -30,6 +30,7 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
     private readonly IWorkstationPrinterSettings _workstationPrinterSettings;
     private readonly IProductionDocumentPrintService? _documentPrintService;
     private readonly IPosCatalogGateway? _posCatalogGateway;
+    private readonly ICashSessionClient? _cashSessionClient;
     private ISessionContext _sessionContext;
     private INavigationService? _navigationService;
     private ThakaProjectsViewModel? _thakaProjectsViewModel;
@@ -68,6 +69,9 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
         _operationIntents = operationIntents ?? new FileClientOperationIntentStore();
         _sessionContext = sessionContext ?? new DesignPreviewSessionContext();
         _posCatalogGateway = posCatalogGateway;
+        _cashSessionClient = apiClient is null
+            ? null
+            : new RemoteCashSessionClient(apiClient, () => _sessionContext.UserId ?? Guid.Empty);
         _transactionService = CreateTransactionService(backendScopeFactory, apiClient);
         _purchasingInventoryService = apiClient is not null
             ? new RemotePurchasingInventoryService(apiClient, () => _sessionContext.UserId, _operationIntents)
@@ -167,7 +171,8 @@ public sealed class PageViewModelFactory : IPageViewModelFactory, IDisposable
                 _posWorkflowReadService,
                 _documentPrintService,
                 _workstationPrinterSettings,
-                _operationIntents),
+                _operationIntents,
+                _cashSessionClient),
 
             NavigationTarget.SalesHistory => new SalesHistoryViewModel(
                 _sessionContext,

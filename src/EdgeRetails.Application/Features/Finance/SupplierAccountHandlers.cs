@@ -709,8 +709,7 @@ public sealed class CreateSupplierRefundHandler
             ExternalReference = Normalize(command.ExternalReference),
             ReferenceType = Normalize(command.ReferenceType),
             command.ReferenceId,
-            Note = Normalize(command.Note),
-            command.ActorId
+            Note = Normalize(command.Note)
         };
         var versionedFingerprint = OperationPayloadFingerprint.ComputeVersionedFingerprint("SupplierRefund", domainProjection);
         var fingerprint = OperationPayloadFingerprint.ComputeSha256(
@@ -741,19 +740,19 @@ public sealed class CreateSupplierRefundHandler
                         $"Operation identity already belongs to another durable operation ({outcome.OperationType}).");
                 }
 
-                if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
-                {
-                    return Result<SupplierRefundResult>.Failure(
-                        "idempotency.context_mismatch",
-                        "Operation actor mismatch.");
-                }
-
                 if (!string.IsNullOrEmpty(outcome.PayloadFingerprint) &&
                     !FingerprintMatches(outcome.PayloadFingerprint))
                 {
                     return Result<SupplierRefundResult>.Failure(
                         "idempotency.payload_mismatch",
                         "Operation was previously submitted with different supplier refund parameters.");
+                }
+
+                if (outcome.ActorId.HasValue && command.ActorId != Guid.Empty && outcome.ActorId.Value != command.ActorId)
+                {
+                    return Result<SupplierRefundResult>.Failure(
+                        "idempotency.context_mismatch",
+                        "Operation actor mismatch.");
                 }
             }
         }

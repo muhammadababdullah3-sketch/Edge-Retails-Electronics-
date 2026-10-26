@@ -15,6 +15,7 @@ using EdgeRetails.Infrastructure.Persistence;
 using EdgeRetails.Infrastructure.Repositories;
 using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Xunit;
@@ -80,6 +81,7 @@ public sealed class Phase12Wave1PostgresTests
                 npgsql.MigrationsAssembly(typeof(EdgeRetailsDbContext).Assembly.FullName);
                 npgsql.MigrationsHistoryTable("__ef_migrations_history", "system");
             })
+            .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning))
             .Options;
 
         return new EdgeRetailsDbContext(options);

@@ -27,6 +27,18 @@ namespace EdgeRetails.UnitTests;
 
 public sealed class Phase11PostingConsumerCallerIntegrationTests
 {
+    private sealed class TestShopTimeAuthority : ShopClock, IShopTimeAuthority
+    {
+        public TestShopTimeAuthority(TimeZoneInfo tz, Func<DateTimeOffset>? utc = null)
+            : base(tz, utc)
+        {
+        }
+
+        public ShopClockIntegrity Integrity => new(true, null);
+
+        public DateOnly GetCurrentShopDate() => ShopDate;
+    }
+
     private static readonly TimeZoneInfo KarachiZone = TimeZoneInfo.FindSystemTimeZoneById(
         OperatingSystem.IsWindows() ? "Pakistan Standard Time" : "Asia/Karachi");
 
@@ -105,21 +117,22 @@ public sealed class Phase11PostingConsumerCallerIntegrationTests
     private readonly InMemoryPeriodLockRepository _periodLocks = new();
     private readonly PostingAuditRepository _postingAudits = new();
     private readonly CallerTestBusinessAuditWriter _businessAudit = new();
-    private readonly ShopClock _shopClock;
+    private readonly TestShopTimeAuthority _shopClock;
     private readonly ShopPostingValidationService _postingValidation;
 
     public Phase11PostingConsumerCallerIntegrationTests()
     {
         // Pinned to 2026-10-12 10:00:00 PKT (05:00:00 UTC)
         var utcTimestamp = new DateTimeOffset(2026, 10, 12, 5, 0, 0, TimeSpan.Zero);
-        _shopClock = new ShopClock(KarachiZone, () => utcTimestamp);
+        _shopClock = new TestShopTimeAuthority(KarachiZone, () => utcTimestamp);
         _postingValidation = new ShopPostingValidationService(
             _shopClock,
             _periodLocks,
             _postingAudits,
             _identity,
             PinService,
-            _businessAudit);
+            _businessAudit,
+            new StubSupervisorApprovalStore());
     }
 
     private CashSession OpenCashSession(Guid cashierId, decimal openingCash = 5000m)

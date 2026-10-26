@@ -14,7 +14,7 @@ namespace EdgeRetails.Infrastructure.Services;
 
 public class ShopClock : IShopClock
 {
-    private readonly TimeZoneInfo _shopTimeZone;
+    private readonly Func<TimeZoneInfo> _shopTimeZoneProvider;
     private readonly Func<DateTimeOffset>? _utcNowProvider;
 
     public ShopClock()
@@ -23,36 +23,37 @@ public class ShopClock : IShopClock
     }
 
     public ShopClock(TimeZoneInfo shopTimeZone, Func<DateTimeOffset>? utcNowProvider = null)
+        : this(() => shopTimeZone ?? throw new ArgumentNullException(nameof(shopTimeZone)), utcNowProvider)
     {
-        _shopTimeZone = shopTimeZone ?? throw new ArgumentNullException(nameof(shopTimeZone));
+    }
+
+    public ShopClock(Func<TimeZoneInfo> shopTimeZoneProvider, Func<DateTimeOffset>? utcNowProvider = null)
+    {
+        _shopTimeZoneProvider = shopTimeZoneProvider ?? throw new ArgumentNullException(nameof(shopTimeZoneProvider));
         _utcNowProvider = utcNowProvider;
     }
 
     public DateTimeOffset UtcNow => _utcNowProvider?.Invoke() ?? DateTimeOffset.UtcNow;
 
-    public DateTimeOffset ShopNow => TimeZoneInfo.ConvertTime(UtcNow, _shopTimeZone);
+    public DateTimeOffset ShopNow => TimeZoneInfo.ConvertTime(UtcNow, ShopTimeZone);
 
-    public TimeZoneInfo ShopTimeZone => _shopTimeZone;
+    public TimeZoneInfo ShopTimeZone => _shopTimeZoneProvider();
 
-    public DateOnly ShopDate
+    public DateOnly ShopDate => ComputeShopDate(UtcNow);
+
+    public DateOnly ToShopDate(DateTimeOffset utcTimestamp) => ComputeShopDate(utcTimestamp);
+
+    protected virtual DateOnly ComputeShopDate(DateTimeOffset utcTimestamp)
     {
-        get
-        {
-            var local = TimeZoneInfo.ConvertTime(UtcNow, _shopTimeZone);
-            return DateOnly.FromDateTime(local.DateTime);
-        }
-    }
-
-    public DateOnly ToShopDate(DateTimeOffset utcTimestamp)
-    {
-        var local = TimeZoneInfo.ConvertTime(utcTimestamp, _shopTimeZone);
+        var local = TimeZoneInfo.ConvertTime(utcTimestamp, ShopTimeZone);
         return DateOnly.FromDateTime(local.DateTime);
     }
 
     public DateTimeOffset ToUtc(DateOnly shopDate, TimeOnly time)
     {
+        var zone = ShopTimeZone;
         var localDateTime = shopDate.ToDateTime(time);
-        var offset = _shopTimeZone.GetUtcOffset(localDateTime);
+        var offset = zone.GetUtcOffset(localDateTime);
         return new DateTimeOffset(localDateTime, offset).ToUniversalTime();
     }
 
@@ -62,6 +63,31 @@ public class ShopClock : IShopClock
         var nextDay = shopDate.AddDays(1);
         var endUtc = ToUtc(nextDay, TimeOnly.MinValue);
         return (startUtc, endUtc);
+    }
+
+    public static TimeZoneInfo ResolveTimeZoneById(string timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            throw new BusinessRuleException("time.shop_timezone_missing", "Shop time zone id is required.");
+        }
+
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            throw new BusinessRuleException(
+                "time.shop_timezone_unresolvable",
+                $"Authoritative shop timezone '{timeZoneId}' could not be resolved on this system.");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            throw new BusinessRuleException(
+                "time.shop_timezone_unresolvable",
+                $"Authoritative shop timezone '{timeZoneId}' is invalid on this system.");
+        }
     }
 
     public static TimeZoneInfo ResolveShopTimeZone(IEnumerable<string>? candidateZoneIds = null)
@@ -93,9 +119,69 @@ public sealed class SystemClock : ShopClock
     {
     }
 
+    public SystemClock(IShopTimeZoneCache shopTimeZoneCache)
+        : base(() => shopTimeZoneCache.Current, null)
+    {
+    }
+
     public SystemClock(TimeZoneInfo shopTimeZone, Func<DateTimeOffset>? utcNowProvider = null)
         : base(shopTimeZone, utcNowProvider)
     {
+    }
+}
+
+/// <summary>Phase 8 shop time authority: configured zone, business-day cutoff, and clock integrity.</summary>
+public sealed class ShopTimeAuthority : ShopClock, IShopTimeAuthority
+{
+    private static readonly long MaxBackwardUtcTicks = TimeSpan.FromMinutes(5).Ticks;
+    private readonly IShopTimeZoneCache _cache;
+    private long _lastUtcTicks;
+    private ShopClockIntegrity _integrity = new(true, null);
+
+    public ShopTimeAuthority(IShopTimeZoneCache cache)
+        : base(() => cache.Current, null)
+    {
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _utcNowProvider = ReadUtcNow;
+    }
+
+    private readonly Func<DateTimeOffset> _utcNowProvider;
+
+    public new DateTimeOffset UtcNow => _utcNowProvider();
+
+    private DateTimeOffset ReadUtcNow()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var ticks = now.UtcTicks;
+        var last = Interlocked.Read(ref _lastUtcTicks);
+        if (last > 0 && ticks < last - MaxBackwardUtcTicks)
+        {
+            _integrity = new ShopClockIntegrity(false, "time.clock_moved_backward");
+        }
+        else if (ticks >= last)
+        {
+            Interlocked.Exchange(ref _lastUtcTicks, ticks);
+        }
+
+        return now;
+    }
+
+    public ShopClockIntegrity Integrity => _integrity;
+
+    public DateOnly GetCurrentShopDate() => ShopDate;
+
+    protected override DateOnly ComputeShopDate(DateTimeOffset utcTimestamp)
+    {
+        var local = TimeZoneInfo.ConvertTime(utcTimestamp, ShopTimeZone);
+        var calendar = DateOnly.FromDateTime(local.DateTime);
+        var cutoff = _cache.BusinessDayCutoffLocalTime;
+        if (cutoff is null || cutoff.Value == TimeOnly.MinValue)
+        {
+            return calendar;
+        }
+
+        var localTime = TimeOnly.FromTimeSpan(local.TimeOfDay);
+        return localTime < cutoff.Value ? calendar.AddDays(-1) : calendar;
     }
 }
 

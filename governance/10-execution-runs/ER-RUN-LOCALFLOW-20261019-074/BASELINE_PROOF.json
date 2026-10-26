@@ -1,8 +1,0 @@
-{
-  "run_id": "ER-RUN-LOCALFLOW-20261019-074",
-  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
-  "predecessor_run_id": "ER-RUN-LOCALFLOW-20261019-073",
-  "verified_clean": true,
-  "compiler_warnings": 0,
-  "compiler_errors": 0
-}

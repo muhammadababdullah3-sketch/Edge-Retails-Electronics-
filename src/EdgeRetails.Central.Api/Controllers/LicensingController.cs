@@ -162,4 +162,62 @@ public class LicensingController : ControllerBase
 
         return Ok(outcome);
     }
+
+    /// <summary>
+    /// Client polls for admin-issued license material after activation approval.
+    /// </summary>
+    [HttpGet("installations/{installationId:guid}/delivery")]
+    public async Task<IActionResult> GetInstallationDelivery(
+        [FromRoute] Guid installationId,
+        CancellationToken cancellationToken)
+    {
+        if (HttpContext.Items["AuthenticatedInstallation"] is not Installation installation ||
+            installation.Id != installationId)
+        {
+            return Unauthorized(new { code = "INSTALLATION_AUTHORITY_NOT_ACTIVE", safeMessageKey = "auth.installation_required" });
+        }
+
+        var redemption = await _dbContext.ActivationRedemptions.AsNoTracking()
+            .Where(r => r.InstallationId == installationId)
+            .OrderByDescending(r => r.RedeemedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (redemption is null)
+        {
+            return Ok(new { state = "NO_REQUEST", message = "No activation request exists for this installation." });
+        }
+
+        if (redemption.Status == ActivationRedemption.StatusPending)
+        {
+            return Ok(new { state = "PENDING_ADMIN_APPROVAL", redemptionId = redemption.Id });
+        }
+
+        if (redemption.Status == ActivationRedemption.StatusRejected)
+        {
+            return Ok(new { state = "REJECTED", redemptionId = redemption.Id });
+        }
+
+        if (installation.Status != Installation.StatusActive)
+        {
+            return Ok(new { state = "APPROVED_AWAITING_CERTIFICATE", redemptionId = redemption.Id });
+        }
+
+        var certificate = await _dbContext.LicenseCertificates.AsNoTracking()
+            .Where(c => c.InstallationId == installationId && c.Status == LicenseCertificate.StatusActive)
+            .OrderByDescending(c => c.IssuedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (certificate is null)
+        {
+            return Ok(new { state = "APPROVED_AWAITING_CERTIFICATE", redemptionId = redemption.Id });
+        }
+
+        return Ok(new
+        {
+            state = "READY",
+            redemptionId = redemption.Id,
+            certificateId = certificate.Id,
+            signedLicenseJson = certificate.SignedEnvelopeJson
+        });
+    }
 }

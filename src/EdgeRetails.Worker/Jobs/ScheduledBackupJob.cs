@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Production.Backup;
+using EdgeRetails.Infrastructure.Production.Backup;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -32,7 +33,8 @@ public sealed class ScheduledBackupJob : IWorkerJob
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var handler = scope.ServiceProvider.GetService<CreateBackupHandler>();
-        if (handler is null)
+        var connection = scope.ServiceProvider.GetService<PostgresConnectionDescriptor>();
+        if (handler is null || connection is null)
         {
             return;
         }
@@ -40,13 +42,26 @@ public sealed class ScheduledBackupJob : IWorkerJob
         var backupDir = Environment.GetEnvironmentVariable("EDGE_RETAILS_BACKUP_DIR");
         if (string.IsNullOrWhiteSpace(backupDir))
         {
-            return; // Backup directory not configured for auto-backup
+            backupDir = ProductionBackupConfiguration.ResolveBackupDirectory();
         }
 
         try
         {
             _logger.LogInformation("Starting scheduled daily backup...");
+            var result = await handler.HandleAsync(
+                new BackupCreateRequest(
+                    connection,
+                    backupDir,
+                    typeof(ScheduledBackupJob).Assembly.GetName().Version?.ToString() ?? "unknown",
+                    null,
+                    new BackupRetentionPolicy(null, null),
+                    Guid.CreateVersion7().ToString("D")),
+                cancellationToken);
             _lastRunUtc = DateTimeOffset.UtcNow;
+            _logger.LogInformation(
+                "Scheduled backup completed. BackupId={BackupId} SizeBytes={SizeBytes}",
+                result.Manifest.BackupId,
+                result.Manifest.SizeBytes);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

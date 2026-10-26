@@ -7,6 +7,7 @@
     <SolidColorBrush x:Key="Brush.Surface.Subtle" Color="{StaticResource Color.Light.SurfaceSubtle}" />
     <SolidColorBrush x:Key="Brush.Surface.Sunken" Color="#F1F5F9" />
     <SolidColorBrush x:Key="Brush.Surface.Raised" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Brush.Surface.Elevated" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Border.Default" Color="{StaticResource Color.Light.Border}" />
     <SolidColorBrush x:Key="Brush.Border.Hover" Color="#94A3B8" />
     <SolidColorBrush x:Key="Brush.Border.Soft" Color="{StaticResource Color.Light.BorderSoft}" />

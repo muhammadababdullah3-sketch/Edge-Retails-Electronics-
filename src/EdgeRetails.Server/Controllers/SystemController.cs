@@ -1,6 +1,8 @@
+using EdgeRetails.Application.Abstractions;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Production;
 using EdgeRetails.Domain.SystemConfiguration;
+using EdgeRetails.Infrastructure.Services;
 using EdgeRetails.Server.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
@@ -88,6 +90,24 @@ public sealed class SystemController : ControllerBase
             hasPendingMigrations = check.HasPendingMigrations,
             maintenanceState = maintenanceState.ToString(),
             timestamp = DateTimeOffset.UtcNow
+        });
+    }
+
+    [HttpGet("lifecycle")]
+    public IActionResult Lifecycle(
+        [FromServices] ISingleHostLifecycleState lifecycle,
+        [FromServices] SingleHostWorkerHeartbeatProbe workerProbe,
+        [FromServices] IClock clock)
+    {
+        var worker = workerProbe.Probe(clock.UtcNow);
+        return Ok(new
+        {
+            serverStartedAtUtc = lifecycle.ServerStartedAtUtc,
+            isDraining = lifecycle.IsDraining,
+            workerHeartbeatFound = worker.HeartbeatFileFound,
+            workerLastBeatUtc = worker.LastBeatUtc,
+            workerHeartbeatStale = worker.IsStale,
+            timestamp = clock.UtcNow
         });
     }
 

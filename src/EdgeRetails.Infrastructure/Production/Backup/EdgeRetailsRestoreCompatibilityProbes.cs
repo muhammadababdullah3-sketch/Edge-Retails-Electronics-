@@ -1,6 +1,8 @@
 using EdgeRetails.Application.Production.Backup;
+using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 
 namespace EdgeRetails.Infrastructure.Production.Backup;
@@ -34,7 +36,9 @@ public sealed class EdgeRetailsEfRestoreCompatibilityProbe : IRestoreStagingComp
                 builder.ConnectionString,
                 npgsql => npgsql
                     .MigrationsAssembly(typeof(EdgeRetailsDbContext).Assembly.FullName)
-                    .MigrationsHistoryTable("__ef_migrations_history", "system"))
+                    .MigrationsHistoryTable("__ef_migrations_history", "system")
+                    .MapEnum<PackState>("pack_state", "inventory", new Npgsql.NameTranslation.NpgsqlNullNameTranslator()))
+            .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning))
             .Options;
 
         await using var db = new EdgeRetailsDbContext(options);

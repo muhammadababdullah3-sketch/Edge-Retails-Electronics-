@@ -4,7 +4,7 @@ using EdgeRetails.Central.Api.Security;
 using EdgeRetails.Central.Domain.Common;
 namespace EdgeRetails.Central.Api.Middleware;
 
-public sealed class W1DenialAuditMiddleware(RequestDelegate next)
+public sealed class W1DenialAuditMiddleware(RequestDelegate next, ILogger<W1DenialAuditMiddleware> logger)
 {
     public const string DenialCodeItemKey = "CentralDenialCode";
 
@@ -26,11 +26,7 @@ public sealed class W1DenialAuditMiddleware(RequestDelegate next)
         {
             if (shouldAudit)
             {
-                var services = context.RequestServices;
-                await RecordAsync(context,
-                    services.GetRequiredService<ICentralAuditService>(),
-                    services.GetRequiredService<IAdminAuthService>(),
-                    ex.Code);
+                await TryRecordDenialAsync(context, ex.Code);
             }
             throw;
         }
@@ -38,14 +34,27 @@ public sealed class W1DenialAuditMiddleware(RequestDelegate next)
         // This legacy restore shim is deliberately a no-op with no database dependency.
         if (shouldAudit && context.Response.StatusCode >= 400)
         {
-            var services = context.RequestServices;
             var code = context.Items.TryGetValue(DenialCodeItemKey, out var value) && value is string denialCode
                 ? denialCode
                 : $"HTTP_{context.Response.StatusCode}";
+            await TryRecordDenialAsync(context, code);
+        }
+    }
+
+    private async Task TryRecordDenialAsync(HttpContext context, string code)
+    {
+        try
+        {
+            var services = context.RequestServices;
             await RecordAsync(context,
                 services.GetRequiredService<ICentralAuditService>(),
                 services.GetRequiredService<IAdminAuthService>(),
                 code);
+        }
+        catch (Exception ex)
+        {
+            // Denial audit must never convert an explicit API denial into HTTP 500.
+            logger.LogWarning(ex, "Central denial audit could not be persisted for {Path} ({Code}).", context.Request.Path, code);
         }
     }
 

@@ -7,6 +7,7 @@ using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Operations;
 using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Infrastructure.Persistence;
+using EdgeRetails.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -275,10 +276,8 @@ public sealed class MasterCashierCreationPostgresTests
         }
         var root = profile.OwnedRoot;
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
-        var prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) +
-            Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
-        if (!fullRoot.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(fullRoot) ||
-            (File.GetAttributes(fullRoot) & FileAttributes.ReparsePoint) != 0)
+        OwnedPostgresRunnerAttestation.EnsureRunnerRootApproved(fullRoot, connection.Port);
+        if (!Directory.Exists(fullRoot) || (File.GetAttributes(fullRoot) & FileAttributes.ReparsePoint) != 0)
         {
             throw new InvalidOperationException("PostgreSQL fixture ownership escaped the approved temporary root.");
         }

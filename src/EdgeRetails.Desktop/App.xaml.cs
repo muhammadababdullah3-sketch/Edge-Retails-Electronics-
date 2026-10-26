@@ -125,7 +125,7 @@ public partial class App : System.Windows.Application
                 {
                     MessageBox.Show(
                         startup.FailureReason,
-                        "Edge Retails — Local Server unavailable",
+                        "Edge Retails — Shop service unavailable",
                         MessageBoxButton.OK,
                         MessageBoxImage.Error);
                     _backendRuntime.Dispose();

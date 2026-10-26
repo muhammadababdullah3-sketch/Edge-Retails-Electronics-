@@ -619,6 +619,30 @@
                         <StackPanel>
                             <!-- NORMAL SALE SUMMARY -->
                             <StackPanel>
+                                <Border Margin="0,0,0,8"
+                                        Padding="10,6"
+                                        Background="{DynamicResource Brush.Surface.Subtle}"
+                                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Visibility="{Binding ShowCashSessionBanner, Converter={StaticResource BoolToVis}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Style="{StaticResource Text.PosMeta}"
+                                                   Text="{Binding CashSessionBannerText}"
+                                                   VerticalAlignment="Center" />
+                                        <Button Grid.Column="1"
+                                                Content="Open drawer"
+                                                Command="{Binding OpenCashSessionCommand}"
+                                                Style="{StaticResource Button.Text.Borderless}"
+                                                VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
                                 <!-- Supervisor Authorization / Posting Date Banner -->
                                 <Border Margin="0,0,0,8"
                                         Padding="10,6"
@@ -743,7 +767,7 @@
                                                        VerticalAlignment="Center" />
                                             <TextBox x:Name="DiscountAmountTextBox"
                                                      Grid.Column="1"
-                                                     Style="{StaticResource Input.TextBox.Compact}"
+                                                     Style="{StaticResource Input.TextBox.Embedded}"
                                                      Text="{Binding DiscountAmountText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      FontFamily="{StaticResource Font.Primary}"
                                                      TextAlignment="Right"

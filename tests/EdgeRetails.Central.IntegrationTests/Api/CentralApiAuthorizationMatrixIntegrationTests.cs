@@ -34,7 +34,7 @@ public sealed class CentralApiAuthorizationMatrixIntegrationTests(
 
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await anonymous.GetAsync("/api/admin/v1/portal/session")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden,
+        Assert.Equal(HttpStatusCode.OK,
             (await adminManageOnly.GetAsync("/api/admin/v1/portal/session")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await adminManageOnly.GetAsync("/api/admin/v1/sessions")).StatusCode);

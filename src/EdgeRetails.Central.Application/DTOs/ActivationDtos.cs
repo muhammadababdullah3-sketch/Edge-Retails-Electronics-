@@ -39,6 +39,12 @@ public class BootstrapChallengeDto
 
     [JsonPropertyName("allowedOperations")]
     public string[] AllowedOperations { get; set; } = Array.Empty<string>();
+
+    [JsonPropertyName("shopId")]
+    public Guid ShopId { get; set; }
+
+    [JsonPropertyName("licenseId")]
+    public Guid LicenseId { get; set; }
 }
 
 public class InstallRegistrationPayloadDto

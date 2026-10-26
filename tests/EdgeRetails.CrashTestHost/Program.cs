@@ -684,7 +684,11 @@ public static class Program
                 Console.WriteLine("READY:COMMITTED_BEFORE_ACK");
                 Console.Out.Flush();
 
-                // Hard process crash before response can be returned
+                // Release the scoped DbContext and connection pool before abrupt termination so the committed
+                // transaction is fully visible to the parent integration test process.
+                scope.Dispose();
+                provider.Dispose();
+
                 Process.GetCurrentProcess().Kill();
                 return 0;
             }

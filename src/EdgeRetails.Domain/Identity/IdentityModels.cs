@@ -55,6 +55,10 @@ public sealed class UserSession : Entity
     public Guid UserId { get; set; }
     public Guid ClientSessionId { get; set; }
     public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset LastActivityAt { get; set; }
+    public DateTimeOffset? ScreenLockedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public bool IsRevoked { get; set; }
+
+    public bool IsScreenLocked => ScreenLockedAt is not null;
 }

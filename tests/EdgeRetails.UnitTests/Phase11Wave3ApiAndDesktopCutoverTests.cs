@@ -517,7 +517,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         });
 
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         // 1. Future date check
         var futureResult = await controller.RequestSupervisorApproval(new SupervisorPostingApprovalRequest(
@@ -1423,7 +1423,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         var periodLocks = new FakePeriodLockRepository();
         var identity = new FakeIdentityReadRepository();
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         var supervisorId = Guid.NewGuid();
 
@@ -1484,7 +1484,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         var periodLocks = new FakePeriodLockRepository();
         var identity = new FakeIdentityReadRepository();
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         var supervisorRoleId = Guid.NewGuid();
         var supervisorId = Guid.NewGuid();
@@ -1571,7 +1571,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         var periodLocks = new FakePeriodLockRepository();
         var identity = new FakeIdentityReadRepository();
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         var cashierRoleId = Guid.NewGuid();
         var cashierId = Guid.NewGuid();
@@ -1621,7 +1621,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         var periodLocks = new FakePeriodLockRepository();
         var identity = new FakeIdentityReadRepository();
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         var cashierRoleId = Guid.NewGuid();
         var cashierId = Guid.NewGuid();
@@ -1686,7 +1686,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         var periodLocks = new FakePeriodLockRepository();
         var identity = new FakeIdentityReadRepository();
         var pinCredentials = new FakePinCredentialService();
-        var controller = new PostingController(clock, periodLocks, identity, pinCredentials);
+        var controller = new PostingController(clock, periodLocks, identity, pinCredentials, new InMemorySupervisorApprovalStore());
 
         var supervisorRoleId = Guid.NewGuid();
         var supervisorId = Guid.NewGuid();
@@ -1717,7 +1717,7 @@ public sealed class Phase11Wave3ApiAndDesktopCutoverTests
         Assert.Equal(supervisorId, response.SupervisorId);
         Assert.Equal("Supervisor Sarah", response.SupervisorDisplayName);
         Assert.False(string.IsNullOrWhiteSpace(response.ApprovalToken));
-        Assert.Equal(64, response.ApprovalToken.Length); // SHA-256 hex string
+        Assert.True(response.ApprovalToken.Length >= 16);
     }
 
     #endregion

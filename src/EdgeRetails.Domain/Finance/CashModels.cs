@@ -47,7 +47,33 @@ public sealed class CashSession : Entity
     public Guid? ClosedBy { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public string? Note { get; set; }
+    public Guid? VoidedBy { get; set; }
+    public DateTimeOffset? VoidedAt { get; set; }
+    public string? VoidReason { get; set; }
     public long Version { get; set; }
+
+    public void VoidByOwner(Guid actorId, DateTimeOffset now, string? reason)
+    {
+        if (Status != CashSessionStatus.Closed)
+        {
+            throw new BusinessRuleException(
+                "cash.session_not_closed",
+                "Only a closed cash session can be voided by the owner.");
+        }
+
+        if (actorId == Guid.Empty)
+        {
+            throw new BusinessRuleException(
+                "auth.actor_required",
+                "Actor id is required to void a cash session.");
+        }
+
+        Status = CashSessionStatus.VoidedByOwner;
+        VoidedBy = actorId;
+        VoidedAt = now;
+        VoidReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        Version++;
+    }
 
     public void Close(
         decimal cashIn,

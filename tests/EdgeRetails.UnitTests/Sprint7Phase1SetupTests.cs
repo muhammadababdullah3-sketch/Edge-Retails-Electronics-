@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Application.Features.Catalog;
 using EdgeRetails.Application.Features.Setup;
 using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Parties;
@@ -14,12 +15,14 @@ public sealed class Sprint7Phase1SetupTests
         var setup = new FakeSetupRepository();
         var unitOfWork = new FakeUnitOfWork();
         var transactions = new FakeTransactionRunner();
+        var catalog = new FakeCatalogRepository();
         var handler = new FirstSetupBootstrapHandler(
             setup,
             new FakePinCredentialService(),
             transactions,
             unitOfWork,
-            new FakeClock());
+            new FakeClock(),
+            catalog);
 
         var result = await handler.HandleAsync(
             new FirstSetupBootstrapCommand(
@@ -32,6 +35,8 @@ public sealed class Sprint7Phase1SetupTests
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(TaxonomyV3Store.UnitDefinitions.Count, catalog.Units.Count);
+        Assert.Equal(TaxonomyV3Store.Departments.Count, catalog.Categories.Count);
         Assert.Equal(1, transactions.ExecuteCount);
         Assert.Equal(1, unitOfWork.SaveCount);
         Assert.NotNull(setup.Installation);
@@ -50,8 +55,8 @@ public sealed class Sprint7Phase1SetupTests
         Assert.True(walkIn.IsWalkIn);
         Assert.Equal("Walk-in Customer", walkIn.Name);
         Assert.Equal(3, setup.Roles.Count);
-        Assert.Equal(35, setup.Permissions.Count);
-        Assert.Equal(68, setup.RolePermissions.Count);
+        Assert.Equal(37, setup.Permissions.Count);
+        Assert.Equal(73, setup.RolePermissions.Count);
         Assert.Single(setup.ShopProfiles);
         Assert.Single(setup.ReceiptSettings);
     }
@@ -66,7 +71,8 @@ public sealed class Sprint7Phase1SetupTests
             new FakePinCredentialService(),
             transactions,
             unitOfWork,
-            new FakeClock());
+            new FakeClock(),
+            new FakeCatalogRepository());
 
         var result = await handler.HandleAsync(
             new FirstSetupBootstrapCommand(
@@ -103,7 +109,8 @@ public sealed class Sprint7Phase1SetupTests
             new FakePinCredentialService(),
             new FakeTransactionRunner(),
             unitOfWork,
-            new FakeClock());
+            new FakeClock(),
+            new FakeCatalogRepository());
 
         var result = await handler.HandleAsync(
             new FirstSetupBootstrapCommand(

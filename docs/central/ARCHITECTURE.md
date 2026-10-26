@@ -2,10 +2,19 @@
 
 ## 1. Executive Summary and System Boundary
 
+### 1.0 Product vocabulary (repo names)
+
+| Say this in product/docs | Code / deploy |
+|--------------------------|---------------|
+| **Cloud server**, vendor server, license authority | `EdgeRetails.Central.Api` (+ `EdgeRetails.Central.*`, `EdgeRetails.ProtectedSigner`) |
+| **Shop local host** (not the cloud server) | `EdgeRetails.Server` — Windows service on the shop PC, **`127.0.0.1:7150`** |
+
+Canonical diagram and wiring status: [SHOP_AND_CENTRAL_RUNTIME.md](../SHOP_AND_CENTRAL_RUNTIME.md).
+
 Edge Retails CENTRAL-ONE establishes the consolidated cloud control-plane, commercial governance, identity, licensing authority, and cryptographic trust root for the Edge Retails monorepo ecosystem. Spanning 6 engineering waves and 30 foundational tasks (`CONE-T01` through `CONE-T30`), Central-One provides centralized commercial authority while strictly enforcing the architectural autonomy and operational boundaries of local Point of Sale (POS) shops.
 
 ### 1.1 Authority Allocation and Strict Boundary Invariants
-* **Point of Sale (POS) Local Authority:** Single shop / one Primary machine POS architecture. POS operational authority resides strictly within `Desktop -> loopback local server -> local PostgreSQL business authority`. The local POS database is the sole authority for sales transactions, inventory movements, physical unit intakes, cash sessions, khata credit ledgers, and subledger double-entry accounting. Central holds **zero** remote shop SQL execution authority and **zero** cloud transaction authority over stock, cash, or retail accounting.
+* **Point of Sale (POS) Local Authority:** Single shop / one Primary machine POS architecture. POS operational authority resides strictly within `Desktop -> shop local host (EdgeRetails.Server, loopback) -> local PostgreSQL business authority`. This is **not** the cloud server; cloud authority is Central.Api only. The local POS database is the sole authority for sales transactions, inventory movements, physical unit intakes, cash sessions, khata credit ledgers, and subledger double-entry accounting. Central holds **zero** remote shop SQL execution authority and **zero** cloud transaction authority over stock, cash, or retail accounting.
 * **Central Control-Plane Authority:** Central maintains exclusive, authoritative control over commercial contracts, admin identity and access governance (RBAC/MFA/Step-Up), licensing lifecycle and capability issuance, cryptographic trust roots and signing keys, activation token distribution, encrypted offsite object storage custody, and customer support coordination.
 * **Single-Primary V1 Invariant:** Central enforces that each licensed shop possesses exactly one Primary workstation authorized for operational transactions (`PrimaryCapacity = 1`). Central never activates secondary, LAN, or multi-seat quota features in V1.
 * **Monorepo and Namespace Boundary:** Shop POS and Central share one git repository but **separate deployables**. Central code lives only under `EdgeRetails.Central.*`, `EdgeRetails.ProtectedSigner`, `contracts/central/`, and `docs/central/`. Shop POS code lives under `src/EdgeRetails.{Domain,Application,Infrastructure,Server,Worker,Desktop,Recovery}`. Cross-cutting shop changes must not embed Central SQL or remote shop execution in the Central host; Central must not hold authority over live shop ledger data.

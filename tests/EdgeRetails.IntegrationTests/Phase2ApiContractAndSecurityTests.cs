@@ -106,6 +106,44 @@ public sealed class Phase2ApiContractAndSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task Lifecycle_Endpoint_Returns_200_OK_Anonymously()
+    {
+        _factory.LifecycleState.Reset();
+        var response = await _client.GetAsync("/api/system/lifecycle");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.False(body.GetProperty("isDraining").GetBoolean());
+        Assert.True(body.TryGetProperty("workerHeartbeatStale", out _));
+    }
+
+    [Fact]
+    public async Task Lifecycle_WhenServerDraining_ReportsIsDraining()
+    {
+        _factory.LifecycleState.BeginDrain();
+
+        var response = await _client.GetAsync("/api/system/lifecycle");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.True(body.GetProperty("isDraining").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PostMutation_WhenServerDraining_Returns_503_WithDrainingCode()
+    {
+        _factory.LifecycleState.BeginDrain();
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new AuthenticateUserCommand(Guid.NewGuid(), "1234", Guid.CreateVersion7()));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal("system.server_draining", body.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task Readiness_WhenDbUnhealthy_Returns_503_ServiceUnavailable_Anonymously()
     {
         _factory.DatabaseReadiness.IsReady = false;
@@ -1625,6 +1663,7 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
     public TestCashRepository CashRepository { get; } = new();
     public TestSupplierAccountRepository SupplierAccountRepository { get; } = new();
     public TestDocumentNumberService DocumentNumbers { get; } = new();
+    public TestSingleHostLifecycleState LifecycleState { get; } = new();
 
     public void GrantPermission(Guid userId, string permission) =>
         Identity.GrantPermission(userId, permission);
@@ -1632,6 +1671,7 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
     public void Reset()
     {
         DatabaseReadiness.IsReady = true;
+        LifecycleState.Reset();
         Sessions.Clear();
         Identity.Clear();
         PartiesRepository.Clear();
@@ -1763,7 +1803,16 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        var testDb = Phase2PostgresTestHarness.ResolveConnectionString();
+        var testDb = Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB");
+        if (string.IsNullOrWhiteSpace(testDb))
+        {
+            testDb = Phase2PostgresTestHarness.ResolveConnectionString();
+        }
+        else
+        {
+            Phase11DurablePostingIntegrationTests.AssertDisposablePostgresTargetGuard(testDb, performLiveProbe: false);
+        }
+
         builder.UseSetting("EDGE_RETAILS_TEST_DB", testDb);
 
         builder.ConfigureServices(services =>
@@ -1826,6 +1875,9 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
             services.RemoveAll<IDatabaseReadinessService>();
             services.AddSingleton<IDatabaseReadinessService>(DatabaseReadiness);
 
+            services.RemoveAll<ISingleHostLifecycleState>();
+            services.AddSingleton<ISingleHostLifecycleState>(LifecycleState);
+
             // Replace cash repository
             services.RemoveAll<ICashRepository>();
             services.AddSingleton<ICashRepository>(CashRepository);
@@ -1860,6 +1912,19 @@ public sealed class Phase2ServerWebApplicationFactory : WebApplicationFactory<Pr
             services.AddSingleton<IPartyDirectoryReadService, StubPartyDirectoryReadService>();
         });
     }
+}
+
+public sealed class TestSingleHostLifecycleState : ISingleHostLifecycleState
+{
+    public DateTimeOffset ServerStartedAtUtc { get; } = DateTimeOffset.UtcNow;
+
+    private bool _isDraining;
+
+    public bool IsDraining => _isDraining;
+
+    public void BeginDrain() => _isDraining = true;
+
+    public void Reset() => _isDraining = false;
 }
 
 public sealed class TestDatabaseReadinessService : IDatabaseReadinessService
@@ -1899,6 +1964,16 @@ public sealed class TestIdentitySessionRepository : IIdentitySessionRepository
     {
         _sessions.TryGetValue(sessionId, out var session);
         return Task.FromResult(session);
+    }
+
+    public Task TouchLastActivityAsync(Guid sessionId, DateTimeOffset activityAt, CancellationToken cancellationToken = default)
+    {
+        if (_sessions.TryGetValue(sessionId, out var session))
+        {
+            session.LastActivityAt = activityAt;
+        }
+
+        return Task.CompletedTask;
     }
 }
 
@@ -2068,6 +2143,9 @@ public sealed class TestCashRepository : ICashRepository
         _sessions.Clear();
         _movements.Clear();
     }
+
+    public Task<CashSession?> GetOpenSessionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(_sessions.Values.FirstOrDefault(s => s.Status == CashSessionStatus.Open));
 
     public Task<CashSession?> GetOpenSessionForUpdateAsync(CancellationToken cancellationToken) =>
         Task.FromResult(_sessions.Values.FirstOrDefault(s => s.Status == CashSessionStatus.Open));

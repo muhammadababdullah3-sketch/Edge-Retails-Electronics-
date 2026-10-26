@@ -4,12 +4,14 @@
 
 `C:\Users\muham\OneDrive\Desktop\Point of Sale`
 
+**Naming (read first):** **Cloud server** = `EdgeRetails.Central.Api`. **Client** = Desktop + **`EdgeRetails.Server` (client shop service)** + PostgreSQL — not the cloud. [CLIENT_AND_CLOUD_TERMINOLOGY.md](CLIENT_AND_CLOUD_TERMINOLOGY.md) · [SHOP_AND_CENTRAL_RUNTIME.md](SHOP_AND_CENTRAL_RUNTIME.md).
+
 ## Product lines in this repo
 
 | Line | What it is | Build entry |
 |------|------------|-------------|
-| **Shop POS** | Offline desktop + local shop server + worker + recovery | `EdgeRetails.sln` |
-| **Central** | Cloud license, activation, payments, admin portal (separate deploy) | `EdgeRetails.Central.slnx` or `src/EdgeRetails.Central.Api/` |
+| **Shop POS** | Client tier: Desktop + **shop local host** (`EdgeRetails.Server`) + Worker + Recovery | `EdgeRetails.sln` |
+| **Central (cloud server)** | License/commercial authority, activation, admin portal (separate deploy) | `EdgeRetails.Central.slnx` or `src/EdgeRetails.Central.Api/` |
 
 Shop POS git branch (historical name): `feat/phase11-subledger-implementation`.  
 Monorepo integration branch: `integrate/central-shop-monorepo`.

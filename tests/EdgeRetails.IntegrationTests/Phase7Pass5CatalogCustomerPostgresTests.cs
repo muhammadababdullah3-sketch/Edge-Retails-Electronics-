@@ -227,9 +227,12 @@ public sealed class Phase7Pass5CatalogCustomerPostgresTests
         });
     }
 
-    private static Task<string> HighwaterAsync() => File.ReadAllTextAsync(Path.Combine(
-        Environment.GetEnvironmentVariable("EDGE_RETAILS_MASTER_PG_RUN_ROOT")
-            ?? throw new InvalidOperationException("Owned PostgreSQL root is required."), "harness-highwater", "highwater.manifest"));
+    private static Task<string> HighwaterAsync()
+    {
+        var profile = PostgresFixtureProfile.Resolve();
+        var manifest = Path.Combine(profile.CustodyRoot, "highwater.manifest");
+        return File.ReadAllTextAsync(manifest);
+    }
 
     private sealed class OwnedAuditFailure() : Exception("Owned R19 failure before transaction commit");
 

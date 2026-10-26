@@ -94,7 +94,9 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         // 5. Installation operations with no asymmetric proof must fail INSTALLATION_AUTHORITY_NOT_ACTIVE
         if (IsInstallationOperation(method, path))
         {
-            var allowPendingBootstrap = method == "GET" && Regex.IsMatch(path, @"^/api/licensing/v1/activation/[^/]+/status$", RegexOptions.IgnoreCase);
+            var allowPendingBootstrap = method == "GET" && (
+                Regex.IsMatch(path, @"^/api/licensing/v1/activation/[^/]+/status$", RegexOptions.IgnoreCase) ||
+                Regex.IsMatch(path, @"^/api/licensing/v1/installations/[^/]+/delivery$", RegexOptions.IgnoreCase));
             if (_installationProof is null || !await _installationProof.AuthenticateAsync(request, allowPendingBootstrap, httpContext.RequestAborted))
             {
                 context.Result = new UnauthorizedObjectResult(new
@@ -159,19 +161,18 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         httpContext.Items["AdminSession"] = session;
 
         // 7. Session management endpoints for authenticated session:
-        // Existing Portal GetSessionContext and Auth Logout should remain usable with validated cookie
-        if (path.Equals("/api/admin/v1/auth/logout", StringComparison.OrdinalIgnoreCase))
+        // Portal bootstrap context and logout must work for any valid MFA session (capabilities come from the response).
+        if (path.Equals("/api/admin/v1/auth/logout", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/admin/v1/portal/session", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         // Session administration uses precise capabilities; a generic admin.manage grant
         // never bridges into the session-management domain.
-        var sessionPermission = path.Equals("/api/admin/v1/portal/session", StringComparison.OrdinalIgnoreCase)
-            ? "sessions.view"
-            : path.Equals("/api/admin/v1/portal/sessions/revoke", StringComparison.OrdinalIgnoreCase)
-                ? "sessions.revoke"
-                : null;
+        var sessionPermission = path.Equals("/api/admin/v1/portal/sessions/revoke", StringComparison.OrdinalIgnoreCase)
+            ? "sessions.revoke"
+            : null;
         if (sessionPermission is not null &&
             !session.Capabilities.Any(c => string.Equals(c, sessionPermission, StringComparison.OrdinalIgnoreCase)))
         {
@@ -273,6 +274,7 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
             "GET" when path.Equals("/api/licensing/v1/trust-set", StringComparison.OrdinalIgnoreCase) => true,
             "GET" when Regex.IsMatch(path, @"^/api/licensing/v1/operations/[^/]+$", RegexOptions.IgnoreCase) => true,
             "GET" when Regex.IsMatch(path, @"^/api/licensing/v1/activation/[^/]+/status$", RegexOptions.IgnoreCase) => true,
+            "GET" when Regex.IsMatch(path, @"^/api/licensing/v1/installations/[^/]+/delivery$", RegexOptions.IgnoreCase) => true,
             "POST" when path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase) => true,
             "GET" when path.StartsWith("/api/licensing/v1/backups/", StringComparison.OrdinalIgnoreCase) => true,
             "POST" when path.Equals("/api/licensing/v1/support/bundles", StringComparison.OrdinalIgnoreCase) => true,

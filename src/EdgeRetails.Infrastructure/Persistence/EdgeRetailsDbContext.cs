@@ -5,6 +5,7 @@ using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Identity;
 using EdgeRetails.Domain.Inventory;
 using EdgeRetails.Domain.Operations;
+using EdgeRetails.Domain.Production;
 using EdgeRetails.Domain.Parties;
 using EdgeRetails.Domain.Posting;
 using EdgeRetails.Domain.Purchasing;
@@ -13,6 +14,7 @@ using EdgeRetails.Domain.SystemConfiguration;
 using EdgeRetails.Domain.Thaka;
 using EdgeRetails.Domain.Warranty;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace EdgeRetails.Infrastructure.Persistence;
 
@@ -21,6 +23,11 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public EdgeRetailsDbContext(DbContextOptions<EdgeRetailsDbContext> options)
         : base(options)
     {
+    }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
     }
 
     public DbSet<BusinessAuditEvent> BusinessAuditEvents => Set<BusinessAuditEvent>();
@@ -35,6 +42,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<InstallationState> InstallationStates => Set<InstallationState>();
     public DbSet<ShopProfile> ShopProfiles => Set<ShopProfile>();
     public DbSet<ReceiptTemplateSettings> ReceiptTemplateSettings => Set<ReceiptTemplateSettings>();
+    public DbSet<PhysicalLabelPrintIntent> PhysicalLabelPrintIntents => Set<PhysicalLabelPrintIntent>();
 
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Company> Companies => Set<Company>();
@@ -128,6 +136,7 @@ public sealed class EdgeRetailsDbContext : DbContext, IUnitOfWork
     public DbSet<OperationOutcome> OperationOutcomes => Set<OperationOutcome>();
     public DbSet<PeriodLock> PeriodLocks => Set<PeriodLock>();
     public DbSet<PostingAuditEntry> PostingAuditEntries => Set<PostingAuditEntry>();
+    public DbSet<SupervisorApprovalGrant> SupervisorApprovalGrants => Set<SupervisorApprovalGrant>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -10,8 +10,6 @@ namespace EdgeRetails.Infrastructure;
 
 public static class GuardedTestSequenceAuthorityExtensions
 {
-    private static readonly object SequenceFixtureLock = new();
-
     public static IServiceCollection AddGuardedTestSequenceAuthority(
         this IServiceCollection services,
         string connectionString,
@@ -88,7 +86,7 @@ public static class GuardedTestSequenceAuthorityExtensions
         var manifest = Path.Combine(authorityRoot, "highwater.manifest");
         var bindingFile = Path.Combine(authorityRoot, "cluster_binding.json");
 
-        lock (SequenceFixtureLock)
+        lock (SequenceFixtureCoordination.InitLock)
         {
             if (!Directory.Exists(authorityRoot))
             {
@@ -108,6 +106,11 @@ public static class GuardedTestSequenceAuthorityExtensions
             }
             else
             {
+                if (!File.Exists(bindingFile))
+                {
+                    SequenceFixtureCoordination.WaitForFile(bindingFile);
+                }
+
                 if (!File.Exists(bindingFile))
                 {
                     throw new InvalidOperationException(
@@ -144,7 +147,12 @@ public static class GuardedTestSequenceAuthorityExtensions
                     throw new InvalidOperationException($"FAIL-CLOSED: Corrupt cluster binding file at '{bindingFile}'.", ex);
                 }
 
-                if (!File.Exists(manifest) || !File.Exists(manifest + ".checkpoint") || !File.Exists(manifest + ".lock"))
+                if (!SequenceFixtureCoordination.SequenceArtifactsComplete(manifest))
+                {
+                    SequenceFixtureCoordination.WaitForSequenceArtifacts(manifest);
+                }
+
+                if (!SequenceFixtureCoordination.SequenceArtifactsComplete(manifest))
                 {
                     throw new InvalidOperationException("FAIL-CLOSED: Sequence fixture artifacts are incomplete or corrupt in existing authority root. Deleting or recreating legitimate authority is forbidden.");
                 }
@@ -179,45 +187,8 @@ public static class GuardedTestSequenceAuthorityExtensions
             }
         }
 
-        bool isApprovedOwnedCluster = false;
-        string? clusterRunId = null;
-
-        var ownershipMarkerPath = Path.Combine(root, "OWNERSHIP_MARKER.json");
-        if (File.Exists(ownershipMarkerPath))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(ownershipMarkerPath));
-                var rootElem = doc.RootElement;
-                var marker = rootElem.TryGetProperty("marker", out var m) ? m.GetString() : null;
-                var runId = rootElem.TryGetProperty("run_id", out var r) ? r.GetString() : null;
-                var port = rootElem.TryGetProperty("port", out var p) ? p.GetInt32() : 0;
-                var isolation = rootElem.TryGetProperty("isolation_mode", out var i) ? i.GetString() : null;
-
-                if (string.Equals(marker, "ER_DISPOSABLE_CLUSTER_OWNERSHIP_MARKER", StringComparison.Ordinal) &&
-                    !string.IsNullOrWhiteSpace(runId) &&
-                    port == connection.Port &&
-                    string.Equals(isolation, "owned_disposable_local_cluster", StringComparison.Ordinal))
-                {
-                    isApprovedOwnedCluster = true;
-                    clusterRunId = runId;
-                }
-            }
-            catch
-            {
-                isApprovedOwnedCluster = false;
-            }
-        }
-
-        var tempPrefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
-        var isApprovedTempRunner = root.StartsWith(tempPrefix, StringComparison.OrdinalIgnoreCase) &&
-                                  (Directory.Exists(Path.Combine(root, "data")) || Directory.Exists(Path.Combine(root, "pgdata")));
-
-        if (!isApprovedTempRunner && !isApprovedOwnedCluster)
-        {
-            throw new InvalidOperationException("FAIL-CLOSED: PostgreSQL fixture authority is outside the approved isolated runner or lacks verified ownership marker.");
-        }
+        var (_, clusterRunId) = OwnedPostgresRunnerAttestation.TryApproveRunnerRoot(root, connection.Port);
+        OwnedPostgresRunnerAttestation.EnsureRunnerRootApproved(root, connection.Port);
 
         return (root, clusterRunId);
     }

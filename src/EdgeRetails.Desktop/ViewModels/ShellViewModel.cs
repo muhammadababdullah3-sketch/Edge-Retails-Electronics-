@@ -18,6 +18,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
     private readonly ILiveClock _clock;
     private readonly IFrontendPermissionService _permissionService;
     private readonly Action _switchUser;
+    private readonly Action _lockScreen;
     private bool _isSidebarCollapsed;
     private ViewModelBase? _currentPage;
     private string _pageTitle = "Dashboard";
@@ -33,7 +34,8 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         IDrawerService drawerService,
         IToastService toastService,
         IFrontendPermissionService? permissionService = null,
-        Action? switchUser = null)
+        Action? switchUser = null,
+        Action? lockScreen = null)
     {
         ArgumentNullException.ThrowIfNull(navigationService);
         ArgumentNullException.ThrowIfNull(clock);
@@ -48,6 +50,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         _clock = clock;
         _permissionService = permissionService ?? new DemoFrontendPermissionService();
         _switchUser = switchUser ?? (() => { });
+        _lockScreen = lockScreen ?? (() => { });
 
         UserName = sessionContext.DisplayName;
         UserRole = sessionContext.RoleName;
@@ -90,6 +93,7 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
         NavigateCommand = new RelayCommand<NavigationTarget>(Navigate);
         ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
         SwitchUserCommand = new RelayCommand(_switchUser);
+        LockScreenCommand = new RelayCommand(_lockScreen);
 
         _navigationService.Navigated += OnNavigated;
         _clock.Tick += OnClockTick;
@@ -104,6 +108,8 @@ public sealed class ShellViewModel : ViewModelBase, IDisposable
     public ICommand ToggleSidebarCommand { get; }
 
     public ICommand SwitchUserCommand { get; }
+
+    public ICommand LockScreenCommand { get; }
 
     public IThemeService ThemeService { get; }
 

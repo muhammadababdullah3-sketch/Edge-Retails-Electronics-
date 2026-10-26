@@ -110,12 +110,19 @@ public sealed class Phase1FrontendRecoveryContractPostgresTests
             Assert.True(replay.IsSuccess, replay.Error?.Message);
             Assert.True(replay.Value!.WasExisting);
         }
-        foreach (var mismatch in new[] { command with { Note = "Changed after response loss" }, command with { ActorId = otherActor } })
+        await using (var noteScope = provider.CreateAsyncScope())
         {
-            await using var mismatchScope = provider.CreateAsyncScope();
-            var rejected = await mismatchScope.ServiceProvider.GetRequiredService<CreateSupplierRefundHandler>().HandleAsync(mismatch, default);
+            var rejected = await noteScope.ServiceProvider.GetRequiredService<CreateSupplierRefundHandler>()
+                .HandleAsync(command with { Note = "Changed after response loss" }, default);
             Assert.False(rejected.IsSuccess);
             Assert.Equal("idempotency.payload_mismatch", rejected.Error?.Code);
+        }
+        await using (var actorScope = provider.CreateAsyncScope())
+        {
+            var rejected = await actorScope.ServiceProvider.GetRequiredService<CreateSupplierRefundHandler>()
+                .HandleAsync(command with { ActorId = otherActor }, default);
+            Assert.False(rejected.IsSuccess);
+            Assert.Equal("idempotency.context_mismatch", rejected.Error?.Code);
         }
         await using var read = provider.CreateAsyncScope();
         var persisted = read.ServiceProvider.GetRequiredService<EdgeRetailsDbContext>();

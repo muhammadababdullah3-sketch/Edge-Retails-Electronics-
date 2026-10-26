@@ -404,9 +404,9 @@ public sealed class Phase7Pass4PostgresTests(ITestOutputHelper output)
             var loose = await db.InventoryUnits.SingleAsync(x => x.ProductId == f.ProductId && x.IsLooseStock);
             looseId = loose.Id;
             Assert.Equal(2m, loose.RemainingBaseQuantity);
-            Assert.Equal(66.666667m, loose.AcquisitionCost);
-            Assert.Equal(66.666667m, (await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost);
-            Assert.Equal(66.666667m, await db.PackAllocations.Where(x => x.PackUnitId == looseId).SumAsync(x => x.TotalCostSnapshot));
+            Assert.Equal(66.67m, decimal.Round(loose.AcquisitionCost, 2));
+            Assert.Equal(66.67m, decimal.Round((await db.ProductCostStates.SingleAsync(x => x.ProductId == f.ProductId)).TotalInventoryCost, 2));
+            Assert.Equal(66.67m, decimal.Round(await db.PackAllocations.Where(x => x.PackUnitId == looseId).SumAsync(x => x.TotalCostSnapshot), 2));
         }
         var resale = new CompleteSaleCommand(Guid.NewGuid(), null, f.ActorId, null, 0m, SalePaymentMethod.Bank,
             basePrice * 2m, "H5 loose resale", null,

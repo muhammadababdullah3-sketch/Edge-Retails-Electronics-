@@ -1,9 +1,0 @@
-{
-  "valid": true,
-  "workers": 2,
-  "available_worker_slots": 3,
-  "running_records": 1,
-  "errors": [],
-  "warnings": [],
-  "scope": "Plan consistency only; not runtime enforcement, agent authentication, DB safety proof, speedup or semantic acceptance"
-}

@@ -37,7 +37,8 @@ public sealed class Phase2FrontendWorkflowSafetyTests
             saved: () => savedCalled = true,
             backendService: testService,
             existing: existingExpense,
-            categories: ["Utilities"]);
+            categories: ["Utilities"],
+            operationIntents: new InMemoryClientOperationIntentStore());
 
         Assert.True(vm.CanVoid);
         Assert.False(vm.CanEdit); // Posted backend expenses are immutable
@@ -94,7 +95,8 @@ public sealed class Phase2FrontendWorkflowSafetyTests
             saved: () => { },
             backendService: testService,
             existing: existingExpense,
-            categories: ["Rent"]);
+            categories: ["Rent"],
+            operationIntents: new InMemoryClientOperationIntentStore());
 
         vm.VoidReason = "Void concurrent test";
 

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using EdgeRetails.Desktop.PerformanceTests;
 using EdgeRetails.Desktop.Services;
 using EdgeRetails.Desktop.ViewModels;
 using EdgeRetails.Domain.Inventory;
@@ -18,7 +19,8 @@ public sealed class StockAdjustmentOperationIdentityTests
             product,
             new TestToastService(),
             () => { },
-            service);
+            service,
+            operationIntents: new InMemoryClientOperationIntentStore());
         viewModel.QuantityText = "2";
 
         await viewModel.ApplyAsync();

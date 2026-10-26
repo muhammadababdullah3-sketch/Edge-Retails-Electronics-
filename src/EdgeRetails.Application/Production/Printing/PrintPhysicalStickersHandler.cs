@@ -11,19 +11,22 @@ public sealed class PrintPhysicalStickersHandler
     private readonly IPhysicalStickerPrintEngine _engine;
     private readonly ProductionAuditCoordinator _audit;
     private readonly IClock _clock;
+    private readonly IPhysicalLabelPrintIntentCoordinator? _labelIntents;
 
     public PrintPhysicalStickersHandler(
         IProductionAuthorization authorization,
         IPhysicalStickerDocumentSource source,
         IPhysicalStickerPrintEngine engine,
         ProductionAuditCoordinator audit,
-        IClock clock)
+        IClock clock,
+        IPhysicalLabelPrintIntentCoordinator? labelPrintIntentCoordinator = null)
     {
         _authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _audit = audit ?? throw new ArgumentNullException(nameof(audit));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _labelIntents = labelPrintIntentCoordinator;
     }
 
     public async Task<Result<PrintPhysicalStickersResult>> HandleAsync(
@@ -48,9 +51,30 @@ public sealed class PrintPhysicalStickersHandler
         var succeeded = 0;
         var failed = 0;
 
+        var workstationId = Environment.MachineName;
+        var allowRetry = command.RequestMode == PrintRequestMode.Retry;
+
         foreach (var unitId in command.InventoryUnitIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (_labelIntents is not null)
+            {
+                var dispatch = command.IsReprint
+                    ? await RegisterAndClaimReprintAsync(unitId, workstationId, cancellationToken)
+                    : await _labelIntents.ClaimOriginalForUnitAsync(unitId, workstationId, allowRetry, cancellationToken);
+                if (!dispatch.IsSuccess)
+                {
+                    results.Add(new PrintJobResult(
+                        false,
+                        dispatch.Error!.Code,
+                        dispatch.Error.Message,
+                        Guid.NewGuid().ToString("D"),
+                        InventoryUnitId: unitId));
+                    failed++;
+                    continue;
+                }
+            }
 
             PhysicalItemStickerDocument doc;
             try
@@ -108,6 +132,18 @@ public sealed class PrintPhysicalStickersHandler
                 $"TrackingCode={doc.TrackingCode}; Mode={(command.IsReprint ? "Reprint" : "Initial")}; Error={physical.ErrorCode}",
                 command.CorrelationId));
 
+            if (_labelIntents is not null)
+            {
+                await _labelIntents.ApplyStickerReceiptAsync(
+                    new ApplyLabelIntentStickerReceipt(
+                        unitId,
+                        command.IsReprint,
+                        physical.Succeeded,
+                        physical.ErrorCode,
+                        Guid.TryParse(printJobId, out var attemptId) ? attemptId : Guid.CreateVersion7()),
+                    cancellationToken);
+            }
+
             if (physical.Succeeded)
             {
                 succeeded++;
@@ -125,5 +161,23 @@ public sealed class PrintPhysicalStickersHandler
             command.InventoryUnitIds.Count,
             succeeded,
             failed));
+    }
+
+    private async Task<Result<PhysicalLabelPrintIntentSummary>> RegisterAndClaimReprintAsync(
+        Guid unitId,
+        string workstationId,
+        CancellationToken cancellationToken)
+    {
+        var registered = await _labelIntents!.RegisterReprintIntentAsync(unitId, workstationId, cancellationToken);
+        if (!registered.IsSuccess)
+        {
+            return registered;
+        }
+
+        return await _labelIntents.ClaimForDispatchAsync(
+            registered.Value!.Id,
+            workstationId,
+            retryAfterUnknownOutcome: true,
+            cancellationToken);
     }
 }

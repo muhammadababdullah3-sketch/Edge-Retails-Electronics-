@@ -27,11 +27,14 @@
                     Modifiers="Control"
                     Command="ApplicationCommands.Print" />
     </Window.InputBindings>
-    <Grid>
+    <Grid PreviewMouseMove="MainWindow_PreviewMouseMove">
         <ContentControl Content="{Binding CurrentContent}"
                         HorizontalContentAlignment="Stretch"
                         VerticalContentAlignment="Stretch"
                         Focusable="False" />
+        <views:ScreenLockView Panel.ZIndex="90"
+                              DataContext="{Binding ScreenLockOverlay}"
+                              Visibility="{Binding IsScreenLockVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
         <controls:ToastHost Panel.ZIndex="100"
                             DataContext="{Binding ToastService}" />
     </Grid>

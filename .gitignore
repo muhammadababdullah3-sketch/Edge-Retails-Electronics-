@@ -53,7 +53,9 @@ scratch_*
 # Agent / IDE ephemeral checkouts (canonical tree is repo root only)
 .claude/worktrees/
 
-# Governance run exports (regenerate from scripts; keep markdown/json evidence)
+# Governance run exports (regenerate from scripts; never commit local rehearsal dumps)
+governance/10-execution-runs/
+governance/**/attestation-*.json
 governance/**/export/candidate_*.zip
 governance/**/evidence/before/
 

@@ -10,15 +10,21 @@ public sealed class AuthController : ControllerBase
 {
     private readonly AuthenticateUserHandler _authenticateUserHandler;
     private readonly EndUserSessionHandler _endUserSessionHandler;
+    private readonly LockUserSessionHandler _lockUserSessionHandler;
+    private readonly UnlockUserSessionHandler _unlockUserSessionHandler;
     private readonly GetLoginAccountsHandler _getLoginAccountsHandler;
 
     public AuthController(
         AuthenticateUserHandler authenticateUserHandler,
         EndUserSessionHandler endUserSessionHandler,
+        LockUserSessionHandler lockUserSessionHandler,
+        UnlockUserSessionHandler unlockUserSessionHandler,
         GetLoginAccountsHandler getLoginAccountsHandler)
     {
         _authenticateUserHandler = authenticateUserHandler;
         _endUserSessionHandler = endUserSessionHandler;
+        _lockUserSessionHandler = lockUserSessionHandler;
+        _unlockUserSessionHandler = unlockUserSessionHandler;
         _getLoginAccountsHandler = getLoginAccountsHandler;
     }
 
@@ -86,7 +92,68 @@ public sealed class AuthController : ControllerBase
             displayName = actor.DisplayName,
             roleId = actor.RoleId,
             roleName = actor.RoleName,
-            permissions = actor.Permissions
+            permissions = actor.Permissions,
+            screenLocked = actor.IsScreenLocked
         });
+    }
+
+    [HttpPost("lock")]
+    public async Task<IActionResult> LockScreen(
+        [FromBody] LockUserSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        if (actor is null)
+        {
+            return Unauthorized(new { code = "auth.session_missing", message = "No authenticated user session." });
+        }
+
+        var sanitized = command with
+        {
+            UserId = actor.UserId,
+            SessionId = actor.SessionId,
+            CorrelationId = command.CorrelationId == Guid.Empty ? Guid.CreateVersion7() : command.CorrelationId
+        };
+
+        var result = await _lockUserSessionHandler.HandleAsync(sanitized, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return Ok(new { success = true, screenLocked = true });
+        }
+
+        return BadRequest(new { code = result.Error?.Code, message = result.Error?.Message });
+    }
+
+    [HttpPost("unlock")]
+    public async Task<IActionResult> UnlockScreen(
+        [FromBody] UnlockUserSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = HttpContext.GetActorContext();
+        if (actor is null)
+        {
+            return Unauthorized(new { code = "auth.session_missing", message = "No authenticated user session." });
+        }
+
+        var sanitized = command with
+        {
+            UserId = actor.UserId,
+            SessionId = actor.SessionId,
+            CorrelationId = command.CorrelationId == Guid.Empty ? Guid.CreateVersion7() : command.CorrelationId
+        };
+
+        var result = await _unlockUserSessionHandler.HandleAsync(sanitized, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return Ok(new { success = true, screenLocked = false });
+        }
+
+        var statusCode = result.Error?.Code switch
+        {
+            "identity.invalid_unlock" => StatusCodes.Status401Unauthorized,
+            _ => StatusCodes.Status400BadRequest
+        };
+
+        return StatusCode(statusCode, new { code = result.Error?.Code, message = result.Error?.Message });
     }
 }

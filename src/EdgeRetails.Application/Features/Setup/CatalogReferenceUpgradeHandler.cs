@@ -7,12 +7,17 @@ using EdgeRetails.Domain.Common;
 
 namespace EdgeRetails.Application.Features.Setup;
 
-public sealed record CatalogReferenceUpgradeResult(int UnitsAdded, int UnitsPreserved, bool AlreadyApplied);
+public sealed record CatalogReferenceUpgradeResult(
+    int UnitsAdded,
+    int UnitsPreserved,
+    int CategoriesAdded,
+    int TaxonomyUnitsAdded,
+    bool AlreadyApplied);
 
 /// <summary>
 /// Explicit, one-time existing-shop operational fixed-unit reconciliation. It is invoked only
 /// by an authorized maintenance/upgrade command, never at startup or during ordinary reads.
-/// Categories are excluded pending an owner-approved symbol/name map.
+/// Department-backed shop categories and remaining taxonomy units are reconciled idempotently after fixed-unit checks.
 /// </summary>
 public sealed class CatalogReferenceUpgradeHandler
 {
@@ -67,7 +72,7 @@ public sealed class CatalogReferenceUpgradeHandler
             if (await _setup.HasCatalogReferenceUpgradeAsync(installation.InstallationId, ct))
             {
                 return Result<CatalogReferenceUpgradeResult>.Success(
-                    new CatalogReferenceUpgradeResult(0, 0, AlreadyApplied: true));
+                    new CatalogReferenceUpgradeResult(0, 0, 0, 0, AlreadyApplied: true));
             }
 
             var existing = await _catalog.GetUnitsAsync(includeInactive: true, ct);
@@ -135,6 +140,9 @@ public sealed class CatalogReferenceUpgradeHandler
                 _catalog.AddUnit(unit);
             }
 
+            var taxonomyUnitsAdded = await CatalogTaxonomyBootstrap.SeedMissingUnitsAsync(_catalog, ct);
+            var categoriesAdded = await CatalogTaxonomyBootstrap.SeedMissingDepartmentCategoriesAsync(_catalog, ct);
+
             installation.Version++;
             _audit.Record(
                 "FIXED_UNITS_SEEDED",
@@ -142,8 +150,9 @@ public sealed class CatalogReferenceUpgradeHandler
                 installation.InstallationId,
                 actorId,
                 installation.InstallationId,
-                $"Added {toAdd.Count} fixed units; preserved {preserved}.");
+                $"Added {toAdd.Count} fixed units; preserved {preserved}; taxonomy units +{taxonomyUnitsAdded}; categories +{categoriesAdded}.");
             await _unitOfWork.SaveChangesAsync(ct);
-            return Result<CatalogReferenceUpgradeResult>.Success(new CatalogReferenceUpgradeResult(toAdd.Count, preserved, AlreadyApplied: false));
+            return Result<CatalogReferenceUpgradeResult>.Success(
+                new CatalogReferenceUpgradeResult(toAdd.Count, preserved, categoriesAdded, taxonomyUnitsAdded, AlreadyApplied: false));
         }, cancellationToken);
 }

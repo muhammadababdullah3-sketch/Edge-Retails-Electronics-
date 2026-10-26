@@ -135,7 +135,8 @@ public sealed class Phase1SupplierSubmissionSafetyTests
     private static SupplierDetailViewModel Detail(IBackendOperationsService service) => new(
         new SupplierDirectoryRecord { Id = "test-supplier", BackendId = Guid.NewGuid(), Name = "Test supplier" },
         Proxy<IDrawerService>((_, _) => null), Proxy<IDialogService>((_, _) => null),
-        Proxy<IToastService>((_, _) => null), operationsService: service);
+        Proxy<IToastService>((_, _) => null), operationsService: service,
+        operationIntents: new InMemoryClientOperationIntentStore());
 
     private static Task Invoke(object instance, string name, params object[] args) =>
         (Task)instance.GetType().GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(instance, args)!;

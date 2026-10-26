@@ -3,7 +3,6 @@ using System;
 using EdgeRetails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -677,6 +676,19 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("bigint")
                         .HasColumnName("version");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("void_reason");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("voided_at");
+
+                    b.Property<Guid?>("VoidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voided_by");
 
                     b.HasKey("Id")
                         .HasName("pk_cash_sessions");
@@ -1431,6 +1443,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsRevoked")
                         .HasColumnType("boolean")
                         .HasColumnName("is_revoked");
+
+                    b.Property<DateTimeOffset>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_activity_at");
+
+                    b.Property<DateTimeOffset?>("ScreenLockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("screen_locked_at");
 
                     b.Property<DateTimeOffset>("StartedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2815,6 +2835,69 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EdgeRetails.Domain.Posting.SupervisorApprovalGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Consumed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("consumed");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at_utc");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_type");
+
+                    b.Property<DateOnly>("PostingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("posting_date");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("SupervisorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supervisor_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("token_hash");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supervisor_approval_grants");
+
+                    b.HasIndex("Consumed", "ExpiresAtUtc")
+                        .HasDatabaseName("ix_supervisor_approval_grants_consumed_expires_at_utc");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_supervisor_approval_grants_token_hash");
+
+                    b.ToTable("supervisor_approval_grants", "posting");
+                });
+
             modelBuilder.Entity("EdgeRetails.Domain.Posting.PostingAuditEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2891,6 +2974,71 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("chk_posting_audit_dates", "posting_date <= shop_date");
                         });
+                });
+
+            modelBuilder.Entity("EdgeRetails.Domain.Production.PhysicalLabelPrintIntent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("InventoryMovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_movement_id");
+
+                    b.Property<Guid>("InventoryUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_unit_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("SourceClientOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_client_operation_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetWorkstationId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("target_workstation_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_physical_label_print_intent");
+
+                    b.HasIndex("SourceClientOperationId")
+                        .HasDatabaseName("ix_physical_label_print_intent_source_client_operation_id");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_physical_label_print_intent_status");
+
+                    b.HasIndex("InventoryUnitId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ix_physical_label_print_intent_inventory_unit_id_kind")
+                        .HasFilter("kind = 0");
+
+                    b.ToTable("physical_label_print_intent", "production");
                 });
 
             modelBuilder.Entity("EdgeRetails.Domain.Purchasing.Purchase", b =>
@@ -4363,6 +4511,10 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("address");
 
+                    b.Property<TimeOnly?>("BusinessDayCutoffLocalTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("business_day_cutoff_local_time");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)")
@@ -4379,6 +4531,12 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("shop_name");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("time_zone_id");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -7077,6 +7235,3 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
         }
     }
 }
-
-
-

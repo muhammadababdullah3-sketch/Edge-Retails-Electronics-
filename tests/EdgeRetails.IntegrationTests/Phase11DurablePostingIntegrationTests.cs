@@ -137,7 +137,9 @@ public sealed class Phase11DurablePostingIntegrationTests
             using var cmdDir = new NpgsqlCommand("SHOW data_directory;", conn);
             var dataDir = cmdDir.ExecuteScalar()?.ToString() ?? string.Empty;
             if (!dataDir.Contains("EdgeRetailsDisposable", StringComparison.OrdinalIgnoreCase) &&
-                !dataDir.Contains("ER-RUN-", StringComparison.OrdinalIgnoreCase))
+                !dataDir.Contains("ER-RUN-", StringComparison.OrdinalIgnoreCase) &&
+                !dataDir.Contains("EdgeRetailsMasterPg_", StringComparison.OrdinalIgnoreCase) &&
+                !dataDir.Contains("EdgeRetailsCatalogPg_", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
                     "FAIL-CLOSED: Connected PostgreSQL cluster data directory does not match disposable test runner path.");
@@ -209,7 +211,7 @@ public sealed class Phase11DurablePostingIntegrationTests
         var txRunner = new EfTransactionRunner(db, guard);
 
         var postingService = new ShopPostingValidationService(
-            clock, periodRepo, auditRepo, identityRepo, PinService, businessAuditWriter);
+            clock, periodRepo, auditRepo, identityRepo, PinService, businessAuditWriter, new EfSupervisorApprovalStore(db));
 
         var adapter = new FinancialPostingAdapter(postingService, db, txRunner);
         return (adapter, db);

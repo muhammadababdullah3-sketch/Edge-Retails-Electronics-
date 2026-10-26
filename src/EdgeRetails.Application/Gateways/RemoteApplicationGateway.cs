@@ -262,7 +262,7 @@ public sealed class RemoteApplicationGateway : IApplicationGateway
         CancellationToken cancellationToken = default)
     {
         return await SendPostAsync<ReceiveProductIntakeCommand, ReceiveProductIntakeResult>(
-            "/api/purchasing/receive-intake",
+            "/api/purchasing/intake",
             command,
             isMutation: true,
             cancellationToken);

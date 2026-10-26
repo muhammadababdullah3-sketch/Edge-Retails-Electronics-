@@ -12,8 +12,21 @@ public partial class MainWindow : Window
         InitializeComponent();
     }
 
+    private void MainWindow_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (DataContext is ViewModels.MainViewModel main)
+        {
+            main.RecordOperatorActivity();
+        }
+    }
+
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (DataContext is ViewModels.MainViewModel main)
+        {
+            main.RecordOperatorActivity();
+        }
+
         if (e.Key != Key.P ||
             (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
         {

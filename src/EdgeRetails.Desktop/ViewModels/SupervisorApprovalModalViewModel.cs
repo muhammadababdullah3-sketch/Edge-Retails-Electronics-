@@ -260,9 +260,10 @@ public sealed class SupervisorApprovalModalViewModel : ViewModelBase, IDisposabl
 
             var request = new SupervisorApprovalRequest(
                 SelectedSupervisor.UserId,
-                SupervisorPin.Trim(),
+                SupervisorPin: null,
                 string.IsNullOrWhiteSpace(Reason) ? "Historical posting authorization" : Reason.Trim(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                ApprovalToken: response.ApprovalToken);
 
             _approvalResult = new SupervisorApprovalResult(
                 IsAuthorized: response.Authorized,

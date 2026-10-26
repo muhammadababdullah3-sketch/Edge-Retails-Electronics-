@@ -52,7 +52,8 @@ internal sealed class PostgresFixtureProfile
             throw new InvalidOperationException("Fixture database does not match its named profile.");
         }
         if (schema == PostgresFixtureSchema.Historical &&
-            !Regex.IsMatch(Database, @"^edge_retails_(tracking_rehearsal|warranty_migration|h02_history|master_restore)_[a-f0-9]{32}$"))
+            !Regex.IsMatch(Database,
+                @"^edge_retails_(tracking_rehearsal|warranty_migration|h02_history|master_restore|catalog_v3_production|catalog_loose_return|terminal_quota)_[a-f0-9]{32}$"))
         {
             throw new InvalidOperationException("Historical fixture database is not an owned generated name.");
         }
@@ -158,9 +159,11 @@ internal sealed class PostgresFixtureProfile
         using var grant = new NpgsqlCommand("""
             DO $$ DECLARE s record; BEGIN
               FOR s IN SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' LOOP
-                EXECUTE format('GRANT USAGE ON SCHEMA %I TO er_provisioner',s.nspname);
+                EXECUTE format('GRANT USAGE ON SCHEMA %I TO er_provisioner, er_master_runtime',s.nspname);
                 EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON ALL TABLES IN SCHEMA %I TO er_provisioner',s.nspname);
                 EXECUTE format('GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA %I TO er_provisioner',s.nspname);
+                EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO er_master_runtime',s.nspname);
+                EXECUTE format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO er_master_runtime',s.nspname);
               END LOOP;
             END $$;
             """, pg);

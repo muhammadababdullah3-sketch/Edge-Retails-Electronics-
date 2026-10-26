@@ -1,3 +1,4 @@
+// Cloud server (license/admin authority). Shop PC API = EdgeRetails.Server — see docs/SHOP_AND_CENTRAL_RUNTIME.md.
 using EdgeRetails.Central.Api.Middleware;
 using EdgeRetails.Central.Api.Security;
 using EdgeRetails.Central.Api.Services;

@@ -37,17 +37,20 @@ public sealed class PostingController : ControllerBase
     private readonly IPeriodLockRepository _periodLocks;
     private readonly IIdentityReadRepository _identity;
     private readonly IPinCredentialService _pinCredentials;
+    private readonly ISupervisorApprovalStore _approvalStore;
 
     public PostingController(
         IShopClock clock,
         IPeriodLockRepository periodLocks,
         IIdentityReadRepository identity,
-        IPinCredentialService pinCredentials)
+        IPinCredentialService pinCredentials,
+        ISupervisorApprovalStore approvalStore)
     {
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _periodLocks = periodLocks ?? throw new ArgumentNullException(nameof(periodLocks));
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _pinCredentials = pinCredentials ?? throw new ArgumentNullException(nameof(pinCredentials));
+        _approvalStore = approvalStore ?? throw new ArgumentNullException(nameof(approvalStore));
     }
 
     [HttpGet("period-lock-check")]
@@ -194,7 +197,14 @@ public sealed class PostingController : ControllerBase
             });
         }
 
-        var approvalToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{supervisorUser.Id}:{request.PostingDate:yyyyMMdd}:{_clock.UtcNow:O}")));
+        var approvalToken = await _approvalStore.IssueAsync(
+            new SupervisorApprovalGrantIssueRequest(
+                supervisorUser.Id,
+                request.PostingDate,
+                request.OperationType,
+                request.Reason.Trim(),
+                _clock.UtcNow.AddMinutes(ShopPostingPolicy.SupervisorApprovalTokenLifetimeMinutes)),
+            cancellationToken);
 
         return Ok(new SupervisorPostingApprovalResponse(
             Authorized: true,

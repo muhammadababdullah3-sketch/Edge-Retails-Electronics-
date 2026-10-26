@@ -43,8 +43,8 @@ public sealed class Phase4MultiTerminalConcurrencyTests
             if (ownedConnection is not null)
             {
                 services.RemoveAll<EdgeRetailsDbContext>();
-                services.AddScoped(_ => new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                    .UseNpgsql(ownedConnection, pg => pg.MigrationsHistoryTable("__ef_migrations_history", "system")).Options));
+                services.AddScoped(_ => new EdgeRetailsDbContext(
+                    Phase2PostgresTestHarness.NewDbContextOptions(ownedConnection)));
             }
         });
     }
@@ -187,23 +187,21 @@ public sealed class Phase4MultiTerminalConcurrencyTests
         {
             // Attestation verifies the endpoint's data directory belongs to this runner.
             await using var attested = Phase2PostgresTestHarness.BuildProvider();
-            var builder = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("EDGE_RETAILS_TEST_DB"));
+            var profile = PostgresFixtureProfile.Resolve();
             var name = "edge_retails_terminal_quota_" + Guid.NewGuid().ToString("N");
-            builder.Database = "postgres";
-            var admin = new NpgsqlConnection(builder.ConnectionString);
+            var admin = profile.OpenMaintenance();
             try
             {
-                await admin.OpenAsync();
                 await using var create = new NpgsqlCommand($"CREATE DATABASE {name}", admin);
                 await create.ExecuteNonQueryAsync();
             }
             catch { await admin.DisposeAsync(); throw; }
-            builder.Database = name;
-            var fixture = new OwnedQuotaDatabase(name, admin, builder.ConnectionString);
+            var connectionString = profile.MaintenanceForDatabase(name);
+            profile.GrantWriteAccess(name);
+            var fixture = new OwnedQuotaDatabase(name, admin, connectionString);
             try
             {
-                await using var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                    .UseNpgsql(fixture.ConnectionString, pg => pg.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
+                await using var db = new EdgeRetailsDbContext(Phase2PostgresTestHarness.NewDbContextOptions(fixture.ConnectionString));
                 await db.Database.MigrateAsync();
                 return fixture;
             }

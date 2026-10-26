@@ -315,6 +315,17 @@ public sealed class OwnerPinRecoveryTests
             Task.FromResult<UserSession?>(_sessions.SingleOrDefault(x => x.Id == sessionId));
         public Task<UserSession?> GetSessionForUpdateAsync(Guid sessionId, CancellationToken cancellationToken) =>
             GetSessionAsync(sessionId, cancellationToken);
+
+        public Task TouchLastActivityAsync(Guid sessionId, DateTimeOffset activityAt, CancellationToken cancellationToken)
+        {
+            var session = _sessions.SingleOrDefault(x => x.Id == sessionId);
+            if (session is not null)
+            {
+                session.LastActivityAt = activityAt;
+            }
+
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeAuditWriter : IBusinessAuditWriter

@@ -195,6 +195,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
     public string OwnerName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
+    public string ShopTimeZoneId { get; set; } = "Asia/Karachi";
+    public string? BusinessDayCutoffLocalTime { get; set; }
     public string LogoPath { get; set; } = string.Empty;
 
     public ObservableCollection<string> Printers { get; }
@@ -398,7 +400,12 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
 
         try
         {
-            await _backendService.SaveShopAsync(ShopName, Phone, Address);
+            await _backendService.SaveShopAsync(
+                ShopName,
+                Phone,
+                Address,
+                ShopTimeZoneId,
+                BusinessDayCutoffLocalTime);
             _toastService.Show(
                 "Shop profile saved to authoritative backend persistence.",
                 ToastTone.Success);
@@ -1121,6 +1128,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         OwnerName = snapshot.OwnerName;
         Phone = snapshot.Phone;
         Address = snapshot.Address;
+        ShopTimeZoneId = snapshot.TimeZoneId;
+        BusinessDayCutoffLocalTime = snapshot.BusinessDayCutoffLocalTime;
         HeaderText = snapshot.ReceiptHeader;
         FooterText = snapshot.ReceiptFooter;
         ShowCustomer = snapshot.ShowCustomer;
@@ -1217,6 +1226,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         OwnerName = string.Empty;
         Phone = string.Empty;
         Address = string.Empty;
+        ShopTimeZoneId = "Asia/Karachi";
+        BusinessDayCutoffLocalTime = null;
         LogoPath = string.Empty;
 
         Printer = string.Empty;
@@ -1272,6 +1283,8 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(OwnerName));
         OnPropertyChanged(nameof(Phone));
         OnPropertyChanged(nameof(Address));
+        OnPropertyChanged(nameof(ShopTimeZoneId));
+        OnPropertyChanged(nameof(BusinessDayCutoffLocalTime));
         OnPropertyChanged(nameof(LogoPath));
         OnPropertyChanged(nameof(Printer));
         OnPropertyChanged(nameof(PaperSize));

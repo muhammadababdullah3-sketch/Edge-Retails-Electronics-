@@ -113,10 +113,10 @@ public sealed class Phase3BusinessAdapterCursorTests
             "/api/expenses/subcategories" => JsonResponse("[]"),
             "/api/expenses" when request.Method == HttpMethod.Post => JsonResponse(
                 $"{{\"expenseId\":\"{expenseId:D}\",\"expenseNumber\":\"EXP-009\",\"wasExisting\":false}}"),
-            "/api/expenses" => JsonResponse($"[{{\"expenseId\":\"{expenseId:D}\",\"expenseNumber\":\"EXP-009\",\"categoryId\":\"{categoryId:D}\",\"categoryName\":\"Rent\",\"subcategoryId\":null,\"subcategoryName\":null,\"expenseDate\":\"2026-09-28\",\"amount\":2500,\"paymentMethod\":\"Cash\",\"description\":\"September rent\",\"reference\":null,\"status\":\"Posted\",\"createdBy\":\"00000000-0000-0000-0000-000000000001\",\"createdByName\":\"Owner\"}}]"),
+            "/api/expenses" when request.Method == HttpMethod.Get => JsonResponse($"[{{\"expenseId\":\"{expenseId:D}\",\"expenseNumber\":\"EXP-009\",\"categoryId\":\"{categoryId:D}\",\"categoryName\":\"Rent\",\"subcategoryId\":null,\"subcategoryName\":null,\"expenseDate\":\"2026-09-28\",\"amount\":2500,\"paymentMethod\":\"Cash\",\"description\":\"September rent\",\"reference\":null,\"status\":\"Posted\",\"createdBy\":\"00000000-0000-0000-0000-000000000001\",\"createdByName\":\"Owner\"}}]"),
             _ => throw new InvalidOperationException($"Unexpected route: {request.RequestUri}")
         });
-        var service = new RemoteBackendBusinessOperationsService(client);
+        var service = new RemoteBackendBusinessOperationsService(client, new InMemoryClientOperationIntentStore());
 
         var result = await service.PostExpenseAsync("Rent", "September rent", 2500,
             new DateTime(2026, 9, 28), "Cash", "counter rent");

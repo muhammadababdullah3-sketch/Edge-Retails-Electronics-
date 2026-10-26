@@ -930,7 +930,9 @@ public class ActivationService : IActivationService
                 InstallationId = request.InstallationId,
                 ChallengeNonce = challengeNonce,
                 ExpiresAtUtc = expiresAt,
-                AllowedOperations = new[] { "installation.register", "activation.redeem", "activation.status" }
+                AllowedOperations = new[] { "installation.register", "activation.redeem", "activation.status" },
+                ShopId = challenge.ShopId,
+                LicenseId = challenge.LicenseId
             };
         }
         finally

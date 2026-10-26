@@ -7,6 +7,7 @@ using EdgeRetails.Application.Contracts.Packs;
 using EdgeRetails.Desktop.Controls;
 using EdgeRetails.Desktop.Services;
 using EdgeRetails.Application.Features.Catalog;
+using EdgeRetails.Application.Features.Finance;
 using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Domain.Posting;
@@ -25,6 +26,8 @@ public sealed class PosViewModel : ViewModelBase
     private readonly IDialogService? _dialogService;
     private readonly ITransactionService _transactionService;
     private readonly IClientOperationIntentStore? _operationIntents;
+    private readonly ICashSessionClient? _cashSessionClient;
+    private CashSessionSummaryDto? _activeCashSession;
     private readonly IPosCatalogGateway? _posCatalogGateway;
     private readonly IBackendBusinessOperationsService? _businessOperationsService;
     private readonly IBackendWorkflowReadService? _workflowService;
@@ -85,12 +88,14 @@ public sealed class PosViewModel : ViewModelBase
         IBackendWorkflowReadService? workflowService = null,
         IProductionDocumentPrintService? documentPrintService = null,
         IWorkstationPrinterSettings? printerSettings = null,
-        IClientOperationIntentStore? operationIntents = null)
+        IClientOperationIntentStore? operationIntents = null,
+        ICashSessionClient? cashSessionClient = null)
     {
         _toastService = toastService;
         _dialogService = dialogService;
         _transactionService = ResolveTransactionService(transactionService);
         _operationIntents = operationIntents;
+        _cashSessionClient = cashSessionClient;
         _saleOperationIntentReady = operationIntents is null;
         _posCatalogGateway = posCatalogGateway;
         _businessOperationsService = businessOperationsService;
@@ -181,10 +186,17 @@ public sealed class PosViewModel : ViewModelBase
             ActiveSupervisorApproval = null;
             ActiveSupervisorName = null;
         });
+        OpenCashSessionCommand = new RelayCommand(async () => await OpenCashSessionAsync());
+        RefreshCashSessionCommand = new RelayCommand(async () => await RefreshCashSessionAsync());
 
         // Sales terminal starts with a clean, empty cart ready for new transactions
         CartItems.Clear();
         RecalculateTotals();
+        if (_cashSessionClient is not null)
+        {
+            _ = RefreshCashSessionAsync();
+        }
+
         if (_operationIntents is not null)
         {
             _ = RefreshPendingSaleOperationIdAsync();
@@ -458,6 +470,13 @@ public sealed class PosViewModel : ViewModelBase
     public ICommand OpenCableCutCommand { get; }
     public ICommand OpenSupervisorApprovalCommand { get; }
     public ICommand ClearSupervisorApprovalCommand { get; }
+    public ICommand OpenCashSessionCommand { get; }
+    public ICommand RefreshCashSessionCommand { get; }
+
+    public bool IsCashSessionOpen => _activeCashSession is not null;
+    public bool ShowCashSessionBanner => _cashSessionClient is not null && !IsCashSessionOpen;
+    public string CashSessionBannerText =>
+        "Cash drawer is closed. Open a session before accepting cash payments.";
 
     private DateOnly? _activePostingDate;
     private SupervisorApprovalRequest? _activeSupervisorApproval;
@@ -2208,6 +2227,41 @@ public sealed class PosViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(FilteredProductCountText));
         OnPropertyChanged(nameof(HasNoMatchingProducts));
+    }
+
+    private async Task RefreshCashSessionAsync()
+    {
+        if (_cashSessionClient is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _activeCashSession = await _cashSessionClient.GetCurrentAsync();
+        }
+        catch (Exception ex)
+        {
+            _toastService?.Show(
+                DesktopErrorPresentation.ForException(ex, "Cash session status could not be loaded."),
+                ToastTone.Warning);
+            _activeCashSession = null;
+        }
+
+        OnPropertyChanged(nameof(IsCashSessionOpen));
+        OnPropertyChanged(nameof(ShowCashSessionBanner));
+    }
+
+    private async Task OpenCashSessionAsync()
+    {
+        if (_cashSessionClient is null || _dialogService is null || _toastService is null)
+        {
+            return;
+        }
+
+        var dialog = new CashShiftOpenViewModel(_cashSessionClient, _dialogService, _toastService);
+        _dialogService.Show(dialog);
+        await RefreshCashSessionAsync();
     }
 
 }

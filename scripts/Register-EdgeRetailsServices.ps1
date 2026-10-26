@@ -30,6 +30,14 @@ Write-Host " EDGE RETAILS - SERVICE REGISTRATION" -ForegroundColor Cyan
 Write-Host "=======================================================================" -ForegroundColor Cyan
 Write-Host "Install Path: $InstallPath"
 
+$initScript = Join-Path $PSScriptRoot "Initialize-EdgeRetailsClientInstallation.ps1"
+if (-not (Test-Path $initScript -PathType Leaf)) {
+    throw "Missing client installation script: $initScript"
+}
+Write-Host "`n>>> Provisioning client pairing credential (terminal secret)..." -ForegroundColor Yellow
+& $initScript
+if ($LASTEXITCODE -ne 0) { throw "Initialize-EdgeRetailsClientInstallation.ps1 failed." }
+
 if ($RegisterWorker) {
     $workerExe = Join-Path $InstallPath "worker\EdgeRetails.Worker.exe"
     Write-Host "`n>>> Configuring Background Worker Service..." -ForegroundColor Yellow
@@ -79,7 +87,7 @@ if ($RegisterServer) {
     }
 
     Write-Host "    Creating service 'EdgeRetailsServer' with binary path '$serverExe'..." -ForegroundColor Gray
-    & sc.exe create EdgeRetailsServer binPath= "`"$serverExe`"" start= auto DisplayName= "Edge Retails Shop Server"
+    & sc.exe create EdgeRetailsServer binPath= "`"$serverExe`"" start= auto DisplayName= "Edge Retails Client Shop Service"
     if ($LASTEXITCODE -ne 0) { throw "Failed to create EdgeRetailsServer service." }
 
     Write-Host "    Configuring crash recovery policy..." -ForegroundColor Gray

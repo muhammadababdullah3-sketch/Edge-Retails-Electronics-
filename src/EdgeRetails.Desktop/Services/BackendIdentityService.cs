@@ -30,6 +30,15 @@ public interface IBackendIdentityService
     Task SignOutAsync(
         ISessionContext session,
         CancellationToken cancellationToken = default);
+
+    Task LockScreenAsync(
+        ISessionContext session,
+        CancellationToken cancellationToken = default);
+
+    Task UnlockScreenAsync(
+        ISessionContext session,
+        string pin,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class BackendIdentityService : IBackendIdentityService
@@ -204,5 +213,81 @@ public sealed class BackendIdentityService : IBackendIdentityService
         string RoleName,
         string[] Permissions);
 
+    public async Task LockScreenAsync(
+        ISessionContext session,
+        CancellationToken cancellationToken = default)
+    {
+        if (session.UserId is not Guid userId ||
+            session.SessionId is not Guid sessionId)
+        {
+            return;
+        }
+
+        if (_apiClient is not null)
+        {
+            await _apiClient.PostAsync<LockUserSessionCommand, LockScreenResult>(
+                "/api/auth/lock",
+                new LockUserSessionCommand(userId, sessionId, Guid.CreateVersion7()),
+                cancellationToken);
+            return;
+        }
+
+        await using var scope = _scopeFactory!.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<LockUserSessionHandler>();
+        var result = await handler.HandleAsync(
+            new LockUserSessionCommand(userId, sessionId, Guid.CreateVersion7()),
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.Error?.Message ?? "Screen could not be locked.");
+        }
+    }
+
+    public async Task UnlockScreenAsync(
+        ISessionContext session,
+        string pin,
+        CancellationToken cancellationToken = default)
+    {
+        if (session.UserId is not Guid userId ||
+            session.SessionId is not Guid sessionId)
+        {
+            throw new InvalidOperationException("A signed-in session is required to unlock.");
+        }
+
+        if (_apiClient is not null)
+        {
+            try
+            {
+                await _apiClient.PostAsync<UnlockUserSessionCommand, LockScreenResult>(
+                    "/api/auth/unlock",
+                    new UnlockUserSessionCommand(userId, sessionId, pin, Guid.CreateVersion7()),
+                    cancellationToken);
+            }
+            catch (DesktopApiException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized)
+            {
+                throw new UnauthorizedAccessException(ex.Message, ex);
+            }
+
+            return;
+        }
+
+        await using var scope = _scopeFactory!.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<UnlockUserSessionHandler>();
+        var result = await handler.HandleAsync(
+            new UnlockUserSessionCommand(userId, sessionId, pin, Guid.CreateVersion7()),
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            if (result.Error?.Code == "identity.invalid_unlock")
+            {
+                throw new UnauthorizedAccessException(result.Error.Message);
+            }
+
+            throw new InvalidOperationException(result.Error?.Message ?? "Screen could not be unlocked.");
+        }
+    }
+
     private sealed record LogoutResult(bool Success);
+
+    private sealed record LockScreenResult(bool Success, bool ScreenLocked);
 }

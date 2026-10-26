@@ -1,4 +1,5 @@
 using EdgeRetails.Application.Abstractions;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Domain.Identity;
 
 namespace EdgeRetails.Server.Middleware;
@@ -9,7 +10,8 @@ public sealed record ActorContext(
     string DisplayName,
     Guid RoleId,
     string RoleName,
-    IReadOnlySet<string> Permissions);
+    IReadOnlySet<string> Permissions,
+    bool IsScreenLocked = false);
 
 public static class HttpContextActorExtensions
 {
@@ -28,6 +30,7 @@ public sealed class UserSessionAuthenticationMiddleware
     {
         "/api/system/health",
         "/api/system/ready",
+        "/api/system/lifecycle",
         "/api/system/version",
         "/api/terminals/register",
         "/api/terminals/heartbeat",
@@ -49,7 +52,8 @@ public sealed class UserSessionAuthenticationMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         IIdentitySessionRepository sessionRepository,
-        IIdentityReadRepository identityRepository)
+        IIdentityReadRepository identityRepository,
+        IClock clock)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? string.Empty;
 
@@ -69,7 +73,8 @@ public sealed class UserSessionAuthenticationMiddleware
                 Guid.TryParse(optSessionVal.ToString(), out var optSessionId))
             {
                 var optSession = await sessionRepository.GetSessionAsync(optSessionId, context.RequestAborted);
-                if (optSession is not null && !optSession.IsRevoked && optSession.EndedAt is null)
+                if (optSession is not null && !optSession.IsRevoked && optSession.EndedAt is null &&
+                    !IsIdleExpired(optSession, clock.UtcNow))
                 {
                     var optUser = await identityRepository.GetUserAsync(optSession.UserId, context.RequestAborted);
                     if (optUser is not null && optUser.Status == UserStatus.Active)
@@ -84,7 +89,8 @@ public sealed class UserSessionAuthenticationMiddleware
                                 optUser.DisplayName,
                                 optRole.Id,
                                 optRole.Name,
-                                optPerms);
+                                optPerms,
+                                optSession.IsScreenLocked);
                             context.Items["CurrentUserId"] = optUser.Id;
                         }
                     }
@@ -117,6 +123,18 @@ public sealed class UserSessionAuthenticationMiddleware
             {
                 code = "auth.session_invalid",
                 message = "Session is invalid, expired, or revoked."
+            });
+            return;
+        }
+
+        if (IsIdleExpired(session, clock.UtcNow))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                code = "auth.session_idle_expired",
+                message = "Session expired due to inactivity. Sign in again."
             });
             return;
         }
@@ -155,11 +173,60 @@ public sealed class UserSessionAuthenticationMiddleware
             user.DisplayName,
             role.Id,
             role.Name,
-            permissions);
+            permissions,
+            session.IsScreenLocked);
 
         context.Items["ActorContext"] = actorContext;
         context.Items["CurrentUserId"] = user.Id;
 
+        if (session.IsScreenLocked && !IsAllowedWhileScreenLocked(path, context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status423Locked;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                code = "auth.session_screen_locked",
+                message = "Screen is locked. Enter your PIN to continue."
+            });
+            return;
+        }
+
+        if (!session.IsScreenLocked)
+        {
+            await sessionRepository.TouchLastActivityAsync(sessionId, clock.UtcNow, context.RequestAborted);
+        }
+
         await _next(context);
+    }
+
+    private static bool IsAllowedWhileScreenLocked(string path, string method)
+    {
+        if (string.Equals(path, "/api/auth/session", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(method, HttpMethods.Get, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(path, "/api/auth/unlock", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(method, HttpMethods.Post, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(path, "/api/auth/logout", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(method, HttpMethods.Post, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsIdleExpired(UserSession session, DateTimeOffset utcNow)
+    {
+        var lastActivity = session.LastActivityAt == default
+            ? session.StartedAt
+            : session.LastActivityAt;
+        return lastActivity.Add(ShopSessionPolicy.IdleTimeout) < utcNow;
     }
 }

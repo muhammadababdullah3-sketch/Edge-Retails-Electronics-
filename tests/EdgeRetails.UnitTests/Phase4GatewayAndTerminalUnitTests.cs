@@ -13,6 +13,7 @@ using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Features.Warranty;
 using EdgeRetails.Application.Gateways;
 using EdgeRetails.Application.Production.Licensing;
+using EdgeRetails.Domain.Catalog;
 using EdgeRetails.Domain.Finance;
 using EdgeRetails.Domain.Purchasing;
 using EdgeRetails.Domain.Sales;
@@ -255,6 +256,51 @@ public sealed class Phase4GatewayAndTerminalUnitTests
     }
 
     #endregion
+
+    [Fact]
+    public async Task RemoteGateway_ReceiveProductIntake_UsesPurchasingIntakeRoute()
+    {
+        string? capturedPath = null;
+        var testHandler = new TestHttpMessageHandler(req =>
+        {
+            capturedPath = req.RequestUri?.AbsolutePath;
+            var res = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new ReceiveProductIntakeResult(
+                    Guid.NewGuid(),
+                    Guid.NewGuid(),
+                    "Product",
+                    "SKU-1",
+                    null,
+                    null,
+                    null,
+                    "D-001",
+                    1m,
+                    1m,
+                    TrackingMode.Quantity,
+                    Array.Empty<CommittedInventoryUnitDto>(),
+                    false))
+            };
+            return Task.FromResult(res);
+        });
+
+        using var client = new HttpClient(testHandler) { BaseAddress = new Uri("http://127.0.0.1:5000") };
+        var gateway = new RemoteApplicationGateway(client, ConnectivityState.Connected);
+
+        var command = new ReceiveProductIntakeCommand(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            1m,
+            null,
+            [],
+            Guid.NewGuid(),
+            Guid.NewGuid());
+
+        var result = await gateway.ReceiveProductIntakeAsync(command);
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/api/purchasing/intake", capturedPath);
+    }
 
     #region 3. RemoteApplicationGateway Header Propagation & Offline Write Protection
 

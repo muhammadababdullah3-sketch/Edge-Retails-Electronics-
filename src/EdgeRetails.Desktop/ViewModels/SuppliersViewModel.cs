@@ -726,13 +726,13 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             catch (OperationException ex)
             {
                 _toastService.Show(
-                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm this intent.")}",
+                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm this intent.")}",
                     ToastTone.Danger);
             }
             catch (Exception ex)
             {
                 _toastService.Show(
-                    $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
+                    $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm the result.")}",
                     ToastTone.Danger);
             }
         }
@@ -827,13 +827,13 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             catch (OperationException ex)
             {
                 _toastService.Show(
-                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm this intent.")}",
+                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm this intent.")}",
                     ToastTone.Danger);
             }
             catch (Exception ex)
             {
                 _toastService.Show(
-                    $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
+                    $"Outcome is uncertain. Check operation status before retrying; the same operation identity will be reused. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm the result.")}",
                     ToastTone.Danger);
             }
         }
@@ -920,13 +920,13 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             catch (OperationException ex)
             {
                 _toastService.Show(
-                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm this intent.")}",
+                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm this intent.")}",
                     ToastTone.Danger);
             }
             catch (Exception ex)
             {
                 _toastService.Show(
-                    $"Outcome is uncertain. Check operation status before retrying; this payment reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
+                    $"Outcome is uncertain. Check operation status before retrying; this payment reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm the result.")}",
                     ToastTone.Danger);
             }
         }
@@ -1013,13 +1013,13 @@ public sealed class SupplierDetailViewModel : ViewModelBase
             catch (OperationException ex)
             {
                 _toastService.Show(
-                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm this intent.")}",
+                    $"Supplier operation remains unresolved; original identity and values retained. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm this intent.")}",
                     ToastTone.Danger);
             }
             catch (Exception ex)
             {
                 _toastService.Show(
-                    $"Outcome is uncertain. Check operation status before retrying; this refund reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The Server did not confirm the result.")}",
+                    $"Outcome is uncertain. Check operation status before retrying; this refund reversal will reuse its operation identity. {DesktopErrorPresentation.ForException(ex, "The shop service did not confirm the result.")}",
                     ToastTone.Danger);
             }
         }

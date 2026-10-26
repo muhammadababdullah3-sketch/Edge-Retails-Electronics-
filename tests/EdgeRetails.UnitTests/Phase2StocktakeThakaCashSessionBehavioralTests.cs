@@ -23,13 +23,13 @@ public sealed class Phase2StocktakeThakaCashSessionBehavioralTests
     }
 
     private OpenCashSessionHandler CreateOpenCashSessionHandler(IApplicationPermissionAuthorizer? authorizer = null) =>
-        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, authorizer ?? _fakes.Authorization);
+        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, _fakes.ExceptionMapper, authorizer ?? _fakes.Authorization);
 
     private RecordManualCashMovementHandler CreateRecordManualCashMovementHandler() =>
-        new(_cashMovementService, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Audit);
+        new(_cashMovementService, _fakes.Transactions, _fakes.UnitOfWork, _fakes.ExceptionMapper, _fakes.Audit);
 
     private CloseCashSessionHandler CreateCloseCashSessionHandler(IApplicationPermissionAuthorizer? authorizer = null) =>
-        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, authorizer ?? _fakes.Authorization);
+        new(_fakes.Cash, _fakes.Clock, _fakes.Transactions, _fakes.UnitOfWork, _fakes.ExceptionMapper, authorizer ?? _fakes.Authorization);
 
     private CreateStocktakeHandler CreateCreateStocktakeHandler(IApplicationPermissionAuthorizer? authorizer = null) =>
         new(_fakes.Inventory, _fakes.Transactions, _fakes.UnitOfWork, _fakes.Clock, authorizer ?? _fakes.Authorization);

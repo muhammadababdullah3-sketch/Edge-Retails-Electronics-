@@ -16,15 +16,9 @@ public sealed class WorkerHeartbeatService
     {
         try
         {
-            var dir = Path.GetDirectoryName(_heartbeatPath);
-            if (!string.IsNullOrWhiteSpace(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            var temp = _heartbeatPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            await File.WriteAllTextAsync(temp, DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
-            File.Move(temp, _heartbeatPath, overwrite: true);
+            await EdgeRetails.Infrastructure.Services.SingleHostHeartbeatFileWriter.WriteAsync(
+                _heartbeatPath,
+                cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -216,8 +216,7 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
         public EdgeRetailsDbContext CreateMaintenanceContext()
         {
             using var attested = profile.OpenMaintenance();
-            return new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                .UseNpgsql(profile.MaintenanceForDatabase(name), x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options);
+            return new EdgeRetailsDbContext(Phase2PostgresTestHarness.NewDbContextOptions(profile.MaintenanceForDatabase(name)));
         }
 
         public static async Task<HistoricalDatabase> CreateAsync()
@@ -234,10 +233,10 @@ public sealed class Phase7Pass5R1MultilotExactWarrantyPostgresTests(ITestOutputH
                     await create.ExecuteNonQueryAsync();
                 }
                 var builder = new NpgsqlConnectionStringBuilder(profile.MaintenanceForDatabase(name));
-                await using (var db = new EdgeRetailsDbContext(new DbContextOptionsBuilder<EdgeRetailsDbContext>()
-                    .UseNpgsql(builder.ConnectionString, x => x.MigrationsHistoryTable("__ef_migrations_history", "system")).Options))
+                await using (var db = new EdgeRetailsDbContext(Phase2PostgresTestHarness.NewDbContextOptions(builder.ConnectionString)))
                 {
-                    await db.GetService<IMigrator>().MigrateAsync("20261006083906_Phase7Pass5WarrantySourceAuthority");
+                    await Phase2PostgresTestHarness.MigrateToHistoricalBaselineAsync(db,
+                        "20261006083906_Phase7Pass5WarrantySourceAuthority");
                 }
                 profile.GrantWriteAccess(name);
                 return new HistoricalDatabase(admin, name, Phase2PostgresTestHarness.BuildProvider(profile.ForOwnedDatabase(name)), profile);

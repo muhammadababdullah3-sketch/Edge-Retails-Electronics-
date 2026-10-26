@@ -156,6 +156,10 @@
                 <dialogs:PriceCheckDialog />
             </DataTemplate>
 
+            <DataTemplate DataType="{x:Type viewModels:CashShiftOpenViewModel}">
+                <dialogs:CashShiftOpenDialog />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type viewModels:PosDraftsViewModel}">
                 <dialogs:PosDraftsDialog />
             </DataTemplate>

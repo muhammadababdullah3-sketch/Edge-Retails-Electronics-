@@ -264,8 +264,12 @@
                                                     </Style>
                                                 </Border.Style>
                                                 <TextBox x:Name="ReturnQuantityTextBox"
-                                                         Style="{StaticResource Input.TextBox.Quantity}"
+                                                         Style="{StaticResource Input.TextBox.Embedded}"
                                                          Text="{Binding ReturnQuantityText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         FontFamily="{StaticResource Font.Numeric}"
+                                                         FontSize="13.5"
+                                                         FontWeight="Bold"
+                                                         TextAlignment="Center"
                                                          Foreground="{DynamicResource Brush.Text.Primary}"
                                                          VerticalAlignment="Center"
                                                          VerticalContentAlignment="Center" />

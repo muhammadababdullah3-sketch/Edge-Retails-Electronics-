@@ -1,4 +1,6 @@
 using System.Windows.Input;
+using System.Windows.Threading;
+using EdgeRetails.Application.Features.Identity;
 using EdgeRetails.Desktop.Navigation;
 using EdgeRetails.Desktop.Services;
 
@@ -29,6 +31,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private LoginViewModel? _loginViewModel;
     private FirstSetupViewModel? _firstSetupViewModel;
     private ISessionContext? _activeSession;
+    private ScreenLockViewModel? _screenLockViewModel;
+    private readonly DispatcherTimer _screenIdleTimer;
+    private DesktopServerLifecycleMonitor? _lifecycleMonitor;
+    private DateTimeOffset _lastOperatorActivityUtc = DateTimeOffset.UtcNow;
+    private bool _isScreenLockVisible;
 
     public MainViewModel(
         ILiveClock clock,
@@ -61,7 +68,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (_apiClient is not null)
         {
             _apiClient.SessionInvalidated += OnBackendSessionInvalidated;
+            _apiClient.ScreenLocked += OnBackendScreenLocked;
+            _apiClient.ServerDraining += OnBackendServerDraining;
+            _lifecycleMonitor = new DesktopServerLifecycleMonitor(_apiClient);
+            _lifecycleMonitor.ServerDrainingDetected += OnLifecycleServerDraining;
         }
+
+        _screenIdleTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(30)
+        };
+        _screenIdleTimer.Tick += OnScreenIdleTimerTick;
         _backendSetupService = backendRuntime?.SetupService;
 
         var defaultSession = new DesignPreviewSessionContext();
@@ -114,12 +131,53 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ICommand ToggleSidebarCommand { get; }
 
+    public object? ScreenLockOverlay => _screenLockViewModel;
+
+    public bool IsScreenLockVisible
+    {
+        get => _isScreenLockVisible;
+        private set => SetProperty(ref _isScreenLockVisible, value);
+    }
+
+    public void RecordOperatorActivity()
+    {
+        _lastOperatorActivityUtc = DateTimeOffset.UtcNow;
+    }
+
     public void OnLoginSuccess(ISessionContext session)
     {
         _activeSession = session;
         _pageFactory.SetSessionContext(session);
         _navigationService.SetSessionContext(session);
         SwitchToShell(session, NavigationTarget.Dashboard);
+        _lastOperatorActivityUtc = DateTimeOffset.UtcNow;
+        _screenIdleTimer.Start();
+        _lifecycleMonitor?.Start();
+        _ = PromptCashShiftIfNeededAsync();
+    }
+
+    private async Task PromptCashShiftIfNeededAsync()
+    {
+        if (_apiClient is null || _activeSession is null)
+        {
+            return;
+        }
+
+        var cashClient = new RemoteCashSessionClient(_apiClient, () => _activeSession.UserId ?? Guid.Empty);
+        try
+        {
+            if (await cashClient.GetCurrentAsync() is not null)
+            {
+                return;
+            }
+        }
+        catch
+        {
+            return;
+        }
+
+        var dialog = new CashShiftOpenViewModel(cashClient, _dialogService, _toastService);
+        _dialogService.Show(dialog);
     }
 
     private void ShowFirstSetup()
@@ -166,14 +224,118 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _drawerService,
             _toastService,
             _permissionService,
-            SwitchUser);
+            SwitchUser,
+            () => _ = LockScreenAsync());
 
         CurrentContent = _shellViewModel;
         _navigationService.Navigate(initialTarget);
     }
 
+    private async Task LockScreenAsync()
+    {
+        if (_activeSession is null || _backendIdentityService is null || IsScreenLockVisible)
+        {
+            ShowScreenLockOverlay();
+            return;
+        }
+
+        try
+        {
+            await _backendIdentityService.LockScreenAsync(_activeSession);
+            ShowScreenLockOverlay();
+        }
+        catch (Exception ex)
+        {
+            _toastService.Show(
+                DesktopErrorPresentation.ForException(ex, "The screen could not be locked."),
+                ToastTone.Warning);
+        }
+    }
+
+    private void ShowScreenLockOverlay()
+    {
+        if (_activeSession is null || _backendIdentityService is null)
+        {
+            return;
+        }
+
+        _screenLockViewModel?.Unlocked -= OnScreenUnlocked;
+        _screenLockViewModel = new ScreenLockViewModel(_activeSession, _backendIdentityService, SwitchUser);
+        _screenLockViewModel.Unlocked += OnScreenUnlocked;
+        OnPropertyChanged(nameof(ScreenLockOverlay));
+        IsScreenLockVisible = true;
+        _dialogService.Close();
+        _drawerService.Close();
+    }
+
+    private void OnScreenUnlocked(object? sender, EventArgs e)
+    {
+        IsScreenLockVisible = false;
+        _screenLockViewModel = null;
+        OnPropertyChanged(nameof(ScreenLockOverlay));
+        _lastOperatorActivityUtc = DateTimeOffset.UtcNow;
+    }
+
+    private void OnScreenIdleTimerTick(object? sender, EventArgs e)
+    {
+        if (_activeSession is null ||
+            _backendIdentityService is null ||
+            IsScreenLockVisible ||
+            _shellViewModel is null)
+        {
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow - _lastOperatorActivityUtc < ShopSessionPolicy.ScreenIdleTimeout)
+        {
+            return;
+        }
+
+        _ = LockScreenAsync();
+    }
+
+    private void OnBackendServerDraining(object? sender, EventArgs e) =>
+        HandleServerDrainingDetected();
+
+    private void OnLifecycleServerDraining(object? sender, EventArgs e) =>
+        HandleServerDrainingDetected();
+
+    private void HandleServerDrainingDetected()
+    {
+        _toastService.Show(
+            DesktopErrorPresentation.ForCode(
+                "system.server_draining",
+                "The shop service is restarting."),
+            ToastTone.Warning);
+        _ = LockScreenAsync();
+    }
+
+    private void OnBackendScreenLocked(object? sender, DesktopSessionLockedEventArgs args)
+    {
+        if (_activeSession?.SessionId != args.SessionId)
+        {
+            return;
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            ShowScreenLockOverlay();
+        }
+        else
+        {
+            dispatcher.BeginInvoke(ShowScreenLockOverlay);
+        }
+    }
+
     private void SwitchUser()
     {
+        _screenIdleTimer.Stop();
+        _lifecycleMonitor?.Stop();
+        IsScreenLockVisible = false;
+        _screenLockViewModel = null;
+        OnPropertyChanged(nameof(ScreenLockOverlay));
+
         var sessionToEnd = _activeSession;
         _activeSession = null;
         if (_backendIdentityService is not null &&
@@ -253,10 +415,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        _screenIdleTimer.Stop();
         if (_apiClient is not null)
         {
             _apiClient.SessionInvalidated -= OnBackendSessionInvalidated;
+            _apiClient.ScreenLocked -= OnBackendScreenLocked;
+            _apiClient.ServerDraining -= OnBackendServerDraining;
         }
+
+        _lifecycleMonitor?.Dispose();
 
         if (_backendIdentityService is not null &&
             _activeSession is not null)

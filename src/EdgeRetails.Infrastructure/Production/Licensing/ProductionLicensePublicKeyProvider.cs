@@ -26,44 +26,51 @@ public sealed class ProductionLicensePublicKeyProvider : ILicensePublicKeyProvid
 
     public string GetPublicKeyPem()
     {
-        // 1. Environment variable override (direct PEM or file path)
-        var envVal = Environment.GetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY");
-        if (!string.IsNullOrWhiteSpace(envVal))
+        if (AllowClientLicenseKeyOverride())
         {
-            var trimmed = envVal.Trim();
-            if (trimmed.Contains("PRIVATE KEY", StringComparison.OrdinalIgnoreCase))
+            // Vendor IT / rehearsal only — never enabled on retailer installs by default.
+            var envVal = Environment.GetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY");
+            if (!string.IsNullOrWhiteSpace(envVal))
             {
-                throw new InvalidOperationException("License verification requires public-key material only. Private key material is forbidden.");
+                var trimmed = envVal.Trim();
+                if (trimmed.Contains("PRIVATE KEY", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("License verification requires public-key material only. Private key material is forbidden.");
+                }
+
+                if (trimmed.StartsWith("-----BEGIN PUBLIC KEY-----", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.StartsWith("-----BEGIN RSA PUBLIC KEY-----", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ValidatePem(trimmed);
+                }
+
+                if (File.Exists(trimmed))
+                {
+                    return ValidatePem(File.ReadAllText(trimmed));
+                }
             }
 
-            if (trimmed.StartsWith("-----BEGIN PUBLIC KEY-----", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("-----BEGIN RSA PUBLIC KEY-----", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(_overrideKeyPath) && File.Exists(_overrideKeyPath))
             {
-                return ValidatePem(trimmed);
+                return ValidatePem(File.ReadAllText(_overrideKeyPath));
             }
 
-            if (File.Exists(trimmed))
+            var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var programDataKey = Path.Combine(commonAppData, "EdgeRetails", "keys", "license.pub");
+            if (File.Exists(programDataKey))
             {
-                return ValidatePem(File.ReadAllText(trimmed));
+                return ValidatePem(File.ReadAllText(programDataKey));
             }
         }
 
-        // 2. Configured override key path
-        if (!string.IsNullOrWhiteSpace(_overrideKeyPath) && File.Exists(_overrideKeyPath))
-        {
-            return ValidatePem(File.ReadAllText(_overrideKeyPath));
-        }
-
-        // 3. Well-known machine keys directory: ProgramData\EdgeRetails\keys\license.pub
-        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        var programDataKey = Path.Combine(commonAppData, "EdgeRetails", "keys", "license.pub");
-        if (File.Exists(programDataKey))
-        {
-            return ValidatePem(File.ReadAllText(programDataKey));
-        }
-
-        // 4. Default authoritative vendor public key
         return DefaultVendorPublicKeyPem;
+    }
+
+    internal static bool AllowClientLicenseKeyOverride()
+    {
+        var value = Environment.GetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ValidatePem(string pem)

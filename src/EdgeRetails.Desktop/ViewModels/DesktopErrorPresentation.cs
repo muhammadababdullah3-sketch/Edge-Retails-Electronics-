@@ -3,7 +3,7 @@ using EdgeRetails.Desktop.Services;
 namespace EdgeRetails.Desktop.ViewModels;
 
 /// <summary>
-/// Converts typed Desktop Server failures into operator-safe text. Callers supply
+/// Converts client shop-service API failures into operator-safe text. Callers supply
 /// the operation-specific fallback; raw exception messages are never displayed.
 /// </summary>
 public static class DesktopErrorPresentation
@@ -33,22 +33,41 @@ public static class DesktopErrorPresentation
         return code switch
         {
             "network.server_unavailable" or "system.not_ready" =>
-                "The local Server is unavailable. Check that it is running, then try again.",
+                "The shop service is unavailable. Check that Edge Retails services are running, then try again.",
             "network.timeout" =>
-                "The Server did not respond in time. Check the operation status before retrying.",
-            "auth.session_invalid" or "auth.session_missing" or "auth.user_disabled" or
-                "auth.role_disabled" =>
+                "The shop service did not respond in time. Check the operation status before retrying.",
+            "time.shop_timezone_unresolvable" =>
+                "That shop time zone is not valid on this machine. Use a Windows/IANA id such as Asia/Karachi.",
+            "time.business_day_cutoff_invalid" =>
+                "Business day cutoff must be a local time in HH:mm format (for example 03:00).",
+            "time.clock_moved_backward" =>
+                "Shop time integrity is untrusted because the system clock moved backward. Fix the clock before posting.",
+            "auth.session_invalid" or "auth.session_missing" or "auth.session_idle_expired" or
+                "auth.user_disabled" or "auth.role_disabled" =>
                 "Your sign-in is no longer valid. Sign in again to continue.",
+            "auth.session_screen_locked" =>
+                "The screen is locked. Enter your PIN to continue.",
+            "system.server_draining" =>
+                "The shop service is restarting. Finish visible work and wait a moment before posting again.",
+            "identity.session_concurrency_conflict" or "persistence.concurrency_conflict" or
+                "cash.session_concurrency_conflict" =>
+                "This record changed while you were working. Refresh the screen and try again.",
             "auth.terminal_revoked" or "auth.terminal_suspended" =>
                 "This terminal no longer has access. Contact an administrator.",
             "auth.permission_denied" or "authorization.denied" or "authorization.forbidden" =>
                 "Your account does not have permission to perform this action.",
+            "cash.session_required" or "cash.session_not_found" =>
+                "Open the cash drawer session before taking or returning cash.",
+            "authorization.invalid_supervisor_pin" =>
+                "Supervisor PIN was not accepted. Ask a supervisor to authorize again.",
+            "posting.accounting_period_locked" =>
+                "That date is in a locked accounting period. Choose an open date or contact the owner.",
             "idempotency.payload_mismatch" =>
                 "This operation ID is already tied to different details. Refresh the screen before continuing.",
             "concurrency.stale_product" or "inventory.stocktake_concurrency_conflict" =>
                 "The record changed since it was loaded. Refresh it before continuing.",
             "gateway.invalid_response" or "gateway.empty_response" =>
-                "The Server returned an incomplete response. Check the operation status before retrying.",
+                "The shop service returned an incomplete response. Check the operation status before retrying.",
             _ when HasSuffix(code, "unit_not_found") =>
                 "The selected physical unit could not be found. Refresh the list and try again.",
             _ when HasSuffix(code, "unit_not_in_stock") =>

@@ -90,6 +90,19 @@
         <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
        </StackPanel>
       </Grid>
+      <Grid Margin="0,14,0,0">
+       <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/>
+       </Grid.ColumnDefinitions>
+       <StackPanel>
+        <TextBlock Text="Shop time zone (IANA)" Style="{StaticResource Settings.Label}"/>
+        <TextBox Text="{Binding ShopTimeZoneId, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
+       </StackPanel>
+       <StackPanel Grid.Column="2">
+        <TextBlock Text="Business day cutoff (HH:mm, optional)" Style="{StaticResource Settings.Label}"/>
+        <TextBox Text="{Binding BusinessDayCutoffLocalTime, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input.TextBox}"/>
+       </StackPanel>
+      </Grid>
       <TextBlock Text="Logo" Margin="0,14,0,5" Style="{StaticResource Text.FormLabel}"/>
       <Grid>
        <TextBox Text="{Binding LogoPath}" Style="{StaticResource Input.TextBox}" Margin="0,0,130,0" IsReadOnly="True"/>

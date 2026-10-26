@@ -257,6 +257,7 @@ public interface IWarrantyRepository
 
 public interface ICashRepository
 {
+    Task<CashSession?> GetOpenSessionAsync(CancellationToken cancellationToken);
     Task<CashSession?> GetOpenSessionForUpdateAsync(CancellationToken cancellationToken);
     Task<CashSession?> GetSessionForUpdateAsync(
         Guid sessionId,

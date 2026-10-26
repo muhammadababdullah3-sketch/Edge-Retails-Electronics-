@@ -22,6 +22,8 @@ internal sealed class ShopProfileConfiguration
         builder.Property(x => x.ShopName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.Phone).HasMaxLength(80);
         builder.Property(x => x.Address).HasMaxLength(500);
+        builder.Property(x => x.TimeZoneId).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.BusinessDayCutoffLocalTime);
         builder.Property(x => x.Version).IsConcurrencyToken();
         builder.HasIndex(x => x.ProfileKey).IsUnique();
     }

@@ -10,41 +10,17 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "class_ref",
-                schema: "catalog",
-                table: "products",
-                type: "character varying(20)",
-                maxLength: 20,
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "dimension",
-                schema: "catalog",
-                table: "units",
-                type: "character varying(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "Count");
-
-            migrationBuilder.AddColumn<decimal>(
-                name: "factor_to_reference",
-                schema: "catalog",
-                table: "units",
-                type: "numeric(18,9)",
-                precision: 18,
-                scale: 9,
-                nullable: false,
-                defaultValue: 1.0m);
-
-            migrationBuilder.AddColumn<string>(
-                name: "conversion_kind",
-                schema: "catalog",
-                table: "units",
-                type: "character varying(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "FIXED");
+            // Idempotent: some rehearsal databases created class_ref before this migration was recorded.
+            migrationBuilder.Sql("""
+                ALTER TABLE catalog.products
+                    ADD COLUMN IF NOT EXISTS class_ref character varying(20);
+                ALTER TABLE catalog.units
+                    ADD COLUMN IF NOT EXISTS dimension character varying(20) NOT NULL DEFAULT 'Count';
+                ALTER TABLE catalog.units
+                    ADD COLUMN IF NOT EXISTS factor_to_reference numeric(18,9) NOT NULL DEFAULT 1.0;
+                ALTER TABLE catalog.units
+                    ADD COLUMN IF NOT EXISTS conversion_kind character varying(20) NOT NULL DEFAULT 'FIXED';
+                """);
         }
 
         /// <inheritdoc />

@@ -1,9 +1,0 @@
-{
-  "run_id": "ER-RUN-CATALOG-EXEC-20261021-106",
-  "base_commit": "3cd3b4b8f903adef6f6d7cf3c922c2ce184c2fc2",
-  "audit_reference": "governance/10-execution-runs/ER-RUN-CATALOG-AUDIT-20261021-103/FINDINGS.json",
-  "predecessor_runs": [
-    "ER-RUN-POS-NON89-EXEC-20261021-084",
-    "ER-RUN-CATALOG-PROMPT-20261021-104"
-  ]
-}

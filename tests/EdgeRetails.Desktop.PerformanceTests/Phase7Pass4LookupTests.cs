@@ -219,7 +219,11 @@ public sealed class Phase7Pass4LookupTests
     {
         var backend = DispatchProxy.Create<ILookupBackend, LookupProxy>();
         var proxy = (LookupProxy)(object)backend; var toast = new Toast();
-        return (new NewPurchaseViewModel(toast, saved: p => saved?.TrySetResult(p), backendService: backend), proxy, toast);
+        return (new NewPurchaseViewModel(
+            toast,
+            saved: p => saved?.TrySetResult(p),
+            backendService: backend,
+            operationIntents: new InMemoryClientOperationIntentStore()), proxy, toast);
     }
     public interface ILookupBackend : IBackendPurchasingInventoryService, IBackendPurchaseLookupService { }
     public class LookupProxy : DispatchProxy

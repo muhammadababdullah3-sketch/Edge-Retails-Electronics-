@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Product>Edge Retails Cloud Server (Central)</Product>
+    <Description>Hosted control plane: license, activation, admin portal, signing.</Description>
   </PropertyGroup>
 
   <ItemGroup>

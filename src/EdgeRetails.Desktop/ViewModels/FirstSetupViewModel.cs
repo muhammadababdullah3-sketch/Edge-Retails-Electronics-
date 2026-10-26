@@ -1,6 +1,9 @@
 using System.IO;
 using System.Windows.Input;
+using EdgeRetails.Application.Production.CentralActivation;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Infrastructure.Production.Central;
+using EdgeRetails.Infrastructure.Production.Licensing;
 using Microsoft.Win32;
 
 namespace EdgeRetails.Desktop.ViewModels;
@@ -23,6 +26,8 @@ public sealed class FirstSetupViewModel : ViewModelBase
 
     private FirstSetupStep _step = FirstSetupStep.License;
     private string _licensePath = string.Empty;
+    private string? _cloudLicenseJson;
+    private readonly IShopCentralActivationService? _centralActivation;
     private string _shopName;
     private string _ownerName;
     private string _phone;
@@ -53,7 +58,10 @@ public sealed class FirstSetupViewModel : ViewModelBase
         _phone = _previewSettingsState?.Phone ?? string.Empty;
         _address = _previewSettingsState?.Address ?? string.Empty;
 
+        _centralActivation = ShopCentralActivationService.TryCreateFromEnvironment(new WindowsMachineIdentityProvider());
+
         BrowseLicenseCommand = new RelayCommand(BrowseLicense);
+        RequestCloudActivationCommand = new RelayCommand(() => _ = RequestCloudActivationAsync());
         ContinueCommand = new RelayCommand(() => _ = ContinueAsync());
         BackCommand = new RelayCommand(Back, () => Step != FirstSetupStep.License);
         StartCommand = new RelayCommand(Start, () => Step == FirstSetupStep.Ready);
@@ -92,9 +100,31 @@ public sealed class FirstSetupViewModel : ViewModelBase
             : Path.GetFileName(LicensePath);
 
     public string LicenseStatus =>
-        string.IsNullOrWhiteSpace(LicensePath)
-            ? "Not selected"
-            : "File selected · Verification pending";
+        !string.IsNullOrWhiteSpace(_cloudLicenseJson)
+            ? "Cloud license ready · complete shop setup"
+            : string.IsNullOrWhiteSpace(LicensePath)
+                ? "Not selected"
+                : "File selected · Verification pending";
+
+    public bool IsCloudActivationAvailable => _centralActivation?.IsConfigured == true;
+
+    private string _activationToken = string.Empty;
+
+    public string ActivationToken
+    {
+        get => _activationToken;
+        set => SetProperty(ref _activationToken, value);
+    }
+
+    private string _cloudActivationStatus = string.Empty;
+
+    public string CloudActivationStatus
+    {
+        get => _cloudActivationStatus;
+        private set => SetProperty(ref _cloudActivationStatus, value);
+    }
+
+    public ICommand RequestCloudActivationCommand { get; }
 
     private string? _licenseErrorMessage;
 
@@ -236,11 +266,12 @@ public sealed class FirstSetupViewModel : ViewModelBase
 
         if (Step == FirstSetupStep.License)
         {
-            if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
+            if (string.IsNullOrWhiteSpace(_cloudLicenseJson) &&
+                (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath)))
             {
-                LicenseErrorMessage = "Please browse and select a valid signed license file (.erlic) to continue.";
+                LicenseErrorMessage = "Import a signed .erlic file or complete cloud activation (admin approval) before continuing.";
                 _toastService.Show(
-                    "Select a license file before continuing.",
+                    "A license is required before continuing.",
                     ToastTone.Warning);
                 return;
             }
@@ -280,13 +311,24 @@ public sealed class FirstSetupViewModel : ViewModelBase
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
+                var licenseContent = _cloudLicenseJson;
+                if (string.IsNullOrWhiteSpace(licenseContent))
                 {
-                    _toastService.Show("A valid license file (.erlic) is required before completing setup.", ToastTone.Warning);
+                    if (string.IsNullOrWhiteSpace(LicensePath) || !File.Exists(LicensePath))
+                    {
+                        _toastService.Show("A valid license is required before completing setup.", ToastTone.Warning);
+                        return;
+                    }
+
+                    licenseContent = await File.ReadAllTextAsync(LicensePath);
+                }
+                if (licenseContent.Contains("PRIVATE KEY", StringComparison.OrdinalIgnoreCase))
+                {
+                    LicenseErrorMessage =
+                        "This file contains private signing material. Use only the signed license (.erlic) issued from Edge Retails.";
+                    _toastService.Show(LicenseErrorMessage, ToastTone.Warning);
                     return;
                 }
-
-                var licenseContent = await File.ReadAllTextAsync(LicensePath);
 
                 await _backendSetupService.CompleteFirstSetupAsync(
                     ShopName,
@@ -338,6 +380,61 @@ public sealed class FirstSetupViewModel : ViewModelBase
             ClearOwnerPin();
             _isCompletingSetup = false;
         }
+    }
+
+    private async Task RequestCloudActivationAsync()
+    {
+        if (_centralActivation is null)
+        {
+            LicenseErrorMessage = "Cloud activation is not configured. Set EDGE_RETAILS_CENTRAL_BASE_URL.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ActivationToken))
+        {
+            LicenseErrorMessage = "Enter the activation token from Edge Retails.";
+            return;
+        }
+
+        LicenseErrorMessage = null;
+        CloudActivationStatus = "Submitting activation request…";
+
+        var submit = await _centralActivation.SubmitActivationTokenAsync(ActivationToken.Trim());
+        if (!submit.IsSuccess)
+        {
+            LicenseErrorMessage = submit.Message ?? submit.ErrorCode ?? "Activation request failed.";
+            CloudActivationStatus = string.Empty;
+            return;
+        }
+
+        CloudActivationStatus = "Waiting for admin approval in Edge Retails cloud…";
+        _toastService.Show("Request sent. Admin must approve before the license is issued.", ToastTone.Info);
+
+        for (var attempt = 0; attempt < 120; attempt++)
+        {
+            var delivery = await _centralActivation.PollDeliveryAsync();
+            CloudActivationStatus = delivery.Message ?? delivery.State.ToString();
+
+            if (delivery.State == ShopActivationDeliveryState.Ready &&
+                !string.IsNullOrWhiteSpace(delivery.SignedLicenseJson))
+            {
+                _cloudLicenseJson = delivery.SignedLicenseJson;
+                OnPropertyChanged(nameof(LicenseStatus));
+                CloudActivationStatus = "License received. Continue to shop setup.";
+                _toastService.Show("License is ready.", ToastTone.Success);
+                return;
+            }
+
+            if (delivery.State is ShopActivationDeliveryState.Rejected or ShopActivationDeliveryState.Failed)
+            {
+                LicenseErrorMessage = delivery.Message ?? "Activation was not approved.";
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5));
+        }
+
+        LicenseErrorMessage = "Timed out waiting for admin approval or certificate. Try again later.";
     }
 
     private static DemoSettingsState? ResolvePreviewSettingsState(

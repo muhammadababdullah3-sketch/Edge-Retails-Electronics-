@@ -1,6 +1,10 @@
-# Central (control plane) — start here
+# Central (cloud server / control plane) — start here
 
-Central lives in the **same monorepo** as Shop POS (`Desktop\Point of Sale`). It is a **separate deployable** (hosted API + portal), not part of the shop MSI installer.
+In product language, **this is the real server**: hosted API + admin portal + license/commercial authority.
+
+Central lives in the **same monorepo** as Shop POS (`Desktop\Point of Sale`). It is a **separate deployable**, not part of the shop MSI installer.
+
+Do **not** confuse with **`EdgeRetails.Server`** — that is the **client shop service** on the retailer PC (loopback 7150), not the cloud. See [docs/CLIENT_AND_CLOUD_TERMINOLOGY.md](docs/CLIENT_AND_CLOUD_TERMINOLOGY.md).
 
 ## Read first
 
@@ -23,6 +27,7 @@ Integration tests require owned PostgreSQL per `docs/central/`.
 
 ## Shop POS relationship
 
-- Shops run **offline** on local server + PostgreSQL.
-- Central handles **license, activation, payment review, expiry policy** when online.
-- HTTP integration from shop to Central is a **follow-on epic** (not required for monorepo merge).
+- Shops run **offline-capable** POS: Desktop → **shop local host** (`EdgeRetails.Server`) → shop PostgreSQL.
+- **Central (cloud server)** holds **admin credentials, signing, activation, payment review, expiry policy**.
+- Shop verifies **signed** entitlements locally (public key); it does not hold vendor private keys.
+- HTTP from shop Desktop/local host to Central is **not wired in shop code yet** — follow-on epic; monorepo merge only colocates sources.

@@ -41,9 +41,10 @@ public sealed record ShopPostingDateRecord(
 
 public sealed record SupervisorApprovalRequest(
     Guid SupervisorId,
-    string SupervisorPin,
+    string? SupervisorPin,
     string Reason,
-    DateTimeOffset RequestedAtUtc)
+    DateTimeOffset RequestedAtUtc,
+    string? ApprovalToken = null)
 {
     public void ValidateInvariants()
     {
@@ -52,6 +53,18 @@ public sealed record SupervisorApprovalRequest(
             throw new BusinessRuleException(
                 "authorization.supervisor_id_required",
                 "Supervisor identifier is required for backdated posting approval.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ApprovalToken))
+        {
+            if (string.IsNullOrWhiteSpace(Reason))
+            {
+                throw new BusinessRuleException(
+                    "authorization.reason_required",
+                    "A clear business justification reason is required for backdated posting approval.");
+            }
+
+            return;
         }
 
         if (string.IsNullOrWhiteSpace(SupervisorPin) || SupervisorPin.Length != 4 || SupervisorPin.Any(ch => !char.IsAsciiDigit(ch)))
@@ -68,6 +81,19 @@ public sealed record SupervisorApprovalRequest(
                 "A clear business justification reason is required for backdated posting approval.");
         }
     }
+}
+
+public sealed class SupervisorApprovalGrant : Entity
+{
+    public string TokenHash { get; set; } = string.Empty;
+    public Guid SupervisorId { get; set; }
+    public DateOnly PostingDate { get; set; }
+    public string OperationType { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public bool Consumed { get; set; }
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
 }
 
 public sealed class PeriodLock : Entity
@@ -132,6 +158,7 @@ public sealed class PostingAuditEntry : Entity
 public static class ShopPostingPolicy
 {
     public const int MaxBackdateCalendarDays = 7;
+    public const int SupervisorApprovalTokenLifetimeMinutes = 15;
 
     public static void AssertPostingDateAllowed(
         DateOnly shopDate,

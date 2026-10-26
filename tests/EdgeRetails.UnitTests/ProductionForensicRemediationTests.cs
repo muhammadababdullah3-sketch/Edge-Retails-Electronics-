@@ -86,8 +86,10 @@ public sealed class ProductionForensicRemediationTests
         var privateKeyPem = rsa.ExportRSAPrivateKeyPem();
 
         var prev = Environment.GetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY");
+        var prevOverride = Environment.GetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE");
         try
         {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", "true");
             Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", privateKeyPem);
             var provider = new ProductionLicensePublicKeyProvider();
             var ex = Assert.Throws<InvalidOperationException>(() => provider.GetPublicKeyPem());
@@ -96,6 +98,7 @@ public sealed class ProductionForensicRemediationTests
         finally
         {
             Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", prev);
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", prevOverride);
         }
     }
 
@@ -106,8 +109,10 @@ public sealed class ProductionForensicRemediationTests
         var publicKeyPem = rsa.ExportSubjectPublicKeyInfoPem();
 
         var prev = Environment.GetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY");
+        var prevOverride = Environment.GetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE");
         try
         {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", "true");
             Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", publicKeyPem);
             var provider = new ProductionLicensePublicKeyProvider();
             var loadedPem = provider.GetPublicKeyPem();
@@ -120,6 +125,30 @@ public sealed class ProductionForensicRemediationTests
         finally
         {
             Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", prev);
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", prevOverride);
+        }
+    }
+
+    [Fact]
+    public void ProductionLicensePublicKeyProvider_IgnoresEnvironmentOverrideUnlessExplicitlyAllowed()
+    {
+        using var rsa = RSA.Create(2048);
+        var publicKeyPem = rsa.ExportSubjectPublicKeyInfoPem();
+
+        var prev = Environment.GetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY");
+        var prevOverride = Environment.GetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE");
+        try
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", null);
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", publicKeyPem);
+            var provider = new ProductionLicensePublicKeyProvider();
+            var loadedPem = provider.GetPublicKeyPem();
+            Assert.Equal(ProductionLicensePublicKeyProvider.DefaultVendorPublicKeyPem, loadedPem);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_LICENSE_PUBLIC_KEY", prev);
+            Environment.SetEnvironmentVariable("EDGE_RETAILS_ALLOW_LICENSE_KEY_OVERRIDE", prevOverride);
         }
     }
 

@@ -17,6 +17,16 @@ public interface IShopClock : IClock
     (DateTimeOffset StartUtc, DateTimeOffset EndUtc) GetShopDayUtcRange(DateOnly shopDate);
 }
 
+/// <summary>Phase 8 configured shop time and business-date authority.</summary>
+public interface IShopTimeAuthority : IShopClock
+{
+    DateOnly GetCurrentShopDate();
+
+    ShopClockIntegrity Integrity { get; }
+}
+
+public readonly record struct ShopClockIntegrity(bool IsTrusted, string? AnomalyCode);
+
 public interface IIdGenerator
 {
     Guid NewId();
@@ -31,6 +41,26 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>Maps infrastructure persistence exceptions to application errors (Phase 8 concurrency).</summary>
+public interface IExceptionToErrorMapper
+{
+    bool TryMap(Exception exception, out Error error);
+}
+
+/// <summary>Single-machine host lifecycle (Phase 8 P8-LIFE-01).</summary>
+public interface ISingleHostLifecycleState
+{
+    DateTimeOffset ServerStartedAtUtc { get; }
+    bool IsDraining { get; }
+    void BeginDrain();
+}
+
+public sealed record SingleHostWorkerHeartbeatStatus(
+    bool HeartbeatFileFound,
+    DateTimeOffset? LastBeatUtc,
+    bool IsStale,
+    string? HeartbeatPath);
 
 public interface IReceiptSnapshotProvider
 {

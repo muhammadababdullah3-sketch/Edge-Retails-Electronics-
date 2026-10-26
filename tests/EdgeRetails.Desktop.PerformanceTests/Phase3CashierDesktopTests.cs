@@ -201,9 +201,9 @@ public sealed class Phase3CashierDesktopTests
         public Task<CashierCreationStatus> GetCashierCreationStatusAsync(Guid operationId, CancellationToken cancellationToken = default)
         { LastStatusId = operationId; return Status(operationId); }
         public Task<BackendSettingsSnapshot> LoadAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new BackendSettingsSnapshot([], "Shop", "Amir", "", "", "", "", false, false, false,
+            => Task.FromResult(new BackendSettingsSnapshot([], "Shop", "Amir", "", "", "Asia/Karachi", null, "", "", false, false, false,
                 "PostgreSQL", "", "Ready", "Connected", "", "", "", "", "", "", "", "", "", []));
-        public Task SaveShopAsync(string shopName, string? phone, string? address, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveShopAsync(string shopName, string? phone, string? address, string? timeZoneId = null, string? businessDayCutoffLocalTime = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveReceiptTemplateAsync(string? header, string? footer, bool showCustomer, bool showCashier,
             bool autoPrintDefault, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

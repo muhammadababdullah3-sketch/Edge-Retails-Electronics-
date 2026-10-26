@@ -15,6 +15,7 @@ public sealed class ShopPostingValidationService : IShopPostingValidationService
     private readonly IIdentityReadRepository _identity;
     private readonly IPinCredentialService _pinCredentials;
     private readonly IBusinessAuditWriter _auditWriter;
+    private readonly ISupervisorApprovalStore _approvalStore;
 
     public ShopPostingValidationService(
         IShopClock clock,
@@ -22,7 +23,8 @@ public sealed class ShopPostingValidationService : IShopPostingValidationService
         IPostingAuditRepository postingAudits,
         IIdentityReadRepository identity,
         IPinCredentialService pinCredentials,
-        IBusinessAuditWriter auditWriter)
+        IBusinessAuditWriter auditWriter,
+        ISupervisorApprovalStore approvalStore)
     {
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _periodLocks = periodLocks ?? throw new ArgumentNullException(nameof(periodLocks));
@@ -30,6 +32,7 @@ public sealed class ShopPostingValidationService : IShopPostingValidationService
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _pinCredentials = pinCredentials ?? throw new ArgumentNullException(nameof(pinCredentials));
         _auditWriter = auditWriter ?? throw new ArgumentNullException(nameof(auditWriter));
+        _approvalStore = approvalStore ?? throw new ArgumentNullException(nameof(approvalStore));
     }
 
     public async Task<Result<PostingAuditEntry>> ValidateAndAuditPostingAsync(
@@ -65,7 +68,16 @@ public sealed class ShopPostingValidationService : IShopPostingValidationService
                 "Caller-supplied boolean authorization is strictly forbidden. A verified cryptographic supervisor PIN or approval token is required.");
         }
 
-        var shopDate = _clock.ShopDate;
+        if (_clock is IShopTimeAuthority authority && !authority.Integrity.IsTrusted)
+        {
+            return Result<PostingAuditEntry>.Failure(
+                authority.Integrity.AnomalyCode ?? "time.clock_integrity_compromised",
+                "Shop clock integrity is compromised. Financial posting is blocked until the system clock is stable.");
+        }
+
+        var shopDate = _clock is IShopTimeAuthority shopAuthority
+            ? shopAuthority.GetCurrentShopDate()
+            : _clock.ShopDate;
         var eventTimestampUtc = _clock.UtcNow;
 
         // Rule 090: Future date validation
@@ -116,53 +128,76 @@ public sealed class ShopPostingValidationService : IShopPostingValidationService
                 return Result<PostingAuditEntry>.Failure(ex.Code, ex.Message);
             }
 
-            var supervisorUser = await _identity.GetUserAsync(command.SupervisorApproval.SupervisorId, cancellationToken);
-            if (supervisorUser is null || supervisorUser.Status != UserStatus.Active)
+            if (!string.IsNullOrWhiteSpace(command.SupervisorApproval.ApprovalToken))
             {
-                return Result<PostingAuditEntry>.Failure(
-                    "authorization.supervisor_not_found_or_inactive",
-                    "Supervisor account could not be found or is inactive.");
+                var consumed = await _approvalStore.TryConsumeAsync(
+                    command.SupervisorApproval.ApprovalToken,
+                    command.OperationType,
+                    command.PostingDate,
+                    cancellationToken);
+                if (!consumed.IsSuccess)
+                {
+                    return Result<PostingAuditEntry>.Failure(consumed.Error!.Code, consumed.Error.Message);
+                }
+
+                var snapshot = consumed.Value!;
+                if (snapshot.SupervisorId != command.SupervisorApproval.SupervisorId)
+                {
+                    return Result<PostingAuditEntry>.Failure(
+                        "authorization.approval_token_supervisor_mismatch",
+                        "Supervisor approval token does not match the authorized supervisor.");
+                }
+
+                authorizedSupervisorId = snapshot.SupervisorId;
+                approvalReason = snapshot.Reason;
             }
-
-            // Verify supervisor PIN
-            var credential = new PinCredential(
-                supervisorUser.PinHash,
-                supervisorUser.PinSalt,
-                supervisorUser.PinIterations,
-                supervisorUser.PinAlgorithm);
-
-            if (!_pinCredentials.Verify(command.SupervisorApproval.SupervisorPin, credential))
+            else
             {
-                return Result<PostingAuditEntry>.Failure(
-                    "authorization.invalid_supervisor_pin",
-                    "Supervisor PIN verification failed. Incorrect credentials.");
+                var supervisorUser = await _identity.GetUserAsync(command.SupervisorApproval.SupervisorId, cancellationToken);
+                if (supervisorUser is null || supervisorUser.Status != UserStatus.Active)
+                {
+                    return Result<PostingAuditEntry>.Failure(
+                        "authorization.supervisor_not_found_or_inactive",
+                        "Supervisor account could not be found or is inactive.");
+                }
+
+                var credential = new PinCredential(
+                    supervisorUser.PinHash,
+                    supervisorUser.PinSalt,
+                    supervisorUser.PinIterations,
+                    supervisorUser.PinAlgorithm);
+
+                if (!_pinCredentials.Verify(command.SupervisorApproval.SupervisorPin!, credential))
+                {
+                    return Result<PostingAuditEntry>.Failure(
+                        "authorization.invalid_supervisor_pin",
+                        "Supervisor PIN verification failed. Incorrect credentials.");
+                }
+
+                var permissions = await _identity.GetEffectivePermissionKeysAsync(supervisorUser.Id, cancellationToken);
+                var role = await _identity.GetRoleAsync(supervisorUser.RoleId, cancellationToken);
+
+                var isOwner = role is not null && string.Equals(role.Name, "Owner", StringComparison.OrdinalIgnoreCase);
+                var hasOverridePermission = permissions.Contains(PermissionKeys.SupervisorPostingOverride) ||
+                                            permissions.Contains(PermissionKeys.SettingsManage);
+
+                if (command.ActorId == supervisorUser.Id && !isOwner && !hasOverridePermission)
+                {
+                    return Result<PostingAuditEntry>.Failure(
+                        "authorization.spoofed_supervisor_rejected",
+                        "Cashier cannot self-authorize backdated posting without supervisor role.");
+                }
+
+                if (!isOwner && !hasOverridePermission)
+                {
+                    return Result<PostingAuditEntry>.Failure(
+                        "authorization.supervisor_permission_denied",
+                        "Supervisor user lacks the required posting override permission.");
+                }
+
+                authorizedSupervisorId = supervisorUser.Id;
+                approvalReason = command.SupervisorApproval.Reason;
             }
-
-            // Verify supervisor permissions
-            var permissions = await _identity.GetEffectivePermissionKeysAsync(supervisorUser.Id, cancellationToken);
-            var role = await _identity.GetRoleAsync(supervisorUser.RoleId, cancellationToken);
-
-            var isOwner = role is not null && string.Equals(role.Name, "Owner", StringComparison.OrdinalIgnoreCase);
-            var hasOverridePermission = permissions.Contains(PermissionKeys.SupervisorPostingOverride) ||
-                                        permissions.Contains(PermissionKeys.SettingsManage);
-
-            // Anti-spoofing check: if cashier supplied their own ID as supervisor without being an actual supervisor
-            if (command.ActorId == supervisorUser.Id && !isOwner && !hasOverridePermission)
-            {
-                return Result<PostingAuditEntry>.Failure(
-                    "authorization.spoofed_supervisor_rejected",
-                    "Cashier cannot self-authorize backdated posting without supervisor role.");
-            }
-
-            if (!isOwner && !hasOverridePermission)
-            {
-                return Result<PostingAuditEntry>.Failure(
-                    "authorization.supervisor_permission_denied",
-                    "Supervisor user lacks the required posting override permission.");
-            }
-
-            authorizedSupervisorId = supervisorUser.Id;
-            approvalReason = command.SupervisorApproval.Reason;
         }
 
         // Create atomic posting audit entry

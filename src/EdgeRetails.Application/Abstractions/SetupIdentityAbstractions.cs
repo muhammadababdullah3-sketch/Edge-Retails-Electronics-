@@ -106,6 +106,11 @@ public interface IIdentitySessionRepository
     Task<UserSession?> GetSessionForUpdateAsync(
         Guid sessionId,
         CancellationToken cancellationToken);
+
+    Task TouchLastActivityAsync(
+        Guid sessionId,
+        DateTimeOffset activityAt,
+        CancellationToken cancellationToken);
 }
 
 public interface IInstallationStateReadService

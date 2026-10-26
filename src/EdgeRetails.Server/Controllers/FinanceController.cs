@@ -15,8 +15,10 @@ public sealed class FinanceController : ControllerBase
     private readonly CreateSupplierRefundHandler _refundHandler;
     private readonly ReverseSupplierPaymentHandler _reversePaymentHandler;
     private readonly ReverseSupplierRefundHandler _reverseRefundHandler;
+    private readonly GetCurrentCashSessionHandler _getCurrentCashSessionHandler;
     private readonly OpenCashSessionHandler _openCashSessionHandler;
     private readonly CloseCashSessionHandler _closeCashSessionHandler;
+    private readonly VoidCashSessionByOwnerHandler _voidCashSessionByOwnerHandler;
     private readonly RecordManualCashMovementHandler _manualCashMovementHandler;
     private readonly ISupplierAccountReadService _supplierAccountReads;
     private readonly SupplierOpeningBalanceHandler _openingBalanceHandler;
@@ -26,8 +28,10 @@ public sealed class FinanceController : ControllerBase
         CreateSupplierRefundHandler refundHandler,
         ReverseSupplierPaymentHandler reversePaymentHandler,
         ReverseSupplierRefundHandler reverseRefundHandler,
+        GetCurrentCashSessionHandler getCurrentCashSessionHandler,
         OpenCashSessionHandler openCashSessionHandler,
         CloseCashSessionHandler closeCashSessionHandler,
+        VoidCashSessionByOwnerHandler voidCashSessionByOwnerHandler,
         RecordManualCashMovementHandler manualCashMovementHandler,
         ISupplierAccountReadService supplierAccountReads,
         SupplierOpeningBalanceHandler openingBalanceHandler)
@@ -36,8 +40,10 @@ public sealed class FinanceController : ControllerBase
         _refundHandler = refundHandler;
         _reversePaymentHandler = reversePaymentHandler;
         _reverseRefundHandler = reverseRefundHandler;
+        _getCurrentCashSessionHandler = getCurrentCashSessionHandler;
         _openCashSessionHandler = openCashSessionHandler;
         _closeCashSessionHandler = closeCashSessionHandler;
+        _voidCashSessionByOwnerHandler = voidCashSessionByOwnerHandler;
         _manualCashMovementHandler = manualCashMovementHandler;
         _supplierAccountReads = supplierAccountReads;
         _openingBalanceHandler = openingBalanceHandler;
@@ -149,6 +155,19 @@ public sealed class FinanceController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("cash-session/current")]
+    public async Task<IActionResult> GetCurrentCashSession(CancellationToken cancellationToken)
+    {
+        var denied = this.RequirePermission(PermissionKeys.SalesPosUse);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        var result = await _getCurrentCashSessionHandler.HandleAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpPost("cash-session/open")]
     public async Task<IActionResult> OpenCashSession(
         [FromBody] OpenCashSessionCommand command,
@@ -171,7 +190,7 @@ public sealed class FinanceController : ControllerBase
         [FromBody] CloseCashSessionCommand command,
         CancellationToken cancellationToken)
     {
-        var denied = this.RequirePermission(PermissionKeys.SalesPosUse);
+        var denied = this.RequirePermission(PermissionKeys.CashSessionClose);
         if (denied is not null)
         {
             return denied;
@@ -180,6 +199,23 @@ public sealed class FinanceController : ControllerBase
         var actor = HttpContext.GetActorContext();
         var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
         var result = await _closeCashSessionHandler.HandleAsync(sanitized, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("cash-session/void")]
+    public async Task<IActionResult> VoidCashSessionByOwner(
+        [FromBody] VoidCashSessionByOwnerCommand command,
+        CancellationToken cancellationToken)
+    {
+        var denied = this.RequirePermission(PermissionKeys.CashSessionOwnerVoid);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        var actor = HttpContext.GetActorContext();
+        var sanitized = actor is not null ? command with { ActorId = actor.UserId } : command;
+        var result = await _voidCashSessionByOwnerHandler.HandleAsync(sanitized, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -219,6 +255,7 @@ public sealed class FinanceController : ControllerBase
             var c when c.Contains("locked") => StatusCodes.Status409Conflict,
             var c when c.Contains("exceeds_payable") => StatusCodes.Status409Conflict,
             var c when c.Contains("already_open") => StatusCodes.Status409Conflict,
+            var c when c.Contains("concurrency_conflict") => StatusCodes.Status409Conflict,
             var c when c.StartsWith("auth.") || c.StartsWith("authorization.") => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest
         };
@@ -238,6 +275,7 @@ public sealed class FinanceController : ControllerBase
         {
             var c when c.Contains("not_found") => StatusCodes.Status404NotFound,
             var c when c.Contains("mismatch") || c.Contains("locked") || c.Contains("duplicate") => StatusCodes.Status409Conflict,
+            var c when c.Contains("concurrency_conflict") => StatusCodes.Status409Conflict,
             var c when c.StartsWith("auth.") || c.StartsWith("authorization.") => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest
         };

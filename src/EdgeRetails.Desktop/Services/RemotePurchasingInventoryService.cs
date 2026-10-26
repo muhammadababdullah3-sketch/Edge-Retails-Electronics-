@@ -482,7 +482,9 @@ public sealed class RemotePurchasingInventoryService(
             command.InventoryUnitIds,
             command.PrinterName,
             command.IsReprint,
-            cancellationToken);
+            cancellationToken,
+            command.CorrelationId,
+            command.RequestMode);
 
     public Task<Result<PrintJobResult>> PrintProductLabelAsync(Guid productUnitId, string? printerName,
         bool isReprint, CancellationToken cancellationToken = default) =>

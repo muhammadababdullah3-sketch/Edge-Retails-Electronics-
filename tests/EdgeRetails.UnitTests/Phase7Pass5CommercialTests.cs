@@ -28,7 +28,8 @@ public sealed class Phase7Pass5CommercialTests
             "direction" => command with { Direction = (CashMovementDirection)99 },
             _ => command with { Amount = 0.004m }
         };
-        var result = await new RecordManualCashMovementHandler(f.CashMovements, f.Transactions, f.UnitOfWork, f.Audit)
+        var result = await new RecordManualCashMovementHandler(
+                f.CashMovements, f.Transactions, f.UnitOfWork, f.ExceptionMapper, f.Audit)
             .HandleAsync(command, default);
         Assert.False(result.IsSuccess);
         Assert.Empty(f.Cash.Movements);
@@ -44,7 +45,8 @@ public sealed class Phase7Pass5CommercialTests
         var f = new Phase2TestDoubles();
         var actor = Guid.NewGuid();
         f.Cash.Sessions.Add(Guid.NewGuid(), new CashSession { Status = CashSessionStatus.Open });
-        var result = await new RecordManualCashMovementHandler(f.CashMovements, f.Transactions, f.UnitOfWork, f.Audit)
+        var result = await new RecordManualCashMovementHandler(
+                f.CashMovements, f.Transactions, f.UnitOfWork, f.ExceptionMapper, f.Audit)
             .HandleAsync(new(direction, 1.005m, actor, " Owner float ", null, Guid.NewGuid()), default);
         Assert.True(result.IsSuccess, result.Error?.Message);
         var movement = Assert.Single(f.Cash.Movements);

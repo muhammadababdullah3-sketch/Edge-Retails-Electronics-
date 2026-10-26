@@ -120,6 +120,21 @@ public sealed class RemoteBackendSettingsService(
             issues.Add("Backup diagnostics unavailable; no backup health confirmation.");
         }
 
+        string workerStatus = "Unavailable · lifecycle endpoint not reached";
+        try
+        {
+            var lifecycle = await apiClient.GetAsync<LifecycleDto>("/api/system/lifecycle", cancellationToken);
+            workerStatus = lifecycle.WorkerHeartbeatStale == true
+                ? "Stale or missing · start EdgeRetails Worker"
+                : lifecycle.WorkerHeartbeatFound == true
+                    ? "Running · heartbeat OK"
+                    : "No heartbeat · Worker may be stopped";
+        }
+        catch (DesktopApiException ex)
+        {
+            workerStatus = $"Unavailable · {ex.Code}";
+        }
+
         var users = accounts.Select(row => new SettingsUserRecord(row.DisplayName, row.RoleName)).ToArray();
         var owner = users.FirstOrDefault(row => string.Equals(row.Role, "Owner", StringComparison.OrdinalIgnoreCase));
         return new BackendSettingsSnapshot(
@@ -128,6 +143,8 @@ public sealed class RemoteBackendSettingsService(
             owner?.Name ?? string.Empty,
             settings?.Phone ?? string.Empty,
             settings?.Address ?? string.Empty,
+            settings?.TimeZoneId ?? "Asia/Karachi",
+            settings?.BusinessDayCutoffLocalTime,
             settings?.ReceiptHeader ?? string.Empty,
             settings?.ReceiptFooter ?? string.Empty,
             settings?.ShowCustomer ?? false,
@@ -137,7 +154,7 @@ public sealed class RemoteBackendSettingsService(
             "Unavailable · Storage metrics not exposed by server",
             databaseStatus,
             connectionStatus,
-            "Unavailable · Background worker heartbeat endpoint not attached",
+            workerStatus,
             "Unavailable",
             "Unavailable",
             "Unavailable",
@@ -149,12 +166,18 @@ public sealed class RemoteBackendSettingsService(
             issues);
     }
 
-    public async Task SaveShopAsync(string shopName, string? phone, string? address,
+    public async Task SaveShopAsync(
+        string shopName,
+        string? phone,
+        string? address,
+        string? timeZoneId = null,
+        string? businessDayCutoffLocalTime = null,
         CancellationToken cancellationToken = default)
     {
         var result = await apiClient.PutAsync<ShopSettingsRequest, SuccessResponse>(
             "/api/settings/shop",
-            new(shopName, phone, address, RequireActor(), Guid.CreateVersion7()), cancellationToken);
+            new(shopName, phone, address, timeZoneId, businessDayCutoffLocalTime, Guid.CreateVersion7()),
+            cancellationToken);
         EnsureSuccess(result);
     }
 
@@ -179,7 +202,17 @@ public sealed class RemoteBackendSettingsService(
         }
     }
 
-    private sealed record ShopSettingsRequest(string ShopName, string? Phone, string? Address, Guid ActorId, Guid CorrelationId);
+    private sealed record ShopSettingsRequest(
+        string ShopName,
+        string? Phone,
+        string? Address,
+        string? TimeZoneId,
+        string? BusinessDayCutoffLocalTime,
+        Guid CorrelationId);
+    private sealed record LifecycleDto(
+        bool IsDraining,
+        bool WorkerHeartbeatFound,
+        bool WorkerHeartbeatStale);
     private sealed record ReceiptSettingsRequest(string? Header, string? Footer, bool ShowCustomer,
         bool ShowCashier, bool AutoPrintDefault, Guid ActorId, Guid CorrelationId);
     private sealed record SuccessResponse(bool Success);

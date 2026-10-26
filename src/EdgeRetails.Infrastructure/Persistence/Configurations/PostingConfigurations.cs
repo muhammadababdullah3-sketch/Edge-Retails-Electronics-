@@ -26,6 +26,30 @@ internal sealed class PeriodLockConfiguration : IEntityTypeConfiguration<PeriodL
     }
 }
 
+internal sealed class SupervisorApprovalGrantConfiguration : IEntityTypeConfiguration<SupervisorApprovalGrant>
+{
+    public void Configure(EntityTypeBuilder<SupervisorApprovalGrant> builder)
+    {
+        builder.ToTable("supervisor_approval_grants", "posting");
+
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+
+        builder.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.SupervisorId).IsRequired();
+        builder.Property(x => x.PostingDate).IsRequired();
+        builder.Property(x => x.OperationType).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.Reason).HasMaxLength(1000).IsRequired();
+        builder.Property(x => x.ExpiresAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.Consumed).IsRequired().HasDefaultValue(false);
+        builder.Property(x => x.ConsumedAtUtc);
+
+        builder.HasIndex(x => x.TokenHash).IsUnique();
+        builder.HasIndex(x => new { x.Consumed, x.ExpiresAtUtc });
+    }
+}
+
 internal sealed class PostingAuditEntryConfiguration : IEntityTypeConfiguration<PostingAuditEntry>
 {
     public void Configure(EntityTypeBuilder<PostingAuditEntry> builder)

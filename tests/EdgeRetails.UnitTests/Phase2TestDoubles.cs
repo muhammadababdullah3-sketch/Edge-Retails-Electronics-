@@ -45,6 +45,7 @@ internal sealed class Phase2TestDoubles
     public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 9, 22, 10, 0, 0, TimeSpan.Zero));
     public FakeTransactionRunner Transactions { get; } = new();
     public FakePermissionAuthorizer Authorization { get; } = new();
+    public PassThroughExceptionMapper ExceptionMapper { get; } = new();
     public FakeUnitOfWork UnitOfWork { get; } = new();
     public FakePurchasingReadService PurchasingReads { get; }
     public FakePhysicalUnitCreationAuthority PhysicalUnits { get; }
@@ -254,6 +255,9 @@ internal sealed class FakeCashRepository : ICashRepository
 {
     public Dictionary<Guid, CashSession> Sessions { get; } = new();
     public List<CashMovement> Movements { get; } = new();
+
+    public Task<CashSession?> GetOpenSessionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(Sessions.Values.FirstOrDefault(s => s.Status == CashSessionStatus.Open));
 
     public Task<CashSession?> GetOpenSessionForUpdateAsync(CancellationToken cancellationToken) =>
         Task.FromResult(Sessions.Values.FirstOrDefault(s => s.Status == CashSessionStatus.Open));
@@ -842,5 +846,14 @@ internal sealed class FakePhysicalUnitCreationAuthority : IPhysicalUnitCreationA
         }
         _highWater.RecordSupplierProductHighWater(supplierId, productId, supplierProduct.NextItemSequence);
         return Result<IReadOnlyList<InventoryUnit>>.Success(created);
+    }
+}
+
+internal sealed class PassThroughExceptionMapper : IExceptionToErrorMapper
+{
+    public bool TryMap(Exception exception, out Error error)
+    {
+        error = default!;
+        return false;
     }
 }

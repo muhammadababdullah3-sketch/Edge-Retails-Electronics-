@@ -13,8 +13,145 @@ public sealed class PrintingController(
     IProductionDocumentSource productionDocuments,
     IProductionDocumentAuthorizationPolicy documentAuthorization,
     IProductLabelDocumentSource? productLabels = null,
-    ProductionAuditCoordinator? audit = null) : ControllerBase
+    ProductionAuditCoordinator? audit = null,
+    IPhysicalLabelPrintIntentCoordinator? labelIntents = null) : ControllerBase
 {
+    [HttpGet("label-intents/pending")]
+    public async Task<IActionResult> ListPendingLabelIntents(
+        [FromQuery] Guid? operationId,
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        if (labelIntents is null)
+        {
+            return Ok(Array.Empty<PhysicalLabelPrintIntentSummary>());
+        }
+
+        var rows = await labelIntents.ListPendingAsync(operationId, limit, cancellationToken);
+        return Ok(rows);
+    }
+
+    [HttpPost("label-intents/{intentId:guid}/claim")]
+    public async Task<IActionResult> ClaimLabelIntent(
+        [FromRoute] Guid intentId,
+        [FromBody] LabelIntentClaimRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        if (labelIntents is null)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                code = "printing.label_intent_unavailable",
+                message = "Durable label intent dispatch is unavailable."
+            });
+        }
+
+        var result = await labelIntents.ClaimForDispatchAsync(
+            intentId,
+            request.WorkstationId,
+            request.RetryAfterUnknownOutcome,
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new { code = result.Error!.Code, message = result.Error.Message });
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPost("label-intents/claim-by-unit")]
+    public async Task<IActionResult> ClaimLabelIntentByUnit(
+        [FromBody] LabelIntentClaimByUnitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        if (labelIntents is null)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                code = "printing.label_intent_unavailable",
+                message = "Durable label intent dispatch is unavailable."
+            });
+        }
+
+        var result = await labelIntents.ClaimOriginalForUnitAsync(
+            request.InventoryUnitId,
+            request.WorkstationId,
+            request.RetryAfterUnknownOutcome,
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new { code = result.Error!.Code, message = result.Error.Message });
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPost("label-intents/reprint")]
+    public async Task<IActionResult> RegisterReprintLabelIntent(
+        [FromBody] LabelIntentClaimByUnitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var denied = this.RequirePermission(PermissionKeys.InventoryManage);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        denied = this.RequirePermission(ProductionPermissionNames.PrintingReprint);
+        if (denied is not null)
+        {
+            return denied;
+        }
+
+        if (labelIntents is null)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                code = "printing.label_intent_unavailable",
+                message = "Durable label intent dispatch is unavailable."
+            });
+        }
+
+        var registered = await labelIntents.RegisterReprintIntentAsync(
+            request.InventoryUnitId,
+            request.WorkstationId,
+            cancellationToken);
+        if (!registered.IsSuccess)
+        {
+            return BadRequest(new { code = registered.Error!.Code, message = registered.Error.Message });
+        }
+
+        var claimed = await labelIntents.ClaimForDispatchAsync(
+            registered.Value!.Id,
+            request.WorkstationId,
+            retryAfterUnknownOutcome: true,
+            cancellationToken);
+        if (!claimed.IsSuccess)
+        {
+            return BadRequest(new { code = claimed.Error!.Code, message = claimed.Error.Message });
+        }
+
+        return Ok(claimed.Value);
+    }
+
     [HttpGet("product-labels/{productUnitId:guid}")]
     public async Task<IActionResult> GetProductLabel([FromRoute] Guid productUnitId, [FromQuery] bool reprint = false, CancellationToken cancellationToken = default)
     {
@@ -107,6 +244,18 @@ public sealed class PrintingController(
                 DateTimeOffset.UtcNow, "PhysicalItemSticker", document.InventoryUnitId.ToString(),
                 $"TrackingCode={document.TrackingCode}; WorkstationReportedSubmission={receipt.Submitted}; PhysicalPaperConfirmed=False; Actor={HttpContext.GetCurrentUserId()}; Error={receipt.ErrorCode}",
                 receipt.ClientPrintAttemptId.ToString()));
+            if (labelIntents is not null)
+            {
+                await labelIntents.ApplyStickerReceiptAsync(
+                    new ApplyLabelIntentStickerReceipt(
+                        receipt.InventoryUnitId,
+                        receipt.IsReprint,
+                        receipt.Submitted,
+                        receipt.ErrorCode,
+                        receipt.ClientPrintAttemptId),
+                    cancellationToken);
+            }
+
             return Ok(new StickerPrintReceiptResult(outcome.Persisted, outcome.FailureCode));
         }
         catch (InvalidOperationException)

@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Product>Edge Retails Client Shop Service</Product>
+    <Description>Client-tier loopback API (127.0.0.1:7150). Not the vendor cloud server.</Description>
   </PropertyGroup>
 
   <ItemGroup>

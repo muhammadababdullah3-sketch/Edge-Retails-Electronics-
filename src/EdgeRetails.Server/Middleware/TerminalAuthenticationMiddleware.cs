@@ -12,6 +12,7 @@ public sealed class TerminalAuthenticationMiddleware
         "/api/terminals/register",
         "/api/system/health",
         "/api/system/ready",
+        "/api/system/lifecycle",
         "/api/system/version",
         "/api/auth/accounts",
         "/api/auth/login",

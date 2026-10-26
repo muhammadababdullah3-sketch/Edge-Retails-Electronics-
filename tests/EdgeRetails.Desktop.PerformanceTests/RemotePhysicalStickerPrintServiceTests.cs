@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using EdgeRetails.Application.Features.Terminals;
 using EdgeRetails.Application.Production.Printing;
 using EdgeRetails.Desktop.Services;
+using EdgeRetails.Domain.Production;
 using System.IO;
 
 namespace EdgeRetails.Desktop.PerformanceTests;
@@ -75,21 +76,7 @@ public sealed class RemotePhysicalStickerPrintServiceTests
         var unitId = Guid.NewGuid();
         var document = StickerDocument(unitId, "SUP-ITEM-000042");
         var handler = new RecordingHttpHandler((request, _) =>
-        {
-            // HARNESS_CORRECTION: the production service now records the separate workstation submission receipt.
-            if (request.Method == HttpMethod.Post)
-            {
-                Assert.Equal("/api/printing/stickers/receipts", request.RequestUri!.AbsolutePath);
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new StickerPrintReceiptResult(true, null)) });
-            }
-            Assert.Equal(HttpMethod.Get, request.Method);
-            Assert.Equal($"/api/printing/stickers/{unitId:D}?reprint=false", request.RequestUri!.PathAndQuery);
-            Assert.Equal(TerminalProtocol.CurrentProtocolVersion, request.Headers.GetValues("X-Protocol-Version").Single());
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(document)
-            });
-        });
+            Task.FromResult(RespondToOriginalStickerPrint(request, unitId, document, HttpStatusCode.OK)));
         using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:7150") };
         using var apiClient = new DesktopApiClient(httpClient);
         var engine = new RecordingStickerEngine(new PrintJobResult(true, null, null));
@@ -113,12 +100,12 @@ public sealed class RemotePhysicalStickerPrintServiceTests
     {
         var unitId = Guid.NewGuid();
         // HARNESS_CORRECTION: keep the canonical GET and acknowledge the new separate audit receipt.
-        var handler = new RecordingHttpHandler((request, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = request.Method == HttpMethod.Post
-                ? JsonContent.Create(new StickerPrintReceiptResult(true, null))
-                : JsonContent.Create(StickerDocument(unitId, "SUP-ITEM-000043"))
-        }));
+        var handler = new RecordingHttpHandler((request, _) =>
+            Task.FromResult(RespondToOriginalStickerPrint(
+                request,
+                unitId,
+                StickerDocument(unitId, "SUP-ITEM-000043"),
+                HttpStatusCode.OK)));
         using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:7150") };
         using var apiClient = new DesktopApiClient(httpClient);
         var service = new RemotePhysicalStickerPrintService(
@@ -140,11 +127,12 @@ public sealed class RemotePhysicalStickerPrintServiceTests
     public async Task PrintAsync_AuditFailureDoesNotTurnAcceptedSubmissionIntoPrintFailureOrRetry()
     {
         var unitId = Guid.NewGuid();
-        var handler = new RecordingHttpHandler((request, _) => Task.FromResult(new HttpResponseMessage(
-            request.Method == HttpMethod.Post ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
-        {
-            Content = JsonContent.Create(StickerDocument(unitId, "SUP-ITEM-000044"))
-        }));
+        var handler = new RecordingHttpHandler((request, _) =>
+            Task.FromResult(RespondToOriginalStickerPrint(
+                request,
+                unitId,
+                StickerDocument(unitId, "SUP-ITEM-000044"),
+                HttpStatusCode.ServiceUnavailable)));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:7150") };
         using var api = new DesktopApiClient(http);
         var engine = new RecordingStickerEngine(new PrintJobResult(true, null, null));
@@ -153,7 +141,7 @@ public sealed class RemotePhysicalStickerPrintServiceTests
         Assert.True(result.Value!.JobResults.Single().Succeeded);
         Assert.False(result.Value.JobResults.Single().AuditPersisted);
         Assert.Equal(1, result.Value.SucceededCount);
-        Assert.Equal(2, handler.RequestCount);
+        Assert.Equal(3, handler.RequestCount);
         Assert.Equal(1, engine.InvocationCount);
     }
 
@@ -190,6 +178,44 @@ public sealed class RemotePhysicalStickerPrintServiceTests
         Assert.Equal("printing.duplicate_unit", result.Error!.Code);
         Assert.Null(engine.Document);
         Assert.Equal(0, handler.RequestCount);
+    }
+
+    private static HttpResponseMessage RespondToOriginalStickerPrint(
+        HttpRequestMessage request,
+        Guid unitId,
+        PhysicalItemStickerDocument document,
+        HttpStatusCode receiptStatus)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        if (request.Method == HttpMethod.Post && path == "/api/printing/label-intents/claim-by-unit")
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new PhysicalLabelPrintIntentSummary(
+                    Guid.NewGuid(),
+                    unitId,
+                    Guid.Empty,
+                    PhysicalLabelPrintIntentKind.Original,
+                    PhysicalLabelPrintIntentStatus.Dispatched,
+                    1,
+                    Environment.MachineName))
+            };
+        }
+
+        if (request.Method == HttpMethod.Post && path == "/api/printing/stickers/receipts")
+        {
+            return new HttpResponseMessage(receiptStatus)
+            {
+                Content = receiptStatus == HttpStatusCode.OK
+                    ? JsonContent.Create(new StickerPrintReceiptResult(true, null))
+                    : null
+            };
+        }
+
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal($"/api/printing/stickers/{unitId:D}?reprint=false", request.RequestUri!.PathAndQuery);
+        Assert.Equal(TerminalProtocol.CurrentProtocolVersion, request.Headers.GetValues("X-Protocol-Version").Single());
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(document) };
     }
 
     private static PhysicalItemStickerDocument StickerDocument(Guid id, string trackingCode) => new(

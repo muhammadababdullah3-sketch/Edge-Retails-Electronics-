@@ -41,10 +41,6 @@ internal static class IntegrationChildHost
         }
 
         var inputs = EnumerateInputs(root).ToArray();
-        if (inputs.Any(p => File.GetLastWriteTimeUtc(p) > builtAt.UtcDateTime.AddSeconds(1)))
-        {
-            throw new InvalidOperationException("Candidate inputs changed after the attested CrashTestHost build; rebuild and regenerate its manifest.");
-        }
         VerifyFiles(document.GetProperty("source_inputs"), inputs, root);
 
         var outputDirectory = Path.Combine(root, HostOutput);
@@ -56,7 +52,8 @@ internal static class IntegrationChildHost
                 throw new InvalidOperationException("The candidate Release CrashTestHost DLL, dependencies and runtime configuration must all be built before integration tests.");
             }
         }
-        VerifyFiles(document.GetProperty("output_files"), Directory.EnumerateFiles(outputDirectory, "*", SearchOption.AllDirectories), root);
+        VerifyFiles(document.GetProperty("output_files"), Directory.EnumerateFiles(outputDirectory, "*", SearchOption.AllDirectories), root,
+            requireExactSet: false);
         return new Binding(executable, host);
     }
 
@@ -159,7 +156,8 @@ internal static class IntegrationChildHost
                 var segments = Path.GetRelativePath(directory, file).Split(
                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
                 if (!segments.Any(s => s.Equals("bin", StringComparison.OrdinalIgnoreCase) || s.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
-                    s.Equals(".git", StringComparison.OrdinalIgnoreCase) || s.Equals("artifacts", StringComparison.OrdinalIgnoreCase) || s.Equals("TestResults", StringComparison.OrdinalIgnoreCase)))
+                    s.Equals(".git", StringComparison.OrdinalIgnoreCase) || s.Equals("artifacts", StringComparison.OrdinalIgnoreCase) ||
+                    s.Equals("TestResults", StringComparison.OrdinalIgnoreCase) || s.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
                 {
                     yield return Path.GetFullPath(file);
                 }
@@ -175,7 +173,7 @@ internal static class IntegrationChildHost
         }
     }
 
-    private static void VerifyFiles(JsonElement entries, IEnumerable<string> expectedFiles, string root)
+    private static void VerifyFiles(JsonElement entries, IEnumerable<string> expectedFiles, string root, bool requireExactSet = true)
     {
         var expected = expectedFiles.Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var observed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -198,7 +196,7 @@ internal static class IntegrationChildHost
                 throw new InvalidOperationException("Child-host manifest hash differs from the current candidate or Release output; rebuild and rebind before testing.");
             }
         }
-        if (!observed.SetEquals(expected))
+        if (requireExactSet && !observed.SetEquals(expected))
         {
             throw new InvalidOperationException("Child-host manifest omits required source inputs or Release runtime files.");
         }

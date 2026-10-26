@@ -64,7 +64,7 @@
 
             <!-- Supervisor PIN Entry (Masked via PasswordBox) -->
             <StackPanel Margin="0,12,0,0">
-                <TextBlock Text="Supervisor PIN (Server-Verified)" Style="{StaticResource Text.TableHeader}"
+                <TextBlock Text="Supervisor PIN (verified on shop)" Style="{StaticResource Text.TableHeader}"
                            Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,0,6" />
                 <PasswordBox x:Name="SupervisorPinBox"
                              PasswordChanged="OnSupervisorPinChanged"

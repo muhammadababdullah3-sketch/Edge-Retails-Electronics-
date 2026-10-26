@@ -302,12 +302,7 @@ public sealed class MasterSupplierProductSequencePostgresTests
                 await using var pg = new NpgsqlConnection(fixture.Connection.ConnectionString);
                 await pg.OpenAsync();
                 var ownedRoot = fixture.Profile.OwnedRoot;
-                var safePrefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar + "EdgeRetailsMasterPg_";
-                if (!Path.GetFullPath(ownedRoot).StartsWith(safePrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException("PostgreSQL ownership attestation escaped the approved temporary fixture root.");
-                }
+                OwnedPostgresRunnerAttestation.EnsureRunnerRootApproved(ownedRoot, fixture.Connection.Port);
                 await using var directory = new NpgsqlCommand("SHOW data_directory", pg);
                 var actualDataDirectory = (string)(await directory.ExecuteScalarAsync())!;
                 Assert.Equal(Path.GetFullPath(Path.Combine(ownedRoot, "data")), Path.GetFullPath(actualDataDirectory), ignoreCase: true);
@@ -429,12 +424,17 @@ public sealed class MasterSupplierProductSequencePostgresTests
             {
                 await Provider.DisposeAsync();
             }
-            var prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar + "edge-master-sequence-";
-            if (!Path.GetFullPath(Root).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            var ownedPrefix = Path.GetFullPath(Profile.OwnedRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            var rootFull = Path.GetFullPath(Root);
+            if (!rootFull.StartsWith(ownedPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Owned fixture escaped temporary root.");
             }
-            Directory.Delete(Root, true);
+            if (Directory.Exists(Root))
+            {
+                Directory.Delete(Root, true);
+            }
         }
     }
 

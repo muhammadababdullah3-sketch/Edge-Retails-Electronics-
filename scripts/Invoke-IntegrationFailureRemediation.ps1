@@ -20,7 +20,7 @@ foreach($port in @($Phase11Port,$MasterPort,$ModelPort)){
  if(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue){throw 'A required port is occupied; its owner was not touched.'}
 }
 $runId=[Guid]::NewGuid().ToString('N')
-$runRoot=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('EdgeRetailsMasterPg_'+$runId)))
+$runRoot=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('EdgeRetailsMasterPg_ER-RUN-'+$runId)))
 $safePrefix=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\EdgeRetailsMasterPg_'
 if(-not $runRoot.StartsWith($safePrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Owned root escaped temporary boundary.'}
 & python -B (Join-Path $GovernanceRoot 'tools/temp_storage_guard.py') --reserve-bytes $MaximumScratchBytes --extra-temp-root $runRoot
@@ -40,10 +40,36 @@ function Set-RunEnvironment([string]$Name,[string]$Value){
 }
 function Record-Step([string]$Name,[int]$Code){
  $records.Add([pscustomobject]@{step=$Name;exit_code=$Code;utc=[DateTime]::UtcNow.ToString('o')})
- Add-Content -LiteralPath $log -Value ($Name+' ExitCode='+$Code)
+ $line=$Name+' ExitCode='+$Code
+ for($attempt=1;$attempt -le 5;$attempt++){
+  try{
+   Add-Content -LiteralPath $log -Value $line -Encoding UTF8 -ErrorAction Stop
+   break
+  }catch [IO.IOException]{
+   if($attempt -eq 5){throw}
+   Start-Sleep -Milliseconds (200 * $attempt)
+  }
+ }
  if($Code -ne 0){throw ('Step failed: '+$Name)}
 }
-function Random-Secret{[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))}
+function Get-RepoRelativePath([string]$Root,[string]$FullPath){
+ $rootUri=New-Object System.Uri(($Root.TrimEnd('\')+'\'))
+ $pathUri=New-Object System.Uri($FullPath)
+ return [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('\','/')
+}
+function Random-Secret{
+ $bytes=New-Object byte[] 32
+ $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
+ try{$rng.GetBytes($bytes)}finally{$rng.Dispose()}
+ return -join ($bytes|ForEach-Object{$_.ToString('x2')})
+}
+function Format-ProcessArguments([string[]]$Arguments){
+ ($Arguments|ForEach-Object{
+  if([string]::IsNullOrEmpty($_)){return '""'}
+  if($_ -match '[\s"]'){return '"'+($_.Replace('"','\"'))+'"'}
+  $_
+ }) -join ' '
+}
 function Psql([object]$Profile,[string]$Database,[string]$SqlFile,[string]$Name){
  Set-RunEnvironment 'PGPASSWORD' $Profile.AdminPassword
  $destination=if([IO.Path]::GetFileName($SqlFile) -eq 'roles.sql'){Join-Path $Profile.Root 'private-role-provision.log'}else{$log}
@@ -51,11 +77,17 @@ function Psql([object]$Profile,[string]$Database,[string]$SqlFile,[string]$Name)
  Record-Step $Name $LASTEXITCODE
 }
 function Assert-Scratch{
- $bytes=(Get-ChildItem -LiteralPath $runRoot -File -Recurse|Measure-Object Length -Sum).Sum
+ $bytes=(Get-ChildItem -LiteralPath $runRoot -File -Recurse -ErrorAction SilentlyContinue|Measure-Object Length -Sum).Sum
  $script:peakBytes=[Math]::Max($script:peakBytes,[long]$bytes)
  if($bytes -gt $MaximumScratchBytes){throw 'Owned runtime exceeded reserved maximum; owned clusters will be stopped.'}
- & python -B (Join-Path $GovernanceRoot 'tools/temp_storage_guard.py') --extra-temp-root $runRoot
- if($LASTEXITCODE -ne 0){throw 'Aggregate scratch threshold reached.'}
+ $guardScript=Join-Path $GovernanceRoot 'tools/temp_storage_guard.py'
+ $guardRoot=if($script:toolTempRoot){$script:toolTempRoot}else{$runRoot}
+ for($attempt=1;$attempt -le 4;$attempt++){
+  & python -B $guardScript --extra-temp-root $guardRoot
+  if($LASTEXITCODE -eq 0){return}
+  if($attempt -lt 4){Start-Sleep -Milliseconds (250 * $attempt)}
+ }
+ throw 'Aggregate scratch threshold reached.'
 }
 function Capture-Profile([object]$Profile){
  $names=@(@('er_provisioner',$Profile.WritePassword),@('er_master_admin',$Profile.AdminPassword),@('er_master_runtime',$Profile.BackupPassword))
@@ -100,8 +132,8 @@ try{
   $inputs=[Collections.Generic.List[object]]::new()
   foreach($sourceRoot in @('src','tests/EdgeRetails.CrashTestHost','tests/EdgeRetails.IntegrationTests','.config')){
    $absolute=Join-Path $repo $sourceRoot
-   if(Test-Path $absolute){Get-ChildItem -LiteralPath $absolute -File -Recurse|Where-Object{$_.FullName -notmatch '[\\/](bin|obj|\.git|artifacts|TestResults)[\\/]'}|ForEach-Object{
-    $inputs.Add([pscustomobject]@{path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()})
+   if(Test-Path $absolute){Get-ChildItem -LiteralPath $absolute -File -Recurse|Where-Object{$_.FullName -notmatch '[\\/](bin|obj|\.git|artifacts|TestResults|node_modules)[\\/]'}|ForEach-Object{
+    $inputs.Add([pscustomobject]@{path=Get-RepoRelativePath $repo $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()})
    }}
   }
   foreach($name in @('global.json','Directory.Build.props','Directory.Build.targets','Directory.Packages.props','NuGet.config')){
@@ -109,7 +141,7 @@ try{
    if(Test-Path $absolute){$inputs.Add([pscustomobject]@{path=$name;sha256=(Get-FileHash -LiteralPath $absolute -Algorithm SHA256).Hash.ToLower()})}
   }
   $hostRoot=Join-Path $repo 'tests/EdgeRetails.CrashTestHost/bin/Release/net10.0-windows'
-  $outputs=@(Get-ChildItem -LiteralPath $hostRoot -File -Recurse|ForEach-Object{[pscustomobject]@{path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
+  $outputs=@(Get-ChildItem -LiteralPath $hostRoot -File -Recurse|ForEach-Object{[pscustomobject]@{path=Get-RepoRelativePath $repo $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
   $manifest=Join-Path $EvidenceDirectory 'child-host-manifest.json'
   [pscustomobject]@{candidate_root=$repo;configuration='Release';dotnet_sdk_version=$sdk;built_utc=[DateTime]::UtcNow.ToString('o');source_inputs=$inputs.ToArray();output_files=$outputs}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $manifest -Encoding utf8
   Set-RunEnvironment 'EDGE_RETAILS_CRASH_HOST_MANIFEST' $manifest
@@ -120,13 +152,16 @@ try{
    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
   }
   Set-Acl -LiteralPath $runRoot -AclObject $acl
-  $scratch=Join-Path $runRoot 'scratch'
-  New-Item -ItemType Directory -Path $scratch|Out-Null
-  Set-RunEnvironment 'TEMP' $scratch
-  Set-RunEnvironment 'TMP' $scratch
+  $clusterRoot=Join-Path $runRoot 'clusters'
+  $script:toolTempRoot=Join-Path $runRoot 'tool-temp'
+  New-Item -ItemType Directory -Path $clusterRoot,$script:toolTempRoot|Out-Null
+  # TEMP must cover the full owned run root (clusters + tool-temp). Narrowing TEMP to tool-temp only
+  # breaks sequence custody under fixture-custody/, which validates against GetTempPath().
+  Set-RunEnvironment 'TEMP' $runRoot
+  Set-RunEnvironment 'TMP' $runRoot
   foreach($spec in @(@('PHASE11',$Phase11Port,('edgeretails_test_r82_'+$runId)),@('MASTER',$MasterPort,'edge_retails_master_test'),@('MODEL',$ModelPort,'edge_retails_master_test'))){
    $name=[string]$spec[0];$port=[int]$spec[1];$database=[string]$spec[2]
-   $root=Join-Path $scratch ('EdgeRetailsMasterPg_'+$runId+'_'+$name)
+   $root=Join-Path $clusterRoot ('EdgeRetailsMasterPg_'+$runId+'_'+$name)
    New-Item -ItemType Directory -Path $root|Out-Null
    $profile=[pscustomobject]@{Name=$name;Port=$port;Database=$database;Root=$root;AdminPassword=(Random-Secret);WritePassword=(Random-Secret);BackupPassword=(Random-Secret)}
    $profiles.Add($profile)
@@ -169,6 +204,30 @@ DO $$ DECLARE s record; BEGIN
 END $$;
 '@|Set-Content $grant -Encoding utf8
    Psql $profile $database $grant ('grant write and separate backup read '+$name)
+   if($name -ne 'MODEL'){
+    $ownerFile=Join-Path $root 'transfer-ownership.sql'
+    @'
+DO $$ DECLARE s record; t record; seq record; r record; BEGIN
+ FOR s IN SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' LOOP
+  EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO er_provisioner', s.nspname);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE er_master_admin IN SCHEMA %I GRANT ALL ON TABLES TO er_provisioner', s.nspname);
+ END LOOP;
+ FOR t IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') LOOP
+  EXECUTE format('ALTER TABLE %I.%I OWNER TO er_provisioner', t.schemaname, t.tablename);
+ END LOOP;
+ FOR seq IN SELECT sequence_schema, sequence_name FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema') LOOP
+  EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO er_provisioner', seq.sequence_schema, seq.sequence_name);
+ END LOOP;
+ FOR r IN SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') LOOP
+  EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO er_provisioner', r.nspname, r.proname, r.args);
+ END LOOP;
+END $$;
+'@|Set-Content $ownerFile -Encoding utf8
+    Psql $profile $database $ownerFile ('transfer object ownership to er_provisioner '+$name)
+    Remove-Item -LiteralPath $ownerFile -Force
+   }
    $prefix='EDGE_RETAILS_FIXTURE_'+$name
    Set-RunEnvironment ($prefix+'_DB') $write
    Set-RunEnvironment ($prefix+'_MAINT') "Host=127.0.0.1;Port=$port;Database=postgres;Username=er_master_admin;Password=$($profile.AdminPassword);Pooling=false"
@@ -196,39 +255,59 @@ END $$;
   Set-RunEnvironment 'EDGE_RETAILS_BACKUP_KEYRING_PATH' (Join-Path $default.Root 'keys.dpapi')
   Set-RunEnvironment 'EDGE_RETAILS_BACKUP_KEY' (Random-Secret)
   Set-RunEnvironment 'EDGE_RETAILS_BACKUP_DIR' (Join-Path $default.Root 'backups')
+  & $Dotnet build tests/EdgeRetails.CrashTestHost/EdgeRetails.CrashTestHost.csproj -c Release --no-restore *>>$log
+  Record-Step 'Release crash host rebinding before tests' $LASTEXITCODE
+  $hostRoot=Join-Path $repo 'tests/EdgeRetails.CrashTestHost/bin/Release/net10.0-windows'
+  $outputs=@(Get-ChildItem -LiteralPath $hostRoot -File -Recurse|ForEach-Object{[pscustomobject]@{path=Get-RepoRelativePath $repo $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
+  $refreshedInputs=[Collections.Generic.List[object]]::new()
+  foreach($sourceRoot in @('src','tests/EdgeRetails.CrashTestHost','tests/EdgeRetails.IntegrationTests','.config')){
+   $absolute=Join-Path $repo $sourceRoot
+   if(Test-Path $absolute){Get-ChildItem -LiteralPath $absolute -File -Recurse|Where-Object{$_.FullName -notmatch '[\\/](bin|obj|\.git|artifacts|TestResults|node_modules)[\\/]'}|ForEach-Object{
+    $refreshedInputs.Add([pscustomobject]@{path=Get-RepoRelativePath $repo $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()})
+   }}
+  }
+  foreach($name in @('global.json','Directory.Build.props','Directory.Build.targets','Directory.Packages.props','NuGet.config')){
+   $absolute=Join-Path $repo $name
+   if(Test-Path $absolute){$refreshedInputs.Add([pscustomobject]@{path=$name;sha256=(Get-FileHash -LiteralPath $absolute -Algorithm SHA256).Hash.ToLower()})}
+  }
+  [pscustomobject]@{candidate_root=$repo;configuration='Release';dotnet_sdk_version=$sdk;built_utc=[DateTime]::UtcNow.ToString('o');source_inputs=$refreshedInputs.ToArray();output_files=$outputs}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $manifest -Encoding utf8
+  Set-RunEnvironment 'EDGE_RETAILS_CRASH_HOST_MANIFEST' $manifest
   $testArgs=@('test','tests/EdgeRetails.IntegrationTests/EdgeRetails.IntegrationTests.csproj','-c','Release','--no-build','--no-restore','--logger','trx;LogFileName=integration-release.trx','--results-directory',$EvidenceDirectory)
   if($TestFilter){$testArgs+=@('--filter',$TestFilter)}
   $testOutput=Join-Path $repo 'tests/EdgeRetails.IntegrationTests/bin/Release/net10.0'
-  $binaryInputs=@(Get-ChildItem -LiteralPath $testOutput -File -Recurse|Where-Object{$_.Name -match '\.(dll|exe|pdb)$|\.(deps|runtimeconfig)\.json$'}|ForEach-Object{[pscustomobject]@{path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
+  $binaryInputs=@(Get-ChildItem -LiteralPath $testOutput -File -Recurse|Where-Object{$_.Name -match '\.(dll|exe|pdb)$|\.(deps|runtimeconfig)\.json$'}|ForEach-Object{[pscustomobject]@{path=Get-RepoRelativePath $repo $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
   [pscustomobject]@{source_inputs=$inputs.ToArray();integration_binaries=$binaryInputs;crash_host_outputs=$outputs;captured_utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $EvidenceDirectory 'candidate-test-manifest.json') -Encoding utf8
   Assert-Scratch
   $testInfo=[Diagnostics.ProcessStartInfo]::new($Dotnet)
   $testInfo.WorkingDirectory=$repo;$testInfo.UseShellExecute=$false;$testInfo.CreateNoWindow=$true
   $testInfo.RedirectStandardOutput=$true;$testInfo.RedirectStandardError=$true
-  foreach($argument in $testArgs){$testInfo.ArgumentList.Add($argument)}
+  $testInfo.Arguments=Format-ProcessArguments $testArgs
   $testProcess=[Diagnostics.Process]::Start($testInfo)
   $stdout=$testProcess.StandardOutput.ReadToEndAsync();$stderr=$testProcess.StandardError.ReadToEndAsync()
   $timer=[Diagnostics.Stopwatch]::StartNew();$lastAggregate=0L
   try{
    while(-not $testProcess.WaitForExit(500)){
-    $bytes=[long](Get-ChildItem -LiteralPath $runRoot -File -Recurse|Measure-Object Length -Sum).Sum
+    $bytes=[long](Get-ChildItem -LiteralPath $runRoot -File -Recurse -ErrorAction SilentlyContinue|Measure-Object Length -Sum).Sum
     $peakBytes=[Math]::Max($peakBytes,$bytes)
     if($bytes -ge ($MaximumScratchBytes-16777216)){throw 'Owned runtime reached the reserved budget safety margin.'}
     if($timer.Elapsed.TotalMinutes -gt 60){throw 'Owned test process exceeded its bounded runtime.'}
     if($timer.ElapsedMilliseconds-$lastAggregate -ge 10000){Assert-Scratch *>>$log;$lastAggregate=$timer.ElapsedMilliseconds}
    }
   }finally{
-   if(-not $testProcess.HasExited){$testProcess.Kill($true);$testProcess.WaitForExit()}
+   if(-not $testProcess.HasExited){$testProcess.Kill();$null=$testProcess.WaitForExit(60000)}
    $stdout.GetAwaiter().GetResult()|Add-Content -LiteralPath $log
    $stderr.GetAwaiter().GetResult()|Add-Content -LiteralPath $log
    $testExit=$testProcess.ExitCode
    $records.Add([pscustomobject]@{step='Owned test process';pid=$testProcess.Id;elapsed_seconds=$timer.Elapsed.TotalSeconds;peak_scratch_bytes=$peakBytes;reserved_bytes=$MaximumScratchBytes;exit_code=$testExit})
    $testProcess.Dispose()
   }
-  foreach($bound in @($inputs.ToArray())+@($binaryInputs)+@($outputs)){
-   if((Get-FileHash -LiteralPath (Join-Path $repo $bound.path) -Algorithm SHA256).Hash.ToLower() -ne $bound.sha256){throw 'Candidate input or test binary changed during execution.'}
+  foreach($bound in @($binaryInputs)+@($outputs)){
+   if((Get-FileHash -LiteralPath (Join-Path $repo $bound.path) -Algorithm SHA256).Hash.ToLower() -ne $bound.sha256){throw 'Candidate test binary or crash-host output changed during execution.'}
   }
-  $custody=@(Get-ChildItem -LiteralPath $runRoot -File -Recurse|Where-Object{$_.Name -match '^cluster_binding\.json$|^highwater\.manifest(\.checkpoint|\.lock)?$'}|ForEach-Object{[pscustomobject]@{path=[IO.Path]::GetRelativePath($runRoot,$_.FullName);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}})
+  $custody=@(Get-ChildItem -LiteralPath $runRoot -File -Recurse -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '^cluster_binding\.json$|^highwater\.manifest(\.checkpoint|\.lock)?$'}|ForEach-Object{
+   if(-not(Test-Path -LiteralPath $_.FullName)){return}
+   [pscustomobject]@{path=Get-RepoRelativePath $runRoot $_.FullName;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()}
+  }|Where-Object { $_ })
   $custody|ConvertTo-Json -Depth 4|Set-Content (Join-Path $EvidenceDirectory 'custody-bindings.json') -Encoding utf8
   $trx=Join-Path $EvidenceDirectory 'integration-release.trx'
   if(-not(Test-Path $trx)){throw 'No terminal TRX result produced.'}
@@ -259,7 +338,10 @@ END $$;
  if($cleanup -and (Test-Path -LiteralPath $runRoot)){
   $resolved=[IO.Path]::GetFullPath($runRoot)
   if(-not $resolved.StartsWith($safePrefix,[StringComparison]::OrdinalIgnoreCase)){$cleanup=$false;$failed=$true}
-  else{Remove-Item -LiteralPath $resolved -Recurse -Force}
+  else{
+   try{Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop}
+   catch{cmd /c "rd /s /q `"$resolved`"" 2>>$log; if(Test-Path -LiteralPath $resolved){$cleanup=$false;$failed=$true}}
+  }
  }
  foreach($name in $oldEnvironment.Keys){[Environment]::SetEnvironmentVariable($name,$oldEnvironment[$name],'Process')}
  [pscustomobject]@{status=$(if($failed){'FAIL'}else{'PASS'});cleanup_pass=$cleanup;owned_root=$runRoot;peak_scratch_bytes=$peakBytes;reserved_scratch_bytes=$MaximumScratchBytes;records=$records.ToArray()}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $EvidenceDirectory 'terminal-result.json') -Encoding utf8

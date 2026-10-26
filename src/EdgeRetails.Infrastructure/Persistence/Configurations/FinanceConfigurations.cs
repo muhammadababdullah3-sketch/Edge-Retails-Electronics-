@@ -22,6 +22,7 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
         builder.Property(x => x.CountedClosingCash).HasPrecision(18, 2);
         builder.Property(x => x.Difference).HasPrecision(18, 2);
         builder.Property(x => x.Note).HasMaxLength(1000);
+        builder.Property(x => x.VoidReason).HasMaxLength(500);
         builder.Property(x => x.Version).IsConcurrencyToken();
 
         builder.HasIndex(x => x.Status)

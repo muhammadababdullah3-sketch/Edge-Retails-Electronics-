@@ -97,7 +97,7 @@ public sealed class CatalogController : ControllerBase
 
     /// <summary>
     /// Explicit one-time upgrade for an existing completed shop. Not invoked at server startup.
-    /// Categories are not seeded until the owner approves a shop-owned symbol/name mapping.
+    /// Also reconciles Taxonomy V3 department categories and any missing reference units idempotently.
     /// </summary>
     [HttpPost("upgrade/fixed-units")]
     public async Task<IActionResult> UpgradeExistingShopFixedUnits(CancellationToken cancellationToken)

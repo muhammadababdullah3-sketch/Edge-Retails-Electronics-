@@ -1236,6 +1236,13 @@ public sealed class CashRepository : ICashRepository
         _db = db;
     }
 
+    public Task<CashSession?> GetOpenSessionAsync(CancellationToken cancellationToken) =>
+        _db.CashSessions
+            .AsNoTracking()
+            .Where(x => x.Status == CashSessionStatus.Open)
+            .OrderBy(x => x.OpenedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public Task<CashSession?> GetOpenSessionForUpdateAsync(
         CancellationToken cancellationToken) =>
         _db.CashSessions

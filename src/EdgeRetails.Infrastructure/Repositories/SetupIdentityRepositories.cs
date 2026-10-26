@@ -325,4 +325,14 @@ public sealed class IdentitySessionRepository : IIdentitySessionRepository
             .FromSqlInterpolated(
                 $"SELECT * FROM identity.user_sessions WHERE id = {sessionId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+
+    public Task TouchLastActivityAsync(
+        Guid sessionId,
+        DateTimeOffset activityAt,
+        CancellationToken cancellationToken) =>
+        _db.UserSessions
+            .Where(x => x.Id == sessionId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.LastActivityAt, activityAt),
+                cancellationToken);
 }

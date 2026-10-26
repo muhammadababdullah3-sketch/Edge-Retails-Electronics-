@@ -1,5 +1,7 @@
 # CENTRAL-ONE server deployment and reconstruction status
 
+**Product name:** Edge Retails **cloud server** (`EdgeRetails.Central.Api`). This runbook is **not** for `EdgeRetails.Server` (shop local host on port 7150). See [SHOP_AND_CENTRAL_RUNTIME.md](../SHOP_AND_CENTRAL_RUNTIME.md).
+
 **Document ID:** `CONE-DOC-T29-DEPLOY-001`
 **Status:** Development reconstruction instructions only; production deployment is not commissioned.
 **Candidate:** This document is maintained with the Central source candidate. Reconfirm its source hashes before use.

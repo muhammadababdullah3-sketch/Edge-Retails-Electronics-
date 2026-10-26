@@ -12,27 +12,11 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.Sql("UPDATE system.operation_outcomes SET payload_fingerprint = 'sha256:legacy_backfill' WHERE payload_fingerprint IS NULL;");
 
-            migrationBuilder.AddColumn<string>(
-                name: "response_content_type",
-                schema: "system",
-                table: "operation_outcomes",
-                type: "character varying(100)",
-                maxLength: 100,
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "response_payload",
-                schema: "system",
-                table: "operation_outcomes",
-                type: "jsonb",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "response_status_code",
-                schema: "system",
-                table: "operation_outcomes",
-                type: "integer",
-                nullable: true);
+            migrationBuilder.Sql("""
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_content_type character varying(100) NULL;
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_payload jsonb NULL;
+                ALTER TABLE system.operation_outcomes ADD COLUMN IF NOT EXISTS response_status_code integer NULL;
+                """);
         }
 
         /// <inheritdoc />

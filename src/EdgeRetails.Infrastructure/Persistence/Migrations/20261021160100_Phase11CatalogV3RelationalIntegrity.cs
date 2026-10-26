@@ -76,7 +76,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         ALTER TABLE catalog_v3.departments ADD CONSTRAINT fk_catalog_v3_departments_divisions_division_code
                             FOREIGN KEY (division_code) REFERENCES catalog_v3.divisions(code) ON DELETE RESTRICT;
                     ELSIF delete_kind <> 'r' THEN
-                        RAISE EXCEPTION 'CATALOG_V3_CONSTRAINT_CONFLICT: departments.division_code FK must be RESTRICT';
+                        EXECUTE (
+                            SELECT format('ALTER TABLE catalog_v3.departments DROP CONSTRAINT %I', conname)
+                            FROM pg_constraint
+                            WHERE conrelid='catalog_v3.departments'::regclass AND contype='f'
+                              AND confrelid='catalog_v3.divisions'::regclass AND conkey=ARRAY[department_division_code]::smallint[]
+                            LIMIT 1);
+                        ALTER TABLE catalog_v3.departments ADD CONSTRAINT fk_catalog_v3_departments_divisions_division_code
+                            FOREIGN KEY (division_code) REFERENCES catalog_v3.divisions(code) ON DELETE RESTRICT;
                     END IF;
 
                     SELECT confdeltype INTO delete_kind FROM pg_constraint
@@ -86,7 +93,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         ALTER TABLE catalog_v3.product_classes ADD CONSTRAINT fk_catalog_v3_product_classes_divisions_division_code
                             FOREIGN KEY (division_code) REFERENCES catalog_v3.divisions(code) ON DELETE RESTRICT;
                     ELSIF delete_kind <> 'r' THEN
-                        RAISE EXCEPTION 'CATALOG_V3_CONSTRAINT_CONFLICT: product_classes.division_code FK must be RESTRICT';
+                        EXECUTE (
+                            SELECT format('ALTER TABLE catalog_v3.product_classes DROP CONSTRAINT %I', conname)
+                            FROM pg_constraint
+                            WHERE conrelid='catalog_v3.product_classes'::regclass AND contype='f'
+                              AND confrelid='catalog_v3.divisions'::regclass AND conkey=ARRAY[product_class_division_code]::smallint[]
+                            LIMIT 1);
+                        ALTER TABLE catalog_v3.product_classes ADD CONSTRAINT fk_catalog_v3_product_classes_divisions_division_code
+                            FOREIGN KEY (division_code) REFERENCES catalog_v3.divisions(code) ON DELETE RESTRICT;
                     END IF;
 
                     SELECT confdeltype INTO delete_kind FROM pg_constraint
@@ -96,7 +110,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         ALTER TABLE catalog_v3.product_classes ADD CONSTRAINT fk_catalog_v3_product_classes_departments_department_code
                             FOREIGN KEY (department_code) REFERENCES catalog_v3.departments(code) ON DELETE RESTRICT;
                     ELSIF delete_kind <> 'r' THEN
-                        RAISE EXCEPTION 'CATALOG_V3_CONSTRAINT_CONFLICT: product_classes.department_code FK must be RESTRICT';
+                        EXECUTE (
+                            SELECT format('ALTER TABLE catalog_v3.product_classes DROP CONSTRAINT %I', conname)
+                            FROM pg_constraint
+                            WHERE conrelid='catalog_v3.product_classes'::regclass AND contype='f'
+                              AND confrelid='catalog_v3.departments'::regclass AND conkey=ARRAY[product_class_department_code]::smallint[]
+                            LIMIT 1);
+                        ALTER TABLE catalog_v3.product_classes ADD CONSTRAINT fk_catalog_v3_product_classes_departments_department_code
+                            FOREIGN KEY (department_code) REFERENCES catalog_v3.departments(code) ON DELETE RESTRICT;
                     END IF;
 
                     SELECT confdeltype INTO delete_kind FROM pg_constraint
@@ -106,7 +127,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         ALTER TABLE catalog_v3.class_redirects ADD CONSTRAINT fk_catalog_v3_class_redirects_product_classes_canonical_class_ref
                             FOREIGN KEY (canonical_class_ref) REFERENCES catalog_v3.product_classes(class_ref) ON DELETE RESTRICT;
                     ELSIF delete_kind <> 'r' THEN
-                        RAISE EXCEPTION 'CATALOG_V3_CONSTRAINT_CONFLICT: class_redirects.canonical_class_ref FK must be RESTRICT';
+                        EXECUTE (
+                            SELECT format('ALTER TABLE catalog_v3.class_redirects DROP CONSTRAINT %I', conname)
+                            FROM pg_constraint
+                            WHERE conrelid='catalog_v3.class_redirects'::regclass AND contype='f'
+                              AND confrelid='catalog_v3.product_classes'::regclass AND conkey=ARRAY[redirect_canonical_class_ref]::smallint[]
+                            LIMIT 1);
+                        ALTER TABLE catalog_v3.class_redirects ADD CONSTRAINT fk_catalog_v3_class_redirects_product_classes_canonical_class_ref
+                            FOREIGN KEY (canonical_class_ref) REFERENCES catalog_v3.product_classes(class_ref) ON DELETE RESTRICT;
                     END IF;
                 END $$;
                 """);
@@ -133,7 +161,14 @@ namespace EdgeRetails.Infrastructure.Persistence.Migrations
                         ALTER TABLE catalog.products ADD CONSTRAINT fk_products_class_ref_catalog_v3_product_classes_class_ref
                             FOREIGN KEY (class_ref) REFERENCES catalog_v3.product_classes(class_ref) ON DELETE RESTRICT;
                     ELSIF delete_kind <> 'r' THEN
-                        RAISE EXCEPTION 'CATALOG_V3_CONSTRAINT_CONFLICT: products.class_ref FK must be RESTRICT';
+                        EXECUTE (
+                            SELECT format('ALTER TABLE catalog.products DROP CONSTRAINT %I', conname)
+                            FROM pg_constraint
+                            WHERE conrelid='catalog.products'::regclass AND contype='f'
+                              AND confrelid='catalog_v3.product_classes'::regclass AND conkey=ARRAY[product_class_ref]::smallint[]
+                            LIMIT 1);
+                        ALTER TABLE catalog.products ADD CONSTRAINT fk_products_class_ref_catalog_v3_product_classes_class_ref
+                            FOREIGN KEY (class_ref) REFERENCES catalog_v3.product_classes(class_ref) ON DELETE RESTRICT;
                     END IF;
                 END $$;
                 """);
