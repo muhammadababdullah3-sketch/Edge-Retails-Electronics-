@@ -361,8 +361,8 @@ internal sealed class WindowsAnchoredStorageRoot : IAnchoredStorageRoot
                 }
                 var next = CreateRelative(handles[^1], component, directoryAccess, ShareRead | ShareWrite,
                     create ? FileOpenIf : FileOpen, FileDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonalert);
-                ValidateDirectoryHandle(next);
                 handles.Add(next);
+                ValidateDirectoryHandle(next);
             }
             return new DirectoryChain(handles);
         }
