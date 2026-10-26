@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using EdgeRetails.Central.Application.Common;
 
 namespace EdgeRetails.Central.IntegrationTests;
 
@@ -7,6 +8,7 @@ internal static class CentralIntegrationTestEnvironment
     [ModuleInitializer]
     internal static void ConfigureSyntheticLocalAdapters()
     {
+        Environment.SetEnvironmentVariable(CentralOperationalEnvironment.IntegrationTestHostFlag, "1");
         var root = Environment.GetEnvironmentVariable("CENTRAL_LOCAL_ADAPTERS_ROOT");
         if (string.IsNullOrWhiteSpace(root))
         {

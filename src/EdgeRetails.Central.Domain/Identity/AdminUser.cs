@@ -46,6 +46,13 @@ public class AdminUser : Entity
         };
     }
 
+    public void ChangeUsername(string username)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        Username = username.Trim().ToLowerInvariant();
+        BumpSecurityRevision();
+    }
+
     public void UpdatePassword(string newHash, string newSalt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(newHash);

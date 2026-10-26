@@ -26,7 +26,10 @@ public class AdminAuthService : IAdminAuthService
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
     }
 
-    public async Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
+    public async Task<PreAuthChallengeDto> StartLoginAsync(
+        LoginRequestDto request,
+        bool allowLocalPasswordBypass = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         _policy.EnsureConfigured();
@@ -43,13 +46,24 @@ public class AdminAuthService : IAdminAuthService
                 "Invalid username or password.");
         }
 
-        var isPasswordValid = _passwordHasher.VerifyPassword(request.PasswordOrProviderAssertion, user.PasswordHash);
-        if (!isPasswordValid)
+        var skipPassword = allowLocalPasswordBypass && request.LocalPasswordBypass;
+        if (!skipPassword)
+        {
+            var isPasswordValid = _passwordHasher.VerifyPassword(request.PasswordOrProviderAssertion, user.PasswordHash);
+            if (!isPasswordValid)
+            {
+                throw new CentralDomainException(
+                    "INVALID_CREDENTIALS",
+                    "auth.invalid_credentials",
+                    "Invalid username or password.");
+            }
+        }
+        else if (!user.MfaEnabled || string.IsNullOrWhiteSpace(user.MfaSecret))
         {
             throw new CentralDomainException(
-                "INVALID_CREDENTIALS",
-                "auth.invalid_credentials",
-                "Invalid username or password.");
+                "MFA_NOT_CONFIGURED",
+                "auth.mfa_not_configured",
+                "Password bypass requires an authenticator (MFA) on this account.");
         }
 
         var challenge = LoginChallenge.Create(user.Id, now, _policy.LoginChallengeLifetime!.Value);

@@ -48,7 +48,7 @@ public class Wave4PortalAndDashboardUnitTests : IDisposable
             _sessions[session.SessionId] = session;
         }
 
-        public Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
+        public Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, bool allowLocalPasswordBypass = false, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<AdminSessionDto> CompleteMfaAsync(MfaRequestDto request, CancellationToken cancellationToken = default)

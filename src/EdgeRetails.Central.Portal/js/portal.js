@@ -210,6 +210,16 @@ function apiFetch(url, options = {}) {
   return fetch(url, { ...options, headers, credentials: "same-origin", cache: "no-store" });
 }
 
+function networkFailureMessage(error) {
+  const local = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (error?.name === "TypeError" && /fetch|network/i.test(String(error.message))) {
+    return local
+      ? "Cannot reach Central on this page (Failed to fetch). Start scripts/central/Start-CentralLocalDev.ps1, keep that window open, then use https://localhost:5001 (not a file:// or cached tab)."
+      : "Cannot reach the Central server (network error). Check HTTPS and that the API is running.";
+  }
+  return error?.message || "Request failed.";
+}
+
 async function responseError(response, fallback) {
   let code = "";
   try {
@@ -228,6 +238,26 @@ async function responseError(response, fallback) {
   error.code = code;
   error.status = response.status;
   return error;
+}
+
+/** User-facing auth copy without DevTools-style HTTP codes. */
+function authFailureMessage(error, fallback) {
+  if (error?.code === "INVALID_CREDENTIALS") {
+    const localHint = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? " Use “Use these credentials” on the dev panel, or clear Chrome saved passwords for this site."
+      : "";
+    return `Username or password is incorrect.${localHint}`;
+  }
+  if (error?.code === "LOGIN_PAYLOAD_INVALID") return "Enter a username. Password is required unless local skip-password is checked.";
+  if (error?.code === "MFA_NOT_CONFIGURED") return "This account has no authenticator. Password skip needs MFA enrolled (sync-portal-admin).";
+  if (error?.code === "SESSION_REQUIRED") return "Sign in to continue.";
+  if (error?.code === "SESSION_INVALID") return "Your session expired or was revoked. Sign in again.";
+  if (error?.status === 401) return fallback || "Authentication failed. Sign in again.";
+  if (error?.code === "RATE_LIMIT_CONFIGURATION_REQUIRED") {
+    return "Central auth rate limits are not configured on the server. Use Start-CentralLocalDev.ps1 or set CENTRAL_AUTH_RATE_LIMIT_*.";
+  }
+  if (error?.status === 429 || error?.code === "RATE_LIMITED") return "Too many attempts. Wait a minute and try again.";
+  return error?.message || fallback || "Request failed.";
 }
 
 async function readJson(url, version, attemptsRemaining = 3) {
@@ -264,7 +294,9 @@ function initTheme() {
   const button = document.getElementById("btn-theme-toggle");
   const apply = () => {
     document.documentElement.setAttribute("data-theme", AppState.theme);
-    button.textContent = AppState.theme === "dark" ? "Light theme" : "Dark theme";
+    const useLight = AppState.theme === "dark";
+    portalSetIconButton(button, useLight ? "sun" : "moon", useLight ? "Light theme" : "Dark theme");
+    button.setAttribute("aria-label", useLight ? "Switch to light theme" : "Switch to dark theme");
   };
   button.addEventListener("click", () => {
     AppState.theme = AppState.theme === "dark" ? "light" : "dark";
@@ -374,6 +406,52 @@ function clearIdentity() {
   setMessage("shell-status", "");
 }
 
+function setSessionCheckPanelVisible(visible) {
+  const panel = document.getElementById("session-check-panel");
+  if (panel) panel.hidden = !visible;
+}
+
+async function loadLocalSignInHint() {
+  const panel = document.getElementById("dev-sign-in-panel");
+  if (!panel || (location.hostname !== "localhost" && location.hostname !== "127.0.0.1")) return;
+  try {
+    const response = await apiFetch("/api/admin/v1/auth/local-sign-in-hint");
+    if (!response.ok) return;
+    const hint = await response.json();
+    if (!hint?.username || !hint?.password) return;
+    document.getElementById("dev-sign-in-username").textContent = hint.username;
+    document.getElementById("dev-sign-in-password").textContent = hint.password;
+    document.getElementById("dev-sign-in-mfa").textContent = hint.mfaSecret || "(enroll via authenticator)";
+    panel.hidden = false;
+    const bypassRow = document.getElementById("local-password-bypass-row");
+    if (bypassRow && hint.localPasswordBypassAllowed === true) {
+      bypassRow.hidden = false;
+      const box = document.getElementById("local-password-bypass");
+      const passwordInput = document.getElementById("login-password");
+      const syncPasswordRequired = () => {
+        passwordInput.required = !box.checked;
+      };
+      if (box && !box.dataset.bound) {
+        box.dataset.bound = "1";
+        box.addEventListener("change", syncPasswordRequired);
+      }
+      syncPasswordRequired();
+    }
+    const apply = document.getElementById("btn-apply-dev-sign-in");
+    if (apply && !apply.dataset.bound) {
+      apply.dataset.bound = "1";
+      apply.addEventListener("click", () => {
+        document.getElementById("login-username").value = document.getElementById("dev-sign-in-username").textContent;
+        document.getElementById("login-password").value = document.getElementById("dev-sign-in-password").textContent;
+        setMessage("login-error", "");
+        setMessage("auth-status", "Dev credentials applied. Submit Authenticate Password, then enter a current TOTP code.");
+      });
+    }
+  } catch (error) {
+    setMessage("auth-status", networkFailureMessage(error));
+  }
+}
+
 function showAuthView(message = "") {
   document.getElementById("app-shell").style.display = "none";
   document.getElementById("auth-wrapper").style.display = "flex";
@@ -381,6 +459,7 @@ function showAuthView(message = "") {
   document.getElementById("mfa-step").style.display = "none";
   document.getElementById("login-password").value = "";
   document.getElementById("mfa-totp").value = "";
+  setSessionCheckPanelVisible(true);
   setMessage("auth-status", message);
 }
 
@@ -437,9 +516,10 @@ async function checkCurrentSession(afterMfa = false) {
     return true;
   } catch (error) {
     clearIdentity();
+    const detail = networkFailureMessage(error);
     showAuthView(afterMfa
-      ? `MFA response received, but the authenticated session could not be verified. Retry session check. ${error.message}`
-      : `Unable to verify your session. Retry session check or sign in. ${error.message}`);
+      ? `MFA succeeded, but the portal could not confirm your session cookie. ${detail}`
+      : detail.startsWith("Cannot reach") ? detail : `Unable to verify your session. ${detail}`);
     return false;
   } finally {
     setAuthBusy(false);
@@ -459,10 +539,25 @@ function bindAuthHandlers() {
     setMessage("auth-status", "");
     AppState.loginChallengeId = null;
     const username = document.getElementById("login-username").value.trim();
-    const passwordOrProviderAssertion = document.getElementById("login-password").value;
+    const bypassBox = document.getElementById("local-password-bypass");
+    const localPasswordBypass = !!(bypassBox && !bypassBox.closest("[hidden]") && bypassBox.checked);
+    let passwordOrProviderAssertion = document.getElementById("login-password").value;
+    if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+      passwordOrProviderAssertion = passwordOrProviderAssertion.trim();
+    }
+    if (!username || (!localPasswordBypass && !passwordOrProviderAssertion)) {
+      setMessage("login-error", authFailureMessage({ code: "LOGIN_PAYLOAD_INVALID" }, "Unable to sign in."));
+      setAuthBusy(false);
+      return;
+    }
     try {
       const response = await apiFetch("/api/admin/v1/auth/login", {
-        method: "POST", body: JSON.stringify({ username, passwordOrProviderAssertion })
+        method: "POST",
+        body: JSON.stringify({
+          username,
+          passwordOrProviderAssertion: localPasswordBypass ? "" : passwordOrProviderAssertion,
+          localPasswordBypass
+        })
       });
       if (!response.ok) throw await responseError(response, "Sign-in failed.");
       const challenge = await response.json();
@@ -470,11 +565,12 @@ function bindAuthHandlers() {
       AppState.loginChallengeId = challenge.challengeId;
       document.getElementById("login-step").style.display = "none";
       document.getElementById("mfa-step").style.display = "block";
+      setSessionCheckPanelVisible(false);
       setMessage("mfa-error", "");
       document.getElementById("mfa-totp").value = "";
       document.getElementById("mfa-totp").focus();
     } catch (error) {
-      setMessage("login-error", `Unable to sign in. ${error.message}`);
+      setMessage("login-error", error?.status ? authFailureMessage(error, "Unable to sign in.") : networkFailureMessage(error));
     } finally {
       document.getElementById("login-password").value = "";
       setAuthBusy(false);
@@ -495,7 +591,7 @@ function bindAuthHandlers() {
       // MFA supplies a Secure, HttpOnly, SameSite cookie; identity comes only from portal/session.
       await checkCurrentSession(true);
     } catch (error) {
-      setMessage("mfa-error", `Unable to complete MFA. ${error.message}`);
+      setMessage("mfa-error", authFailureMessage(error, "Unable to complete MFA."));
     } finally {
       document.getElementById("mfa-totp").value = "";
       setAuthBusy(false);
@@ -3576,6 +3672,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.hidden) clearSensitiveDisclosure();
   });
   window.addEventListener("pagehide", clearSensitiveDisclosure);
+  void loadLocalSignInHint();
   checkCurrentSession();
 });
 

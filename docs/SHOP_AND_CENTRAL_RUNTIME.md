@@ -32,7 +32,7 @@ Clients must **never** hold vendor **private** signing material. See `docs/opera
 |------|--------------------------------|
 | Client app → client shop service (`7150`) | **Implemented** |
 | Client shop service → shop PostgreSQL | **Implemented** |
-| Client → cloud server HTTP (activate, renew, reconcile) | **Not implemented** in shop projects (no Central HTTP client) |
+| Client → cloud server HTTP (activation token redeem / bootstrap) | **Partial** — Desktop `FirstSetupViewModel` + `ShopCentralActivationService` when `EDGE_RETAILS_CENTRAL_BASE_URL` is set; renew/reconcile not fully wired |
 | Deliver signed `.erlic` to shop | **File-based** at first setup (`POST /api/setup/bootstrap` + `SignedLicenseContent`); issuance authority remains Central-side when that stack is deployed |
 
 Target product: **authority and admin credentials on the cloud server**; shop tier runs offline-capable POS with **verified** entitlements. The gap row above is engineering backlog, not a boundary change.

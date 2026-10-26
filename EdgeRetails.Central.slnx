@@ -5,6 +5,7 @@
     <Project Path="src/EdgeRetails.Central.Domain/EdgeRetails.Central.Domain.csproj" />
     <Project Path="src/EdgeRetails.Central.Infrastructure/EdgeRetails.Central.Infrastructure.csproj" />
     <Project Path="src/EdgeRetails.ProtectedSigner/EdgeRetails.ProtectedSigner.csproj" />
+    <Project Path="src/EdgeRetails.Central.DevTools/EdgeRetails.Central.DevTools.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EdgeRetails.Central.IntegrationTests/EdgeRetails.Central.IntegrationTests.csproj" />

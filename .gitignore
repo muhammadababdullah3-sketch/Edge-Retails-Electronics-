@@ -5,6 +5,9 @@
 
 # dotenv files
 .env
+local/central-dev.env.ps1
+local/central-dev.env
+local/central-dev.portal.json
 
 # User-specific files
 *.rsuser

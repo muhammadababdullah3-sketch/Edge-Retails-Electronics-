@@ -54,7 +54,8 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         {
             return;
         }
-        if (IsExplicitAnonymousException(method, path))
+        if (IsExplicitAnonymousException(method, path) ||
+            IsLocalDevelopmentSignInHint(method, path))
         {
             return;
         }
@@ -230,6 +231,10 @@ public class CentralRequestAuthorizationFilter : IAsyncAuthorizationFilter
         response.Headers.Pragma = "no-cache";
         response.Headers["Expires"] = "0";
     }
+
+    private static bool IsLocalDevelopmentSignInHint(string method, string path) =>
+        method == "GET" &&
+        path.Equals("/api/admin/v1/auth/local-sign-in-hint", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsExplicitAnonymousException(string method, string path)
     {

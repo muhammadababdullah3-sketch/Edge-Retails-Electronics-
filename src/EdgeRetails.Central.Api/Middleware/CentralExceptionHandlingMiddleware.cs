@@ -39,6 +39,17 @@ public class CentralExceptionHandlingMiddleware
             _logger.LogWarning("Central domain request {RequestId} failed with code {Code}.", requestId, ex.Code);
             await HandleDomainExceptionAsync(context, ex, requestId);
         }
+        catch (InvalidOperationException ex) when (IsDatabaseConfigurationFailure(ex))
+        {
+            if (context.Response.HasStarted)
+            {
+                context.Abort();
+                return;
+            }
+
+            _logger.LogWarning("Central request {RequestId} rejected because database configuration is unavailable.", requestId);
+            await WriteOperationalFailureAsync(context, requestId, "CENTRAL_DATABASE_NOT_CONFIGURED", "infrastructure.database_not_configured", true);
+        }
         catch (Exception ex)
         {
             if (context.Response.HasStarted)
@@ -78,6 +89,29 @@ public class CentralExceptionHandlingMiddleware
 
         var json = JsonSerializer.Serialize(errorDto);
         await context.Response.WriteAsync(json);
+    }
+
+    private static bool IsDatabaseConfigurationFailure(InvalidOperationException ex) =>
+        ex.Message.Contains("CentralDatabase connection", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("CENTRAL_DATABASE_CONNECTION_STRING", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task WriteOperationalFailureAsync(
+        HttpContext context,
+        Guid requestId,
+        string code,
+        string safeMessageKey,
+        bool retryable)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.ContentType = "application/json";
+        var errorDto = new ErrorDto
+        {
+            Code = code,
+            RequestId = requestId,
+            Retryable = retryable,
+            SafeMessageKey = safeMessageKey
+        };
+        await context.Response.WriteAsync(JsonSerializer.Serialize(errorDto));
     }
 
     private static async Task HandleGenericExceptionAsync(HttpContext context, Exception ex, Guid requestId)

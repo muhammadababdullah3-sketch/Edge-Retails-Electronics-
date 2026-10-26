@@ -1,0 +1,51 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <!-- Defaults stay on for silent setup. Public names so an operator can pass =0. -->
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" Secure="yes" />
+    <Property Id="LAUNCHONLOGIN" Value="1" Secure="yes" />
+    <Property Id="AUTOSTARTWITHWINDOWS" Value="1" Secure="yes" />
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ClientSetupScript" Guid="6F2C1A44-8B7E-4D1A-9C3E-5A0B7E2D4F11" Bitness="always64">
+        <File Id="CompleteClientSetupPs1" Source="..\..\scripts\Complete-EdgeRetailsClientSetup.ps1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <CustomAction Id="ApplyClientLaunchOptions"
+                  Execute="immediate"
+                  Impersonate="no"
+                  Return="check"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[#CompleteClientSetupPs1]&quot; -InstallFolder &quot;[INSTALLFOLDER]&quot; -DesktopShortcut &quot;[INSTALLDESKTOPSHORTCUT]&quot; -LaunchOnLogin &quot;[LAUNCHONLOGIN]&quot; -AutoStartWithWindows &quot;[AUTOSTARTWITHWINDOWS]&quot;" />
+
+    <CustomAction Id="RemoveClientLaunchOptions"
+                  Execute="immediate"
+                  Impersonate="no"
+                  Return="check"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[#CompleteClientSetupPs1]&quot; -InstallFolder &quot;[INSTALLFOLDER]&quot; -Remove" />
+
+    <InstallExecuteSequence>
+      <Custom Action="ApplyClientLaunchOptions" After="InstallFiles" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RemoveClientLaunchOptions" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND Installed" />
+    </InstallExecuteSequence>
+
+    <UI>
+      <Dialog Id="ClientLaunchOptionsDlg" Width="370" Height="270" Title="Edge Retails">
+        <Control Id="Title" Type="Text" X="20" Y="15" Width="330" Height="16" Transparent="yes" Text="Finish options" />
+        <Control Id="Intro" Type="Text" X="20" Y="38" Width="330" Height="36" Transparent="yes" Text="Last step. Leave a box cleared if you do not want that behavior on this computer." />
+        <Control Id="DesktopShortcut" Type="CheckBox" X="20" Y="84" Width="330" Height="18" Property="INSTALLDESKTOPSHORTCUT" CheckBoxValue="1" Text="Put an Edge Retails shortcut on the desktop" />
+        <Control Id="LaunchOnLogin" Type="CheckBox" X="20" Y="112" Width="330" Height="28" Property="LAUNCHONLOGIN" CheckBoxValue="1" Text="Open Edge Retails when I sign in to Windows" />
+        <Control Id="AutoStart" Type="CheckBox" X="20" Y="148" Width="330" Height="36" Property="AUTOSTARTWITHWINDOWS" CheckBoxValue="1" Text="Start the shop database and shop service automatically when this computer turns on" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="Install">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+    </UI>
+
+    <InstallUISequence>
+      <Show Dialog="ClientLaunchOptionsDlg" Before="ExecuteAction" Condition="NOT Installed AND NOT REMOVE" />
+    </InstallUISequence>
+  </Fragment>
+</Wix>

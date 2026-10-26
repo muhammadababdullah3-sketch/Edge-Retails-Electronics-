@@ -1,4 +1,5 @@
 // Cloud server (license/admin authority). Shop PC API = EdgeRetails.Server — see docs/SHOP_AND_CENTRAL_RUNTIME.md.
+using EdgeRetails.Central.Api.Configuration;
 using EdgeRetails.Central.Api.Middleware;
 using EdgeRetails.Central.Api.Security;
 using EdgeRetails.Central.Api.Services;
@@ -16,6 +17,8 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
 });
+
+builder.BootstrapCentralLocalEnvironment();
 
 // Add Controllers
 builder.Services.AddControllers(options =>
@@ -53,20 +56,7 @@ builder.Services.AddScoped<IStepUpService, StepUpService>();
 builder.Services.AddSingleton(_ => SensitiveApprovalPolicy.FromEnvironment());
 builder.Services.AddScoped<IOperationLedgerService, OperationLedgerService>();
 builder.Services.AddScoped<ICentralAuditService, CentralAuditService>();
-builder.Services.AddSingleton(_ => CentralOutboxOptions.FromEnvironment());
-builder.Services.AddSingleton<CentralOutboxWorkerState>();
-builder.Services.AddSingleton(sp =>
-{
-    var options = sp.GetRequiredService<CentralOutboxOptions>();
-    if (!options.Enabled)
-    {
-        throw new InvalidOperationException("Explicit Central outbox configuration is required.");
-    }
-    return options.Policy;
-});
-builder.Services.AddScoped<IOutboxDispatcher, OutboxDispatcher>();
-builder.Services.AddScoped<IOutboxConsumerSink, DurableOutboxConsumerSink>();
-builder.Services.AddHostedService<CentralOutboxHostedService>();
+builder.Services.AddCentralOutboxDispatch();
 builder.Services.AddSingleton(_ => ActivationDeliveryCleanupOptions.FromEnvironment());
 builder.Services.AddHostedService<ActivationDeliveryCleanupHostedService>();
 builder.Services.AddSingleton(_ => CentralStorageOptions.FromEnvironment());
@@ -106,6 +96,7 @@ app.UseMiddleware<CentralExceptionHandlingMiddleware>();
 app.UseMiddleware<W1DenialAuditMiddleware>();
 app.UseMiddleware<RateLimitingMiddleware>();
 app.UseMiddleware<CsrfProtectionMiddleware>();
+app.UseMiddleware<AnonymousPortalSessionGateMiddleware>();
 
 // Denial auditing is scoped to /api and /internal, so portal assets never resolve Central services.
 app.UseDefaultFiles();

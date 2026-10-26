@@ -119,9 +119,16 @@ Edge Retails provides two deployment artifacts in `artifacts/release/`:
 ### 4.1 Interactive GUI Installation
 1. Double-click `EdgeRetailsSetup.exe`.
 2. Review the license agreement and verify target folder (`C:\Program Files\Edge Retails`).
-3. Click **Install**.
-4. User Account Control (UAC) will prompt for elevation.
-5. Setup extracts binaries, registers file associations, and creates desktop/start-menu shortcuts.
+3. The last page, **Finish options**, has three boxes. All start checked:
+   - Desktop shortcut for `EdgeRetails.Desktop.exe`
+   - Open Edge Retails when the Windows user signs in
+   - Start the private shop database and shop services when the computer turns on
+4. Click **Install**.
+5. User Account Control (UAC) will prompt for elevation.
+
+The private shop database is created under `ProgramData\EdgeRetails` by setup. It is not the machine-wide PostgreSQL service, and uninstall does not delete it. The boot choice is stored in `ProgramData\EdgeRetails\install-options.json` and applied to `EdgeRetailsDatabase`, `EdgeRetailsServer`, and `EdgeRetailsWorker` when those services exist.
+
+Silent setup keeps all three options on. Turn one off with `INSTALLDESKTOPSHORTCUT=0`, `LAUNCHONLOGIN=0`, or `AUTOSTARTWITHWINDOWS=0`.
 
 ### 4.2 Silent / Unattended Installation (Enterprise Automation)
 

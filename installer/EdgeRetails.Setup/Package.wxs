@@ -14,7 +14,10 @@
       <Directory Id="INSTALLFOLDER" Name="Edge Retails" />
     </StandardDirectory>
 
-    <!-- Database-engine data, backups, license state, exports and ProgramData are intentionally not authored here. -->
-    <Files Directory="INSTALLFOLDER" Include="$(var.PublishDir)\**" />
+    <!-- Database files stay out of this package. Launch choices are applied after the files are copied. -->
+    <Feature Id="Main">
+      <Files Directory="INSTALLFOLDER" Include="$(var.PublishDir)\**" />
+      <ComponentRef Id="ClientSetupScript" />
+    </Feature>
   </Package>
 </Wix>

@@ -1,7 +1,10 @@
 using EdgeRetails.Central.Application.Abstractions;
+using EdgeRetails.Central.Application.Common;
 using EdgeRetails.Central.Application.DTOs;
 using EdgeRetails.Central.Api.Security;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 
 namespace EdgeRetails.Central.Api.Controllers;
 
@@ -20,10 +23,64 @@ public class AuthController : ControllerBase
         _stepUpService = stepUpService ?? throw new ArgumentNullException(nameof(stepUpService));
     }
 
-    [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequestDto request, CancellationToken cancellationToken)
+    [HttpGet("local-sign-in-hint")]
+    public IActionResult LocalSignInHint([FromServices] IWebHostEnvironment environment)
     {
-        var challenge = await _authService.StartLoginAsync(request, cancellationToken);
+        if (!environment.IsDevelopment() || !IsLocalPortalRequest(Request))
+        {
+            return NotFound();
+        }
+
+        var record = CentralLocalPortalCredentialStore.TryRead(environment.ContentRootPath);
+        if (record is null || string.IsNullOrWhiteSpace(record.Username))
+        {
+            return NotFound(new
+            {
+                code = "LOCAL_SIGN_IN_RECORD_MISSING",
+                message = "Run scripts/central/Initialize-CentralLocalDisposable.ps1 or DevTools sync-portal-admin."
+            });
+        }
+
+        return Ok(new
+        {
+            username = record.Username,
+            password = record.Password,
+            mfaSecret = record.MfaSecret,
+            localPasswordBypassAllowed = true,
+            kind = "LOCAL_DISPOSABLE_DEV_ONLY"
+        });
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(
+        [FromBody] LoginRequestDto request,
+        [FromServices] IWebHostEnvironment environment,
+        CancellationToken cancellationToken)
+    {
+        // Drop stale browser cookies before password verification so a revoked or disposable-DB
+        // session id cannot confuse operators or interact with CSRF rules on later requests.
+        Response.Cookies.Delete(CentralSessionCredentials.CookieName, new CookieOptions { Path = "/" });
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Username))
+        {
+            return BadRequest(new { code = "LOGIN_PAYLOAD_INVALID", safeMessageKey = "auth.login_payload_invalid" });
+        }
+
+        var localBypass = environment.IsDevelopment()
+            && IsLocalPortalRequest(Request)
+            && request.LocalPasswordBypass;
+
+        if (!localBypass && string.IsNullOrWhiteSpace(request.PasswordOrProviderAssertion))
+        {
+            return BadRequest(new { code = "LOGIN_PAYLOAD_INVALID", safeMessageKey = "auth.login_payload_invalid" });
+        }
+
+        if (request.LocalPasswordBypass && !localBypass)
+        {
+            request.LocalPasswordBypass = false;
+        }
+
+        var challenge = await _authService.StartLoginAsync(request, localBypass, cancellationToken);
         return Ok(challenge);
     }
 
@@ -90,5 +147,12 @@ public class AuthController : ControllerBase
         }
 
         return Ok(new { success = true });
+    }
+
+    private static bool IsLocalPortalRequest(HttpRequest request)
+    {
+        var host = request.Host.Host;
+        return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase);
     }
 }

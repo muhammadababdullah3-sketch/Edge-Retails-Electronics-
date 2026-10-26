@@ -30,7 +30,7 @@ public class CentralRequestAuthorizationTests
     {
         public Dictionary<Guid, AdminSessionDto> Sessions { get; } = new();
 
-        public Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
+        public Task<PreAuthChallengeDto> StartLoginAsync(LoginRequestDto request, bool allowLocalPasswordBypass = false, CancellationToken cancellationToken = default)
             => Task.FromResult(new PreAuthChallengeDto { ChallengeId = Guid.NewGuid(), ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(5) });
 
         public Task<AdminSessionDto> CompleteMfaAsync(MfaRequestDto request, CancellationToken cancellationToken = default)

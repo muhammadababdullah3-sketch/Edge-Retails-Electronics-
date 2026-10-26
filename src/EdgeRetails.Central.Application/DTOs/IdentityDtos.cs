@@ -10,11 +10,17 @@ public class LoginRequestDto
     public string Username { get; set; } = string.Empty;
 
     [JsonPropertyName("passwordOrProviderAssertion")]
-    [Required]
     public string PasswordOrProviderAssertion { get; set; } = string.Empty;
 
     [JsonPropertyName("challengeId")]
     public Guid? ChallengeId { get; set; }
+
+    /// <summary>
+    /// Local disposable development only. When true, password is skipped and the next step is TOTP.
+    /// The API ignores this flag outside Development + localhost.
+    /// </summary>
+    [JsonPropertyName("localPasswordBypass")]
+    public bool LocalPasswordBypass { get; set; }
 }
 
 public class PreAuthChallengeDto
