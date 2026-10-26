@@ -1,27 +1,37 @@
 # Canonical workspace (Desktop)
 
-**Single working tree:** open and build only this folder:
+**Single git repo, one primary folder for daily work:**
 
 `C:\Users\muham\OneDrive\Desktop\Point of Sale`
 
+## Product lines in this repo
+
+| Line | What it is | Build entry |
+|------|------------|-------------|
+| **Shop POS** | Offline desktop + local shop server + worker + recovery | `EdgeRetails.sln` |
+| **Central** | Cloud license, activation, payments, admin portal (separate deploy) | `EdgeRetails.Central.slnx` or `src/EdgeRetails.Central.Api/` |
+
+Shop POS git branch (historical name): `feat/phase11-subledger-implementation`.  
+Monorepo integration branch: `integrate/central-shop-monorepo`.
+
 | Path | Purpose |
 |------|---------|
-| `src/` | Application code (Desktop, Server, Domain, …) |
-| `tests/` | Automated tests |
-| `scripts/` | Ops, rehearsals, one-off delivery generators (`scripts/governance-delivery/`) |
-| `docs/` | Architecture, governance prose, runbooks |
-| `governance/10-execution-runs/` | Execution evidence (markdown/json; not duplicate `src/`) |
-| `EdgeRetails.sln` | Build entry point |
+| `src/EdgeRetails.*` | Shop POS stack |
+| `src/EdgeRetails.Central.*` | Central control plane |
+| `src/EdgeRetails.ProtectedSigner/` | Central signing support |
+| `tests/` | Shop + Central test suites |
+| `scripts/central/` | Central recovery / rehearsal |
+| `docs/central/` | Central runbooks and architecture |
+| `contracts/central/` | Central API route contracts |
+| `governance/10-execution-runs/` | Execution evidence |
 
-**Branch:** `feat/phase11-subledger-implementation` (shop POS line).
-
-**Not this repo:** `Edge Retails Goverence Body` on Desktop is a separate git project (boards/evidence archive).
+**Not this repo:** `Edge Retails Goverence Body` on Desktop is a separate git project.
 
 ## Worktree policy
 
-- Do **not** create agent worktrees under `.claude/worktrees/` (gitignored).
-- `git worktree list` should show **only** this Desktop path for daily work.
-- Arch / central-server lines live on **remote branches** (`codex/*`); check out elsewhere only when needed.
+- Use **only** `Desktop\Point of Sale` for Cursor and daily commits.
+- Retire extra worktrees (`Desktop\Point of Sale Server`, `.codex\worktrees\...`) after monorepo merge — they are the same `.git`, not a second project.
+- Do **not** use `origin/codex/central-one` for integration (stale merge attempt).
 
 ## Runtime data (outside repo)
 
@@ -29,10 +39,16 @@
 |----------|------|
 | `C:\ProgramData\EdgeRetails` | Machine-wide install state |
 | `%LOCALAPPDATA%\EdgeRetails` | Desktop client state / intents |
-| `C:\Users\muham\EdgeRetailsDisposable` | Disposable Postgres rehearsals (safe to prune old `ER-RUN-*` folders) |
+| `C:\Users\muham\EdgeRetailsDisposable` | Disposable Postgres rehearsals |
 
 ## Clean build
 
 ```powershell
+# Shop POS
 dotnet build EdgeRetails.sln -c Release
+
+# Central API
+dotnet build src/EdgeRetails.Central.Api/EdgeRetails.Central.Api.csproj -c Release
 ```
+
+Central deployment env vars: see [docs/central/SERVER_DEPLOYMENT_RUNBOOK.md](central/SERVER_DEPLOYMENT_RUNBOOK.md).

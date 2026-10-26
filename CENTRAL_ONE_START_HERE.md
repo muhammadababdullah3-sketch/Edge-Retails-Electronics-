@@ -1,7 +1,28 @@
-# Central server workspace
+# Central (control plane) — start here
 
-This is isolated branchcodex/central-one; HEAD plus uncommitted305fileacceptedPOSoverlay. Do not discard inherited changes. No server implementation has started.
+Central lives in the **same monorepo** as Shop POS (`Desktop\Point of Sale`). It is a **separate deployable** (hosted API + portal), not part of the shop MSI installer.
 
-Canonical governance architecture: C:/Users/muham/OneDrive/Desktop/Edge Retails Goverence Body/designs/CENTRAL_ONE_WORKSPACE_ARCHITECTURE_2026-10-18.md
-Prepared master: governance/09-execution-prompts/CENTRAL_ONE_MASTER_2026-10-18.md under that governanceworkspace.
-Ownership: agents/protocols/CENTRAL_ONE_OWNERSHIP_2026-10-18.md. No mainPOS/sharedDB modifications, no gitadd-A/commit/publication before inheritedliteralreview.
+## Read first
+
+- [docs/central/ARCHITECTURE.md](docs/central/ARCHITECTURE.md) — boundaries, waves, security
+- [docs/central/SERVER_DEPLOYMENT_RUNBOOK.md](docs/central/SERVER_DEPLOYMENT_RUNBOOK.md) — env vars and host setup
+- [docs/WORKSPACE.md](docs/WORKSPACE.md) — one folder policy, build commands
+
+## Build and test
+
+```powershell
+dotnet build src/EdgeRetails.Central.Api/EdgeRetails.Central.Api.csproj -c Release
+dotnet test tests/EdgeRetails.Central.UnitTests -c Release
+```
+
+Integration tests require owned PostgreSQL per `docs/central/`.
+
+## Solution file
+
+`EdgeRetails.Central.slnx` — Central projects only (optional; API project build is enough for most work).
+
+## Shop POS relationship
+
+- Shops run **offline** on local server + PostgreSQL.
+- Central handles **license, activation, payment review, expiry policy** when online.
+- HTTP integration from shop to Central is a **follow-on epic** (not required for monorepo merge).
